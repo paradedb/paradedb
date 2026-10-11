@@ -13,7 +13,7 @@ dst = ["dst/enabled"]
 
 [dependencies]
 anyhow = "1.0.102"
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive"] }
 csv = "1.4.0"
 cursive = { version = "0.21.1" }
 cursive-multiplex = "0.7.0"
@@ -23,14 +23,14 @@ dst = { path = "../dst" }
 human_bytes = "0.4.3"
 humantime = "2.3.0"
 image = "0.25.9"
-libc = "0.2.186"
+libc = "0.2.190"
 openssl = "0.10.78"
 parking_lot = "0.12.5"
-pgrx-pg-config = "=0.19.2"
+pgrx-pg-config = "=0.19.3"
 plotters = "0.3.7"
 postgres = "0.19.13"
 postgres-openssl = "0.5.3"
-rust_decimal = { version = "1.41.0", features = ["db-postgres"] }
+rust_decimal = { version = "1.43.0", features = ["db-postgres"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", features = [
   "preserve_order",
@@ -38,7 +38,7 @@ serde_json = { version = "1.0.149", features = [
 ] }
 shutdown_hooks = "0.1.0"
 sysinfo = { version = "0.39.6", features = ["multithread"] }
-toml = "1.1"
+toml = "1.1.6"
 url = "2.5.8"
 
 [dev-dependencies]

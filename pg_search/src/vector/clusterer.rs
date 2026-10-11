@@ -271,7 +271,7 @@ mod tests {
         let settings = clusterer.merge_settings(10_000).unwrap();
         assert_eq!(settings.training_sample_ratio, 0.32);
         assert_eq!(settings.assign_batch_size, DEFAULT_ASSIGN_BATCH_SIZE);
-        assert_eq!(clusterer.config.max_leaf_size, 100);
+        assert_eq!(clusterer.config.max_leaf_size, 200);
     }
 
     #[test]
@@ -302,7 +302,7 @@ mod tests {
                 .training_sample_ratio,
             1.0
         );
-        assert_eq!(clusterer.config.max_leaf_size, 100);
+        assert_eq!(clusterer.config.max_leaf_size, 200);
     }
 
     #[test]

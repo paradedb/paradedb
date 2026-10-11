@@ -44,6 +44,7 @@ use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+use crate::scan::CtidResolver;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
@@ -265,15 +266,15 @@ fn single_input(inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Arc<dyn ExecutionPl
     }
 }
 
-/// `(plan_position, indexrelid, ffhelper)` for each scan that resolves deferred ctids, for the
+/// `(plan_position, resolver)` for each scan that resolves deferred ctids, for the
 /// visibility exec.
-fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, u32, Arc<FFHelper>)> {
+fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, CtidResolver)> {
     let mut scans = Vec::new();
     collect_scan_runtime(input, &mut scans);
     scans
         .into_iter()
         .filter_map(|s| match (s.ctid_plan_position, s.ffhelper) {
-            (Some(pos), Some(ff)) => Some((pos, s.indexrelid, ff)),
+            (Some(pos), Some(ff)) => Some((pos, CtidResolver::new(s.indexrelid, ff))),
             _ => None,
         })
         .collect()

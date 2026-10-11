@@ -29,13 +29,22 @@
 //! scanned exactly once while achieving distributed execution.
 //!
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
+use datafusion::common::tree_node::{Transformed, TreeNode};
+use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
+use datafusion::common::{
+    Column, DFSchema, DataFusionError, Result, TableReference, internal_datafusion_err,
+    internal_err, plan_err,
+};
+use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
+use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{
-    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
+    AggregateUDF, Expr, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
     WindowFunctionDefinition, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
@@ -47,11 +56,20 @@ use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
-    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
+    SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
+    WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
-use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
+use crate::gucs;
+use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
+use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+    numeric_avg_func_with_args, numeric_sum_func_with_args,
+};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
+use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
+use crate::postgres::customscan::datafusion::topk_agg::{
+    TOPK_AGG_ROWS_COL_NAME, TOPK_DISTINCT_EMPTY_PAYLOAD_COL_NAME, topk_as_agg,
+};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
 };
@@ -67,7 +85,6 @@ use crate::postgres::customscan::datafusion::translator::{
     make_source_score_col, make_source_unnested_col, translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
-use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
@@ -102,11 +119,15 @@ fn resolve_var_to_df_col(
     if rti == WINDOW_SENTINEL_VARNO {
         let index = WindowAggIndex::from_sentinel_attno(attno)?;
         let window_agg = join_clause.window_aggs.get(index)?;
-        if window_agg
-            .arg_field_type()
-            .is_some_and(|ft| ft.is_numeric())
-        {
-            return None;
+        match &window_agg.agg_def {
+            WindowAggDef::Sql(sql) => {
+                if sql.arg_field_type().is_some_and(|ft| ft.is_numeric()) {
+                    return None;
+                }
+            }
+            // The column holds the document as text, which only the
+            // PgExprUdf path turns back into the jsonb the expression reads.
+            WindowAggDef::PdbAgg(_) => return None,
         }
         let canonical = join_clause.window_aggs.canonical_index(index);
         return Some(col(canonical.as_col_name()));
@@ -211,13 +232,14 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
             let index = WindowAggIndex::from_sentinel_attno(varattno)?;
             let window_agg = self.join_clause.window_aggs.get(index)?;
             let canonical = self.join_clause.window_aggs.canonical_index(index);
-            return Some((
-                col(canonical.as_col_name()),
-                InputDecode::StorageEncoded {
-                    is_avg: matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
-                    field_type: window_agg.arg_field_type().cloned(),
+            let decode = match &window_agg.agg_def {
+                WindowAggDef::Sql(sql) => InputDecode::StorageEncoded {
+                    is_avg: matches!(sql.agg_type(), SupportedWindowAggType::Avg),
+                    field_type: sql.arg_field_type().cloned(),
                 },
-            ));
+                WindowAggDef::PdbAgg(_) => InputDecode::JsonDocument,
+            };
+            return Some((col(canonical.as_col_name()), decode));
         }
         let field_type = numeric_fast_field_type(self.join_clause, varno, varattno)?;
         let expr = resolve_var_to_df_col(self.join_clause, varno, varattno)?;
@@ -292,6 +314,8 @@ pub struct RelationState {
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
     /// Index of the CTID column for this relation in the result RecordBatch.
     pub ctid_col_idx: Option<usize>,
+    /// Fast-field helper for resolving deferred CTIDs in batch at the top of the plan.
+    pub ffhelper: Option<Arc<FFHelper>>,
 }
 
 crate::impl_safe_drop!(RelationState, |self| {
@@ -382,6 +406,11 @@ pub struct JoinScanState {
     /// `DataFusionAggState::spilled` in AggregateScan -- see its doc comment for why this lives
     /// here rather than solely in `ParallelScanState`.
     pub spilled: Arc<std::sync::atomic::AtomicBool>,
+
+    /// The memory context that the cached window agg data lives in. Cleared on reset.
+    pub window_agg_ctx: Option<pg_sys::MemoryContext>,
+    /// The cache of pdb.agg() window function json datums
+    pub window_agg_datums: RefCell<HashMap<WindowAggIndex, Option<pg_sys::Datum>>>,
 }
 
 impl JoinScanState {
@@ -404,6 +433,12 @@ impl JoinScanState {
         self.batch_index = 0;
         self.physical_plan = None;
         self.output_batch_col_indices.clear();
+
+        self.window_agg_datums.get_mut().clear();
+        if let Some(ctx) = self.window_agg_ctx {
+            unsafe { pg_sys::MemoryContextReset(ctx) };
+        }
+
         self.launch_timing = None;
         self.stream_built_at = None;
         // base_join_clause is only populated (in create_custom_scan_state) when the plan
@@ -425,28 +460,6 @@ impl JoinScanState {
 impl CustomScanState for JoinScanState {
     fn init_exec_method(&mut self, _cstate: *mut pg_sys::CustomScanState) {
         // No special initialization needed for the plain exec method
-    }
-}
-
-impl SolvePostgresExpressions for JoinScanState {
-    fn init_search_query_input(&mut self) {
-        self.join_clause = self
-            .base_join_clause
-            .as_ref()
-            .expect("runtime expression solving requires a pristine JoinScan clause")
-            .clone();
-    }
-    fn has_postgres_expressions(&mut self) -> bool {
-        self.join_clause.has_postgres_expressions()
-    }
-    fn has_parameters(&mut self) -> bool {
-        self.join_clause.has_parameters()
-    }
-    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.join_clause.init_postgres_expressions(planstate);
-    }
-    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.join_clause.solve_postgres_expressions(expr_context);
     }
 }
 
@@ -820,6 +833,11 @@ enum DistinctColEntry {
     Field(pg_sys::Index, String),
 }
 
+enum PathTaken {
+    TopKAsAgg,
+    Default,
+}
+
 fn build_clause_df<'a>(
     ctx: &'a SessionContext,
     join_clause: &'a JoinCSClause,
@@ -864,14 +882,40 @@ fn build_clause_df<'a>(
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
-        let df = apply_window_functions(df, join_clause)?;
+        // 4 + 5. DISTINCT and the sort. With the Top-K aggregate enabled, one
+        // aggregate node does both and returns its (offset + k) rows already in
+        // ORDER BY order, so there is no sort step: the limit below applies to the
+        // unnest's output positionally, and the output projection resolves through
+        // `distinct_col_map` as before. In non-DISTINCT, the output projection
+        // resolves the original names
+        //
+        // When a query's fetch is statically known, a query with window aggregates always
+        // will take this path: they are computed in that same aggregate node (see
+        // `apply_topk_as_agg`). If the fetch is not statically known, the fallback
+        // path can still compute sql window functions
+        //
+        // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
+        let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
+            || !join_clause.window_aggs.is_empty())
+            && let Some(fetch) = join_clause
+                .limit_offset
+                .as_ref()
+                .and_then(|lo| lo.static_fetch())
+        {
+            let (df, distinct_col_map) =
+                apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
+            (df, distinct_col_map, PathTaken::TopKAsAgg)
+        } else {
+            // if no static offset + k is known (so this branch is taken), we can still compute sql
+            // window functions. (pdb.agg() window functions are rejected elsewhere)
+            let df = apply_sql_window_functions(df, join_clause)?;
 
-        // 4. Apply DISTINCT via GROUP BY
-        let (df, distinct_col_map) =
-            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
-
-        // 5. Apply Sort
-        let df = apply_sort(df, join_clause, &distinct_col_map)?;
+            let (df, distinct_col_map) =
+                apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
+            // 5. Apply Sort
+            let df = apply_sort(df, join_clause, &distinct_col_map)?;
+            (df, distinct_col_map, PathTaken::Default)
+        };
 
         // 6. Apply Limit (only when BOTH limit and offset are statically known at
         // planning time). Parameterized LIMIT/OFFSET are injected at execution time in
@@ -893,9 +937,410 @@ fn build_clause_df<'a>(
             &distinct_col_map,
             &plan_sources,
             &private_data.output_columns,
+            path_taken,
         )
     };
     f.boxed_local()
+}
+
+#[derive(PartialEq)]
+struct QualifiedName(Option<TableReference>, String);
+impl QualifiedName {
+    fn as_col_expr(&self) -> Expr {
+        Expr::Column(Column::new(self.0.clone(), self.1.clone()))
+    }
+
+    fn into_col_expr(self) -> Expr {
+        Expr::Column(Column::new(self.0, self.1))
+    }
+
+    fn from_unqualified_name(name: &str, schema: &DFSchema) -> Result<Self> {
+        let (qualifier, field) = schema.qualified_field_with_unqualified_name(name)?;
+        Ok(Self(qualifier.cloned(), field.name().clone()))
+    }
+}
+impl From<(Option<TableReference>, String)> for QualifiedName {
+    fn from(value: (Option<TableReference>, String)) -> Self {
+        Self(value.0, value.1)
+    }
+}
+
+struct TopKAggSelectedExpressions<'a> {
+    join_clause: &'a JoinCSClause,
+    payload_cols: Vec<Expr>,
+    payload_names: Vec<QualifiedName>,
+    ctid_names: Vec<QualifiedName>,
+    ctid_positions: Vec<usize>,
+    sort_exprs: Vec<SortExpr>,
+    extra_sort_cols: Vec<Expr>,
+    /// Expressions (and their output names) to be computed alongside the top-k
+    additional_aggs: Vec<(String, Expr)>,
+    /// Constant expressions (and their output names) to be selected alongside the top-k
+    constants: Vec<(String, Expr)>,
+}
+impl<'a> TopKAggSelectedExpressions<'a> {
+    fn new(join_clause: &'a JoinCSClause) -> Self {
+        Self {
+            join_clause,
+            payload_cols: Vec::new(),
+            payload_names: Vec::new(),
+            ctid_names: Vec::new(),
+            ctid_positions: Vec::new(),
+            sort_exprs: Vec::new(),
+            extra_sort_cols: Vec::new(),
+            additional_aggs: Vec::new(),
+            constants: Vec::new(),
+        }
+    }
+
+    /// Take payload expressions. In DISTINCT mode, we rename them as "col_i". In non-DISTINCT, we
+    /// skip any placeholder columns and use their incoming qualified name.
+    fn with_payload_exprs(mut self, payload_exprs: Vec<Expr>) -> Result<Self> {
+        let projection = self
+            .join_clause
+            .output_projection
+            .as_ref()
+            .expect("should always exist by now");
+
+        // if has_distinct, we map to the expected col_i names, assuming `distinct_key_exprs` is in
+        // projection order. Otherwise we just use the names the columns would have had originally
+        // Skip any "placeholder" expressions that don't need to be considered now
+        for (i, (expr, proj)) in payload_exprs.into_iter().zip(projection.iter()).enumerate() {
+            // A window aggregate is an output of the aggregate node itself, so an
+            // entry that reads one is left for the output projection to compute. The
+            // payload carries the other columns it reads, under their own names.
+            if reads_window_agg(&expr, self.join_clause) {
+                let mut inputs: Vec<&Column> = expr
+                    .column_refs()
+                    .into_iter()
+                    .filter(|column| !is_window_agg_column(column, self.join_clause))
+                    .collect();
+                inputs.sort(); // sort is necessary to make column order deterministic
+                // With DISTINCT the payload is the distinct key. An entry that reads
+                // window aggregates alone has the same value on every row and stays
+                // out of it. Any other input would have to be part of the key while the
+                // entry's own value is not known until after the aggregate. Planning
+                // declines that shape today (a DISTINCT pathkey with a Var fails the
+                // ORDER BY validation); the error keeps that explicit should it change.
+                if self.join_clause.has_distinct
+                    && let Some(column) = inputs.first()
+                {
+                    return plan_err!(
+                        "DISTINCT over an expression combining a window aggregate with column {column} is not supported"
+                    );
+                }
+                for column in inputs {
+                    let name = QualifiedName(column.relation.clone(), column.name.clone());
+                    if self.payload_names.iter().all(|n| *n != name) {
+                        self.payload_cols.push(Expr::Column(column.clone()));
+                        self.payload_names.push(name);
+                    }
+                }
+                continue;
+            }
+
+            if self.join_clause.has_distinct {
+                self.payload_cols.push(expr);
+                self.payload_names
+                    .push(QualifiedName(None, format!("col_{}", i + 1)));
+            } else {
+                // A placeholder for a heap-fetched column: the output projection recreates
+                // it and never reads it from the frame, so it has no business in the payload.
+                let is_placeholder = !matches!(proj, build::ChildProjection::Expression { .. })
+                    && expr.column_refs().is_empty();
+                if is_placeholder {
+                    continue;
+                }
+
+                // in the non-distinct case, we must be sure we've only selected a given column once
+                let name = QualifiedName::from(expr.qualified_name());
+                if self.payload_names.iter().all(|n| *n != name) {
+                    self.payload_cols.push(expr);
+                    self.payload_names.push(name);
+                }
+            }
+        }
+
+        // A DISTINCT target list of window aggregate entries alone leaves no key. Every
+        // row is then one group, which a constant key expresses.
+        if self.join_clause.has_distinct && self.payload_cols.is_empty() {
+            self.payload_cols.push(datafusion::logical_expr::lit(true));
+            self.payload_names.push(QualifiedName(
+                None,
+                TOPK_DISTINCT_EMPTY_PAYLOAD_COL_NAME.to_string(),
+            ));
+        }
+
+        Ok(self)
+    }
+
+    /// Take the ctid names, qualifying them according to the provided schema
+    fn with_ctids(mut self, ctid_names: Vec<String>, df_schema: &DFSchema) -> Result<Self> {
+        for unqualified_name in ctid_names {
+            let name = QualifiedName::from_unqualified_name(&unqualified_name, df_schema)?;
+            self.ctid_names.push(name);
+        }
+        Ok(self)
+    }
+
+    fn with_sort_exprs(mut self, sorts: Vec<SortExpr>) -> Self {
+        self.sort_exprs = sorts;
+        self
+    }
+
+    /// Take the (column name, expr) pair of each additional aggregate to compute alongside the topk
+    fn with_additional_aggs(mut self, additional: Vec<(String, Expr)>) -> Self {
+        self.additional_aggs = additional;
+        self
+    }
+
+    /// Take the (column name, expr) pair of each constant to project alongside the results
+    fn with_constants(mut self, constants: Vec<(String, Expr)>) -> Self {
+        self.constants = constants;
+        self
+    }
+
+    /// Dedupe the ctids, removing any that are already in the payload columns. We also register
+    /// the ctid positions in the final select list accordingly.
+    ///
+    /// NOTE: must only be called during `finalize`
+    fn dedupe_ctids(&mut self) {
+        let mut old_ctids = Vec::new();
+        std::mem::swap(&mut old_ctids, &mut self.ctid_names);
+
+        let mut next_ctid_position = self.payload_names.len();
+        for name in old_ctids {
+            // See if this ctid has already been selected, and track the position in the upcoming SELECT
+            // either way
+            if let Some(pos) = self.payload_names.iter().position(|en| name == *en) {
+                self.ctid_positions.push(pos);
+            } else {
+                self.ctid_names.push(name);
+                self.ctid_positions.push(next_ctid_position);
+                next_ctid_position += 1;
+            }
+        }
+    }
+
+    /// Replace `self.sort_exprs` with a "rebased" set, transforming the expressions such that all
+    /// referenced columns are either in the payload, or added to `self.extra_sort_cols` with the
+    /// `sort_j` alias.
+    fn finalize_sort_exprs(&mut self) -> Result<()> {
+        // the projected key expressions, along with the name we map them to
+        let projected: HashMap<Expr, Expr> = self
+            .payload_cols
+            .iter()
+            .zip(self.payload_names.iter())
+            .map(|(expr, name)| (expr.clone(), name.as_col_expr()))
+            .collect();
+
+        let mut old_sort_exprs = Vec::new();
+        std::mem::swap(&mut old_sort_exprs, &mut self.sort_exprs);
+        // sort expressions, now targeting the actual column names they'll operate on
+        self.sort_exprs = old_sort_exprs
+            .into_iter()
+            .map(|s| {
+                let expr = s
+                    .expr
+                    .transform(|e| {
+                        let Expr::Column(_) = &e else {
+                            return Ok(Transformed::no(e));
+                        };
+                        if let Some(mapped) = projected.get(&e) {
+                            return Ok(Transformed::yes(mapped.clone()));
+                        }
+                        if self.join_clause.has_distinct {
+                            return internal_err!("ORDER BY column {e} is not a DISTINCT key");
+                        }
+                        let j = self.extra_sort_cols.len() + 1;
+                        self.extra_sort_cols.push(e.alias(format!("sort_{j}")));
+                        Ok(Transformed::yes(col(format!("sort_{j}"))))
+                    })?
+                    .data;
+                Ok(SortExpr { expr, ..s })
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(())
+    }
+
+    /// Construct the finalized set of things we need to actually perform the topK aggregation.
+    fn finalize(mut self) -> Result<FinalizedTopKAgg> {
+        self.dedupe_ctids();
+        self.finalize_sort_exprs()?;
+
+        let mut select_list: Vec<Expr> = self
+            .payload_cols
+            .iter()
+            .zip(self.payload_names.iter())
+            .map(|(expr, name)| expr.clone().alias_qualified(name.0.clone(), &name.1))
+            .collect();
+        select_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
+        select_list.extend(self.extra_sort_cols);
+
+        // The additional aggregates read the join's own columns, so those ride along
+        // beside the payload unless it already selects them under their own name.
+        let mut additional_agg_inputs: Vec<&Column> = self
+            .additional_aggs
+            .iter()
+            .flat_map(|(_, agg)| agg.column_refs())
+            .collect();
+        additional_agg_inputs.sort();
+        additional_agg_inputs.dedup();
+        for column in additional_agg_inputs {
+            let name = QualifiedName(column.relation.clone(), column.name.clone());
+            if self
+                .payload_names
+                .iter()
+                .chain(self.ctid_names.iter())
+                .all(|n| *n != name)
+            {
+                select_list.push(name.into_col_expr());
+            }
+        }
+
+        let additional_agg_list: Vec<Expr> = self
+            .additional_aggs
+            .iter()
+            .map(|(name, expr)| expr.clone().alias(name))
+            .collect();
+
+        let mut topk_payload_list: Vec<Expr> =
+            self.payload_names.iter().map(|n| n.as_col_expr()).collect();
+        topk_payload_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
+
+        let mut name_restoration_list: Vec<Expr> = self
+            .payload_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                    .alias_qualified(name.0.clone(), &name.1)
+            })
+            .collect();
+        let n = self.payload_names.len();
+        name_restoration_list.extend(self.ctid_names.iter().enumerate().map(|(i, name)| {
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{}", n + i))
+                .alias_qualified(name.0.clone(), &name.1)
+        }));
+        name_restoration_list.extend(
+            self.additional_aggs
+                .iter()
+                .map(|(name, _)| col(name.as_str())),
+        );
+        name_restoration_list.extend(
+            self.constants
+                .iter()
+                .map(|(name, expr)| expr.clone().alias(name)),
+        );
+
+        Ok(FinalizedTopKAgg {
+            select_list,
+            topk_payload_list,
+            name_restoration_list,
+            rebased_sort_exprs: self.sort_exprs,
+            ctid_positions: self.ctid_positions,
+            additional_agg_list,
+        })
+    }
+}
+
+struct FinalizedTopKAgg {
+    /// The columns we select before doing the aggregation
+    select_list: Vec<Expr>,
+    /// The payload to the topk udaf
+    topk_payload_list: Vec<Expr>,
+    /// The set of expressions to restore the column names after unnest.
+    name_restoration_list: Vec<Expr>,
+    /// The sort expressions to provide to the aggregate, rebased on the selected columns from
+    /// `select_list`
+    rebased_sort_exprs: Vec<SortExpr>,
+    /// The positions of the ctid columns in `payload_list`
+    ctid_positions: Vec<usize>,
+    additional_agg_list: Vec<Expr>,
+}
+
+/// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
+/// projection, returning `fetch` rows in ORDER BY order.
+///
+/// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
+/// carry are the output projection's expressions either way, which is what
+/// `distinct_key_exprs` produces. DISTINCT projects them to `col_N`, while non-distinct retains
+/// their original names.
+///
+/// The two differ in the aggregate's DISTINCT flag, which turns the
+/// payload into the distinct key, and in what a sort key outside the projection
+/// means: without DISTINCT it is carried as an extra `sort_j` input, with DISTINCT it
+/// cannot occur (Postgres requires the ORDER BY to be in the select list).
+///
+/// Every window aggregate is one more aggregate in the same node. With no group key
+/// it sees every input row, which is the `OVER ()` frame, and the unnest fans its one
+/// value out to each kept row. The output projection entries that read one stay out
+/// of the payload and are computed after it.
+fn apply_topk_as_agg(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    output_columns: &[OutputColumnInfo],
+    fetch: usize,
+) -> Result<(DataFrame, DistinctColMap)> {
+    let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
+        return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
+    };
+
+    // Only relations whose heap tuples are fetched need a ctid carried through,
+    let needed_ctids = relations_needing_ctid(output_columns);
+    let ctid_names: Vec<_> = surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
+        .filter(|(pos, _)| needed_ctids.contains(pos))
+        .map(|(_, name)| name)
+        .collect();
+
+    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
+
+    // The window aggregates read the join's own columns, so their inputs ride
+    // along beside the payload; the Top-K payload leaves them out.
+    let all_window_exprs = window_agg_aggregate_exprs(join_clause)?;
+
+    let finalized = TopKAggSelectedExpressions::new(join_clause)
+        .with_payload_exprs(distinct_key_exprs)?
+        .with_ctids(ctid_names, df.schema())?
+        .with_sort_exprs(sort_exprs)
+        .with_additional_aggs(all_window_exprs.exprs)
+        .with_constants(all_window_exprs.consts)
+        .finalize()?;
+
+    // The actual projected columns we'll need for the aggregate.
+    let df = df.select(finalized.select_list)?;
+
+    let topk_agg = topk_as_agg(
+        &finalized.topk_payload_list,
+        finalized.rebased_sort_exprs,
+        fetch,
+        &finalized.ctid_positions,
+        join_clause.has_distinct,
+    );
+    let mut aggregates = vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)];
+    aggregates.extend(finalized.additional_agg_list);
+    let df = df.aggregate(vec![], aggregates)?;
+    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+    let df = df.select(finalized.name_restoration_list)?;
+
+    Ok((df, distinct_col_map))
+}
+
+/// True for a `window_agg_N` column. It is not in the frame the Top-K aggregate
+/// reads: the window aggregate is an output of that aggregate node.
+fn is_window_agg_column(column: &Column, join_clause: &JoinCSClause) -> bool {
+    column.relation.is_none()
+        && WindowAggColumn::try_from(column.name.as_str())
+            .ok()
+            .and_then(|window_column| join_clause.window_aggs.get(window_column.index()))
+            .is_some()
+}
+
+fn reads_window_agg(expr: &Expr, join_clause: &JoinCSClause) -> bool {
+    expr.column_refs()
+        .into_iter()
+        .any(|column| is_window_agg_column(column, join_clause))
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a
@@ -949,28 +1394,19 @@ fn surviving_ctid_columns<'a>(
     })
 }
 
-/// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the
-/// MIN of each ctid column as a stable representative. Returns the rewritten
-/// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
-/// projection stages to resolve column references against the new aliases.
-///
-/// When DISTINCT is not active (or there is no `output_projection`) the input
-/// frame is returned unchanged with an empty map.
-fn apply_distinct_group_by(
-    df: DataFrame,
-    join_clause: &JoinCSClause,
-    output_columns: &[OutputColumnInfo],
-) -> Result<(DataFrame, DistinctColMap)> {
+/// The output projection as expressions: exactly one per projection entry, in
+/// target-list order, plus the map the sort and output projection use to find
+/// those entries by their `col_{i}` names afterwards. This is the DISTINCT key when
+/// there is a DISTINCT, and the Top-K aggregate's payload whether or not there is
+/// one; callers decide which. `None` when there is no output projection.
+fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
-    if !join_clause.has_distinct {
-        return Ok((df, distinct_col_map));
-    }
     let Some(projection) = &join_clause.output_projection else {
-        return Ok((df, distinct_col_map));
+        return Ok(None);
     };
 
-    let mut group_exprs: Vec<Expr> = Vec::new();
+    let mut key_exprs: Vec<Expr> = Vec::new();
 
     for (i, proj) in projection.iter().enumerate() {
         let col_alias = format!("col_{}", i + 1);
@@ -1003,7 +1439,7 @@ fn apply_distinct_group_by(
             }
         };
 
-        group_exprs.push(expr.alias(&col_alias));
+        key_exprs.push(expr);
 
         if let Some(key) = map_key {
             match key {
@@ -1016,6 +1452,34 @@ fn apply_distinct_group_by(
             }
         }
     }
+
+    Ok(Some((key_exprs, distinct_col_map)))
+}
+
+/// Apply a DISTINCT rewrite as `GROUP BY` over the distinct key, taking the MIN
+/// of each ctid column as a stable representative. Returns the rewritten
+/// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
+/// projection stages to resolve column references against the new aliases.
+///
+/// When there is no DISTINCT to apply the input frame is returned unchanged
+/// with an empty map.
+fn apply_distinct_group_by(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    output_columns: &[OutputColumnInfo],
+) -> Result<(DataFrame, DistinctColMap)> {
+    if !join_clause.has_distinct {
+        return Ok((df, DistinctColMap::default()));
+    }
+    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
+        return Ok((df, DistinctColMap::default()));
+    };
+
+    let group_exprs: Vec<Expr> = key_exprs
+        .into_iter()
+        .enumerate()
+        .map(|(i, expr)| expr.alias(format!("col_{}", i + 1)))
+        .collect();
 
     // Postgres needs the ctids to fetch the actual tuples after DataFusion
     // completes. Since GROUP BY collapses multiple rows into one, we use
@@ -1201,11 +1665,11 @@ fn resolve_orderby_feature(
     }
 }
 
-/// Compute every extracted window aggregate as a `window_agg_N` column.
+/// Compute every extracted SQL window aggregate as a `window_agg_N` column.
 /// Driven by `join_clause.window_aggs` rather than the output projection:
 /// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
 /// entry — only a sentinel Var referencing the column by name.
-fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
     let mut window_exprs: Vec<Expr> = Vec::new();
     // Materialize only canonical entries: duplicates share the canonical
     // column, and identical window expressions in one Window node trip
@@ -1215,7 +1679,10 @@ fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Resu
         .iter_indexed()
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
     {
-        let expr = window_expr(info, join_clause)?;
+        let WindowAggDef::Sql(sql) = &info.agg_def else {
+            continue;
+        };
+        let expr = window_expr(sql, join_clause)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1232,11 +1699,63 @@ fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Resu
     df.window(window_exprs)
 }
 
-fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
-    use crate::customscan::datafusion::numeric_agg;
+/// The extracted window aggregates, each paired with its `window_agg_N` column
+/// name.
+struct SeparatedWindowAggExprs {
+    /// Aggregates over the join result; they join the Top-K aggregate node.
+    exprs: Vec<(String, Expr)>,
+    /// Plan-time constants (the aggregate of a pruned argument column); an
+    /// aggregate node cannot carry them, so they are projected after it.
+    consts: Vec<(String, Expr)>,
+}
+
+/// Every extracted window aggregate as `(window_agg_N, expression)`. Driven by
+/// `join_clause.window_aggs` rather than the output projection: an aggregate
+/// embedded in an expression has no `ChildProjection::WindowAgg` entry, only a
+/// sentinel Var referencing the column by name. Only canonical entries are
+/// materialized; duplicates resolve to the canonical column
+/// (see `WindowAggList::canonical_index`).
+fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<SeparatedWindowAggExprs> {
+    let mut exprs = Vec::new();
+    let mut consts = Vec::new();
+    for (index, info) in join_clause.window_aggs.iter_indexed() {
+        // only keep canonical definitions
+        if join_clause.window_aggs.canonical_index(index) != index {
+            continue;
+        }
+        let e = match &info.agg_def {
+            WindowAggDef::Sql(sql) => aggregate_expr(sql, join_clause)?,
+            WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
+        };
+        match unalias(e.clone()) {
+            Expr::AggregateFunction(_) => exprs.push((index.as_col_name(), e)),
+            Expr::Literal(_, _) => consts.push((index.as_col_name(), e)),
+            _ => {
+                return internal_err!("Found invalid expression type {e:?} for a window aggregate");
+            }
+        }
+    }
+    Ok(SeparatedWindowAggExprs { exprs, consts })
+}
+
+/// What a [`SqlWindowAggDef`] lowers to.
+enum LoweredSqlWindowAgg {
+    /// The aggregate function and its arguments; the caller runs it as a plain
+    /// aggregate or wraps it in a window function.
+    Call(Arc<AggregateUDF>, Vec<Expr>),
+    /// The aggregate of a pruned argument column, known without running it.
+    Constant(Expr),
+}
+
+/// Lower a SQL window aggregate to its UDAF and arguments, or to a plan-time
+/// constant when the argument column was pruned from the join output.
+fn lower_sql_window_agg(
+    info: &SqlWindowAggDef,
+    join_clause: &JoinCSClause,
+) -> Result<LoweredSqlWindowAgg> {
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
-    let col_expr = match &info.col_info {
+    let col_expr = match info.col_info() {
         Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
             Some(ce) => Some(ce),
             None => {
@@ -1248,10 +1767,10 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
                 // of the `null_if_source_exists` fallback every other
                 // pruned-column consumer applies.
                 if null_if_source_exists(join_clause, ci.rti).is_some() {
-                    return Ok(match info.agg_type {
+                    return Ok(LoweredSqlWindowAgg::Constant(match info.agg_type() {
                         SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
                         _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
-                    });
+                    }));
                 }
                 return Err(internal_datafusion_err!(
                     "Failed to map column to fast field and column expr. rti: {}, attno: {}",
@@ -1262,7 +1781,7 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
         },
         None => None,
     };
-    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
+    let numeric_field = numeric_window_field(info.agg_type(), info.arg_field_type())?;
 
     // Match only basic aggregate functions. Missing and filters are not supported in global window
     // functions
@@ -1270,55 +1789,58 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
     // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
     // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
     // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    match info.agg_type {
+    let (udaf, args) = match info.agg_type() {
         SupportedWindowAggType::Sum => {
             let ce = col_expr.expect("should always have a column expression for SUM");
             match numeric_field {
-                None => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
-                    vec![ce],
-                ))),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_sum_udaf()),
-                    vec![ce, scale.lit()],
-                ))),
-                Some(_) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_sum_udaf()),
-                    vec![ce],
-                ))),
+                Some(field_type) => numeric_sum_func_with_args(ce, field_type),
+                None => (sum::sum_udaf(), vec![ce]),
             }
         }
         SupportedWindowAggType::Avg => {
             let ce = col_expr.expect("should always have a column expression for AVG");
             match numeric_field {
-                None => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
-                    vec![ce],
-                ))),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_avg_udaf()),
-                    vec![ce, scale.lit()],
-                ))),
-                Some(_) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_avg_udaf()),
-                    vec![ce],
-                ))),
+                Some(field_type) => numeric_avg_func_with_args(ce, field_type),
+                None => (average::avg_udaf(), vec![ce]),
             }
         }
-        SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
+        SupportedWindowAggType::Min => (
+            min_max::min_udaf(),
             vec![col_expr.expect("should always have a column expression for MIN")],
-        ))),
-        SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
+        ),
+        SupportedWindowAggType::Max => (
+            min_max::max_udaf(),
             vec![col_expr.expect("should always have a column expression for MAX")],
-        ))),
-        SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
+        ),
+        SupportedWindowAggType::Count => (
+            count::count_udaf(),
             vec![col_expr.expect("should always have a column expression for COUNT")],
-        ))),
-        SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
-    }
+        ),
+        SupportedWindowAggType::CountStar => (
+            count::count_udaf(),
+            vec![datafusion::logical_expr::lit(COUNT_STAR_EXPANSION)],
+        ),
+    };
+    Ok(LoweredSqlWindowAgg::Call(udaf, args))
+}
+
+/// The aggregate as a window function, for the Window-node fallback.
+fn window_expr(info: &SqlWindowAggDef, join_clause: &JoinCSClause) -> Result<Expr> {
+    Ok(match lower_sql_window_agg(info, join_clause)? {
+        LoweredSqlWindowAgg::Constant(expr) => expr,
+        LoweredSqlWindowAgg::Call(udaf, args) => Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(udaf),
+            args,
+        )),
+    })
+}
+
+/// The aggregate as a plain aggregate function, for the Top-K aggregate node.
+fn aggregate_expr(info: &SqlWindowAggDef, join_clause: &JoinCSClause) -> Result<Expr> {
+    Ok(match lower_sql_window_agg(info, join_clause)? {
+        LoweredSqlWindowAgg::Constant(expr) => expr,
+        LoweredSqlWindowAgg::Call(udaf, args) => udaf.call(args),
+    })
 }
 
 /// Determines if the field for this aggregate is a numeric and is supported for pushing
@@ -1366,6 +1888,18 @@ fn apply_sort(
         return Ok(df);
     }
 
+    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    df.sort(sort_exprs)
+}
+
+fn build_sort_exprs(
+    join_clause: &JoinCSClause,
+    distinct_col_map: &DistinctColMap,
+) -> Result<Vec<SortExpr>> {
+    if join_clause.order_by.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut sort_exprs = Vec::new();
     for info in &join_clause.order_by {
         let expr = match &info.feature {
@@ -1392,7 +1926,8 @@ fn apply_sort(
         );
         sort_exprs.push(expr.sort(asc, nulls_first));
     }
-    df.sort(sort_exprs)
+
+    Ok(sort_exprs)
 }
 
 /// Build the final SELECT list. When `output_projection` is set, every
@@ -1406,16 +1941,30 @@ fn apply_output_projection(
     distinct_col_map: &DistinctColMap,
     plan_sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
+    path_taken: PathTaken,
 ) -> Result<DataFrame> {
     let mut final_cols = Vec::new();
-
     if let Some(projection) = &join_clause.output_projection {
         for (i, proj) in projection.iter().enumerate() {
             let col_alias = format!("col_{}", i + 1);
-            let expr = if !distinct_col_map.is_empty() {
+            let expr = if join_clause.has_distinct {
                 match proj {
                     build::ChildProjection::Expression { .. }
-                    | build::ChildProjection::WindowAgg { .. } => col(&col_alias),
+                    | build::ChildProjection::WindowAgg { .. } => {
+                        let e = match proj {
+                            build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
+                                translate_child_projection_expr(pg_expr_string, join_clause)?
+                            },
+                            _ => build_projection_expr(proj, join_clause),
+                        };
+                        // If the topk-as-agg path was taken, window aggs were evaluated alongside
+                        // topk. However, if this expression takes a window agg as input, it'll
+                        // still need to be evaluated here
+                        match path_taken {
+                            PathTaken::TopKAsAgg if reads_window_agg(&e, join_clause) => e,
+                            _ => col(&col_alias),
+                        }
+                    }
                     build::ChildProjection::Score { rti } => {
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))
@@ -1435,9 +1984,20 @@ fn apply_output_projection(
                 }
             } else {
                 match proj {
-                    build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
-                        translate_child_projection_expr(pg_expr_string, join_clause)?
-                    },
+                    build::ChildProjection::Expression { pg_expr_string, .. } => {
+                        let e = unsafe {
+                            translate_child_projection_expr(pg_expr_string, join_clause)?
+                        };
+                        // If the topk-as-agg path was taken, any expression that doesn't read a
+                        // window agg output has already been evaluated.
+                        match path_taken {
+                            PathTaken::TopKAsAgg if !reads_window_agg(&e, join_clause) => {
+                                let name = QualifiedName::from(e.qualified_name());
+                                name.into_col_expr()
+                            }
+                            _ => e,
+                        }
+                    }
                     _ => build_projection_expr(proj, join_clause),
                 }
             };
@@ -1456,7 +2016,6 @@ fn apply_output_projection(
             final_cols.push(col(field.name()));
         }
     }
-
     df.select(final_cols)
 }
 

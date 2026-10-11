@@ -17,9 +17,11 @@
 
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
@@ -39,6 +41,7 @@ use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::BitmapCell;
+use std::ptr::NonNull;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
@@ -63,6 +66,10 @@ pub struct BaseScanState {
 
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
+    /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
+    /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
+    /// `solve_expr.rs`.
+    pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
     pub search_reader: Option<SearchIndexReader>,
     /// Executor startup before `SearchIndexReader::open`; consumed into the
     /// reader's flat `scan_init_ns` metric on first execution.
@@ -258,10 +265,6 @@ impl BaseScanState {
         }
     }
 
-    pub fn has_postgres_expressions(&mut self) -> bool {
-        self.base_search_query_input.has_postgres_expressions()
-    }
-
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
         self.need_scores
@@ -410,6 +413,9 @@ impl BaseScanState {
 
     pub fn increment_query_count(&mut self) {
         self.telemetry.record_query();
+        if let Some(parallel_state) = self.parallel_state() {
+            unsafe { (*parallel_state).increment_query_count() };
+        }
     }
 
     /// Merge per-segment JSON info. Last-write-wins per segment id (re-queries
@@ -446,10 +452,13 @@ impl BaseScanState {
         self.telemetry.reset();
         self.virtual_tuple_count = 0;
         if self.visibility_checker.is_some() {
-            self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                self.heaprel(),
-                unsafe { pg_sys::GetActiveSnapshot() },
-            ));
+            let mut checker = VisibilityChecker::with_rel_and_snap(self.heaprel(), unsafe {
+                pg_sys::GetActiveSnapshot()
+            });
+            if let Some(reader) = &self.search_reader {
+                checker.set_ffhelper(Arc::new(FFHelper::for_ctid(reader)));
+            }
+            self.visibility_checker = Some(checker);
         }
         if self.doc_from_heap_state.is_some() {
             self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
@@ -570,12 +579,14 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input = self.base_search_query_input.clone();
     }
 
+    // Ask the base query: `init_expr_context` asks in `begin_custom_scan`, before
+    // `init_search_query_input` fills `search_query_input`.
     fn has_postgres_expressions(&mut self) -> bool {
-        self.search_query_input.has_postgres_expressions()
+        self.base_search_query_input.has_postgres_expressions()
     }
 
     fn has_parameters(&mut self) -> bool {
-        self.search_query_input.has_parameters()
+        self.base_search_query_input.has_parameters()
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

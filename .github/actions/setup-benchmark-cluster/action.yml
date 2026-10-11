@@ -144,7 +144,7 @@ runs:
     - name: Install pgvectorscale
       shell: bash
       env:
-        PGVECTORSCALE_VERSION: "0.9.0"
+        PGVECTORSCALE_VERSION: "0.9.1"
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: |
         set -euo pipefail

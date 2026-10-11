@@ -425,6 +425,11 @@ WHERE id @@@ paradedb.boolean(
          "Segments Checked": 1,                                                                                                                                                                         +
          "Blocks Total": 1,                                                                                                                                                                             +
          "Blocks Requiring Checks": 1                                                                                                                                                                   +
+       },                                                                                                                                                                                               +
+       "Parallelism": {                                                                                                                                                                                 +
+         "Workers Requested": 0,                                                                                                                                                                        +
+         "Workers Launched": 0,                                                                                                                                                                         +
+         "Worker Selection": "Per-segment"                                                                                                                                                              +
        }                                                                                                                                                                                                +
      },                                                                                                                                                                                                 +
      "Triggers": [                                                                                                                                                                                      +

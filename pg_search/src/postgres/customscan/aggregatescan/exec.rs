@@ -24,6 +24,7 @@ use crate::api::version::VersionInfo;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -59,11 +60,12 @@ pub fn aggregation_results_iter(
         .set_is_execution_time();
 
     let planstate = state.planstate();
-    let expr_context = state.runtime_context;
+    let expr_context = state.csstate.ss.ps.ps_ExprContext;
+    let runtime_context = state.custom_state().runtime_context;
 
     state
         .custom_state_mut()
-        .prepare_query_for_execution(planstate, expr_context);
+        .prepare_query_for_execution(planstate, runtime_context);
 
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();
@@ -89,6 +91,7 @@ pub fn aggregation_results_iter(
 
     let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
     let mut visibility_stats = std::mem::take(&mut state.custom_state_mut().visibility_stats);
+    let mut parallelism = AggregateParallelism::default();
     let collect_visibility_stats =
         unsafe { !planstate.is_null() && !(*planstate).instrument.is_null() };
     let result: AggregationResults = execute_aggregate(
@@ -102,11 +105,13 @@ pub fn aggregation_results_iter(
         planstate,
         bitmap_exec.as_mut(),
         collect_visibility_stats.then_some(&mut visibility_stats),
+        collect_visibility_stats.then_some(&mut parallelism),
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
     state.custom_state_mut().bitmap_exec = bitmap_exec;
     state.custom_state_mut().visibility_stats = visibility_stats;
+    state.custom_state_mut().parallelism = collect_visibility_stats.then_some(parallelism);
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an

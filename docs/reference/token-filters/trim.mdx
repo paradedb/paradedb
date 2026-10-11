@@ -12,8 +12,7 @@ tokenizer or certain language-specific tokenizers.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.literal_normalized('trim=true')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.literal_normalized('trim=true')));
 ```
 
 To demonstrate this token filter, let's compare the output of the following two statements:

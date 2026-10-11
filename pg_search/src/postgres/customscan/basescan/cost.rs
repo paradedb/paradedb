@@ -45,50 +45,14 @@
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
 use super::*;
-use serde::{Deserialize, Serialize};
+use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
+pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
 }
-fn parallel_setup_cost() -> f64 {
-    unsafe { pg_sys::parallel_setup_cost }
-}
 fn parallel_tuple_cost() -> f64 {
     unsafe { pg_sys::parallel_tuple_cost }
-}
-
-/// Which branch of [`decide_scan_parallelism`] produced the policy; the EXPLAIN VERBOSE label. Names
-/// the branch, not the serial-vs-parallel outcome (the plan shape shows that).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(super) enum WorkerDecisionReason {
-    /// Prunable primarily score-DESC ordering: Block-WAND keeps serial scoring sublinear (#4664), so
-    /// workers would only add overhead.
-    BlockWandPrunable,
-    /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
-    /// costable scan with no workers to split across also lands here -- it just emits serial.)
-    CostModel,
-    /// Costable scan with an effective LIMIT (top-K / unsorted LIMIT): pg_search costed the Gather on
-    /// `k` and forced the winner, because PostgreSQL over-costs a bounded Gather (see module docs).
-    CostModelLimited,
-    /// Uncostable sorted scan: it must k-way-merge across segments, so it parallelizes one worker
-    /// per segment (the structural ceiling), or runs serial when no workers are available.
-    SortedPerSegment,
-    /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
-    /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
-    RowHeuristic,
-}
-
-impl WorkerDecisionReason {
-    /// Reader-facing label for EXPLAIN VERBOSE: each names the decision branch the paths came from.
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::BlockWandPrunable => "Prunable top-K",
-            Self::CostModel => "Cost model",
-            Self::CostModelLimited => "Cost model (LIMIT)",
-            Self::SortedPerSegment => "Per-segment",
-            Self::RowHeuristic => "Row-capped",
-        }
-    }
 }
 
 /// How `create_custom_path` should shape the paths it emits for one exec method: one serial path,
@@ -122,16 +86,6 @@ impl WorkerPathPolicy {
             | Self::ParallelOnly { reason, .. }
             | Self::CostedBoth { reason, .. } => reason,
         }
-    }
-}
-
-/// How a parallel scan's work divides: `nworkers`, plus the leader (a full share) when it participates.
-pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
-    let nworkers = nworkers.get();
-    if leader_participates {
-        (nworkers + 1) as f64
-    } else {
-        nworkers as f64
     }
 }
 
@@ -301,11 +255,9 @@ fn cost_test_limited(
 
     // Gather overhead: `parallel_setup_cost` plus per-row transport of the `k` crossing rows (1.05
     // covers Gather-Merge IPC).
-    let divisor = parallel_divisor(nworkers, parallel_leader_participates);
     const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
-    let gather_overhead =
-        parallel_setup_cost() + parallel_tuple_cost() * base_result_rows * GATHER_MERGE_IPC_FACTOR;
-    if work / divisor + gather_overhead < work {
+    let transfer_cost = parallel_tuple_cost() * base_result_rows * GATHER_MERGE_IPC_FACTOR;
+    if parallel_scan_is_cheaper(work, nworkers, parallel_leader_participates, transfer_cost) {
         WorkerPathPolicy::ParallelOnly {
             nworkers,
             reason: WorkerDecisionReason::CostModelLimited,
@@ -472,10 +424,10 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         (None, true) => match NonZeroUsize::new(structural_workers) {
             Some(nworkers) => WorkerPathPolicy::ParallelOnly {
                 nworkers,
-                reason: WorkerDecisionReason::SortedPerSegment,
+                reason: WorkerDecisionReason::PerSegment,
             },
             None => WorkerPathPolicy::SerialOnly {
-                reason: WorkerDecisionReason::SortedPerSegment,
+                reason: WorkerDecisionReason::PerSegment,
             },
         },
         // Uncostable unsorted: it can stop early at LIMIT, so the row heuristic's caps fit;

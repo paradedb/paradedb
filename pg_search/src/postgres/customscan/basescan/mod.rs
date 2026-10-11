@@ -25,6 +25,7 @@ mod scan_state;
 pub(crate) mod telemetry;
 
 use crate::postgres::customscan::node::CustomScanNodeExt;
+use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
     CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
@@ -35,13 +36,16 @@ use cost::{
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
+use crate::api::operator::{
+    estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
+};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
@@ -76,8 +80,8 @@ use crate::postgres::customscan::projections::{
     PlaceholderColumn, PlaceholderColumns, inject_placeholders, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, Qual, QualExtractState, extract_join_predicates, extract_quals, is_subplan,
-    optimize_quals_with_heap_expr,
+    PlannerContext, Qual, QualExtractState, SecurityPushdown, classify_security_pushdown,
+    extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -87,6 +91,8 @@ use crate::postgres::customscan::{
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::search_operator_relations;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
@@ -126,11 +132,18 @@ impl BaseScan {
         let wrapper_start = std::time::Instant::now();
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
+        // The read starts here, not at node init: a node that is initialized and never executed
+        // (`LIMIT 0`, an unreached inner side) reads nothing and owes SSI nothing.
+        predicate_lock_read(state.custom_state().heaprel(), unsafe {
+            (*state.csstate.ss.ps.state).es_snapshot
+        });
+
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        let runtime_context = state.custom_state().runtime_context;
         state
             .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+            .prepare_query_for_execution(planstate, runtime_context);
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
         let indexrel = state
@@ -168,6 +181,10 @@ impl BaseScan {
             state.custom_state().io_trace.clone(),
         )
         .expect("should be able to open the search index reader");
+        let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
+        if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
+            checker.set_ffhelper(Arc::clone(&ffhelper));
+        }
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
@@ -184,11 +201,8 @@ impl BaseScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if state.custom_state().need_snippets() {
-            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> = state
-                .custom_state_mut()
-                .snippet_generators
-                .drain()
-                .collect();
+            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> =
+                std::mem::take(&mut state.custom_state_mut().snippet_generators);
 
             // Pre-compute enhanced queries for snippet generation if we have join predicates
             let enhanced_query_for_snippets =
@@ -224,10 +238,10 @@ impl BaseScan {
 
                 unsafe {
                     let estate = (*csstate).ss.ps.state;
-                    snippet_type.configure_generator(&mut new_generator.1, estate);
+                    snippet_type.configure_generator(&mut new_generator, estate);
                 }
 
-                *generator = Some(new_generator.1);
+                *generator = Some(new_generator);
             }
 
             state.custom_state_mut().snippet_generators = snippet_generators;
@@ -259,20 +273,15 @@ impl BaseScan {
         indexrel: &PgSearchRelation,
         uses_score_or_snippet: bool,
         attempt_pushdown: bool,
+        deferred_plan_quals: &mut Vec<String>,
     ) -> Option<Qual> {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
 
-        // Filter out predicates that are implied by the partial index predicate.
-        // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
-        // also has predicate P, we don't need to create a heap filter for P since the
-        // partial index already guarantees it.
-        let filtered_restrict_info = filter_implied_predicates(indexrel.rd_indpred, &restrict_info);
-
         let mut quals = extract_quals(
             &context,
             rti,
-            filtered_restrict_info.as_ptr().cast(),
+            restrict_info.as_ptr().cast(),
             ri_type,
             indexrel,
             false, // Base relation quals should not convert external to all
@@ -293,7 +302,7 @@ impl BaseScan {
             let mut partial_quals = Vec::new();
             let mut partial_state = QualExtractState::default();
             let mut all_skipped_are_subplans = true;
-            for ri in filtered_restrict_info.iter_ptr() {
+            for ri in restrict_info.iter_ptr() {
                 if let Some(qual) = extract_quals(
                     &context,
                     rti,
@@ -325,24 +334,71 @@ impl BaseScan {
         let allow_without_operator =
             gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
 
+        // The quals the planner left may show no operator although the query applied one to
+        // this relation, because the planner simplified it away or it sits in a join clause.
+        // The record taken at planner-hook time then tells that the query asked for this scan.
+        // The quals stay the first signal. The record keeps only direct table references, so an
+        // operator written against a view, subquery or CTE column reaches here only through them.
+        if quals.is_some()
+            && !state.uses_our_operator
+            && !allow_without_operator
+            && search_operator_relations::applies_to(root, rti)
+        {
+            state.uses_our_operator = true;
+            if !join_clauses_contain_search_predicate(builder.args().rel) {
+                warn_search_operator_simplified_away(builder.args().rte());
+            }
+        }
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
-        let quals = if quals.is_none() {
+        if quals.is_none() {
+            let mut join_qual_state = QualExtractState::default();
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let mut quals = extract_quals(
-                &context,
-                rti,
-                joinri.as_ptr().cast(),
-                RestrictInfoType::Join,
-                indexrel,
-                true, // Join quals should convert external to all
-                &mut state,
-                attempt_pushdown,
-            );
+            let mut join_quals = Vec::new();
+            for ri in joinri.iter_ptr() {
+                let qual = extract_quals(
+                    &context,
+                    rti,
+                    ri.cast(),
+                    RestrictInfoType::Join,
+                    indexrel,
+                    true, // Join quals should convert external to all
+                    &mut join_qual_state,
+                    attempt_pushdown,
+                )?;
+                // SECURITY: the join above re-evaluates every join clause after RLS, so a leaky
+                // one only needs a superset here and must not run its heap filters early.
+                let is_leaky = matches!(
+                    classify_security_pushdown(
+                        &context,
+                        builder.args().rel,
+                        rti,
+                        ri,
+                        RestrictInfoType::Join,
+                        indexrel,
+                        attempt_pushdown,
+                    ),
+                    SecurityPushdown::LeakyHeapFilter { .. }
+                );
+                join_quals.push(if is_leaky {
+                    qual.without_heap_exprs()?
+                } else {
+                    qual
+                });
+            }
+            let mut quals = match join_quals.len() {
+                0 => None,
+                1 => join_quals.pop(),
+                _ => Some(Qual::And(join_quals)),
+            };
 
-            let quals =
-                Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
+            let quals = Self::handle_heap_expr_optimization(
+                &join_qual_state,
+                &mut quals,
+                allow_without_operator,
+            );
 
             // If we have found something to push down in the join, then we can use the join quals
             // Note: these Join quals won't help in filtering down the data (as they contain
@@ -354,14 +410,31 @@ impl BaseScan {
             // that match partially the Join quals will be scored and snippets generated. That is
             // why it only makes sense to use the Join quals if we have used our operator and
             // also used pdb.score or pdb.snippet functions in the query.
-            if state.uses_our_operator && uses_score_or_snippet {
-                quals
-            } else {
-                None
+            if !join_qual_state.uses_our_operator || !uses_score_or_snippet {
+                return None;
             }
-        } else {
-            Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator)
-        };
+
+            // The scan is built from the join quals alone, so none of the base relation's own
+            // clauses were pushed down. `plan_custom_path` already moves SubPlans to `plan.qual`;
+            // defer the rest there too, as nothing else would evaluate them.
+            if matches!(ri_type, RestrictInfoType::BaseRelation) {
+                let mut unpushed = Vec::new();
+                for ri in restrict_info.iter_ptr() {
+                    if is_subplan(ri.cast(), root) {
+                        continue;
+                    }
+                    // As in `split_leaky_quals`, a clause that uses `@@@` can't be deferred.
+                    if expr_contains_search_predicate((*ri).clause.cast()) {
+                        return None;
+                    }
+                    unpushed.push(node_to_string_owned((*ri).clause.cast()));
+                }
+                deferred_plan_quals.extend(unpushed);
+            }
+            return quals;
+        }
+
+        let quals = Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
 
         // Finally, decide whether we can actually use the extracted quals.
         // We allow custom scan if:
@@ -395,6 +468,22 @@ impl BaseScan {
 
         quals.clone()
     }
+}
+
+/// True if a join clause of `rel` carries a search predicate.
+unsafe fn join_clauses_contain_search_predicate(rel: *mut pg_sys::RelOptInfo) -> bool {
+    PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo)
+        .iter_ptr()
+        .any(|ri| search_operator_relations::contains_search_predicate((*ri).clause.cast()))
+}
+
+fn warn_search_operator_simplified_away(rte: &pg_sys::RangeTblEntry) {
+    BaseScan::add_planner_warning(
+        "BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and \
+         `pdb.snippet` only reflect the remaining predicates. \
+         To disable this warning: SET paradedb.planner_warnings = 'off'",
+        search_operator_relations::rte_alias(rte),
+    );
 }
 
 /// Check if the query's target list contains window_agg() function calls
@@ -560,7 +649,15 @@ impl BaseScanDeclineReason {
 unsafe fn has_non_pushable_predicates(
     rel: *mut pg_sys::RelOptInfo,
     quals_pushed: &Option<Qual>,
+    has_deferred_quals: bool,
 ) -> Result<(), BaseScanDeclineReason> {
+    // Deferred clauses run in `plan.qual`, after the scan has produced (and counted) its rows.
+    if has_deferred_quals {
+        return Err(BaseScanDeclineReason::new(
+            "WHERE clause contains predicates that must be evaluated after the scan, for example to respect row-level security policies",
+        ));
+    }
+
     let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
 
     for ri in restrict_list.iter_ptr() {
@@ -591,6 +688,105 @@ unsafe fn has_non_pushable_predicates(
     Ok(())
 }
 
+/// Split `restrict_info` into the clauses that may be pushed into the scan and the
+/// `nodeToString` form of the leaky ones (see [`SecurityPushdown`]), which `plan_custom_path`
+/// evaluates in `plan.qual` so they never see rows an RLS policy rejects.
+///
+/// A leaky clause is still pushed down when [`runs_after_lower_security_quals`] holds.
+///
+/// Returns `None` if a leaky clause also uses `@@@` (e.g. `body @@@ 'x' OR secret::int > 0`):
+/// it can be neither pushed down nor deferred, so the scan must decline.
+unsafe fn split_leaky_quals(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    ri_type: RestrictInfoType,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    attempt_pushdown: bool,
+) -> Option<(PgList<pg_sys::RestrictInfo>, Vec<String>)> {
+    let mut pushable = PgList::<pg_sys::RestrictInfo>::new();
+    let mut deferred = Vec::new();
+    let context = PlannerContext::from_planner(root);
+
+    for ri in restrict_info.iter_ptr() {
+        match classify_security_pushdown(
+            &context,
+            rel,
+            rti,
+            ri,
+            ri_type,
+            indexrel,
+            attempt_pushdown,
+        ) {
+            SecurityPushdown::Safe => pushable.push(ri),
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: true,
+            } => return None,
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: false,
+            } if matches!(ri_type, RestrictInfoType::BaseRelation)
+                && runs_after_lower_security_quals(
+                    &context,
+                    rti,
+                    indexrel,
+                    ri,
+                    restrict_info,
+                    attempt_pushdown,
+                ) =>
+            {
+                pushable.push(ri)
+            }
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: false,
+            } => deferred.push(node_to_string_owned((*ri).clause.cast())),
+        }
+    }
+
+    Some((pushable, deferred))
+}
+
+/// True if the leaky base clause `ri` becomes a top-level heap filter and every clause of a
+/// lower `security_level` (e.g. an RLS policy) becomes an indexed conjunct. The heap filter
+/// then only evaluates `ri` on documents its `indexed_query`, which includes those clauses,
+/// already matched, so `ri` never sees a row they reject.
+unsafe fn runs_after_lower_security_quals(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    ri: *mut pg_sys::RestrictInfo,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    attempt_pushdown: bool,
+) -> bool {
+    let extract = |clause: *mut pg_sys::RestrictInfo| {
+        extract_quals(
+            context,
+            rti,
+            clause.cast(),
+            RestrictInfoType::BaseRelation,
+            indexrel,
+            false,
+            &mut QualExtractState::default(),
+            attempt_pushdown,
+        )
+    };
+
+    let is_top_level_heap_filter = matches!(
+        extract(ri),
+        Some(Qual::HeapExpr { search_query_input, .. })
+            if matches!(*search_query_input, SearchQueryInput::All)
+    );
+
+    is_top_level_heap_filter
+        && restrict_info
+            .iter_ptr()
+            .filter(|&other| (*other).security_level < (*ri).security_level)
+            .all(|lower| {
+                extract(lower)
+                    .is_some_and(|qual| qual.is_indexed_conjunct() && !qual.contains_heap_expr())
+            })
+}
+
 /// Returns true if the query's LIMIT can safely be pushed into this scan node.
 ///
 /// Three conditions must hold:
@@ -608,6 +804,7 @@ unsafe fn is_limit_pushdown_safe(
     baserels: *mut pg_sys::Bitmapset,
     rti: pg_sys::Index,
     quals: &Option<Qual>,
+    has_deferred_quals: bool,
 ) -> bool {
     let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
         || range_table::is_partitioned_table_setup(root, (*rel).relids, baserels);
@@ -615,7 +812,7 @@ unsafe fn is_limit_pushdown_safe(
         is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
 
     (rel_is_single_or_partitioned || is_left_driven_lateral)
-        && has_non_pushable_predicates(rel, quals).is_ok()
+        && has_non_pushable_predicates(rel, quals, has_deferred_quals).is_ok()
         && !classify_target_list_srf(root).is_unsafe()
 }
 
@@ -677,7 +874,17 @@ impl CustomScan for BaseScan {
             // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
 
-            if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
+            // No restriction may be all the planner left of a WHERE clause it folded away
+            // (`body @@@ 'q' OR TRUE`). The query still asked for this scan, which then covers
+            // every row as it does for `pdb.all()`.
+            let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && search_operator_relations::applies_to(builder.args().root, builder.args().rti);
+
+            if matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && !whole_where_folded_away
+            {
                 // this relation has no restrictions (WHERE clause predicates) and no window aggregates,
                 // so there's no need for us to do anything
                 return None;
@@ -721,21 +928,43 @@ impl CustomScan for BaseScan {
             //
             let is_select =
                 (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
+
+            // Predicates implied by the partial index predicate are never evaluated, so they
+            // can't leak.
+            let filtered_restrict_info =
+                filter_implied_predicates(bm25_index.rd_indpred, &restrict_info);
+
+            // SECURITY: keep leaky clauses out of the scan; they run in `plan.qual` instead.
+            let (pushable_restrict_info, mut deferred_plan_quals) = split_leaky_quals(
+                root,
+                rel,
+                rti,
+                &bm25_index,
+                ri_type,
+                &filtered_restrict_info,
+                is_select,
+            )?;
+
             let quals = Self::extract_all_possible_quals(
                 &mut builder,
                 root,
                 rti,
-                PgList::from_pg(restrict_info.as_ptr()),
+                pushable_restrict_info,
                 ri_type,
                 &bm25_index,
                 maybe_needs_const_projections,
                 is_select,
+                &mut deferred_plan_quals,
             );
+            // Computed after extraction, which may defer clauses of its own.
+            let has_deferred_quals = !deferred_plan_quals.is_empty();
 
             // If window aggregates are present, validate that the WHERE clause contains no
             // non-pushable predicates (e.g. subqueries, volatile functions, or unpushable
             // filters when filter pushdown is disabled) that would cause silent data loss or incorrect results.
-            if has_window_aggs && let Err(reason) = has_non_pushable_predicates(rel, &quals) {
+            if has_window_aggs
+                && let Err(reason) = has_non_pushable_predicates(rel, &quals, has_deferred_quals)
+            {
                 pgrx::error!("Cannot execute window aggregate: {}", reason.message);
             }
 
@@ -747,6 +976,10 @@ impl CustomScan for BaseScan {
             let quals = match quals {
                 Some(q) => q,
                 None if has_window_aggs => Qual::All,
+                None if whole_where_folded_away => {
+                    warn_search_operator_simplified_away(builder.args().rte());
+                    Qual::All
+                }
                 None => return None,
             };
 
@@ -826,6 +1059,7 @@ impl CustomScan for BaseScan {
                         baserels,
                         rti,
                         &Some(quals.clone()),
+                        has_deferred_quals,
                     )
             });
 
@@ -880,7 +1114,7 @@ impl CustomScan for BaseScan {
             } else {
                 // Ask the index. This is the one branch that opens, so reuse that same
                 // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
+                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone(), None);
                 precomputed_query_cost = cost;
                 sel.unwrap_or(UNKNOWN_SELECTIVITY)
             };
@@ -896,6 +1130,7 @@ impl CustomScan for BaseScan {
             custom_private.set_query(query.clone());
             custom_private.set_limit_offset(limit_offset.clone());
             custom_private.set_segment_count(segment_count);
+            custom_private.set_deferred_plan_quals(deferred_plan_quals);
 
             // Determine whether we might be able to sort.
             if is_maybe_topk && topk_pathkey_info.pathkeys().is_some() {
@@ -1012,10 +1247,11 @@ impl CustomScan for BaseScan {
                 // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
                 // applied to the cost.)
                 let path_drive_cost = match reason {
-                    WorkerDecisionReason::BlockWandPrunable => None,
+                    WorkerDecisionReason::BlockWandPrunable
+                    | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
-                    | WorkerDecisionReason::SortedPerSegment
+                    | WorkerDecisionReason::PerSegment
                     | WorkerDecisionReason::RowHeuristic => drive_cost,
                 };
                 let drive = match (path_drive_cost, row_estimate.known_rows()) {
@@ -1258,19 +1494,39 @@ impl CustomScan for BaseScan {
             // Collect subplans that our Custom Scan doesn't handle internally and set them as plan.qual.
             // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
             // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
+            // Clauses deferred by `split_leaky_quals` go there too. `clauses` is already sorted
+            // by `security_level`, so RLS quals stay ahead of the leaky clauses.
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
+            let deferred = builder.custom_private().deferred_plan_quals().to_vec();
+            let mut deferred_found = vec![false; deferred.len()];
             let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
-                if is_subplan(clause, builder.args().root) {
-                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
-                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
-                        let ri = clause as *mut pg_sys::RestrictInfo;
-                        (*ri).clause.cast()
-                    } else {
-                        clause
-                    };
+                // strip RestrictInfo wrapper, plan.qual needs bare expressions
+                let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                    let ri = clause as *mut pg_sys::RestrictInfo;
+                    (*ri).clause.cast()
+                } else {
+                    clause
+                };
+                // Check deferred clauses first, as one may itself contain a SubPlan.
+                let deferred_idx = (!deferred.is_empty())
+                    .then(|| node_to_string_owned(bare_clause))
+                    .and_then(|s| {
+                        (0..deferred.len()).find(|&i| !deferred_found[i] && deferred[i] == s)
+                    });
+                if let Some(i) = deferred_idx {
+                    deferred_found[i] = true;
+                    subplan_quals.push(bare_clause);
+                } else if is_subplan(clause, builder.args().root) {
                     subplan_quals.push(bare_clause);
                 }
+            }
+
+            // Fail closed: never silently drop a deferred clause.
+            if deferred_found.contains(&false) {
+                pgrx::error!(
+                    "ParadeDB Base Scan: a deferred row-level security predicate was not found in the scan clauses"
+                );
             }
 
             // SubPlan quals require per-tuple heap access for ExecQual, which would
@@ -1476,7 +1732,7 @@ impl CustomScan for BaseScan {
         if explainer.is_verbose()
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
-            explainer.add_text("Worker Selection", reason.label());
+            explainer.add_text("Worker Selection", reason.to_string());
         }
 
         if explainer.is_analyze() {
@@ -1669,7 +1925,6 @@ impl CustomScan for BaseScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
-            let planstate = state.planstate();
 
             pg_sys::ExecInitScanTupleSlot(
                 estate,
@@ -1699,10 +1954,8 @@ impl CustomScan for BaseScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            state
-                .custom_state_mut()
-                .init_expr_context(estate, planstate);
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            let custom_state = state.custom_state_mut();
+            custom_state.runtime_context = custom_state.init_expr_context(estate);
         }
         let begin_ns = begin_start.elapsed().as_nanos() as u64;
         let custom_state = state.custom_state_mut();
@@ -1876,27 +2129,22 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Leader-only: last chance to read DSM before Postgres destroys it.
+        // Postgres calls this hook at the end of `ExecutePlan`. In a worker, that is before it
+        // detaches its tuple queue, so a leader that read every row finds the worker's data in
+        // the DSM. `take()` makes a second call a no-op: by then the DSM can be gone.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel.take()
-            && parallel.is_leader()
-        {
-            parallel.finalize_explain(&mut scan_state.telemetry);
-        };
-    }
-
-    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Workers: DSM is still alive; publish local telemetry once.
-        // Leader: do not touch DSM — Shutdown already ran (or serial path).
-        {
-            let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel.take()
-                && !parallel.is_leader()
-            {
+        if let Some(parallel) = scan_state.parallel.take() {
+            if parallel.is_leader() {
+                // Leader: last chance to read the DSM before Postgres destroys it.
+                parallel.finalize_explain(&mut scan_state.telemetry);
+            } else {
+                // Worker: flush local telemetry into the DSM for the leader to read.
                 parallel.publish_telemetry(&scan_state.telemetry);
             }
         }
+    }
 
+    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get some things dropped now. Order matters: scorers hold bitmap
         // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
         // drops before the bitmap machinery is torn down.
@@ -2277,10 +2525,12 @@ fn choose_exec_method(
 /// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData>) {
+    let limit_offset = builder.custom_private().limit_offset().clone();
     match builder.custom_state_ref().exec_method_type.clone() {
-        ExecMethodType::Normal => builder
-            .custom_state()
-            .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),
+        ExecMethodType::Normal => builder.custom_state().assign_exec_method(
+            NormalScanExecState::new(limit_offset),
+            Some(ExecMethodType::Normal),
+        ),
         ExecMethodType::TopK {
             heaprelid,
             limit_offset,
@@ -2304,7 +2554,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                 )
             } else {
                 builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
+                    NormalScanExecState::new(limit_offset),
                     Some(ExecMethodType::Normal),
                 )
             }

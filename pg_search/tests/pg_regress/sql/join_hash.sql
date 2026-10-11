@@ -18,8 +18,8 @@ SET paradedb.enable_join_custom_scan = on;
 DROP TABLE IF EXISTS hash_t1 CASCADE;
 DROP TABLE IF EXISTS hash_t2 CASCADE;
 
-CREATE TABLE hash_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE hash_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE hash_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE hash_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 INSERT INTO hash_t1 SELECT i, 'val ' || i FROM generate_series(1, 1000) i;
 INSERT INTO hash_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series(1, 1000) i;
@@ -71,8 +71,8 @@ LIMIT 10;
 DROP TABLE IF EXISTS hash_sorted_t1 CASCADE;
 DROP TABLE IF EXISTS hash_sorted_t2 CASCADE;
 
-CREATE TABLE hash_sorted_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE hash_sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE hash_sorted_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE hash_sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 -- t1: 1500 rows (clears the TermSetQuery FastField cardinality threshold of
 -- 1024 so the FastField dispatch path is reached).

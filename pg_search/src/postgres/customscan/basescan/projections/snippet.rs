@@ -17,6 +17,7 @@
 
 use crate::api::{FieldName, HashMap, Varno};
 use crate::nodecast;
+use crate::postgres::customscan::basescan::projections::missing_scan_error;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::node::NodeExt;
 
@@ -240,6 +241,7 @@ impl SnippetType {
 
 #[pgrx::pg_schema]
 pub mod pdb {
+    use crate::postgres::customscan::basescan::projections::missing_scan_error;
     use pgrx::callconv::{BoxRet, FcInfo};
     use pgrx::datum::Datum;
     use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -335,9 +337,7 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!(
-            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-        );
+        missing_scan_error("pdb.snippet")
     }
 
     #[allow(unused_variables)]
@@ -351,9 +351,7 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!(
-            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-        );
+        missing_scan_error("pdb.snippets")
     }
 
     #[allow(unused_variables)]
@@ -377,9 +375,7 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!(
-            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-        );
+        missing_scan_error("pdb.snippet_positions")
     }
 }
 
@@ -396,9 +392,7 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!(
-        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-    );
+    missing_scan_error("paradedb.snippet")
 }
 
 #[warn(deprecated)]
@@ -413,9 +407,7 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!(
-        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-    );
+    missing_scan_error("paradedb.snippets")
 }
 
 #[warn(deprecated)]
@@ -440,9 +432,7 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!(
-        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-    );
+    missing_scan_error("paradedb.snippet_positions")
 }
 
 extension_sql!(

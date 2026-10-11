@@ -12,7 +12,7 @@ DROP TABLE IF EXISTS stk_documents CASCADE;
 CREATE TABLE stk_documents (
     id TEXT PRIMARY KEY,
     category TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 10 documents. 5 belong to PROJECT_ALPHA (scattered).
 INSERT INTO stk_documents (id, category) VALUES
 ('doc-01', 'PROJECT_ALPHA design review'),
@@ -30,7 +30,7 @@ CREATE TABLE stk_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 100 files, each referencing one of the 10 documents via round-robin.
 -- Titles are 'File Title NNN' for deterministic sort order.
 INSERT INTO stk_files (document_id, title, content)
@@ -157,7 +157,7 @@ LIMIT 3;
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=50, output_bytes=64.4 KB, output_batches=1]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=50, output_bytes=64.4 KB, output_batches=1, ctids_fetched=50, ctids_lazy=0]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=50, output_bytes=128.0 KB, output_batches=1, build_mem_used=304.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=112.0 B, output_batches=1]
@@ -303,7 +303,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Output: d.id
                      Table: stk_documents
                      Index: stk_documents_bm25_idx
-                     Worker Selection: Cost model
+                     Worker Selection: Row-capped
                      Exec Method: ColumnarExecState
                      Columnar: id
                      Scores: false
@@ -633,7 +633,7 @@ DROP TABLE IF EXISTS stk_documents CASCADE;
 CREATE TABLE stk_documents (
     id TEXT PRIMARY KEY,
     category TEXT
-);
+) WITH (autovacuum_enabled = false);
 INSERT INTO stk_documents (id, category) VALUES
 ('doc-01', 'PROJECT_ALPHA design review'),
 ('doc-02', 'BETA_GROUP budget overview'),
@@ -645,7 +645,7 @@ CREATE TABLE stk_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments.
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb ((id::pdb.literal), (category::pdb.unicode_words('columnar=true')));
@@ -700,7 +700,7 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=5, output_bytes=248.0 B, output_batches=1]
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=5, output_bytes=80.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=5, metrics=[rows_input=14.42 K, rows_output=5, segments_seen=2]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=14.42 K, output_bytes=240.6 KB, output_batches=2]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=14.42 K, output_bytes=240.6 KB, output_batches=2, ctids_fetched=14.42 K, ctids_lazy=0]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=14.42 K, output_bytes=256.0 KB, output_batches=2, build_mem_used=204.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.42 K, avg_fanout=100% (14.42 K/14.42 K), probe_hit_rate=55.81% (14.42 K/25.83 K)]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=80.0 B, output_batches=1]

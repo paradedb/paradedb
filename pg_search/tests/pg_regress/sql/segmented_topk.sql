@@ -17,7 +17,7 @@ DROP TABLE IF EXISTS stk_documents CASCADE;
 CREATE TABLE stk_documents (
     id TEXT PRIMARY KEY,
     category TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 -- 10 documents. 5 belong to PROJECT_ALPHA (scattered).
 INSERT INTO stk_documents (id, category) VALUES
@@ -37,7 +37,7 @@ CREATE TABLE stk_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 -- 100 files, each referencing one of the 10 documents via round-robin.
 -- Titles are 'File Title NNN' for deterministic sort order.
@@ -339,7 +339,7 @@ DROP TABLE IF EXISTS stk_documents CASCADE;
 CREATE TABLE stk_documents (
     id TEXT PRIMARY KEY,
     category TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 INSERT INTO stk_documents (id, category) VALUES
 ('doc-01', 'PROJECT_ALPHA design review'),
@@ -353,7 +353,7 @@ CREATE TABLE stk_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments.

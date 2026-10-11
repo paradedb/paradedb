@@ -9,8 +9,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/scripts/check_migration_diff.py"
       - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/scripts/check_migration_diff.py"
       - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"

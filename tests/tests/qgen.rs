@@ -22,7 +22,9 @@ use tests::fixtures::querygen::mutationgen::churn_setup;
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
-use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_table};
+use tests::fixtures::querygen::pdbagggen::{
+    arb_pdb_agg_join, arb_pdb_agg_single_table, arb_pdb_agg_window,
+};
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::windowgen::arb_window_targets;
@@ -287,7 +289,7 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
     let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid", "tags"]);
 
     proptest!(qgen_proptest_config(), |(
-        ((join, where_expr, cross_rel), distinct_mode, mut order_parts, window_targets) in arb_joins_and_wheres(
+        ((join, where_expr, cross_rel), distinct_mode, mut order_parts, window_targets, pdb_agg) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
             &where_and_join_columns,
@@ -297,11 +299,17 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>();
+            let pdb_agg = proptest::option::of(arb_pdb_agg_window(
+                used_tables.clone(),
+                join.has_keyless_step(),
+                join.unnested_fields(),
+            ));
             (
                 Just((join, where_expr, cross_rel)),
                 arb_distinct_mode(used_tables.clone(), COLUMNS),
                 arb_joinscan_order_parts(used_tables.clone(), false),
                 arb_window_targets(used_tables),
+                pdb_agg,
             )
         }),
         limit in proptest::option::of(1..=50usize),
@@ -310,6 +318,36 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
     )| {
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
+
+        // Assert that JoinScan or AggregateScan was actually used.
+        // With JoinScan running at UPPERREL_FINAL, all generated join shapes (inner, outer,
+        // cross, multi-table, DISTINCT, lateral unnest, and expression ordering)
+        // are plannable by ParadeDB's custom scan whenever LIMIT is present, except when
+        // outer joins combine with null-testing predicates (`IS NULL`, `IS NOT NULL`, or
+        // negated equivalents). PostgreSQL's optimizer (`reduce_outer_joins`) converts such
+        // outer joins into anti-joins (`JOIN_ANTI`) and prunes the inner relation. When join keys
+        // or projections reference columns from the pruned relation with no output-visible
+        // equivalent, JoinScan intentionally declines to plan (see `rewrite_pruned_join_keys`).
+        let expect_custom_scan = gucs.join_custom_scan
+            && limit.is_some()
+            && window_targets.iter().all(|t| t.is_absorbable())
+            // DISTINCT + window declines: the window expression is itself a
+            // DISTINCT column, so the query's distinct pathkeys always
+            // contain it and JoinScan's ORDER BY resolution refuses the path
+            // ("unsupported ORDER BY expression shape").
+            && !(distinct_mode.is_distinct() && !window_targets.is_empty())
+            && !(!join.has_only_inner() && where_expr.has_null_predicate());
+
+        // `pdb.agg()` has no PostgreSQL fallback, so a JoinScan that declines is an
+        // error, not a second path to compare. Its window form joins the target
+        // list only where the scan has to engage, and not under DISTINCT, where
+        // a jsonb target entry declines. The planner hook also raises an error
+        // for a `pdb.agg()` window whose WHERE clause needs a heap filter while
+        // filter pushdown is off. PostgreSQL never runs it: the spec's
+        // `GROUP BY` over the same join is the oracle for the document.
+        let pdb_agg = pdb_agg.filter(|_| {
+            expect_custom_scan && gucs.filter_pushdown && !distinct_mode.is_distinct()
+        });
 
         let mut target_cols = vec![
             format!("{}.id", used_tables[0]),
@@ -349,6 +387,14 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
         let target_cols_str = target_cols.join(", ");
         let distinct_kw = if distinct_mode.is_distinct() { "DISTINCT " } else { "" };
         let from = format!("SELECT {distinct_kw}{target_cols_str} {join_clause}");
+        // The document goes last, where `window_rows` reads it.
+        let bm25_from = match &pdb_agg {
+            Some(agg) => format!(
+                "SELECT {distinct_kw}{target_cols_str}, {} OVER () {join_clause}",
+                agg.call()
+            ),
+            None => from.clone(),
+        };
 
         let (where_pg, where_bm25) = match &cross_rel {
             Some(cr) => (
@@ -374,31 +420,15 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
         };
 
         let pg_query = format!("{from} WHERE {where_pg} ORDER BY {order_by} {limit_clause}");
-        let bm25_query = format!("{from} WHERE {where_bm25} ORDER BY {order_by} {limit_clause}");
-
-        // Assert that JoinScan or AggregateScan was actually used.
-        // With JoinScan running at UPPERREL_FINAL, all generated join shapes (inner, outer,
-        // cross, multi-table, DISTINCT, lateral unnest, and expression ordering)
-        // are plannable by ParadeDB's custom scan whenever LIMIT is present, except when
-        // outer joins combine with null-testing predicates (`IS NULL`, `IS NOT NULL`, or
-        // negated equivalents). PostgreSQL's optimizer (`reduce_outer_joins`) converts such
-        // outer joins into anti-joins (`JOIN_ANTI`) and prunes the inner relation. When join keys
-        // or projections reference columns from the pruned relation with no output-visible
-        // equivalent, JoinScan intentionally declines to plan (see `rewrite_pruned_join_keys`).
-        let expect_custom_scan = gucs.join_custom_scan
-            && limit.is_some()
-            && window_targets.iter().all(|t| t.is_absorbable())
-            // DISTINCT + window declines: the window expression is itself a
-            // DISTINCT column, so the query's distinct pathkeys always
-            // contain it and JoinScan's ORDER BY resolution refuses the path
-            // ("unsupported ORDER BY expression shape").
-            && !(distinct_mode.is_distinct() && !window_targets.is_empty())
-            && !(!join.has_only_inner() && where_expr.has_null_predicate());
+        let bm25_query = format!("{bm25_from} WHERE {where_bm25} ORDER BY {order_by} {limit_clause}");
+        let pdb_window = pdb_agg
+            .as_ref()
+            .map(|agg| (agg, agg.pg_query(&join_clause, &where_pg)));
 
         if expect_custom_scan {
             // A leftover PostgreSQL WindowAgg node would mean the scan
             // engaged without absorbing the window aggregates (#5637).
-            let forbidden: &[&str] = if window_targets.is_empty() {
+            let forbidden: &[&str] = if window_targets.is_empty() && pdb_agg.is_none() {
                 &[]
             } else {
                 &["WindowAgg"]
@@ -417,22 +447,39 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
             )?;
         }
 
-        let has_window_targets = !window_targets.is_empty();
+        // A `pdb.agg()` document takes the typed path too: only the candidate's
+        // rows carry it, so the rows are compared without it and the document
+        // on its own.
+        let typed_rows = !window_targets.is_empty() || pdb_agg.is_some();
         qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
             &pool,
             &setup_sql,
-            |query, _, conn| {
+            |query, side, conn| {
                 "SET work_mem TO '16MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
+                // The document on the candidate's rows against the buckets of the
+                // PostgreSQL `GROUP BY`. With no row there is no document to compare.
+                let mut buckets = match &pdb_window {
+                    Some((agg, pg_buckets_query)) if !rows.is_empty() => {
+                        if side.is_candidate() {
+                            agg.window_rows(&rows)?
+                        } else {
+                            agg.rows(pg_buckets_query.as_str().fetch_dynamic_result(conn)?)?
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                buckets.sort();
+                let document_cols = usize::from(side.is_candidate() && pdb_window.is_some());
                 let mut row_strings: Vec<String> = rows
                     .into_iter()
                     .map(|row| {
                         use sqlx::Row;
                         let id: i64 = row.try_get(0).unwrap_or(0);
-                        if !has_window_targets {
+                        if !typed_rows {
                             return format!("{:020}|{:?}", id, row);
                         }
                         // Typed, fixed-precision formatting when window
@@ -442,7 +489,7 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
                         // raw row Debug representation would differ in
                         // insignificant digits.
                         let mut parts = Vec::new();
-                        for i in 0..row.len() {
+                        for i in 0..row.len() - document_cols {
                             let part = if let Ok(v) = row.try_get::<i64, _>(i) {
                                 v.to_string()
                             } else if let Ok(v) = row.try_get::<i32, _>(i) {
@@ -466,7 +513,7 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
                     })
                     .collect();
                 row_strings.sort();
-                Ok(row_strings)
+                Ok((row_strings, buckets))
             }
         ))?;
     });

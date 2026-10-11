@@ -21,6 +21,7 @@ pub mod datafusion_build;
 pub mod datafusion_exec;
 pub mod datafusion_project;
 pub mod exec;
+pub mod explain;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
@@ -29,6 +30,7 @@ pub mod limit_offset;
 pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::node::NodeExt;
+use crate::postgres::search_operator_relations;
 pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
@@ -117,6 +119,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_ta
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
@@ -703,7 +706,6 @@ impl CustomScan for AggregateScan {
                     ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
                 };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
-                    base_plan: Some(plan.clone()),
                     plan,
                     targetlist,
                     topk,
@@ -887,7 +889,14 @@ impl CustomScan for AggregateScan {
             });
         }
 
-        // Add note about recursive cost estimation if GUC is enabled
+        if explainer.is_analyze()
+            && let Some(parallelism) = &state.custom_state().parallelism
+        {
+            explainer.add_group("Parallelism", |explainer| {
+                parallelism.explain(explainer);
+            });
+        }
+
         if gucs::explain_recursive_estimates() && explainer.is_verbose() {
             explainer.add_text(
                 "Recursive Query Estimates",
@@ -902,9 +911,6 @@ impl CustomScan for AggregateScan {
         eflags: i32,
     ) {
         if state.custom_state().is_datafusion_backend() {
-            // ExecInitCustomScan already built ps_ProjInfo from ps_ExprContext;
-            // assigning a fresh context here would leave the two divergent.
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             // MPP: pin the source manifests and mark one launch attempt. The real logical and
             // physical plan is built once, on first execution; its finished stages provide the
             // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
@@ -936,10 +942,8 @@ impl CustomScan for AggregateScan {
                 state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
             }
 
-            state
-                .custom_state_mut()
-                .init_expr_context(estate, planstate);
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            let custom_state = state.custom_state_mut();
+            custom_state.runtime_context = custom_state.init_expr_context(estate);
 
             // Create a reusable tuple slot for aggregate results
             // This avoids per-row MakeTupleTableSlot calls which leak memory
@@ -1657,10 +1661,14 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         let is_join = input_rel.reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL;
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
         if is_join
             && !has_paradedb_agg
             && !gucs::enable_custom_scan_without_operator()
             && !plan.has_search_predicate()
+            && !sources
+                .iter()
+                .any(|source| unsafe { search_operator_relations::applies_to(root, source.rti) })
         {
             return Err(AggregatePathDecline::Quiet);
         }
@@ -1956,10 +1964,11 @@ impl AggregateScan {
         // Capture before the mutable borrow on `datafusion_state`. Threaded
         // down to each `PgSearchTableProvider` so HeapFilter queries (`=`
         // on a `pdb.literal`-cast column, etc.) can resolve their runtime
-        // expressions - the same plumbing single-table aggregates get from
-        // `state.runtime_context` directly.
-        let runtime_expr_context =
-            (!state.runtime_context.is_null()).then_some(state.runtime_context);
+        // expressions. A provider with something to solve gets a context of its
+        // own from the planstate (see `build_source_df` in datafusion_exec.rs);
+        // `ps_ExprContext` is what every provider's reader evaluates in.
+        let ps_expr_context = state.csstate.ss.ps.ps_ExprContext;
+        let runtime_expr_context = (!ps_expr_context.is_null()).then_some(ps_expr_context);
         let ps = state.planstate();
         let runtime_planstate = (!ps.is_null()).then_some(ps);
 
@@ -2012,6 +2021,10 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+                for source in df_state.plan.sources() {
+                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,
@@ -2109,7 +2122,7 @@ impl AggregateScan {
         }
 
         let projection_info = state.projection_info();
-        let expr_context = state.runtime_context;
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
         assert!(
             !expr_context.is_null(),
             "aggregate expression context must be initialized"
@@ -2223,7 +2236,8 @@ impl AggregateScan {
                 )
             })
             .collect();
-        let check = mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q)));
+        let check =
+            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {

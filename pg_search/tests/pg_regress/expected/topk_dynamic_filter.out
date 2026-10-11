@@ -18,7 +18,7 @@ CREATE TABLE suppliers (
     id INTEGER PRIMARY KEY,
     name TEXT,
     region TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 5 suppliers. Only some will match search predicates in individual tests.
 INSERT INTO suppliers (id, name, region) VALUES
 (1, 'AlphaSupply', 'north america domestic shipping'),
@@ -32,7 +32,7 @@ CREATE TABLE products (
     description TEXT,
     supplier_id INTEGER,
     price NUMERIC(10,2)
-);
+) WITH (autovacuum_enabled = false);
 -- 30 products: all mention "premium" so they all match the search predicate.
 -- supplier_id cycles 1-5, so each supplier has 6 products.
 -- Prices spread from ~20 to ~300.
@@ -155,7 +155,7 @@ LIMIT 3;
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1]
      :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 14], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1, row_replacements=3]
-     :     VisibilityFilterExec: tables=[p, s], metrics=[output_rows=6, output_bytes=64.1 KB, output_batches=1]
+     :     VisibilityFilterExec: tables=[p, s], metrics=[output_rows=6, output_bytes=64.1 KB, output_batches=1, ctids_fetched=12, ctids_lazy=0]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@0], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
@@ -358,22 +358,22 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
  Sort
    Output: p.id, p.name, s.name
    Sort Key: p.id
-   ->  Hash Join
+   ->  Nested Loop
          Output: p.id, p.name, s.name
          Inner Unique: true
-         Hash Cond: (p.supplier_id = s.id)
          ->  Custom Scan (ParadeDB Base Scan) on public.products p
                Output: p.id, p.name, p.supplier_id
                Table: products
                Index: products_bm25_idx
-               Worker Selection: Cost model
+               Worker Selection: Row-capped
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         ->  Hash
-               Output: s.name, s.id
-               ->  Seq Scan on public.suppliers s
-                     Output: s.name, s.id
+         ->  Bitmap Heap Scan on public.suppliers s
+               Output: s.id, s.name, s.region
+               Recheck Cond: (p.supplier_id = s.id)
+               ->  Bitmap Index Scan on suppliers_pkey
+                     Index Cond: (s.id = p.supplier_id)
 (19 rows)
 
 -- =============================================================================
@@ -400,7 +400,7 @@ CREATE TABLE bench_documents (
     id TEXT PRIMARY KEY,
     category TEXT,
     title TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 20 documents: IDs are 'doc-01' .. 'doc-20'.
 -- "category" assigns roughly half to 'PROJECT_ALPHA' and the rest to other groups.
 -- The ALPHA documents are scattered: doc-01, doc-04, doc-07, doc-10, doc-13, doc-16, doc-19.
@@ -430,7 +430,7 @@ CREATE TABLE bench_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 200 files, each randomly referencing a document.
 -- document_id cycles: file 1 → doc-01, file 2 → doc-02, ..., file 20 → doc-20, file 21 → doc-01, etc.
 -- Titles are 'File Title NNN' so they sort nicely and Top K can tighten thresholds.
@@ -466,7 +466,7 @@ LIMIT 3;
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=70, output_bytes=64.5 KB, output_batches=1]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=70, output_bytes=64.5 KB, output_batches=1, ctids_fetched=70, ctids_lazy=0]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=70, output_bytes=128.0 KB, output_batches=1, build_mem_used=368.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=7, output_bytes=176.0 B, output_batches=1]
@@ -513,7 +513,7 @@ LIMIT 3;
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=10, rows_output=3, segments_seen=1]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=10, output_bytes=64.1 KB, output_batches=1]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=10, output_bytes=64.1 KB, output_batches=1, ctids_fetched=10, ctids_lazy=0]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=10, output_bytes=128.0 KB, output_batches=1, build_mem_used=97.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"intro","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]

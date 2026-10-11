@@ -36,14 +36,19 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::build::{
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+};
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::parallel::{WorkerDecisionReason, aggregate_nworkers};
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::serializable::{predicate_lock_read, predicate_lock_read_oid};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
@@ -69,6 +74,71 @@ use tantivy::index::SegmentId;
 pub enum AggregateRequest {
     Sql(AggregateCSClause),
     Json(Aggregations),
+}
+
+impl AggregateRequest {
+    /// Estimates the number of logical operations needed to aggregate each matching document.
+    /// Each collector update counts as one operation; string cardinality also includes
+    /// sorting its distinct values. The caller multiplies this count by estimated matching
+    /// documents and cpu_operator_cost. Value multiplicity is not included.
+    pub(crate) fn updates_per_doc(&self, reader: &SearchIndexReader) -> Option<usize> {
+        let mut updates_per_doc = 0;
+        match self {
+            AggregateRequest::Sql(clause) => {
+                if clause.is_bare_doc_count() {
+                    return Some(0);
+                }
+                if clause.has_filter() {
+                    return None;
+                }
+                updates_per_doc += clause.grouping_columns().len();
+                for aggregate in clause.aggregates() {
+                    if clause.can_use_doc_count(aggregate) {
+                        continue;
+                    }
+                    updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
+                        1
+                    } else {
+                        tantivy_updates_per_doc(&aggregate.clone().into(), reader)?
+                    };
+                }
+            }
+            AggregateRequest::Json(aggregations) => {
+                for aggregation in aggregations.values() {
+                    updates_per_doc += tantivy_updates_per_doc(aggregation, reader)?;
+                }
+            }
+        }
+        Some(updates_per_doc)
+    }
+}
+
+fn tantivy_updates_per_doc(aggregation: &Aggregation, reader: &SearchIndexReader) -> Option<usize> {
+    if matches!(aggregation.agg, AggregationVariants::Filter(_)) {
+        return None;
+    }
+    let mut updates = 1;
+    if let AggregationVariants::Cardinality(cardinality) = &aggregation.agg
+        && reader
+            .schema()
+            .search_field(&cardinality.field)
+            .is_some_and(|field| field.is_text())
+    {
+        // String cardinality sorts distinct term IDs before resolving and hashing them.
+        // Without distinct-value statistics, allow one value per document in the largest
+        // segment: sorting N values adds ceil(log2(N)) comparisons per value.
+        let segment_docs = reader
+            .segment_readers()
+            .iter()
+            .map(|segment| segment.max_doc())
+            .max()
+            .unwrap_or(0);
+        updates += (segment_docs.max(1) as f64).log2().ceil() as usize;
+    }
+    for child in aggregation.sub_aggregation.values() {
+        updates += tantivy_updates_per_doc(child, reader)?;
+    }
+    Some(updates)
 }
 
 impl TryInto<Aggregations> for AggregateRequest {
@@ -411,11 +481,11 @@ impl<'a> ParallelAggregationWorker<'a> {
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
-        let count_all = self.query.is_match_all()
-            && matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+        let count_all = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
                 if clause.is_bare_doc_count()
                     && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let include_doc_count = aggregations.contains_key(DocCountKey::NAME);
         let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
@@ -430,6 +500,10 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
+        // The leader's lock already covers this read. Each backend keeps its own table of the
+        // predicate locks it holds, though, and a worker without the relation lock in it takes
+        // a redundant tuple lock on every heap visibility check below.
+        predicate_lock_read(&heaprel, unsafe { pg_sys::GetActiveSnapshot() });
         let visibility_stats = self
             .config
             .collect_visibility_stats()
@@ -445,7 +519,12 @@ impl<'a> ParallelAggregationWorker<'a> {
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
             if count_all {
-                reader.collect(CountAllCollector::new(base_collector, vischeck))
+                reader.collect(CountAllCollector::new(
+                    base_collector,
+                    vischeck,
+                    self.query.is_match_all(),
+                    include_doc_count,
+                ))
             } else {
                 let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
                 reader.collect(InterruptableCollector::new(mvcc_collector))
@@ -554,12 +633,11 @@ pub fn execute_aggregate(
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
     mut visibility_stats: Option<&mut VisibilityStats>,
+    mut parallelism: Option<&mut AggregateParallelism>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
-    // Resolve `visibility` to a single decision for this execution before anything
-    // branches on it. `threshold` estimates the query's matching row count here
-    // rather than at plan time so that the `paradedb.aggregate()` UDF, which the
-    // planner never sees, resolves the same way as the custom scan paths.
-    let solve_mvcc = visibility.resolve_filtering(index, &query);
+    if let Some(heaprelid) = index.rel_oid() {
+        predicate_lock_read_oid(heaprelid, unsafe { pg_sys::GetActiveSnapshot() });
+    }
 
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
@@ -603,6 +681,8 @@ pub fn execute_aggregate(
             None,
         )?;
 
+        let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
+
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries
         // on delete-free segments, a scoreless docset drain otherwise —
@@ -617,6 +697,9 @@ pub fn execute_aggregate(
                 && let Some(source) = bitmap_exec.private_source()
             {
                 cell.fill(source);
+            }
+            if let Some(stats) = parallelism {
+                stats.worker_selection_reason = Some(WorkerDecisionReason::DocumentCount);
             }
             let count = reader.count_matched_docs()?;
             let mut results = AggregationResults::default();
@@ -635,20 +718,15 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
+        let (nworkers, parallel_cost) =
+            aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
+
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
             .segment_readers()
             .iter()
             .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
-        }
         // Publish the bitmap claim table for the worker pool: rebuild the
         // leader's bitmap into this scan's own DSA area, mint one iteration state
         // per participant slot, and refresh the leader's cell (cloned into
@@ -683,6 +761,15 @@ pub fn execute_aggregate(
             bitmap_handle,
         )?;
 
+        if let Some(stats) = parallelism.as_deref_mut() {
+            stats.workers_requested = nworkers;
+            stats.worker_selection_reason = Some(if parallel_cost.is_some() {
+                WorkerDecisionReason::CostModel
+            } else {
+                WorkerDecisionReason::PerSegment
+            });
+            stats.cost = parallel_cost;
+        }
         pgrx::debug1!(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
             *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
@@ -697,6 +784,9 @@ pub fn execute_aggregate(
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
+            if let Some(stats) = parallelism {
+                stats.workers_launched = nlaunched;
+            }
             pgrx::debug1!("launched {nlaunched} workers");
             if pg_sys::parallel_leader_participation {
                 nlaunched += 1;
@@ -1132,6 +1222,10 @@ pub mod interrupt_collector {
             self.inner.requires_scoring()
         }
 
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
         fn merge_fruits(
             &self,
             segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
@@ -1169,6 +1263,15 @@ pub mod interrupt_collector {
             self.inner.collect_block(docs);
         }
 
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
+        fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            self.maybe_check_interrupt(tantivy::BLOCK_WINDOW as usize);
+            self.inner.collect_bitmap(base, mask);
+        }
+
         fn harvest(self) -> Self::Fruit {
             self.inner.harvest()
         }
@@ -1180,7 +1283,7 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::postgres::heap::VisibilityChecker;
+    use crate::postgres::heap::{VisibilityChecker, VisibilityMask};
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
@@ -1219,18 +1322,16 @@ pub mod mvcc_collector {
                     Vec::new()
                 },
                 visibility_buffer: Vec::with_capacity(capacity),
-                filtered_doc_buffer: Vec::with_capacity(capacity),
-                filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(capacity)
-                } else {
-                    Vec::new()
-                },
                 requires_scoring,
             })
         }
 
         fn requires_scoring(&self) -> bool {
             self.inner.requires_scoring()
+        }
+
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
         }
 
         fn merge_fruits(
@@ -1263,10 +1364,6 @@ pub mod mvcc_collector {
         // Entry i records whether doc_buffer[i] is visible to the query snapshot.
         visibility_buffer: Vec<bool>,
 
-        // Outgoing buffers
-        filtered_doc_buffer: Vec<DocId>,
-        filtered_score_buffer: Vec<Score>,
-
         requires_scoring: bool,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
@@ -1284,40 +1381,46 @@ pub mod mvcc_collector {
                 .as_ref()
                 .expect("buffered docs need visibility checks")
                 .lock();
-            self.visibility_buffer.resize(self.doc_buffer.len(), false);
-            vischeck.check_segment_docs_mask(
+            let mask = vischeck.check_segment_docs_mask(
                 self.segment_ord,
                 &self.doc_buffer,
                 &mut self.visibility_buffer,
             );
             drop(vischeck);
 
-            // Filter visible docs.
-            self.filtered_doc_buffer.clear();
-            if self.requires_scoring {
-                self.filtered_score_buffer.clear();
-            }
-
-            for (i, &visible) in self.visibility_buffer.iter().enumerate() {
-                if visible {
-                    self.filtered_doc_buffer.push(self.doc_buffer[i]);
+            match mask {
+                VisibilityMask::All { .. } => {
+                    // Forward directly without filtering when all buffered docs are visible.
                     if self.requires_scoring {
-                        self.filtered_score_buffer.push(self.score_buffer[i]);
+                        for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                            self.inner.collect(doc, score);
+                        }
+                    } else {
+                        self.inner.collect_block(&self.doc_buffer);
                     }
                 }
-            }
-
-            // Pass to inner collector
-            if self.requires_scoring {
-                for (doc, score) in self
-                    .filtered_doc_buffer
-                    .iter()
-                    .zip(self.filtered_score_buffer.iter())
-                {
-                    self.inner.collect(*doc, *score);
+                VisibilityMask::Some(mask) => {
+                    // In-place compaction of visible docs.
+                    let mut write_idx = 0;
+                    for (read_idx, &is_vis) in mask.iter().enumerate() {
+                        if is_vis {
+                            self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                            if self.requires_scoring {
+                                self.score_buffer[write_idx] = self.score_buffer[read_idx];
+                            }
+                            write_idx += 1;
+                        }
+                    }
+                    self.doc_buffer.truncate(write_idx);
+                    if self.requires_scoring {
+                        self.score_buffer.truncate(write_idx);
+                        for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                            self.inner.collect(doc, score);
+                        }
+                    } else if !self.doc_buffer.is_empty() {
+                        self.inner.collect_block(&self.doc_buffer);
+                    }
                 }
-            } else if !self.filtered_doc_buffer.is_empty() {
-                self.inner.collect_block(&self.filtered_doc_buffer);
             }
 
             self.doc_buffer.clear();
@@ -1362,9 +1465,104 @@ pub mod mvcc_collector {
             }
         }
 
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
+        fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            let Some(lock) = &self.lock else {
+                self.inner.collect_bitmap(base, mask);
+                return;
+            };
+            let (visible, dirty) =
+                lock.lock()
+                    .partition_bitmap_visibility(self.segment_ord, base, mask);
+            if visible.iter().any(|word| !word.is_empty()) {
+                // Bitmap collection is count-only, so buffered IDs can be counted later.
+                self.inner.collect_bitmap(base, &visible);
+            }
+            tantivy::DocSetBatch::Bitmap(base, &dirty)
+                .for_each_doc_block(|docs| self.collect_block(docs));
+        }
+
         fn harvest(mut self) -> Self::Fruit {
             self.flush();
             self.inner.harvest()
+        }
+    }
+    #[cfg(any(test, feature = "pg_test"))]
+    #[pgrx::pg_schema]
+    mod tests {
+        use super::*;
+        use crate::postgres::rel::PgSearchRelation;
+        use pgrx::prelude::*;
+
+        #[derive(Default)]
+        struct BatchCount {
+            count: usize,
+            batches: Vec<usize>,
+        }
+
+        impl SegmentCollector for BatchCount {
+            type Fruit = (usize, Vec<usize>);
+
+            fn collect(&mut self, _: DocId, _: Score) {
+                unreachable!();
+            }
+
+            fn collect_block(&mut self, docs: &[DocId]) {
+                assert!(docs.is_sorted());
+                assert!(docs.iter().all(|doc| doc % 1024 < 3));
+                self.count += docs.len();
+                self.batches.push(docs.len());
+            }
+
+            fn supports_bitmap_collection(&self) -> bool {
+                true
+            }
+
+            fn collect_bitmap(&mut self, _: DocId, mask: &tantivy::DocIdBitmap) {
+                self.count += mask.iter().map(|word| word.len() as usize).sum::<usize>();
+            }
+
+            fn harvest(self) -> Self::Fruit {
+                (self.count, self.batches)
+            }
+        }
+
+        #[pg_test]
+        fn bitmap_collection_preserves_pending_visibility_batches() {
+            Spi::run("CREATE TABLE bitmap_batch_visibility (id int)").unwrap();
+            let oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_batch_visibility'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let relation = PgSearchRelation::open(oid);
+            let checker = VisibilityChecker::with_rel_and_snap(&relation, unsafe {
+                pg_sys::GetActiveSnapshot()
+            })
+            .with_check_visibility(false);
+            let mut collector = MVCCFilterSegmentCollector {
+                inner: BatchCount::default(),
+                lock: Some(MVCCFilterCollector::new(tantivy::collector::Count, checker).lock),
+                segment_ord: 0,
+                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                score_buffer: Vec::new(),
+                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
+                requires_scoring: false,
+            };
+            let mut visible = [tantivy_common::TinySet::range_greater_or_equal(0); 16];
+            visible[0] = tantivy_common::TinySet::range_greater_or_equal(3);
+            for window in 0..1000 {
+                let base = window * 1024;
+                collector.collect_block(&[base, base + 1, base + 2]);
+                collector.collect_bitmap(base, &visible);
+            }
+            assert_eq!(collector.inner.batches, [2049]);
+            assert_eq!(collector.doc_buffer.len(), 951);
+            let (count, batches) = collector.harvest();
+            assert_eq!(count, 1000 * 1024);
+            assert_eq!(batches, [2049, 951]);
         }
     }
 }

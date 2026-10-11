@@ -13,8 +13,7 @@ The following statement indexes an expression which concatenates `description` a
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')))
-WITH (key_field='id');
+USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')));
 ```
 
 ```ts Drizzle
@@ -59,7 +58,6 @@ with connection.schema_editor() as schema_editor:
                     ),
                 ),
             ],
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -77,7 +75,6 @@ idx = Index(
         tokenizer=tokenizer.simple(options={"alias": "description_concat"}),
     ),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -93,7 +90,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
       tokenizer: ParadeDB::Tokenizer.simple(options: { alias: "description_concat" })
     }
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -138,8 +134,7 @@ the expression `rating + 1`, which returns an integer:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')))
-WITH (key_field='id');
+USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')));
 ```
 
 ```ts Drizzle
@@ -171,7 +166,6 @@ with connection.schema_editor() as schema_editor:
                     alias="rating",
                 ),
             ],
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -189,7 +183,6 @@ idx = Index(
         pdb.alias(MockItem.rating + 1, "rating"),
     ),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -204,7 +197,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     description: {},
     "(rating + 1)" => { alias: "rating" }
   },
-  key_field: :id,
   name: :search_idx
 )
 ```

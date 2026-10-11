@@ -24,9 +24,11 @@ use pgrx::pg_sys::BuiltinOid;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::spi::{OwnedPreparedStatement, Query};
 use pgrx::{
-    Array, PgLogLevel, PgOid, PgSqlErrorCode, PgXactCallbackEvent, Spi, extension_sql,
-    function_name, pg_extern, pg_sys, register_xact_callback,
+    Array, PgLogLevel, PgOid, PgSqlErrorCode, PgSubXactCallbackEvent, PgXactCallbackEvent, Spi,
+    extension_sql, function_name, pg_extern, pg_sys, register_subxact_callback,
+    register_xact_callback,
 };
+use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::ops::Index;
@@ -527,16 +529,98 @@ struct StmtHolder(OwnedPreparedStatement);
 unsafe impl Send for StmtHolder {}
 unsafe impl Sync for StmtHolder {}
 
-pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
-    static CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
+static LOAD_CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
+static SAVE_CACHE: OnceLock<Mutex<crate::api::HashMap<Vec<String>, i32>>> = OnceLock::new();
 
+/// A cache entry added in the current transaction.
+enum AddedEntry {
+    Load(i32),
+    Save(Vec<String>),
+}
+
+/// Postgres's `TopSubTransactionId`, which `pg_sys` does not export: the id of the top-level
+/// transaction and the smallest one handed out, since `InvalidSubTransactionId` is `0`.
+const TOP_SUBTRANSACTION_ID: pg_sys::SubTransactionId = 1;
+
+thread_local! {
+    static XACT_CALLBACKS_REGISTERED: Cell<bool> = const { Cell::new(false) };
+    /// The entries added in the current transaction, each with the subtransaction it was added
+    /// in, so that an abort removes those entries and keeps everything cached before.
+    static ADDED: RefCell<Vec<(pg_sys::SubTransactionId, AddedEntry)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// Records `entry` so that aborting the (sub)transaction it is added in removes it again.
+fn remember_added(entry: AddedEntry) {
+    ensure_xact_callbacks_registered();
+    let subid = unsafe { pg_sys::GetCurrentSubTransactionId() };
+    ADDED.with_borrow_mut(|added| added.push((subid, entry)));
+}
+
+/// Removes the entries added in subtransaction `subid` or later from the caches.
+///
+/// Subtransaction ids only grow within a transaction, so these are the entries of `subid` and
+/// of the subtransactions started inside it, released or not. Entries of a savepoint released
+/// before `subid` started have a smaller id and stay. [`TOP_SUBTRANSACTION_ID`] removes every
+/// entry of the transaction.
+fn forget_added(subid: pg_sys::SubTransactionId) {
+    let removed: Vec<_> = ADDED.with_borrow_mut(|added| {
+        added
+            .extract_if(.., |(entry_subid, _)| *entry_subid >= subid)
+            .collect()
+    });
+    for (_, entry) in removed {
+        match entry {
+            AddedEntry::Load(typmod) => {
+                LOAD_CACHE
+                    .get_or_init(Default::default)
+                    .lock()
+                    .remove(&typmod);
+            }
+            AddedEntry::Save(key) => {
+                SAVE_CACHE.get_or_init(Default::default).lock().remove(&key);
+            }
+        }
+    }
+}
+
+fn ensure_xact_callbacks_registered() {
+    if XACT_CALLBACKS_REGISTERED.get() {
+        return;
+    }
+
+    // pgrx removes these callbacks at the end of the top-level transaction, so they are
+    // registered again when the next transaction adds its first entry.
+    register_xact_callback(PgXactCallbackEvent::Commit, || {
+        ADDED.with_borrow_mut(Vec::clear);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    register_xact_callback(PgXactCallbackEvent::Abort, || {
+        forget_added(TOP_SUBTRANSACTION_ID);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    // A prepared transaction's rows stay invisible until it is committed, maybe by another
+    // backend, and a `ROLLBACK PREPARED` fires neither Commit nor Abort here. pgrx keeps the
+    // callbacks above across a Prepare, so the next transaction registers them a second time,
+    // which is harmless: they are idempotent.
+    register_xact_callback(PgXactCallbackEvent::Prepare, || {
+        forget_added(TOP_SUBTRANSACTION_ID);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    register_subxact_callback(PgSubXactCallbackEvent::AbortSub, |subid, _| {
+        forget_added(subid)
+    });
+    XACT_CALLBACKS_REGISTERED.set(true);
+}
+
+pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
     if typmod == -1 {
         return Ok(ParsedTypmod::new());
     }
 
-    // Don't hold `CACHE` across SPI: a FATAL in there exits without unwinding, so the guard
-    // would never drop, and the Abort callback below would block on it forever during exit.
-    let cache = CACHE.get_or_init(Default::default);
+    // Don't hold the cache across SPI: a FATAL exits without unwinding, so the guard would
+    // never drop, and an abort callback would block on it forever during exit.
+    let cache = LOAD_CACHE.get_or_init(Default::default);
     if let Some(parsed_typmod) = cache.lock().get(&typmod) {
         return Ok(parsed_typmod.clone());
     }
@@ -567,16 +651,12 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
         .ok_or_else(|| Error::TypmodNotFound(typmod))?,
     )?;
 
+    remember_added(AddedEntry::Load(typmod));
     cache.lock().insert(typmod, parsed_typmod.clone());
-    register_xact_callback(PgXactCallbackEvent::Abort, move || {
-        CACHE.get_or_init(Default::default).lock().remove(&typmod);
-    });
     Ok(parsed_typmod)
 }
 
 pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result<i32> {
-    static CACHE: OnceLock<Mutex<crate::api::HashMap<Vec<String>, i32>>> = OnceLock::new();
-
     let as_text = typmod
         .map(|e| {
             e.ok_or(Error::EmptyProperty)
@@ -585,7 +665,7 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
         .collect::<Result<Vec<_>>>()?;
 
     // Not held across SPI, for the same reason as in `load_typmod`.
-    let cache = CACHE.get_or_init(Default::default);
+    let cache = SAVE_CACHE.get_or_init(Default::default);
     if let Some(id) = cache.lock().get(&as_text) {
         return Ok(*id);
     }
@@ -616,18 +696,10 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
 
     let id = match id {
         Some(id) => id,
-        None => {
-            let id = Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
-                .ok_or(Error::NullTypmodEntry)?;
-
-            let saved = as_text.clone();
-            register_xact_callback(PgXactCallbackEvent::Abort, move || {
-                CACHE.get_or_init(Default::default).lock().remove(&saved);
-            });
-
-            id
-        }
+        None => Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
+            .ok_or(Error::NullTypmodEntry)?,
     };
+    remember_added(AddedEntry::Save(as_text.clone()));
     cache.lock().insert(as_text, id);
     Ok(id)
 }

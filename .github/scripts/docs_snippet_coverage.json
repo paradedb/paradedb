@@ -1,0 +1,205 @@
+{
+  "skips": [
+    {
+      "reason": "Operational example requires the deployment or administration environment described on this page.",
+      "fences": [
+        ["concepts/architecture.mdx::fence-001", "3ad111a976ba2bb4cbcca8bd66597520783e026fa1fd934d470cc5d781f739b5"],
+        ["concepts/architecture.mdx::fence-002", "a93296d2eb0ded9f7cc246b424d6e4484b37e2c2eaa7ce3024471adad9376f5d"],
+        ["concepts/architecture.mdx::fence-003", "7ebf59a945e5d8fe7b1d48c4de56b98d501c52a40412fb30c8fd6d37c2a790a9"],
+        ["operate/deploy/ci/github-actions.mdx::fence-001", "f3c514322de0d14016296b063010323dbeb964b07e183535e050fd944253b41f"],
+        ["operate/deploy/ci/gitlab-pipelines.mdx::fence-001", "bd3bd00494e3683a611599cfc304a5dcf6218bd57a9a04c941a92202d2eb46d1"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-001", "b11861a9d1d54e2cabd2e008b1e4832780acd36850fcd15baf9d8581d2895740"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-002", "99dc622cdfb6f7036145a3d11e2593b9b5656c9e40cec6ba11e17ee0d341eb17"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-003", "7685de7376020511c3e35da99436c554bdca8ae832e7541693f2fb090ddaa30c"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-004", "7f5cfde567b9f7639e1a779f1133b3598b9590ff6e8921cd5eb6f3c2e79ba502"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-001", "d780e6253d09925467e3fc88822a213c6600401dccf555c4b7329e0d801875ca"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-002", "1025bb5f00c97476d37243e4f855e4fbc5f400825119f25371a44d18cffa5f0c"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-003", "f760a0ce5e2843dce14170d96e53f71537362fb370539a344df2c20945af86c9"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-004", "029899ba7d498c84d358605df6a296e1b15058f94aba66a99f18785a93bc7e30"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-005", "8a44870cf539075e603d70c45ece96789efba5c9cda2f771850bee69518b8fea"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-006", "b57cdd1f4f91c037b0fba7694767d74090c2ec9be47a484569ba79cca21e1a0c"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-001", "7ae9c0ab795d8d2423c1483d9a26c800a328a23e3383a724d4f779b0e38e3719"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-002", "40cd1d128ad0baa94e08203bb4d08b8d3855bba68c1ed57f5cb8f873a33d5b09"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-003", "e106e4f8cb6c30a56151e265356b905f1c4ece81359efed06fe053d303974d8f"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-005", "196a2f3c4f6879de5e67410947274ab5640892b687a22e10396d957f666c437e"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-006", "883d3c6d6f9bd235c67f8e2fe6df2bc55097b3554371691133b8f9b8489503ad"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-007", "ce6808b51c1f1c172add69f0ccbfb3ba95ec26031a16f4ad28cea27fc0cf2b71"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-008", "e0551c2da8274ce0d4f1e411f88392ae3b22978487d1823d5bf0901327214cd4"],
+        ["operate/deploy/cloud-platforms/railway.mdx::fence-001", "5d093ec68c348ee9b5f54072234612478d7084156d68aa70fc285366a99bc76d"],
+        ["operate/deploy/cloud-platforms/railway.mdx::fence-002", "06d7fe9601719a9a855d73903260bb67e919b526a223390e90e6a33ef2680fc3"],
+        ["operate/deploy/cloud-platforms/render.mdx::fence-001", "dbc6f3a2db69397661a66a06ef4cfbd2ff6bdcb0042b454d5fc1b5f59ff628b4"],
+        ["operate/deploy/cloud-platforms/render.mdx::fence-002", "d7b6d1c2101a983818f49c63a6c86ffd42be8661d1011b54975ad02b3c617e2e"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-001", "c6043f331f009660aa4a0fb8759c4c2f593debcc0204ae0196686fe2b7c5439c"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-002", "ef1925a59f7423296f0d16adfcfb018e33a4329b2d693167ae516c10d68f045c"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-003", "a04a6508e444779c5f13bf347abd456d924792db07422b37e7f90b4623ea12e0"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-004", "dd3317b52de2b2857e346d7ca081f25b8862d4052d032d43ab18f26b3498c836"],
+        ["operate/deploy/logical-replication/configuration.mdx::fence-001", "58abbfc3927c43c2a74e5f2ce959322c2036a45a7eba1594bec8f161935bc3f0"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-001", "65067eb9611a96f91d36dea31ac535dfb96475654cde86edcc4847028d186229"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-002", "5a7a0c5fc1382eb779164a1cc5174e4871665c2725ec36cd218eac61930bfbc3"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-006", "00e6b019e3f6e706d633c4014ce2a242b474217920b05ad23fdd10f02970d8b1"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-007", "98ba3409e30d1c38991682e66fc169423ddbede3dce853af8b66da64b87e43ce"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-003", "989f6eb297703757a300b08e956ffaf50ee273188a1602edcc0a3160d3181dc6"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-004", "300d5837213f775185c2057059586939139b9532066b73fd136fa18c0ac036d7"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-005", "18fff10c766f7bd80bdecbb8330c8b6178638c6241f3963e5838777f2c9712e1"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-006", "037f547986009278372d13756fdbfb0f719d9c4ea527f5563d259642ab0a5a46"],
+        ["operate/deploy/logical-replication/schema-changes.mdx::fence-001", "ab1f5c464eaec68e3d18a831ba9609cab3b71871dc4a9c072cb6b59dcbe0fe3c"],
+        ["operate/deploy/logical-replication/schema-changes.mdx::fence-002", "521a7d3adabd1cfd65b62e481ef4864b709a5549a37f3430e0154c5a90896c86"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-001", "a9a575b9be3628459b7eeaec3ef7f649eca69bc692082909c8d868d22727c785"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-002", "ca94493a77b29a41a83529b2134da21a926aedc1efe5cde287b564b448d7b03d"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-003", "eb806a769ffb8838e02bc47dd5366a51ec2fbbfad71a34f9dda25f2540e23ec7"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-004", "a303662bd086533a694be868d3bc94ca050df415698e63188d48c111f93f8a51"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-005", "1826827d25c8038bfb9f28944ea3130ed4e8063d8e91e983b63806015f252f32"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-006", "9fbfb30296bf1a84301494941122de716c4340db80f9c5f5a957a734805b7564"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-007", "d0e843ae43f95bf35aa5edec3ef924b36c37bb00d37b4a28b62d05c3330d46b4"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-008", "f7d1df080c82212e65fcb3b56ffc9edd7cb39f98e455808db6a8853fef789952"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-010", "8dff0a1ee89f7d418affaec43a5ce26655660da7a354748cbf44fa5c7361228f"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-001", "15e1b106daba9b4bea0c2988ca7bcfc69f5d862a7dec9a808e39cb261d1b2f7d"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-002", "8864b31559f4eb0f5df5a7be057ec503a8ce8d6e3f8f411cc4a9c64b625de4ad"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-003", "597322e0c016233e6d092a1798be0cd9483743be3f826b7821dfecf8e3afe3e7"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-004", "d4fc02937d3c8c0f794ceed6f2451e6024b6f14ec95f6d3cbc19cc2e76c99254"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-005", "0fddf0a1116a681242409214cb469c424fddbbb9a76e584d3d30020f01f21dea"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-006", "594f82db9bda5607457961ce37605d8c44724daf7977814e1e2e432db97e295a"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-007", "754ebb5b80e8fc287adb5f2427804ebe00f4a95510de10523514f17b47e27ffa"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-008", "5eb0d037605bd31d91eb4ff3a9330bfd54813e30949a390fea52e2104e56563b"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-009", "1790a39e4b00ae3e9d326819f57d0a6e652892465b8821c8de451434cf0db9b8"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-010", "8864b31559f4eb0f5df5a7be057ec503a8ce8d6e3f8f411cc4a9c64b625de4ad"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-011", "3d8307add5a7c59ace2085d5d7fffedccf04f7ad693794335e780af3f706f8b2"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-012", "e42769bfa36a6c47cd73b25ebbf6380a19e0bbfe6735de3d4a190e74be1a9538"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-013", "f7aabf6de302dff11bd0833923192deb6b3b0133c8f9d0e8ea09d4c630409afc"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-014", "fce9c0645f3006ea634f17917f5125c61aa6ef83f9d34ac3b776ed57f476e9e5"],
+        ["operate/deploy/upgrading.mdx::fence-001", "e98d19b1acf3d62583fa37f47bfb94d762bfe577aee7127ade49758cd548607f"],
+        ["operate/deploy/upgrading.mdx::fence-002", "b03f85ad20f6badf2768000e43650c41245c28dea45b35ae2395e5cbfa9523e4"],
+        ["operate/deploy/upgrading.mdx::fence-003", "94b6245ef8854fba0f2c2d73b231ddf0cd75f8fabc2eeda67c15c64041ca3e82"],
+        ["operate/deploy/upgrading.mdx::fence-004", "cd281e1c131031e6d9c3af044a0870a379df29e6e873c4275a8126185343c5b6"],
+        ["operate/deploy/upgrading.mdx::fence-005", "e165c5e24dd7cf44b1986819624738be599de92585a9d7628b1706e6242dac56"],
+        ["operate/deploy/upgrading.mdx::fence-006", "988ac7fef24a033c3eb57dc3a507edff24766b954bff6f2043beba2628962a45"],
+        ["operate/deploy/upgrading.mdx::fence-007", "2bca75f022d7935a87f3cf94a8cd100935f6c8228096ae0b4ed922ff79fef550"],
+        ["operate/deploy/upgrading.mdx::fence-008", "6c4959f07d34b8b9e41fc043b691583d2577f412004927e22730ded7afcd7c38"],
+        ["operate/index-maintenance/reindexing.mdx::fence-007", "7420838231a5cc6da646e7f6904b1044b4c9ce8839c7d25a198dd1bb175f2320"],
+        ["operate/index-maintenance/verify-index.mdx::fence-076", "9ac55bfdf32deac27a10a62ae0b869fb789616aad31fce0f3933a1d1bb32d8e7"],
+        ["operate/performance-tuning/create-index.mdx::fence-001", "a8d08276bffcad846790d2e812439cdd6bdad44c25c0557ff3848f372a0ca62b"],
+        ["operate/performance-tuning/create-index.mdx::fence-002", "a810174067c6c3b5392f5fb314e50806e75256ecebe2a5feafb0ebb7ade1010e"],
+        ["operate/performance-tuning/create-index.mdx::fence-003", "a2c1d06a8d1a0805b17963ed6e0597ac3eee0274a16fb4794503473eae96309c"],
+        ["operate/performance-tuning/overview.mdx::fence-001", "e16bce8eb44d5d2e637ae12511ad51ffee734a61dc768fd93d6866093eb670d7"],
+        ["operate/performance-tuning/overview.mdx::fence-002", "84e7fa753de7c41fa86de6d2c1d9a5787e3bfb2437b02d52bf41352df30b7c14"],
+        ["operate/performance-tuning/overview.mdx::fence-004", "d06371e728c3eb6c4a499033c3cd7ed1100fb82411340c816739fdec62c17e94"],
+        ["operate/performance-tuning/overview.mdx::fence-005", "cfa5bb4e07014aae0535735dff9e40838b318ceba680eb00452c4a1c6f09ff7b"],
+        ["operate/performance-tuning/reads.mdx::fence-004", "7b0c2057fad613dd40b4f451187ee0e9c9415399988710cb10d027a34ec499b6"],
+        ["operate/performance-tuning/reads.mdx::fence-005", "4775604b6f457f184f19212280123459a41501653fda64ceabcb6a08612391bc"],
+        ["operate/performance-tuning/reads.mdx::fence-006", "c5fae8639cd9cf711f2ccda9d4cfd30970e2e1d46f4eced70ba1885d3b3f0eda"],
+        ["operate/performance-tuning/reads.mdx::fence-007", "00c5860a1a5b44fb87ced1c5ecc4625a01171622ec1a7ebb1ecbdd613052d60e"],
+        ["operate/performance-tuning/writes.mdx::fence-001", "3f301a49b9d05d6a56a48a50480ef9dac550ad50c97ec37b0423d029ddf1ad97"],
+        ["operate/performance-tuning/writes.mdx::fence-002", "75f553b991c5a8af2766753b629e619bc51091620d31b8c09e7a498db4f4ff84"],
+        ["operate/performance-tuning/writes.mdx::fence-003", "2254c77e50f22da9bdb16c19eab659d171f6fc7085fd3ff075f298b780900766"],
+        ["operate/performance-tuning/writes.mdx::fence-004", "0a0bdda59477dce2d6e07b70dbf9013f225a4ca394d3902049cb7ec337bc5d83"],
+        ["operate/performance-tuning/writes.mdx::fence-005", "f01c97b3c06d1d89f83b5336834067834e48f5561e369c88b88653d551f2509a"],
+        ["operate/performance-tuning/writes.mdx::fence-006", "e98dc0ca2479f7e7afa1a33c71903dfddfb24a5dfc05682bfff481333359e27f"],
+        ["reference/indexing/indexing-vectors.mdx::fence-008", "da88a18a1c0b35e30f651e7ef2321f9500c42cbf133571579bd7c4f8584e328b"],
+        ["reference/indexing/indexing-vectors.mdx::fence-009", "0f9bee7fa2463459d7eeeddb67f0c76e0e5f2e5b2b4083f343a864e359864685"],
+        ["reference/indexing/indexing-vectors.mdx::fence-010", "eed74cfb4dc23a8d63364bbf14902c4ca6e704536971f4f3ff1ac03b5ea9da01"],
+        ["reference/indexing/indexing-vectors.mdx::fence-011", "7231ff621a4a6331838f2bb0f3eb7ff4c6d27cd18bbee4bc5e4edb00ef4a3e99"],
+        ["reference/indexing/indexing-vectors.mdx::fence-012", "ee41a707745850847ae4901f2eb4416ced2e4dcf70b7ae9de579e1880d8fae39"],
+        ["reference/sharding/citus.mdx::fence-001", "119d34cf8d929909300bb8d7ae7101e9d5a6bf62b1b3855068ad38091bd74838"],
+        ["start/ai-agents.mdx::fence-001", "a0930f4ee4bbbfd0ad4b4f001ddd60fe62f60e7eebae3b3656e7497c0183fcd5"],
+        ["start/install.mdx::fence-001", "b0793d393942d17e39dd486ac5cfa4b8fdd94a1fd90000d3841c25c159c67b12"],
+        ["start/install.mdx::fence-002", "7e59ecbfe7fe278d1650202991162456a9d85874269a86681fb642408dc7d801"],
+        ["start/install.mdx::fence-003", "850848e7c1ab0cb3499732bba7aed9981153007a8dc3aeebf8bb915836035f15"],
+        ["start/install.mdx::fence-004", "57ca651f7c063c6b3e6010f291a5ee73c09555160c8d95a8488f299140c2890b"],
+        ["start/install.mdx::fence-006", "8dff0a1ee89f7d418affaec43a5ce26655660da7a354748cbf44fa5c7361228f"],
+        ["start/load-data.mdx::fence-001", "8a836858cfcfee6002c362533a8401a2582216b6bdae4db05d9890f9e4169c4e"],
+        ["start/load-data.mdx::fence-002", "d56a14d5ba46069ed20c7a1f7079fd24b0971cdbc727e437384e7d1734525e19"],
+        ["start/load-data.mdx::fence-003", "8f7a822efcd4fcc48a03c71ad590d5ca518c23545d10924898bb65b9e2154500"]
+      ]
+    },
+    {
+      "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
+      "fences": [
+        ["reference/configuration.mdx::fence-002", "5c7934ebb6174a55bcec97efb9353ce6d4910d10723852dd69c4b7d15e210fd2"],
+        ["reference/full-text/match.mdx::fence-015", "4bf45207ccc14db6c92d7907b1d0aee1c83ee4b011cd5ca2a1fc71d4b4bbed23"],
+        ["reference/full-text/phrase.mdx::fence-001", "8d7db0ba81964840f29ec21781a090d662d531b080c6ac77d5628a12d083f745"],
+        ["reference/full-text/score.mdx::fence-013", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
+        ["reference/full-text/score.mdx::fence-021", "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"],
+        ["reference/full-text/top-k.mdx::fence-007", "58e614668b82d4bc3419a73563a6a246d43f82d7004be0984065ca2f6f5ad053"],
+        ["reference/hybrid/rrf.mdx::fence-010", "925fd4cf677e4beb9b3a8e8e552cc0d702adeeba765e54d58a1544eace8d0a98"],
+        ["reference/indexing/create-index.mdx::fence-025", "4e633b3ed3fabffbfc6b1714d556404f9d7e8b89373a835b68584eee19a5e0cf"],
+        ["reference/indexing/indexing-arrays.mdx::fence-001", "a53c59e4fcb1fb2d089ecb0717bd8ed7af87f657b0ab4c21a5930359a429d7c5"],
+        ["reference/indexing/indexing-arrays.mdx::fence-008", "b7f546e2d477cd006794004ab8b9ee22cc93725b905d4a418eed3c3c580d1b86"],
+        ["reference/indexing/indexing-vectors.mdx::fence-007", "7415067b1ac5cfa7d3619a8d3732708b4a0a1d4836dda17547863dd3df81fbde"],
+        ["reference/indexing/partition-by.mdx::fence-007", "5b50fbf20784a60b3e3564089a64a7db33bbd128fd768a6e56ee0e9efb71a978"],
+        ["reference/indexing/partition-by.mdx::fence-008", "b8d44dbb1dfe7d270e33d468d4ac10d5dbe4b9f76219ecd46fd199d426fd9e38"],
+        ["reference/joins/overview.mdx::fence-001", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
+        ["reference/joins/overview.mdx::fence-002", "db9a4bd591e0dd34478b582d68b7ee1b2a06af6176f16ff2017bb8da0e756db9"],
+        ["reference/operators-and-functions.mdx::fence-003", "6b3bce2d2ad18f9650347cfb6df27cbf733114415fdfe97c7f88c872e42fe136"],
+        ["reference/operators-and-functions.mdx::fence-004", "7412a943e4dc0470f4db372af70f6e55cdf573aeb54e7f19168940bb093d8ee7"],
+        ["reference/operators-and-functions.mdx::fence-005", "a9f5f162b51beb30438bb7a326a6f7ff56903ba898f844a58fee2d4533f6ab28"],
+        ["reference/sharding/citus.mdx::fence-002", "f07f0f10774921a2ce312f78bc1f5351f24f77aff00b3c043ee0943e3416ede7"],
+        ["reference/sharding/citus.mdx::fence-003", "40d3e3e4f3fe18e4b38d686ba3e90d65c3a535aaafcd0cffd6da4d69805bc778"],
+        ["reference/sharding/citus.mdx::fence-005", "df3d9318d3f16a859ba3ddd46d375a6eb20fe6788c1f36fa3f53d6b8df2b3c84"],
+        ["reference/sharding/citus.mdx::fence-006", "b4c6d691ed42cfd4ed1d2b940efd6da47e277c2ccadb98546b2672ada333ef68"],
+        ["reference/tokenizers/available-tokenizers/ngrams.mdx::fence-007", "fe994273fb63f7d1b98f228cf0a60c083b9ac554bba5c6a21b0107c0cc8f6294"],
+        ["reference/tokenizers/search-tokenizer.mdx::fence-008", "a1398fa6d1f407b9330b4ec27e49993eb5fa15c968eafa1a255874981f5b18c9"],
+        ["reference/tokenizers/search-tokenizer.mdx::fence-009", "e8d01258b33128ac1f6884621f5c076f1ba6987826394b55940f4832db8f1230"],
+        ["reference/vector/querying.mdx::fence-019", "c74f2266a26fddadb0860e18a6c60ca5bf983f17831b849c8bca515d6476a476"]
+      ]
+    },
+    {
+      "reason": "Illustrates an execution-plan limitation, an unsupported query, or a SQL fragment; runnable behavior is covered by the adjacent ORM CodeGroup.",
+      "fences": [
+        ["reference/full-text/top-k.mdx::fence-024", "f971fd8bb5b4609798c160c3a663055fd12ee5fe836ea3f75ce46a05cf28af05"],
+        ["reference/hybrid/rrf.mdx::fence-008", "f7d8850178e0c2e2398089653f723c2022356835554e9379cabb3541d1d386f8"],
+        ["reference/indexing/indexing-composite.mdx::fence-001", "3ff0eceda7cb4740a76765662103386f6b32ff5cbb5b6b5f7b987e8921576525"],
+        ["reference/indexing/indexing-composite.mdx::fence-004", "3b8be6bfbc1cbaecb130f779b294ef89388ff4ef2cb9d2247a64d71994c8770e"]
+      ]
+    },
+    {
+      "reason": "Requires the custom composite types defined earlier on this page; ordinary whole-row examples are covered by CodeGroups.",
+      "fences": [
+        ["reference/indexing/indexing-composite.mdx::fence-002", "2f77d66bad8f6bf96fbf59ea90174fadf8b6dc9e04d8c72f683cde433f715b42"],
+        ["reference/indexing/indexing-composite.mdx::fence-003", "6537a1157cc9ac7a69cfd124868b1b32101d1a36b372958b646a5582e9a12456"]
+      ]
+    },
+    {
+      "reason": "Depends on the preceding custom expression/partial index and illustrates planner behavior; the corresponding runnable index definition is tested in its CodeGroup.",
+      "fences": [
+        ["reference/indexing/indexing-expressions.mdx::fence-007", "d5d86ea0ddfbafd00c411d16d3b4ec8ffd6a286249251d34dfef816d178b96ad"],
+        ["reference/indexing/indexing-expressions.mdx::fence-014", "b719f69cf5653f8ba750810b497ecb1b9f7343c2b6ac6bfc1b115eeeeb0417cc"],
+        ["reference/indexing/indexing-partial.mdx::fence-007", "3ad111a976ba2bb4cbcca8bd66597520783e026fa1fd934d470cc5d781f739b5"],
+        ["reference/indexing/indexing-partial.mdx::fence-008", "82e62b73b8e7a2ac809760a9c466633b4428b7b1ff39417b3741e446bf4ee4aa"]
+      ]
+    },
+    {
+      "reason": "Interactive REPL launcher or alternative ASP.NET host fragment; console setup and inner commands run headlessly in the getting-started scenario.",
+      "fences": [
+        ["start/configure-your-environment.mdx::fence-006", "f298ed44f67b43039c9f6a403f0caf46156824dc593c1a64c41eedef67ca49b3"],
+        ["start/configure-your-environment.mdx::fence-032", "34432fbe99ec1f8216d501a12691976a6524dcf76e5729df4fc452997640c989"],
+        ["start/configure-your-environment.mdx::fence-034", "b0a512c838bec9edc67969cdb6a5ec60f1c9c58115766b945e675ae18c85c2a9"]
+      ]
+    }
+  ],
+  "sql": {
+    "reference/filtering/external-indexes.mdx::fence-008": {
+      "setup": [
+        "reference/filtering/external-indexes.mdx::fence-001"
+      ]
+    },
+    "reference/filtering/external-indexes.mdx::fence-009": {
+      "setup": [
+        "reference/filtering/external-indexes.mdx::fence-001"
+      ]
+    },
+    "reference/filtering/external-indexes.mdx::fence-010": {
+      "setup": [
+        "reference/filtering/external-indexes.mdx::fence-001",
+        "reference/filtering/external-indexes.mdx::fence-009"
+      ]
+    },
+    "reference/full-text/top-k.mdx::fence-023": {
+      "warning": "ORDER BY columns cannot be pushed down to the index"
+    },
+    "reference/full-text/top-k.mdx::fence-025": {
+      "setup": [
+        "reference/full-text/top-k.mdx::fence-024"
+      ]
+    }
+  }
+}

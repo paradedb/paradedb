@@ -161,6 +161,18 @@ impl Explainer {
         }
     }
 
+    pub fn add_float(&mut self, key: &str, value: f64, digits: i32, unit: Option<&str>) {
+        unsafe {
+            pg_sys::ExplainPropertyFloat(
+                key.as_pg_cstr(),
+                unit.as_pg_cstr(),
+                value,
+                digits,
+                self.state.as_ptr(),
+            );
+        }
+    }
+
     pub fn add_bool(&mut self, key: &str, value: bool) {
         unsafe {
             pg_sys::ExplainPropertyBool(key.as_pg_cstr(), value, self.state.as_ptr());

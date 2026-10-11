@@ -80,6 +80,11 @@ impl SegmentStatsSnapshot {
         self.ordinal_by_id.get(&id).copied()
     }
 
+    /// The searcher [`SegmentOrdinal`] of `id`, or `None` when the segment is not in this snapshot.
+    pub(crate) fn segment_ordinal(&self, id: SegmentId) -> Option<SegmentOrdinal> {
+        self.segment_index(id).map(|ord| ord as SegmentOrdinal)
+    }
+
     /// Decode one field for one execution segment. Missing components or entries return None;
     /// read and conversion errors abort the query. Decoded entries are not cached.
     pub(crate) fn empirical(&self, ord: usize, field: &SearchField) -> Option<EmpiricalStats> {

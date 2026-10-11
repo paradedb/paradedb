@@ -23,7 +23,7 @@ CREATE TABLE suppliers (
     id INTEGER PRIMARY KEY,
     name TEXT,
     region TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 -- 5 suppliers. Only some will match search predicates in individual tests.
 INSERT INTO suppliers (id, name, region) VALUES
@@ -39,7 +39,7 @@ CREATE TABLE products (
     description TEXT,
     supplier_id INTEGER,
     price NUMERIC(10,2)
-);
+) WITH (autovacuum_enabled = false);
 
 -- 30 products: all mention "premium" so they all match the search predicate.
 -- supplier_id cycles 1-5, so each supplier has 6 products.
@@ -239,7 +239,7 @@ CREATE TABLE bench_documents (
     id TEXT PRIMARY KEY,
     category TEXT,
     title TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 -- 20 documents: IDs are 'doc-01' .. 'doc-20'.
 -- "category" assigns roughly half to 'PROJECT_ALPHA' and the rest to other groups.
@@ -271,7 +271,7 @@ CREATE TABLE bench_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 
 -- 200 files, each randomly referencing a document.
 -- document_id cycles: file 1 → doc-01, file 2 → doc-02, ..., file 20 → doc-20, file 21 → doc-01, etc.

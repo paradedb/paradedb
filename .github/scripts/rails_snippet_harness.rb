@@ -31,6 +31,12 @@ module RailsSnippetHarness
       inverse_of: :mock_item
   end
 
+  class MockItemGeo < ApplicationRecord
+    include ParadeDB::Model
+
+    self.table_name = "mock_items_geo"
+  end
+
   class Order < ApplicationRecord
     include ParadeDB::Model
 
@@ -54,3 +60,5 @@ RailsSnippetHarness.establish_connection!
 
 MockItem = RailsSnippetHarness::MockItem
 Order = RailsSnippetHarness::Order
+
+MockItemGeo = RailsSnippetHarness::MockItemGeo

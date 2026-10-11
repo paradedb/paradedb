@@ -2,7 +2,8 @@
 #
 # Generate Benchmarker Heap Snapshots
 #
-# Loads a dataset's heap using benchmarker (pre.sql + CSV load with LOAD_ONLY=1)
+# Pulls a dataset prefix from S3, streaming data.csv.gz to data.csv, loads an
+# unindexed heap using benchmarker,
 # and captures the cold Postgres data directory as a compressed archive,
 # uploading to s3://paradedb-ci-benchmarks/snapshots/benchmarker/{dataset}/heap.tar.zst.
 # Runs on the same metal CI runners as the benchmark workflow, so the snapshot's
@@ -21,11 +22,16 @@ on:
       benchmarker_repo:
         description: "benchmarker repo to clone."
         required: false
-        default: "planetscale/paradedb-benchmarker"
+        default: "paradedb/benchmarker"
       benchmarker_ref:
         description: "benchmarker repo ref (branch/tag/SHA)."
         required: false
-        default: "datasets"
+        default: "main"
+      dataset_source:
+        description: "Optional S3 prefix override. Defaults to s3://paradedb-benchmarker/datasets/<dataset>/."
+        required: false
+        type: string
+        default: ""
       base_paradedb_image:
         description: "Base ParadeDB image to use when loading heap. Defaults to paradedb/paradedb:latest-pg18."
         required: false
@@ -47,6 +53,7 @@ jobs:
       BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
       SNAPSHOT_PREFIX: snapshots/benchmarker
       DATASET: ${{ inputs.dataset || 'stackexchange' }}
+      DATASET_SOURCE: ${{ inputs.dataset_source || format('s3://paradedb-benchmarker/datasets/{0}/', inputs.dataset || 'stackexchange') }}
       PARADEDB_IMAGE: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
 
     steps:
@@ -71,21 +78,38 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          repository: ${{ inputs.benchmarker_repo || 'planetscale/paradedb-benchmarker' }}
-          ref: ${{ inputs.benchmarker_ref || 'datasets' }}
-          patch_file: .github/patches/benchmarker.patch
-          lfs: "true"
+          repository: ${{ inputs.benchmarker_repo || 'paradedb/benchmarker' }}
+          ref: ${{ inputs.benchmarker_ref || 'main' }}
 
       - name: Load Heap (no index)
         working-directory: benchmarker
+        env:
+          PARADEDB_DATA_DIR: ${{ env.VOLUME_ROOT }}/bench-datasets-${{ env.DATASET }}/paradedb
+          PARADEDB_CONTAINER: paradedb
+          POSTGRES_CPUSET: "0-7"
+          MEMORY: 64g
+          EFFECTIVE_CACHE_SIZE: 48GB
+          PARADEDB_URL: postgres://postgres:postgres@127.0.0.1:5432/benchmark
         run: |
           set -euo pipefail
           mkdir -p "${VOLUME_ROOT}"
-          make -f Makefile.${DATASET} create \
-            BACKENDS=paradedb \
-            LOAD_ONLY=1 \
-            VOLUME_ROOT="${VOLUME_ROOT}" \
-            PARADEDB_IMAGE="${PARADEDB_IMAGE}"
+          ./bin/loader pull \
+            --dataset _snapshot_source \
+            --source "${DATASET_SOURCE}"
+
+          source_dataset="datasets/_snapshot_source"
+          test -f "${source_dataset}/data.csv"
+          test -f "${source_dataset}/docker-compose.yml"
+
+          (
+            cd "${source_dataset}"
+            docker compose up -d --wait --wait-timeout 300 paradedb
+          )
+          ./bin/loader load --backend paradedb --pre-only "${source_dataset}"
+          (
+            cd "${source_dataset}"
+            docker compose stop -t 600 paradedb
+          )
 
       - name: Archive and Upload Heap Snapshot
         run: |
@@ -107,7 +131,7 @@ jobs:
 
       - name: Dump database logs on failure
         if: failure()
-        run: docker ps -a && docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
+        run: docker ps -a && docker logs --tail 200 "$(docker ps -aq --filter "name=paradedb" | head -1)" || true
 
   notify-slack-on-failure:
     name: Notify Slack on Failure

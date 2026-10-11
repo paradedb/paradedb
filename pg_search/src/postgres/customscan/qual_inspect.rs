@@ -257,6 +257,43 @@ impl Qual {
         }
     }
 
+    /// True if, as a top-level AND branch, [`optimize_quals_with_heap_expr`] merges this qual
+    /// into the `indexed_query` of each sibling heap filter.
+    pub fn is_indexed_conjunct(&self) -> bool {
+        matches!(
+            self,
+            Qual::OpExpr { .. }
+                | Qual::PushdownExpr { .. }
+                | Qual::PushdownVarEqTrue { .. }
+                | Qual::PushdownVarEqFalse { .. }
+                | Qual::PushdownVarIsTrue { .. }
+                | Qual::PushdownVarIsFalse { .. }
+                | Qual::PushdownIsNotNull { .. }
+                | Qual::Or(_)
+        )
+    }
+
+    /// Replace each heap filter with `All`, so the qual matches a superset of its rows without
+    /// evaluating any heap expression. Returns `None` if a heap filter is under a `Not`, where
+    /// `All` would narrow the match instead.
+    pub fn without_heap_exprs(self) -> Option<Qual> {
+        match self {
+            Qual::HeapExpr { .. } => Some(Qual::All),
+            Qual::And(quals) => quals
+                .into_iter()
+                .map(Qual::without_heap_exprs)
+                .collect::<Option<_>>()
+                .map(Qual::And),
+            Qual::Or(quals) => quals
+                .into_iter()
+                .map(Qual::without_heap_exprs)
+                .collect::<Option<_>>()
+                .map(Qual::Or),
+            Qual::Not(inner) if inner.contains_heap_expr() => None,
+            other => Some(other),
+        }
+    }
+
     /// Check if a Qual contains any HeapExpr (non-indexed predicates)
     pub fn contains_heap_expr(&self) -> bool {
         match self {
@@ -757,6 +794,97 @@ pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bo
     }
 
     unsafe { walker(node, std::ptr::null_mut()) }
+}
+
+/// Whether a WHERE clause can be pushed into the scan without breaking RLS ordering.
+pub enum SecurityPushdown {
+    /// Securely promotable, or it would not become a heap filter.
+    Safe,
+    /// A non-leakproof heap filter that must not run before the relation's RLS policy /
+    /// security-barrier quals, or it could leak hidden rows (e.g. through an error message).
+    LeakyHeapFilter {
+        /// It also uses `@@@`, so it can't be evaluated above the scan either.
+        uses_our_operator: bool,
+    },
+}
+
+/// Classify `ri`, a clause of `rel`'s `baserestrictinfo` or `joininfo`, per [`SecurityPushdown`].
+pub unsafe fn classify_security_pushdown(
+    context: &PlannerContext,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+    ri: *mut pg_sys::RestrictInfo,
+    ri_type: RestrictInfoType,
+    indexrel: &PgSearchRelation,
+    attempt_pushdown: bool,
+) -> SecurityPushdown {
+    if pg_sys::restriction_is_securely_promotable(ri, rel) {
+        return SecurityPushdown::Safe;
+    }
+
+    let mut probe = QualExtractState::default();
+    let _ = extract_quals(
+        context,
+        rti,
+        ri.cast(),
+        ri_type,
+        indexrel,
+        matches!(ri_type, RestrictInfoType::Join),
+        &mut probe,
+        attempt_pushdown,
+    );
+    if probe.uses_heap_expr {
+        SecurityPushdown::LeakyHeapFilter {
+            uses_our_operator: probe.uses_our_operator,
+        }
+    } else {
+        SecurityPushdown::Safe
+    }
+}
+
+/// `restriction_is_securely_promotable` for an expression over `rti` that is not a
+/// `baserestrictinfo` clause, such as an aggregate `FILTER (WHERE ...)`.
+pub unsafe fn expr_is_securely_promotable(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    expr: *mut pg_sys::Node,
+) -> bool {
+    let rel_array = (*root).simple_rel_array;
+    if rel_array.is_null() || rti as isize >= (*root).simple_rel_array_size as isize {
+        return false;
+    }
+    let rel = *rel_array.offset(rti as isize);
+    if rel.is_null() {
+        return false;
+    }
+    (*root).qual_security_level <= (*rel).baserestrict_min_security
+        || !pg_sys::contain_leaked_vars(expr)
+}
+
+/// True if any clause of `restrict_info` is a [`SecurityPushdown::LeakyHeapFilter`]. Scans
+/// with no filter step above them must decline when it is.
+pub unsafe fn has_leaky_heap_filter(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> bool {
+    let context = PlannerContext::from_planner(root);
+    restrict_info.iter_ptr().any(|ri| {
+        matches!(
+            classify_security_pushdown(
+                &context,
+                rel,
+                rti,
+                ri,
+                RestrictInfoType::BaseRelation,
+                indexrel,
+                true,
+            ),
+            SecurityPushdown::LeakyHeapFilter { .. }
+        )
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1879,18 +2007,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                     heap_expr_indices.push(i);
                 }
             }
-            Qual::OpExpr { .. }
-            | Qual::PushdownExpr { .. }
-            | Qual::PushdownVarEqTrue { .. }
-            | Qual::PushdownVarEqFalse { .. }
-            | Qual::PushdownVarIsTrue { .. }
-            | Qual::PushdownVarIsFalse { .. }
-            | Qual::PushdownIsNotNull { .. } => {
-                indexed_qual_indices.push(i);
-            }
-            Qual::Or(_) => {
-                indexed_qual_indices.push(i);
-            }
+            _ if qual.is_indexed_conjunct() => indexed_qual_indices.push(i),
             _ => {}
         }
     }

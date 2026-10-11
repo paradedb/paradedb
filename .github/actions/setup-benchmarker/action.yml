@@ -1,5 +1,5 @@
 name: Set Up Benchmarker
-description: Checkout benchmarker repository, optionally apply patch, set up Go, and build binaries
+description: Checkout the benchmarker repository, set up Go, and build binaries
 
 inputs:
   repository:
@@ -10,15 +10,6 @@ inputs:
     description: "Ref to checkout"
     required: false
     default: "main"
-  patch_file:
-    description: "Relative path to patch file to apply (optional)"
-    required: false
-    default: ""
-  lfs:
-    description: "Whether to download LFS objects"
-    required: false
-    default: "false"
-
 runs:
   using: composite
   steps:
@@ -28,12 +19,6 @@ runs:
         repository: ${{ inputs.repository }}
         ref: ${{ inputs.ref }}
         path: benchmarker
-        lfs: ${{ inputs.lfs == 'true' }}
-
-    - name: Apply benchmarker patch
-      if: inputs.patch_file != ''
-      shell: bash
-      run: git -C benchmarker apply "${GITHUB_WORKSPACE}/${{ inputs.patch_file }}"
 
     - name: Set Up Go
       uses: actions/setup-go@v7

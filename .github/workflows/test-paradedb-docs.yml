@@ -9,11 +9,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/scripts/**"
-      - ".github/actions/setup-postgres/**"
       - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
+      - ".github/scripts/**"
       - ".github/workflows/test-paradedb-docs.yml"
       - "docs/**"
+      - "pg_search/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
   workflow_dispatch:
 
 concurrency:
@@ -145,6 +148,9 @@ jobs:
       - name: Lint Changelog Fragments
         run: python3 .github/scripts/release.py lint-fragments --changelog-only
 
+      - name: Check Documentation Snippet Coverage
+        run: python3 .github/scripts/extract_code_snippets.py
+
       - name: Set Up PostgreSQL (pgrx)
         id: postgres
         uses: ./.github/actions/setup-postgres
@@ -156,9 +162,14 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx install --pg-config "${{ steps.postgres.outputs.pg_config }}" --features="pg${{ matrix.pg_version }},block_tracker"
 
-      - name: Add extension to shared_preload_libraries
+      - name: Configure PostgreSQL for documentation snippets
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+          # Partitioned index builds warn with fewer than three maintenance workers.
+          echo "max_parallel_maintenance_workers = 4" >> postgresql.conf
+          # Four workers plus the leader each need at least 15 MB for index builds.
+          echo "maintenance_work_mem = '128MB'" >> postgresql.conf
 
       - name: Start Postgres (pgrx)
         working-directory: tests/

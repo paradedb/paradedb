@@ -389,8 +389,35 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
 #[pg_guard]
 #[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
-    BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
+    // Bind the PostgreSQL symbol directly: pg_sys::die is a Rust FFI wrapper, not a
+    // C signal callback, and its FFI guard must not run inside a signal handler.
+    unsafe extern "C-unwind" {
+        #[link_name = "die"]
+        fn merge_worker_sigterm(signal: i32);
+    }
+
+    // PostgreSQL's waits and interrupt checks act on ProcDiePending. pgrx's SIGTERM handler
+    // only sets a flag for a worker's own polling loop, and this one-shot worker has none.
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
+    // Not gated on pg18: a future major whose `die` signature changes must fail to build here
+    // rather than silently keep PostgreSQL's generic bgworker_die.
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+    pg_sys::pqsignal_be(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
+    // attach_signal_handlers unblocks signals, so install SIGTERM first.
+    BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
+    // A merge changes nothing a query can see, so its commit needs no standby acknowledgement.
+    // Commit locally, as AutoVacWorkerMain does, so a missing synchronous standby cannot park
+    // this worker at commit holding its merge slot. Only ever lowered, never raised from `off`.
+    if pg_sys::synchronous_commit > pg_sys::SyncCommitLevel::SYNCHRONOUS_COMMIT_LOCAL_FLUSH as i32 {
+        pg_sys::SetConfigOption(
+            c"synchronous_commit".as_ptr(),
+            c"local".as_ptr(),
+            pg_sys::GucContext::PGC_SUSET,
+            pg_sys::GucSource::PGC_S_OVERRIDE,
+        );
+    }
     BackgroundWorker::transaction(|| {
         set_ps_display_suffix(MERGING.as_ptr());
         pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());

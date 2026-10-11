@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Added [posting bitmaps](/reference/indexing/bitmap-postings), enabled by default, to speed up eligible count queries combining common search terms with `AND` or `OR`. Disable bitmap storage per field with `bitmap_postings=false`, or disable its use during queries with `paradedb.enable_bitmap_postings = off` without rebuilding the index.

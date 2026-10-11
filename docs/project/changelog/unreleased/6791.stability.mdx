@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed the Aggregate Scan reading a `GROUP BY` key at the largest or smallest value of its type, including a timestamp of `infinity` or `-infinity`, as `NULL`, and a `NULL` group of a numeric or boolean key ignoring `NULLS FIRST` and `NULLS LAST` (#6791).

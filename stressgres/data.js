@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791706767177,
+  "lastUpdate": 1791706778981,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -151796,6 +151796,106 @@ window.BENCHMARK_DATA = {
             "value": 60.9921875,
             "unit": "median mem",
             "extra": "avg mem: 63.343280371378185, max mem: 72.19140625, count: 59397"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9c7ff146c92648692647b5b337079ec8fb8b95e7",
+          "message": "ci: Report p95 and QPS for benchmarker workloads (#6784)\n\n## What\n\nReport p50, p95, p99, and QPS together in one Current / Previous / Ratio\ntable per dataset, with dashboard links in the same PR comment and\nActions summary. The shared publisher covers all five Wikipedia and\nStackExchange workloads, along with existing HN callers, and preserves\nthe current p50/p99 history.\n\n## Why\n\nThroughput improvements can be substantial while p50 and p99 barely\nmove. Showing p95 and QPS alongside the existing latency comparisons\nmakes those changes visible in one place.\n\n## How\n\n- Add p95 to latency history and store QPS with `customBiggerIsBetter`.\nRead each publisher's preceding run for the combined comparison table,\nthen suppress their separate PR comments.\n- Use current/previous for latency and previous/current for QPS, so\nratios below 1 always indicate improvement. Mark regressions above 1.15x\nin the table. Missing baselines show as “—”; main-branch runs will\nestablish the new p95/QPS history.\n- Calculate QPS as completed query samples divided by their observed\nexecution window: latest completion minus earliest\ncompletion-minus-latency. This handles overlapping and out-of-order\nsamples and avoids stale run-level `endTime` values. The existing\nStackExchange count export records a 2-second run duration despite\ncontaining 300 seconds of samples.\n\n## Tests\n\n- Pre-commit checks, workflow actionlint, and `git diff --check` passed.\n- Executed extraction against all ten Wikipedia/StackExchange exports\nfrom #6779; independently verified all values and unchanged p50/p99.\nChecked overlapping and out-of-order samples, a single sample, empty\nruns, missing timestamps, and zero-duration rejection.\n- Rendered both combined tables against the actual main history: 20\nmetric rows per dataset, grouped by workload, preserving existing\ncomparisons and displaying new metrics without a baseline.\n- Verified baseline extraction excludes the just-appended current run.\nChecked both metric directions, regression flags, zero latency,\ndifferent baseline commits, and absent history.",
+          "timestamp": "2026-10-10T18:00:40Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9c7ff146c92648692647b5b337079ec8fb8b95e7"
+        },
+        "date": 1791706772811,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.035988289925297796, max background_merging: 1.0, count: 59436"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.697274794547289, max cpu: 9.60961, count: 59436"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.293463767750186, max mem: 26.3125, count: 59436"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.02772825035484, max cpu: 28.585608, count: 59436"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 58.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 58.89984322685326, max mem: 64.91796875, count: 59436"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 70274,
+            "unit": "median block_count",
+            "extra": "avg block_count: 69388.96766269601, max block_count: 70275.0, count: 59436"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.76413284877852, max segment_count: 106.0, count: 59436"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.66864,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.171216014204823, max cpu: 33.650475, count: 59436"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 95.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 91.87716764145468, max mem: 95.9375, count: 59436"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.510193094336763, max cpu: 4.8656864, count: 59436"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 42.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.765906815734574, max mem: 42.859375, count: 59436"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.477329945035652, max cpu: 28.670979, count: 59436"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 73.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 69.10139582912713, max mem: 73.38671875, count: 59436"
           }
         ]
       }

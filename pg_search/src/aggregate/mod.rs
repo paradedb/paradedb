@@ -909,6 +909,11 @@ pub fn execute_aggregate(
 pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
 pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
 
+/// True for either string sentinel.
+pub fn is_null_sentinel(key: &str) -> bool {
+    key == NULL_SENTINEL_MIN || key == NULL_SENTINEL_MAX
+}
+
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
 fn set_missing_on_terms(
     aggs: &mut Aggregations,
@@ -996,7 +1001,7 @@ fn set_missing_on_terms(
 /// [`set_missing_on_terms`] chooses per column type.
 fn is_missing_sentinel(key: &serde_json::Value) -> bool {
     match key {
-        serde_json::Value::String(s) => s == NULL_SENTINEL_MAX || s == NULL_SENTINEL_MIN,
+        serde_json::Value::String(s) => is_null_sentinel(s),
         serde_json::Value::Number(n) => {
             n.as_i64().is_some_and(|v| v == i64::MAX || v == i64::MIN)
                 || n.as_u64().is_some_and(|v| v == u64::MAX)

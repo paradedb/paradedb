@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791705453255,
+  "lastUpdate": 1791705466842,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -400184,6 +400184,88 @@ window.BENCHMARK_DATA = {
             "value": 603.7302912851496,
             "unit": "median tps",
             "extra": "avg tps: 607.6814238150328, max tps: 643.8077741189336, count: 55277"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9c7ff146c92648692647b5b337079ec8fb8b95e7",
+          "message": "ci: Report p95 and QPS for benchmarker workloads (#6784)\n\n## What\n\nReport p50, p95, p99, and QPS together in one Current / Previous / Ratio\ntable per dataset, with dashboard links in the same PR comment and\nActions summary. The shared publisher covers all five Wikipedia and\nStackExchange workloads, along with existing HN callers, and preserves\nthe current p50/p99 history.\n\n## Why\n\nThroughput improvements can be substantial while p50 and p99 barely\nmove. Showing p95 and QPS alongside the existing latency comparisons\nmakes those changes visible in one place.\n\n## How\n\n- Add p95 to latency history and store QPS with `customBiggerIsBetter`.\nRead each publisher's preceding run for the combined comparison table,\nthen suppress their separate PR comments.\n- Use current/previous for latency and previous/current for QPS, so\nratios below 1 always indicate improvement. Mark regressions above 1.15x\nin the table. Missing baselines show as “—”; main-branch runs will\nestablish the new p95/QPS history.\n- Calculate QPS as completed query samples divided by their observed\nexecution window: latest completion minus earliest\ncompletion-minus-latency. This handles overlapping and out-of-order\nsamples and avoids stale run-level `endTime` values. The existing\nStackExchange count export records a 2-second run duration despite\ncontaining 300 seconds of samples.\n\n## Tests\n\n- Pre-commit checks, workflow actionlint, and `git diff --check` passed.\n- Executed extraction against all ten Wikipedia/StackExchange exports\nfrom #6779; independently verified all values and unchanged p50/p99.\nChecked overlapping and out-of-order samples, a single sample, empty\nruns, missing timestamps, and zero-duration rejection.\n- Rendered both combined tables against the actual main history: 20\nmetric rows per dataset, grouped by workload, preserving existing\ncomparisons and displaying new metrics without a baseline.\n- Verified baseline extraction excludes the just-appended current run.\nChecked both metric directions, regression flags, zero latency,\ndifferent baseline commits, and absent history.",
+          "timestamp": "2026-10-10T18:00:40Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9c7ff146c92648692647b5b337079ec8fb8b95e7"
+        },
+        "date": 1791705430812,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 553.5061884699193,
+            "unit": "median tps",
+            "extra": "avg tps: 559.1836880474466, max tps: 657.2725527678282, count: 55237"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 515.4445441998181,
+            "unit": "median tps",
+            "extra": "avg tps: 520.4428884010148, max tps: 599.4802406731927, count: 55237"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 197.31383548077346,
+            "unit": "median tps",
+            "extra": "avg tps: 198.57997317709692, max tps: 216.5855666209849, count: 55237"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 561.1272804837449,
+            "unit": "median tps",
+            "extra": "avg tps: 566.6244436026864, max tps: 657.4210535135178, count: 55237"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 386.2889747403644,
+            "unit": "median tps",
+            "extra": "avg tps: 389.17745911035723, max tps: 438.50218592762707, count: 55237"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.587500115149323,
+            "unit": "median tps",
+            "extra": "avg tps: 14.610156798477036, max tps: 16.476653427110723, count: 55237"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 671.9689011155364,
+            "unit": "median tps",
+            "extra": "avg tps: 678.8880014127145, max tps: 780.8356510503916, count: 55237"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 686.9847066599391,
+            "unit": "median tps",
+            "extra": "avg tps: 694.9492803662619, max tps: 818.0819131039641, count: 55237"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 308.900225412403,
+            "unit": "median tps",
+            "extra": "avg tps: 309.34146014666703, max tps: 327.4720605082982, count: 55237"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 592.4015601844962,
+            "unit": "median tps",
+            "extra": "avg tps: 598.6810228997052, max tps: 682.8241013928134, count: 55237"
           }
         ]
       }

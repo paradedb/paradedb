@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791705508404,
+  "lastUpdate": 1791705520419,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -345734,6 +345734,160 @@ window.BENCHMARK_DATA = {
             "value": 20.921875,
             "unit": "median mem",
             "extra": "avg mem: 20.889747820429545, max mem: 20.921875, count: 59272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9c7ff146c92648692647b5b337079ec8fb8b95e7",
+          "message": "ci: Report p95 and QPS for benchmarker workloads (#6784)\n\n## What\n\nReport p50, p95, p99, and QPS together in one Current / Previous / Ratio\ntable per dataset, with dashboard links in the same PR comment and\nActions summary. The shared publisher covers all five Wikipedia and\nStackExchange workloads, along with existing HN callers, and preserves\nthe current p50/p99 history.\n\n## Why\n\nThroughput improvements can be substantial while p50 and p99 barely\nmove. Showing p95 and QPS alongside the existing latency comparisons\nmakes those changes visible in one place.\n\n## How\n\n- Add p95 to latency history and store QPS with `customBiggerIsBetter`.\nRead each publisher's preceding run for the combined comparison table,\nthen suppress their separate PR comments.\n- Use current/previous for latency and previous/current for QPS, so\nratios below 1 always indicate improvement. Mark regressions above 1.15x\nin the table. Missing baselines show as “—”; main-branch runs will\nestablish the new p95/QPS history.\n- Calculate QPS as completed query samples divided by their observed\nexecution window: latest completion minus earliest\ncompletion-minus-latency. This handles overlapping and out-of-order\nsamples and avoids stale run-level `endTime` values. The existing\nStackExchange count export records a 2-second run duration despite\ncontaining 300 seconds of samples.\n\n## Tests\n\n- Pre-commit checks, workflow actionlint, and `git diff --check` passed.\n- Executed extraction against all ten Wikipedia/StackExchange exports\nfrom #6779; independently verified all values and unchanged p50/p99.\nChecked overlapping and out-of-order samples, a single sample, empty\nruns, missing timestamps, and zero-duration rejection.\n- Rendered both combined tables against the actual main history: 20\nmetric rows per dataset, grouped by workload, preserving existing\ncomparisons and displaying new metrics without a baseline.\n- Verified baseline extraction excludes the just-appended current run.\nChecked both metric directions, regression flags, zero latency,\ndifferent baseline commits, and absent history.",
+          "timestamp": "2026-10-10T18:00:40Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9c7ff146c92648692647b5b337079ec8fb8b95e7"
+        },
+        "date": 1791705500040,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.793227364470283, max cpu: 37.536655, count: 59253"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 59.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.82779214501797, max mem: 75.453125, count: 59253"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.462314865558208, max cpu: 4.6943765, count: 59253"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.994081655148264, max mem: 21.0546875, count: 59253"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.740607361714642, max cpu: 9.421001, count: 59253"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.3017753320507, max mem: 29.3046875, count: 59253"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 8563,
+            "unit": "median pages",
+            "extra": "avg pages: 10198.247126727761, max pages: 23549.0, count: 59253"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 66.8984375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 79.67380646865982, max relation_size:MB: 183.9765625, count: 59253"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 54.903498557035086, max segment_count: 103.0, count: 59253"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.503332335242377, max cpu: 4.712813, count: 59253"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 20.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.72713486026024, max mem: 20.7421875, count: 59253"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.85994828698972, max cpu: 42.084755, count: 59253"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 59.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.289579087767706, max mem: 71.7109375, count: 59253"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.5604428012623, max cpu: 37.536655, count: 59253"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 53.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.32440228501088, max mem: 67.34375, count: 59253"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 102.01482391357422,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 197.18518040358177, max replication_lag:MB: 864.2151641845703, count: 59253"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.837397050612683, max cpu: 37.408672, count: 59253"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 57.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.96083208603362, max mem: 75.7109375, count: 59253"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.320388,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.06863450863637, max cpu: 32.844578, count: 59253"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 21.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.16724014765075, max mem: 21.2265625, count: 59253"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.302325,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.867436188294866, max cpu: 32.860634, count: 59253"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 21.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.18926448080688, max mem: 21.2890625, count: 59253"
           }
         ]
       }

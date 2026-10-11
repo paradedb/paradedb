@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791706574964,
+  "lastUpdate": 1791706589165,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -444408,6 +444408,94 @@ window.BENCHMARK_DATA = {
             "value": 56.484375,
             "unit": "median mem",
             "extra": "avg mem: 55.44627669253099, max mem: 66.484375, count: 58736"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9c7ff146c92648692647b5b337079ec8fb8b95e7",
+          "message": "ci: Report p95 and QPS for benchmarker workloads (#6784)\n\n## What\n\nReport p50, p95, p99, and QPS together in one Current / Previous / Ratio\ntable per dataset, with dashboard links in the same PR comment and\nActions summary. The shared publisher covers all five Wikipedia and\nStackExchange workloads, along with existing HN callers, and preserves\nthe current p50/p99 history.\n\n## Why\n\nThroughput improvements can be substantial while p50 and p99 barely\nmove. Showing p95 and QPS alongside the existing latency comparisons\nmakes those changes visible in one place.\n\n## How\n\n- Add p95 to latency history and store QPS with `customBiggerIsBetter`.\nRead each publisher's preceding run for the combined comparison table,\nthen suppress their separate PR comments.\n- Use current/previous for latency and previous/current for QPS, so\nratios below 1 always indicate improvement. Mark regressions above 1.15x\nin the table. Missing baselines show as “—”; main-branch runs will\nestablish the new p95/QPS history.\n- Calculate QPS as completed query samples divided by their observed\nexecution window: latest completion minus earliest\ncompletion-minus-latency. This handles overlapping and out-of-order\nsamples and avoids stale run-level `endTime` values. The existing\nStackExchange count export records a 2-second run duration despite\ncontaining 300 seconds of samples.\n\n## Tests\n\n- Pre-commit checks, workflow actionlint, and `git diff --check` passed.\n- Executed extraction against all ten Wikipedia/StackExchange exports\nfrom #6779; independently verified all values and unchanged p50/p99.\nChecked overlapping and out-of-order samples, a single sample, empty\nruns, missing timestamps, and zero-duration rejection.\n- Rendered both combined tables against the actual main history: 20\nmetric rows per dataset, grouped by workload, preserving existing\ncomparisons and displaying new metrics without a baseline.\n- Verified baseline extraction excludes the just-appended current run.\nChecked both metric directions, regression flags, zero latency,\ndifferent baseline commits, and absent history.",
+          "timestamp": "2026-10-10T18:00:40Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9c7ff146c92648692647b5b337079ec8fb8b95e7"
+        },
+        "date": 1791706582636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 75.8515625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 74.1674241989143, max partition_index_size:MB: 98.9609375, count: 58764"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.14501414585627, max cpu: 33.333336, count: 58764"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 57.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.07736959490504, max mem: 65.16015625, count: 58764"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.853494818388167, max cpu: 33.366436, count: 58764"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 63.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.03176497036877, max mem: 101.7421875, count: 58764"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.528536,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.970419734805176, max cpu: 33.38301, count: 58764"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 61.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.52910509889133, max mem: 75.81640625, count: 58764"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.471882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.899348702939044, max cpu: 33.333336, count: 58764"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 63.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.30585204961796, max mem: 75.81640625, count: 58764"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.04712333292899, max cpu: 33.38301, count: 58764"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 55.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.765339230332344, max mem: 65.5625, count: 58764"
           }
         ]
       }

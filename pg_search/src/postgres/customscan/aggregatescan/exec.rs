@@ -18,9 +18,11 @@
 use crate::gucs;
 use crate::gucs::WorkMem;
 
-use crate::aggregate::{AggregateRequest, execute_aggregate, scrub_missing_sentinel_value};
-use crate::api::HashMap;
+use crate::aggregate::{
+    AggregateRequest, execute_aggregate, is_null_sentinel, scrub_missing_sentinel_value,
+};
 use crate::api::version::VersionInfo;
+use crate::api::{HashMap, SortDirection};
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
@@ -78,6 +80,7 @@ pub fn aggregation_results_iter(
         .into_iter()
         .map(|column| column.field_name)
         .collect();
+    let key_orders = aggregate_clause.grouping_key_orders();
     // Routing (see create_custom_path) sends high-cardinality GROUP BYs to
     // DataFusion using an estimate, but a stale/wrong estimate can still land an
     // over-cap query here. Truncation at the cap is only recoverable for a single
@@ -94,7 +97,7 @@ pub fn aggregation_results_iter(
     let mut parallelism = AggregateParallelism::default();
     let collect_visibility_stats =
         unsafe { !planstate.is_null() && !(*planstate).instrument.is_null() };
-    let result: AggregationResults = execute_aggregate(
+    let mut result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
@@ -112,6 +115,7 @@ pub fn aggregation_results_iter(
     state.custom_state_mut().bitmap_exec = bitmap_exec;
     state.custom_state_mut().visibility_stats = visibility_stats;
     state.custom_state_mut().parallelism = collect_visibility_stats.then_some(parallelism);
+    result.place_null_groups(&key_orders);
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an
@@ -369,6 +373,50 @@ impl AggregationResults {
         }
 
         max_buckets != 0 && walk(self.0.values(), max_buckets)
+    }
+
+    /// Moves the NULL group of each `GROUP BY` level that ORDER BY sorts by its key to the end
+    /// ORDER BY puts NULLs at. Tantivy ranks the group's string key below every number, so on a
+    /// numeric or boolean level it comes back first in ASC and last in DESC; on a text level the
+    /// sentinel already sorts at that end.
+    fn place_null_groups(&mut self, key_orders: &[Option<SortDirection>]) {
+        fn walk(
+            results: &mut HashMap<String, TantivyAggregationResult>,
+            key_orders: &[Option<SortDirection>],
+        ) {
+            for (name, result) in results.iter_mut() {
+                match result {
+                    TantivyAggregationResult::BucketResult(BucketResult::Terms {
+                        buckets, ..
+                    }) if *name == GroupedKey::NAME => {
+                        let Some((key_order, deeper)) = key_orders.split_first() else {
+                            continue;
+                        };
+                        if let Some(direction) = key_order
+                            && let Some(pos) = buckets
+                                .iter()
+                                .position(|b| matches!(&b.key, Key::Str(s) if is_null_sentinel(s)))
+                        {
+                            let null = buckets.remove(pos);
+                            if direction.is_nulls_first() {
+                                buckets.insert(0, null);
+                            } else {
+                                buckets.push(null);
+                            }
+                        }
+                        for bucket in buckets.iter_mut() {
+                            walk(&mut bucket.sub_aggregation.0, deeper);
+                        }
+                    }
+                    TantivyAggregationResult::BucketResult(BucketResult::Filter(filter)) => {
+                        walk(&mut filter.sub_aggregations.0, key_orders);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        walk(&mut self.0, key_orders);
     }
 
     pub fn is_empty(&self) -> bool {

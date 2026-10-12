@@ -107,8 +107,8 @@ pub(crate) fn parallel_scan_is_cheaper(
     work > parallel_threshold(nworkers, leader_participates, transfer_cost)
 }
 
-/// Use workers when dividing traversal, collector updates, and heap visibility checks
-/// saves more than parallel startup and transferring one partial result per worker.
+/// Use workers when traversal, collector updates, and heap visibility checks cost
+/// more than parallel startup and transferring one partial result per worker.
 /// Unknown estimates keep the existing worker budget.
 pub(crate) fn aggregate_nworkers(
     index: &PgSearchRelation,
@@ -174,22 +174,10 @@ pub(crate) fn aggregate_nworkers(
         let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
         let parallel_cost = ParallelCost {
             estimated_work: work,
-            parallel_threshold: parallel_threshold(
-                workers,
-                pg_sys::parallel_leader_participation,
-                transfer_cost,
-            ),
+            parallel_threshold: pg_sys::parallel_setup_cost + transfer_cost,
         };
-        let nworkers = if parallel_scan_is_cheaper(
-            work,
-            workers,
-            pg_sys::parallel_leader_participation,
-            transfer_cost,
-        ) {
-            nworkers
-        } else {
-            0
-        };
+        let use_parallel = work > parallel_cost.parallel_threshold;
+        let nworkers = if use_parallel { nworkers } else { 0 };
         pgrx::debug1!(
             "aggregate traversal cost={cost}, matching rows={rows}, heap checks={heap_checks}, requested parallel workers={nworkers}"
         );

@@ -872,6 +872,86 @@ unsafe fn collect_join_sources_join_rel(
     None
 }
 
+pub unsafe fn can_pg_project(
+    expr: *mut pg_sys::Node,
+    sources: &[&JoinSource],
+) -> Result<(), JoinDeclineWithErrorMessage> {
+    if pg_sys::expression_returns_set(expr) {
+        return Err(JoinDeclineWithErrorMessage(
+            JoinDeclineReason::pg_cant_project(
+                "JoinScan declined Postgres projection: Expression returns a set",
+            ),
+            None,
+        ));
+    }
+
+    let mut deps = ExprDeps {
+        vars: Vec::new(),
+        score_rtis: Vec::new(),
+        window_funcs: Vec::new(),
+    };
+    expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+
+    if !deps.score_rtis.is_empty() {
+        return Err(JoinDeclineWithErrorMessage(
+            JoinDeclineReason::pg_cant_project(
+                "JoinScan declined Postgres projection: Expression depends on a score function",
+            ),
+            None,
+        ));
+    }
+
+    if !deps.window_funcs.is_empty() {
+        return Err(JoinDeclineWithErrorMessage(
+            JoinDeclineReason::pg_cant_project(
+                "JoinScan declined Postgres projection: Expression depends on a window function",
+            ),
+            None,
+        ));
+    }
+
+    let tables_str = sources
+        .iter()
+        .map(|s| source_table_name(s))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut seen = std::collections::HashSet::new();
+    for var_ptr in deps.vars {
+        let varno = (*var_ptr).varno as pg_sys::Index;
+        let varattno = (*var_ptr).varattno;
+
+        if varattno <= 0 {
+            let msg = format!(
+                "JoinScan declined Postgres projection: Invalid varattno ({varattno}) found"
+            );
+            return Err(JoinDeclineWithErrorMessage(
+                JoinDeclineReason::pg_cant_project(
+                    "JoinScan declined Postgres projection: Invalid varattno found",
+                ),
+                Some(msg),
+            ));
+        }
+
+        if !seen.insert((varno, varattno)) {
+            continue;
+        }
+
+        if sources.iter().find(|s| s.contains_rti(varno)).is_none() {
+            let msg = format!(
+                "JoinScan declined Postgres projection: expression depends on a relation \
+                 (rti={}) not found in any source (tables: {})",
+                varno, tables_str
+            );
+            return Err(JoinDeclineWithErrorMessage::new(
+                "JoinScan not used: expression depends on a relation outside the join".to_string(),
+                Some(msg),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Determines whether the provided PostgreSQL path represents a standard physical join strategy
 /// that we can intercept and execute via DataFusion.
 unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
@@ -2206,6 +2286,46 @@ pub fn resolve_fast_field_from_join_sources(
     })
 }
 
+struct ExprDeps {
+    vars: Vec<*mut pg_sys::Var>,
+    score_rtis: Vec<pg_sys::Index>,
+    window_funcs: Vec<*mut pg_sys::WindowFunc>,
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn expr_deps_walker(
+    node: *mut pg_sys::Node,
+    context: *mut core::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let deps = context.cast::<ExprDeps>();
+    let stripped = strip_wrappers(node);
+
+    // If this node is paradedb.score(var), record the score RTI and DO NOT
+    // recurse into the argument Var.
+    if let Some(rti) = get_score_func_rti(stripped.cast()) {
+        (*deps).score_rtis.push(rti);
+        return false;
+    }
+
+    // A window function is an opaque input: the scan's window step
+    // computes it, so its argument Vars are NOT expression inputs.
+    // Record the node and DO NOT recurse into it.
+    if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, stripped) {
+        (*deps).window_funcs.push(wf);
+        return false;
+    }
+
+    if let Some(var) = nodecast!(Var, T_Var, stripped) {
+        (*deps).vars.push(var);
+        return false;
+    }
+
+    pg_sys::expression_tree_walker(node, Some(expr_deps_walker), context)
+}
+
 /// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
@@ -2280,66 +2400,26 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 4: General expression (or constant).
     if pg_sys::contain_agg_clause(expr) {
-        pgrx::debug1!(
+        let msg = format!(
             "JoinScan declined: target list expression contains an aggregate \
              function (tables: {})",
             tables_str
         );
         return Err(JoinDeclineWithErrorMessage::new(
             "JoinScan not used: target list expression contains an aggregate function".to_string(),
-            None,
+            Some(msg),
         ));
     }
     if pg_sys::contain_volatile_functions(expr) {
-        pgrx::debug1!(
+        let msg = format!(
             "JoinScan declined: target list expression contains a volatile \
              function (tables: {})",
             tables_str
         );
-        return Err(JoinDeclineWithErrorMessage::new(
-            "JoinScan not used: target list expression contains a volatile function".to_string(),
-            None,
+        return Err(JoinDeclineWithErrorMessage(
+            JoinDeclineReason::ContainsVolatile,
+            Some(msg),
         ));
-    }
-
-    struct ExprDeps {
-        vars: Vec<*mut pg_sys::Var>,
-        score_rtis: Vec<pg_sys::Index>,
-        window_funcs: Vec<*mut pg_sys::WindowFunc>,
-    }
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn expr_deps_walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let deps = context.cast::<ExprDeps>();
-        let stripped = strip_wrappers(node);
-
-        // If this node is paradedb.score(var), record the score RTI and DO NOT
-        // recurse into the argument Var.
-        if let Some(rti) = get_score_func_rti(stripped.cast()) {
-            (*deps).score_rtis.push(rti);
-            return false;
-        }
-
-        // A window function is an opaque input: the scan's window step
-        // computes it, so its argument Vars are NOT expression inputs.
-        // Record the node and DO NOT recurse into it.
-        if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, stripped) {
-            (*deps).window_funcs.push(wf);
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, stripped) {
-            (*deps).vars.push(var);
-            return false;
-        }
-
-        pg_sys::expression_tree_walker(node, Some(expr_deps_walker), context)
     }
 
     let mut deps = ExprDeps {
@@ -2376,16 +2456,15 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     // Verify score RTIs reference relations in the join
     for score_rti in deps.score_rtis {
         if !sources.iter().any(|s| s.contains_rti(score_rti)) {
-            pgrx::debug1!(
+            let msg = format!(
                 "JoinScan declined: expression depends on score for relation \
                  (rti={}) not found in any source (tables: {})",
-                score_rti,
-                tables_str
+                score_rti, tables_str
             );
             return Err(JoinDeclineWithErrorMessage::new(
                 "JoinScan not used: score function references a relation outside the join"
                     .to_string(),
-                None,
+                Some(msg),
             ));
         }
     }

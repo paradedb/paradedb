@@ -148,8 +148,9 @@ pub mod window_func;
 pub use self::build::{CtidColumn, ScoreColumn};
 use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
-    collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
-    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    can_pg_project, collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling,
+    extract_orderby, get_score_func_rti, order_by_columns_are_fast_fields,
+    pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
 use self::window_func::{
@@ -251,6 +252,7 @@ pub unsafe fn format_type_name(type_oid: pg_sys::Oid) -> String {
 #[derive(Clone, Debug)]
 pub enum JoinDeclineReason {
     ContainsAggregate,
+    ContainsVolatile,
     NonColumnar {
         col: String,
     },
@@ -260,6 +262,10 @@ pub enum JoinDeclineReason {
     Message {
         message: String,
         details: Option<Vec<String>>,
+    },
+    PgCantProject {
+        message: String,
+        original: Option<Box<JoinDeclineReason>>,
     },
 }
 
@@ -273,18 +279,6 @@ impl JoinDeclineReason {
 
     pub fn with_details(self, new_details: Vec<String>) -> Self {
         match self {
-            Self::ContainsAggregate => {
-                debug_assert!(false, "Cannot add details to ContainsAggregate");
-                self
-            }
-            Self::NonColumnar { .. } => {
-                debug_assert!(false, "Cannot add details to NonColumnar");
-                self
-            }
-            Self::NotArrowConvertable { .. } => {
-                debug_assert!(false, "Cannot add details to NotArrowConvertible");
-                self
-            }
             Self::Message {
                 message,
                 details: _,
@@ -292,6 +286,56 @@ impl JoinDeclineReason {
                 message,
                 details: Some(new_details),
             },
+            _ => {
+                debug_assert!(false, "Only Message can have details");
+                self
+            }
+        }
+    }
+
+    pub fn with_original_reason(self, original: Self) -> Self {
+        match self {
+            Self::PgCantProject { message, .. } => Self::PgCantProject {
+                message,
+                original: Some(Box::new(original)),
+            },
+            _ => unreachable!("should only be callable on a PgCantProject decline"),
+        }
+    }
+
+    pub fn pg_cant_project(message: impl Into<String>) -> Self {
+        Self::PgCantProject {
+            message: message.into(),
+            original: None,
+        }
+    }
+
+    fn planner_warning_message(&self) -> String {
+        match self {
+            Self::ContainsAggregate => {
+                   "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.".to_string()
+            }
+            Self::ContainsVolatile => {"JoinScan not used: target list expression contains a volatile function".to_string()},
+            Self::NonColumnar { col } => {
+                    format!(
+                        "JoinScan not used: target list expression depends on '{col}' which is not columnar",
+                    )
+            }
+            Self::NotArrowConvertable { type_oid } => {
+                let type_name = unsafe { format_type_name(*type_oid) };
+                    format!(
+                        "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+                    )
+            }
+            Self::PgCantProject { message, original } => {
+                match original {
+                    Some(orig) => format!("{}; {message}", orig.planner_warning_message()),
+                    None => message.clone(),
+                }
+            }
+            Self::Message { message, ..} => {
+                message.clone()
+            }
         }
     }
 
@@ -309,27 +353,7 @@ impl JoinDeclineReason {
                     // the joinscan to propose itself even when aggregates are present.
                     return;
                 }
-                JoinScan::add_planner_warning(
-                    "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.",
-                    aliases,
-                );
-            }
-            Self::NonColumnar { col } => {
-                JoinScan::add_planner_warning(
-                    format!(
-                        "JoinScan not used: target list expression depends on '{col}' which is not columnar",
-                    ),
-                    aliases,
-                );
-            }
-            Self::NotArrowConvertable { type_oid } => {
-                let type_name = unsafe { format_type_name(*type_oid) };
-                JoinScan::add_planner_warning(
-                    format!(
-                        "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
-                    ),
-                    aliases,
-                );
+                JoinScan::add_planner_warning(self.planner_warning_message(), aliases);
             }
             Self::Message { message, details } => {
                 if let Some(details) = details {
@@ -337,6 +361,9 @@ impl JoinDeclineReason {
                 } else {
                     JoinScan::add_planner_warning(message, aliases);
                 }
+            }
+            _ => {
+                JoinScan::add_planner_warning(self.planner_warning_message(), aliases);
             }
         }
     }
@@ -707,12 +734,30 @@ impl JoinScan {
                 window_aggs.push(window_agg);
             } else {
                 match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
-                    Err(JoinDeclineWithErrorMessage(reason, message)) => {
-                        if let Some(m) = message {
-                            pgrx::debug1!("{m}");
+                    Err(JoinDeclineWithErrorMessage(reason, message)) => match reason {
+                        JoinDeclineReason::ContainsVolatile
+                        | JoinDeclineReason::NonColumnar { .. }
+                        | JoinDeclineReason::NotArrowConvertable { .. } => {
+                            if let Err(JoinDeclineWithErrorMessage(pg_reason, pg_message)) =
+                                can_pg_project(check_expr, &plan.output_sources())
+                            {
+                                if let Some(full_msg) = match (message, pg_message) {
+                                    (Some(m1), Some(m2)) => Some(format!("{m1}; {m2}")),
+                                    (Some(m), None) | (None, Some(m)) => Some(m),
+                                    _ => None,
+                                } {
+                                    pgrx::debug1!("{full_msg}");
+                                }
+                                return Err(pg_reason.with_original_reason(reason));
+                            }
                         }
-                        return Err(reason);
-                    }
+                        _ => {
+                            if let Some(m) = message {
+                                pgrx::debug1!("{m}");
+                            }
+                            return Err(reason);
+                        }
+                    },
                     Ok(planning::ResolvedExpr::Expression { window_deps, .. })
                         if !window_deps.is_empty() =>
                     {

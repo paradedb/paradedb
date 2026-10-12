@@ -64,7 +64,7 @@ static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(tr
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(32.0);
+static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(24.0);
 
 /// Allows visibility proofs from segment bounds and heap-block document ranges.
 static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);

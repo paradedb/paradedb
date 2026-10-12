@@ -234,12 +234,29 @@ enum JoinPathDecline {
     },
 }
 
+/// Human-readable PG type name (e.g., "jsonb", "integer").
+pub unsafe fn format_type_name(type_oid: pg_sys::Oid) -> String {
+    let c_str = pg_sys::format_type_be(type_oid);
+    if c_str.is_null() {
+        return format!("OID {}", type_oid);
+    }
+    std::ffi::CStr::from_ptr(c_str)
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Specific reason a `JoinPathDecline::Warn` was raised. Wraps a specific
 /// warning message and any optional details (e.g., unsupported join types)
 /// to be emitted as a planner warning.
 #[derive(Clone, Debug)]
 pub enum JoinDeclineReason {
     ContainsAggregate,
+    NonColumnar {
+        col: String,
+    },
+    NotArrowConvertable {
+        type_oid: pg_sys::Oid,
+    },
     Message {
         message: String,
         details: Option<Vec<String>>,
@@ -258,6 +275,14 @@ impl JoinDeclineReason {
         match self {
             Self::ContainsAggregate => {
                 debug_assert!(false, "Cannot add details to ContainsAggregate");
+                self
+            }
+            Self::NonColumnar { .. } => {
+                debug_assert!(false, "Cannot add details to NonColumnar");
+                self
+            }
+            Self::NotArrowConvertable { .. } => {
+                debug_assert!(false, "Cannot add details to NotArrowConvertible");
                 self
             }
             Self::Message {
@@ -289,6 +314,23 @@ impl JoinDeclineReason {
                     aliases,
                 );
             }
+            Self::NonColumnar { col } => {
+                JoinScan::add_planner_warning(
+                    format!(
+                        "JoinScan not used: target list expression depends on '{col}' which is not columnar",
+                    ),
+                    aliases,
+                );
+            }
+            Self::NotArrowConvertable { type_oid } => {
+                let type_name = unsafe { format_type_name(*type_oid) };
+                JoinScan::add_planner_warning(
+                    format!(
+                        "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+                    ),
+                    aliases,
+                );
+            }
             Self::Message { message, details } => {
                 if let Some(details) = details {
                     JoinScan::add_detailed_planner_warning(message, aliases, details.clone());
@@ -297,6 +339,15 @@ impl JoinDeclineReason {
                 }
             }
         }
+    }
+}
+
+/// A JoinDeclineReason, along with an optional error message. The message is intended to be passed
+/// to `pgrx::debug!` call should the callsite not choose to provide some reason-specific fallback
+pub struct JoinDeclineWithErrorMessage(pub JoinDeclineReason, pub Option<String>);
+impl JoinDeclineWithErrorMessage {
+    pub fn new(reason_message: String, error_message: Option<String>) -> Self {
+        Self(JoinDeclineReason::new(reason_message), error_message)
     }
 }
 
@@ -656,8 +707,11 @@ impl JoinScan {
                 window_aggs.push(window_agg);
             } else {
                 match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
-                    Err(e) => {
-                        return Err(e);
+                    Err(JoinDeclineWithErrorMessage(reason, message)) => {
+                        if let Some(m) = message {
+                            pgrx::debug1!("{m}");
+                        }
+                        return Err(reason);
                     }
                     Ok(planning::ResolvedExpr::Expression { window_deps, .. })
                         if !window_deps.is_empty() =>
@@ -2142,6 +2196,11 @@ unsafe fn build_output_projection(
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
             && let Ok(resolved) = planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
+                .map_err(|e| {
+                    if let Some(msg) = e.1 {
+                        pgrx::debug1!("{msg}")
+                    }
+                })
         {
             resolved_entries[scan_idx] = Some(resolved);
         }

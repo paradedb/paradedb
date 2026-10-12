@@ -2249,7 +2249,15 @@ unsafe fn build_output_projection(
     // so DataFusion can evaluate them and exec_custom_scan can project their results.
     let all_sources = private_data.join_clause.plan.sources();
     for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
+        let te = &(*te);
         if resolved_entries[scan_idx].is_some() {
+            continue;
+        }
+        if private_data
+            .join_clause
+            .pg_projected_resnos
+            .contains(&te.resno)
+        {
             continue;
         }
         // Bare window aggregates are emitted by the direct window-output
@@ -2263,7 +2271,7 @@ unsafe fn build_output_projection(
         ) {
             continue;
         }
-        let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        let scan_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
             && let Ok(resolved) = planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
@@ -2703,7 +2711,17 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         row_idx: usize,
     ) -> Option<*mut pg_sys::TupleTableSlot> {
-        let result_slot = state.custom_state().result_slot?;
+        let projecting = !state
+            .custom_state()
+            .join_clause
+            .pg_projected_resnos
+            .is_empty();
+        let target_slot = if projecting {
+            state.scanslot()
+        } else {
+            state.custom_state().result_slot?
+        };
+
         let output_columns = state.custom_state().output_columns.clone();
         let mut fetched_sources = crate::api::HashSet::default();
         // Sources whose ctid is NULL in this row: the row is null-extended by
@@ -2783,15 +2801,15 @@ impl JoinScan {
                 fetched_sources.insert(plan_position);
             }
         }
-        // Get the result tuple descriptor from the result slot
-        let result_tupdesc = (*result_slot).tts_tupleDescriptor;
-        let natts = (*result_tupdesc).natts as usize;
-        // Clear the result slot
-        pg_sys::ExecClearTuple(result_slot);
+        // Get the target tuple descriptor from the target slot
+        let target_tupdesc = (*target_slot).tts_tupleDescriptor;
+        let natts = (*target_tupdesc).natts as usize;
+        // Clear the target slot
+        pg_sys::ExecClearTuple(target_slot);
 
-        // Fill the result slot based on the output column mapping
-        let datums = (*result_slot).tts_values;
-        let nulls = (*result_slot).tts_isnull;
+        // Fill the target slot based on the output column mapping
+        let datums = (*target_slot).tts_values;
+        let nulls = (*target_slot).tts_isnull;
 
         let batch = state.custom_state().current_batch.as_ref()?;
 
@@ -2969,11 +2987,11 @@ impl JoinScan {
                     let expected_type = {
                         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                         {
-                            (*result_tupdesc).attrs.as_slice(natts)[i].atttypid
+                            (*target_tupdesc).attrs.as_slice(natts)[i].atttypid
                         }
                         #[cfg(feature = "pg18")]
                         {
-                            (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
+                            (*pg_sys::TupleDescAttr(target_tupdesc, i as i32)).atttypid
                         }
                     };
                     if col.is_null(row_idx) || col.data_type() == &arrow_schema::DataType::Null {
@@ -3001,7 +3019,20 @@ impl JoinScan {
             }
         }
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
-        pg_sys::ExecStoreVirtualTuple(result_slot);
-        Some(result_slot)
+        pg_sys::ExecStoreVirtualTuple(target_slot);
+
+        if projecting {
+            let proj_info = state.csstate.ss.ps.ps_ProjInfo;
+            assert!(!proj_info.is_null(), "should never be null");
+            let econtext = (*proj_info).pi_exprContext;
+            // Reset only the projection's per-tuple memory. `pi_exprContext` is the context
+            // ExecInitCustomScan created; begin_custom_scan replaces `ps_ExprContext` with a
+            // fresh one (where runtime params are solved and must never be reset per row),
+            // so the two are distinct.
+            pg_sys::MemoryContextReset((*econtext).ecxt_per_tuple_memory);
+            (*econtext).ecxt_scantuple = target_slot;
+            return Some(pg_sys::ExecProject(proj_info));
+        }
+        Some(target_slot)
     }
 }

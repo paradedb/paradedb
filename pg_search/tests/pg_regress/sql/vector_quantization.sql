@@ -291,8 +291,6 @@ SELECT
         AS layer0_populated,
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
-        AND (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
-            = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
         AS layer0_selection_accounted,
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
@@ -373,9 +371,6 @@ SELECT
     (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         AS filtered_scores_only_eligible,
-    (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
-        = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
-        AS filtered_charges_only_eligible,
     (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint > 0
         AS filtered_prunes_at_admission,
     (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint

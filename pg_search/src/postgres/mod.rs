@@ -1407,7 +1407,6 @@ mod segment_info_tests {
             "candidates_scored",
             "layer0_eligible",
             "clusters_skipped_empty",
-            "eligible_charged",
             "rerank_rows",
             "rerank_reads",
             "rerank_bytes_read",
@@ -1455,7 +1454,10 @@ mod segment_info_tests {
             "locate_reads",
             "locate_bytes_read",
             "locate_storage_blocks",
-            "direct_cap",
+            "centroid_ns",
+            "centroid_bytes_read",
+            "centroid_storage_blocks",
+            "located_cap",
         ] {
             insert_counter(&mut fields, name);
         }
@@ -1476,6 +1478,7 @@ mod segment_info_tests {
             "exact_scan".to_string(),
             "exact".to_string(),
             "locate".to_string(),
+            "centroid".to_string(),
             "result_assembly".to_string(),
             "rerank_fetch".to_string(),
             "rerank_score".to_string(),

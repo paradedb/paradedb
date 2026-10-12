@@ -67,7 +67,7 @@ use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
-use tantivy::vector::ivf::{AdaptiveProbeParams, DirectRead};
+use tantivy::vector::ivf::{AdaptiveProbeParams, LocatedPath};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -1672,7 +1672,7 @@ impl SearchIndexReader {
                         // locate a filter's matches instead of routing when they number no
                         // more than the rows the probe budget buys.
                         exact_plan: true,
-                        direct_read: DirectRead::Auto,
+                        located: LocatedPath::Auto,
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);

@@ -39,7 +39,7 @@ AS $$
     SELECT
         jsonb_path_query_first(value, '$.**.access_path') #>> '{}',
         (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint,
-        (jsonb_path_query_first(value, '$.**.direct_cap') #>> '{}')::bigint > 0
+        (jsonb_path_query_first(value, '$.**.located_cap') #>> '{}')::bigint > 0
     FROM filtered_scan_segment(query_text) AS value
 $$;
 

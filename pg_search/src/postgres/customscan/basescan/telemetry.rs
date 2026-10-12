@@ -129,6 +129,7 @@ impl ScanTelemetry {
                         | "rerank_score_ns"
                         | "exact_ns"
                         | "locate_ns"
+                        | "centroid_ns"
                 ) || (name.starts_with("layer") && name.ends_with("_scan_ns"))
                     || (name.starts_with("boundary") && name.ends_with("_ns"));
                 if is_stage {

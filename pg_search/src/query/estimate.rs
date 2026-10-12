@@ -22,6 +22,10 @@ use tantivy::query::{
 };
 
 pub(crate) trait QueryEstimate {
+    fn is_fast_count(&self) -> bool {
+        false
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>>;
 }
 
@@ -38,6 +42,18 @@ impl Estimate {
 }
 
 impl QueryEstimate for dyn Query {
+    fn is_fast_count(&self) -> bool {
+        self.is::<AllQuery>()
+            || self.is::<TermQuery>()
+            || self.is::<ConstScoreQuery<AllQuery>>()
+            || self
+                .downcast_ref::<BoostQuery>()
+                .is_some_and(QueryEstimate::is_fast_count)
+            || self
+                .downcast_ref::<ConstScoreQuery>()
+                .is_some_and(QueryEstimate::is_fast_count)
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         macro_rules! estimate_as {
             ($($query:ty),* $(,)?) => {$(
@@ -58,6 +74,10 @@ impl QueryEstimate for dyn Query {
 }
 
 impl QueryEstimate for AllQuery {
+    fn is_fast_count(&self) -> bool {
+        true
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         Ok(Some(Estimate {
             matches: reader.max_doc() as f64,
@@ -67,18 +87,30 @@ impl QueryEstimate for AllQuery {
 }
 
 impl QueryEstimate for ConstScoreQuery {
+    fn is_fast_count(&self) -> bool {
+        self.query().is_fast_count()
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         self.query().estimate_docs(reader)
     }
 }
 
 impl QueryEstimate for BoostQuery {
+    fn is_fast_count(&self) -> bool {
+        self.query().is_fast_count()
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         self.query().estimate_docs(reader)
     }
 }
 
 impl QueryEstimate for TermQuery {
+    fn is_fast_count(&self) -> bool {
+        true
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         // The index already stores how many documents contain this term.
         let term = self.term();
@@ -194,9 +226,36 @@ impl QueryEstimate for EmptyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tantivy::query::{QueryClone, RegexQuery};
+    use tantivy::query::{QueryClone, QueryParser, RegexQuery};
     use tantivy::schema::{IndexRecordOption, Schema, TEXT};
     use tantivy::{Index, TantivyDocument, Term, doc};
+
+    #[test]
+    fn fast_counts_are_match_all_or_single_terms() -> tantivy::Result<()> {
+        let mut schema = Schema::builder();
+        let field = schema.add_text_field("body", TEXT);
+        let index = Index::create_in_ram(schema.build());
+        let parser = QueryParser::for_index(&index, vec![field]);
+        for (query, expected) in [
+            ("*", true),
+            ("alpha", true),
+            ("alpha OR beta", false),
+            ("alpha AND beta", false),
+            ("\"alpha beta\"", false),
+            ("alpha OR \"alpha beta\"", false),
+        ] {
+            let parsed = parser.parse_query(query)?;
+            assert_eq!(parsed.is_fast_count(), expected, "{query}");
+            let boosted: Box<dyn Query> = Box::new(BoostQuery::new(parsed, 2.0));
+            assert_eq!(boosted.is_fast_count(), expected, "boosted {query}");
+            let constant: Box<dyn Query> = Box::new(ConstScoreQuery::new(boosted, 1.0));
+            assert_eq!(constant.is_fast_count(), expected, "constant {query}");
+        }
+        let all: &dyn Query = &ConstScoreQuery::new(AllQuery, 0.0);
+        assert!(all.is_fast_count());
+        assert!(!(&EmptyQuery as &dyn Query).is_fast_count());
+        Ok(())
+    }
 
     #[test]
     fn statistics_estimates_preserve_term_document_frequency() {

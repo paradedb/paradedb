@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791706778981,
+  "lastUpdate": 1791793210728,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -174206,6 +174206,64 @@ window.BENCHMARK_DATA = {
             "value": 22.477560171691035,
             "unit": "median tps",
             "extra": "avg tps: 22.511029001823996, max tps: 35.44727280203425, count: 59313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9c7ff146c92648692647b5b337079ec8fb8b95e7",
+          "message": "ci: Report p95 and QPS for benchmarker workloads (#6784)\n\n## What\n\nReport p50, p95, p99, and QPS together in one Current / Previous / Ratio\ntable per dataset, with dashboard links in the same PR comment and\nActions summary. The shared publisher covers all five Wikipedia and\nStackExchange workloads, along with existing HN callers, and preserves\nthe current p50/p99 history.\n\n## Why\n\nThroughput improvements can be substantial while p50 and p99 barely\nmove. Showing p95 and QPS alongside the existing latency comparisons\nmakes those changes visible in one place.\n\n## How\n\n- Add p95 to latency history and store QPS with `customBiggerIsBetter`.\nRead each publisher's preceding run for the combined comparison table,\nthen suppress their separate PR comments.\n- Use current/previous for latency and previous/current for QPS, so\nratios below 1 always indicate improvement. Mark regressions above 1.15x\nin the table. Missing baselines show as “—”; main-branch runs will\nestablish the new p95/QPS history.\n- Calculate QPS as completed query samples divided by their observed\nexecution window: latest completion minus earliest\ncompletion-minus-latency. This handles overlapping and out-of-order\nsamples and avoids stale run-level `endTime` values. The existing\nStackExchange count export records a 2-second run duration despite\ncontaining 300 seconds of samples.\n\n## Tests\n\n- Pre-commit checks, workflow actionlint, and `git diff --check` passed.\n- Executed extraction against all ten Wikipedia/StackExchange exports\nfrom #6779; independently verified all values and unchanged p50/p99.\nChecked overlapping and out-of-order samples, a single sample, empty\nruns, missing timestamps, and zero-duration rejection.\n- Rendered both combined tables against the actual main history: 20\nmetric rows per dataset, grouped by workload, preserving existing\ncomparisons and displaying new metrics without a baseline.\n- Verified baseline extraction excludes the just-appended current run.\nChecked both metric directions, regression flags, zero latency,\ndifferent baseline commits, and absent history.",
+          "timestamp": "2026-10-10T18:00:40Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9c7ff146c92648692647b5b337079ec8fb8b95e7"
+        },
+        "date": 1791793203279,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 144.1540082494799,
+            "unit": "median tps",
+            "extra": "avg tps: 142.35825751128408, max tps: 148.98507651741332, count: 59318"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 510.5345794539902,
+            "unit": "median tps",
+            "extra": "avg tps: 548.0615212618974, max tps: 5861.231828232313, count: 59318"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 773.1629944661672,
+            "unit": "median tps",
+            "extra": "avg tps: 739.6418519986235, max tps: 1023.4924850411422, count: 59318"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 179.20957356096142,
+            "unit": "median tps",
+            "extra": "avg tps: 177.30589599213275, max tps: 187.2427339645305, count: 59318"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 242.77081573403737,
+            "unit": "median tps",
+            "extra": "avg tps: 312.1237043871025, max tps: 2229.8618050007462, count: 118636"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.89897676750112,
+            "unit": "median tps",
+            "extra": "avg tps: 22.88629091252072, max tps: 33.628409172457985, count: 59318"
           }
         ]
       }

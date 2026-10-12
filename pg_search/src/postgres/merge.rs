@@ -24,7 +24,7 @@ use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::LinkedItemList;
-use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
+use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
@@ -294,6 +294,21 @@ fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMet
     count > 2
 }
 
+unsafe fn has_unclaimed_mutable_segments(
+    metadata: &MetaPage,
+    merge_lock: &MergeLock,
+    include_frozen: bool,
+) -> bool {
+    let mut claimed = metadata.vacuum_list().read_list();
+    let merge_list = merge_lock.merge_list();
+    claimed.extend(merge_list.list_segment_ids());
+    metadata.segment_metas().list(None).iter().any(|entry| {
+        entry.visible()
+            && matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if include_frozen || !content.frozen)
+            && !claimed.contains(&entry.segment_id())
+    })
+}
+
 /// Kick off a merge of the index, if needed.
 ///
 /// First merge into the smaller layers in the foreground,
@@ -330,7 +345,11 @@ pub unsafe fn do_merge(
                 background_merge_policy.simulate_supported(&merger)?;
             warn_unsupported_vector_merge(index, skipped);
 
-            (!merge_candidates.is_empty(), largest_layer_size)
+            (
+                !merge_candidates.is_empty()
+                    || has_unclaimed_mutable_segments(&metadata, &merge_lock, true),
+                largest_layer_size,
+            )
         } else {
             (false, 0)
         };
@@ -375,7 +394,13 @@ pub unsafe fn do_merge(
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
+pub(crate) unsafe fn try_launch_background_merger(
+    index: &PgSearchRelation,
+    largest_layer_size: u64,
+) {
+    if !index.is_valid() {
+        return;
+    }
     let slot = MergeSlot::for_layer_size(index.oid(), largest_layer_size);
     if !slot.is_available() {
         return;
@@ -418,7 +443,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     }
 
     // PostgreSQL's waits and interrupt checks act on ProcDiePending. pgrx's SIGTERM handler
-    // only sets a flag for a worker's own polling loop, and this one-shot worker has none.
+    // only sets a flag and cannot interrupt the work inside a merge.
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     // Not gated on pg18: a future major whose `die` signature changes must fail to build here
@@ -439,75 +464,109 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             pg_sys::GucSource::PGC_S_OVERRIDE,
         );
     }
-    BackgroundWorker::transaction(|| {
-        set_ps_display_suffix(MERGING.as_ptr());
-        pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
+    let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
+    loop {
+        check_for_interrupts!();
+        if BackgroundWorker::sighup_received() {
+            pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
+        }
+        let merged = BackgroundWorker::transaction(|| {
+            set_ps_display_suffix(MERGING.as_ptr());
+            pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
 
-        pgrx::debug1!(
-            "{}: starting background merge",
-            BackgroundWorker::get_name()
-        );
-
-        let current_xid = pg_sys::GetCurrentFullTransactionId();
-        let next_xid = current_xid;
-        let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
-        let index = PgSearchRelation::try_open(
-            args.index_oid(),
-            pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-        );
-        if index.is_none() {
             pgrx::debug1!(
-                "{}: index not found, suggesting it was just dropped",
+                "{}: starting background merge",
                 BackgroundWorker::get_name()
             );
-            return;
-        }
-        let index = index.unwrap();
-        // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
-        // this checks to see if a merger is already running for the given layer
-        let merge_slot = MergeSlot::new(index.oid(), args.slot_variant()).lock();
-        // todo: this could potentially wait instead of returning immediately if the lock is not available
-        // to avoid racing with other backends trying to probe the slot
-        if merge_slot.is_none() {
-            return;
-        }
-        let metadata = MetaPage::open(&index);
 
-        let layer_sizes = IndexLayerSizes::from(&index);
-        let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
+            let current_xid = pg_sys::GetCurrentFullTransactionId();
+            let next_xid = current_xid;
+            let index = PgSearchRelation::try_open(
+                args.index_oid(),
+                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+            );
+            if index.is_none() {
+                pgrx::debug1!(
+                    "{}: index not found, suggesting it was just dropped",
+                    BackgroundWorker::get_name()
+                );
+                return None;
+            }
+            let index = index.unwrap();
+            if !index.is_valid() || index.options().background_layer_sizes().is_empty() {
+                return None;
+            }
+            // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
+            // this checks to see if a merger is already running for the given layer
+            let merge_slot = MergeSlot::new(index.oid(), args.slot_variant()).lock();
+            // todo: this could potentially wait instead of returning immediately if the lock is not available
+            // to avoid racing with other backends trying to probe the slot
+            merge_slot.as_ref()?;
+            let metadata = MetaPage::open(&index);
 
-        let cleanup_lock = metadata.cleanup_lock_shared();
-        // this ensures there's only one merge running at a time for the given index,
-        // while the lock is held
-        let merge_lock = metadata.acquire_merge_lock();
+            let layer_sizes = IndexLayerSizes::from(&index);
+            let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
-        PgTryBuilder::new(AssertUnwindSafe(|| {
-            merge_index(
-                &index,
-                merge_policy,
-                merge_lock,
-                cleanup_lock,
-                true,
-                true,
-                current_xid,
-                next_xid,
+            let cleanup_lock = metadata.cleanup_lock_shared();
+            // this ensures there's only one merge running at a time for the given index,
+            // while the lock is held
+            let merge_lock = metadata.acquire_merge_lock();
+
+            Some(
+                PgTryBuilder::new(AssertUnwindSafe(|| {
+                    merge_index(
+                        &index,
+                        merge_policy,
+                        merge_lock,
+                        cleanup_lock,
+                        true,
+                        true,
+                        current_xid,
+                        next_xid,
+                    )
+                }))
+                // A crash here dies in this background worker: it never reaches a client
+                // connection, and Postgres logs only to the container's stdout, so nothing
+                // outside would fail on it. Report it to the DST harness before rethrowing so the
+                // fuzzer's run fails instead of silently passing. Rethrowing preserves the
+                // existing behaviour (Postgres logs the error and the worker exits).
+                .catch_others(|caught| {
+                    dst::observe!(|| {
+                        if let Some(details) = merge_crash_details(&caught) {
+                            dst::assert_unreachable!(
+                                "pg_search background merge crashed",
+                                &details
+                            );
+                        }
+                    });
+                    caught.rethrow()
+                })
+                .execute(),
             )
-        }))
-        // A crash here dies in this background worker: it never reaches a client
-        // connection, and Postgres logs only to the container's stdout, so nothing
-        // outside would fail on it. Report it to the DST harness before rethrowing so the
-        // fuzzer's run fails instead of silently passing. Rethrowing preserves the
-        // existing behaviour (Postgres logs the error and the worker exits).
-        .catch_others(|caught| {
-            dst::observe!(|| {
-                if let Some(details) = merge_crash_details(&caught) {
-                    dst::assert_unreachable!("pg_search background merge crashed", &details);
-                }
-            });
-            caught.rethrow()
-        })
-        .execute();
-    })
+        });
+        let Some(merged) = merged else {
+            break;
+        };
+
+        // Release the slot before checking again so a concurrent append can launch a successor.
+        let pending = BackgroundWorker::transaction(|| {
+            if VacuumSignal::new(args.index_oid()).wants_cancel() {
+                return false;
+            }
+            let Some(index) = PgSearchRelation::try_open(
+                args.index_oid(),
+                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+            ) else {
+                return false;
+            };
+            let metadata = MetaPage::open(&index);
+            let merge_lock = metadata.acquire_merge_lock();
+            has_unclaimed_mutable_segments(&metadata, &merge_lock, merged)
+        });
+        if !pending {
+            break;
+        }
+    }
 }
 
 #[inline]
@@ -521,12 +580,15 @@ unsafe fn merge_index(
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
-) {
+) -> bool {
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
+    if is_background {
+        metadata.seal_mutable_segments();
+    }
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
         .expect("should be able to open merger");
 
@@ -543,6 +605,7 @@ unsafe fn merge_index(
         .adjust_pins(merge_policy.mergeable_segments())
         .expect("should be able to adjust merger pins");
 
+    let mut merged = false;
     let mut need_gc = !gc_after_merge;
     let ncandidates = merge_candidates.len();
     if ncandidates > 0 {
@@ -573,6 +636,7 @@ unsafe fn merge_index(
             if merge_result.is_err() {
                 break;
             }
+            merged = true;
             if gc_after_merge {
                 garbage_collect_index(indexrel, current_xid, next_xid);
                 need_gc = false;
@@ -606,6 +670,7 @@ unsafe fn merge_index(
         drop(merge_lock);
     }
     drop(cleanup_lock);
+    merged
 }
 
 ///

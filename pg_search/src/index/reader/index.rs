@@ -3972,12 +3972,12 @@ mod vector_probe_stats_tests {
     use super::{ProbeStats, SegmentId, probe_stats_to_segment_info};
     use tantivy::vector::VectorIoStats;
 
-    // Rerank I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
+    // Exact-scoring I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
     #[test]
-    fn rerank_io_counters_are_flat_segment_fields() {
+    fn exact_io_counters_are_flat_segment_fields() {
         let id = SegmentId::from_bytes([7; 16]);
         let stats = ProbeStats {
-            rerank_io: VectorIoStats {
+            exact_io: VectorIoStats {
                 reads: 3,
                 bytes_read: 64,
                 storage_blocks: 5,
@@ -3985,9 +3985,9 @@ mod vector_probe_stats_tests {
             ..Default::default()
         };
         let info = probe_stats_to_segment_info(&[id], &[stats]);
-        assert_eq!(info[&id]["rerank_reads"], 3);
-        assert_eq!(info[&id]["rerank_bytes_read"], 64);
-        assert_eq!(info[&id]["rerank_storage_blocks"], 5);
-        assert!(info[&id].get("rerank_io").is_none());
+        assert_eq!(info[&id]["exact_reads"], 3);
+        assert_eq!(info[&id]["exact_bytes_read"], 64);
+        assert_eq!(info[&id]["exact_storage_blocks"], 5);
+        assert!(info[&id].get("exact_io").is_none());
     }
 }

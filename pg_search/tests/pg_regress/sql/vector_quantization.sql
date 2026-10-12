@@ -245,7 +245,7 @@ FROM segment_info, jsonb_each(segment_info.value) AS segment,
      unnest(ARRAY['layer0_reads', 'layer0_bytes_read', 'layer0_storage_blocks',
                   'layer0_sign_word_fallbacks', 'layer1_reads', 'layer1_bytes_read',
                   'layer1_storage_blocks', 'layer1_sign_word_fallbacks',
-                  'rerank_reads', 'rerank_bytes_read', 'rerank_storage_blocks']) AS required(key);
+                  'exact_reads', 'exact_bytes_read', 'exact_storage_blocks']) AS required(key);
 
 SELECT * FROM paradedb.vector_estimator_info(NULL, 'vec');
 SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', NULL);
@@ -295,8 +295,8 @@ SELECT
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
         AS layer0_filtered,
-    (jsonb_path_query_first(value, '$.**.rerank_rows') #>> '{}')::bigint > 0
-        AS rerank_populated,
+    (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint > 0
+        AS exact_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
         AS routing_flat,
     jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
@@ -304,8 +304,9 @@ SELECT
     jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
         AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
         AS io_flat,
-    (jsonb_path_query_first(value, '$.**.rerank_blocks_fetched') #>> '{}')::bigint > 0
-        AS rerank_io_flat
+    (jsonb_path_query_first(value, '$.**.exact_fetch_buffer_hits') #>> '{}')::bigint
+        + (jsonb_path_query_first(value, '$.**.exact_fetch_buffer_reads') #>> '{}')::bigint > 0
+        AS exact_io_flat
 FROM segment_info;
 
 -- The same rows without a paradedb index: Postgres scans and sorts them exhaustively.
@@ -512,7 +513,7 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.exact_rows_read') #>> '{}')::bigint = 32
+    (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint = 32
         AS flat_reads_every_row,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint = 0
         AND (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint = 0

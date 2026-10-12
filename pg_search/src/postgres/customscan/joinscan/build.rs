@@ -1921,6 +1921,8 @@ pub struct JoinCSClause {
     pub has_distinct: bool,
     /// List of window aggregates taken by the scan
     pub window_aggs: WindowAggList,
+    /// The positions of projections Postgres will evaluate after datafusion
+    pub pg_projected_resnos: Vec<pg_sys::AttrNumber>,
 }
 
 impl JoinCSClause {
@@ -1932,6 +1934,7 @@ impl JoinCSClause {
             output_projection: None,
             has_distinct: false,
             window_aggs: WindowAggList::new(Vec::new()),
+            pg_projected_resnos: Vec::new(),
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1976,6 +1979,14 @@ impl JoinCSClause {
 
     pub fn with_window_aggs(mut self, window_aggs: Vec<WindowAgg>) -> Self {
         self.window_aggs = WindowAggList::new(window_aggs);
+        self
+    }
+
+    pub fn with_pg_projected_resnos(
+        mut self,
+        pg_projected_resnos: Vec<pg_sys::AttrNumber>,
+    ) -> Self {
+        self.pg_projected_resnos = pg_projected_resnos;
         self
     }
 

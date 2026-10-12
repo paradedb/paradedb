@@ -688,6 +688,7 @@ impl JoinScan {
         let parse = &*(*root).parse;
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
         let mut window_aggs = Vec::new();
+        let mut pg_projected_resnos = Vec::new();
         for te in target_list.iter_ptr() {
             let te = &*te;
             if te.resjunk {
@@ -738,17 +739,18 @@ impl JoinScan {
                         JoinDeclineReason::ContainsVolatile
                         | JoinDeclineReason::NonColumnar { .. }
                         | JoinDeclineReason::NotArrowConvertable { .. } => {
-                            if let Err(JoinDeclineWithErrorMessage(pg_reason, pg_message)) =
-                                can_pg_project(check_expr, &plan.output_sources())
-                            {
-                                if let Some(full_msg) = match (message, pg_message) {
-                                    (Some(m1), Some(m2)) => Some(format!("{m1}; {m2}")),
-                                    (Some(m), None) | (None, Some(m)) => Some(m),
-                                    _ => None,
-                                } {
-                                    pgrx::debug1!("{full_msg}");
+                            match can_pg_project(check_expr, &plan.output_sources()) {
+                                Err(JoinDeclineWithErrorMessage(pg_reason, pg_message)) => {
+                                    if let Some(full_msg) = match (message, pg_message) {
+                                        (Some(m1), Some(m2)) => Some(format!("{m1}; {m2}")),
+                                        (Some(m), None) | (None, Some(m)) => Some(m),
+                                        _ => None,
+                                    } {
+                                        pgrx::debug1!("{full_msg}");
+                                    }
+                                    return Err(pg_reason.with_original_reason(reason));
                                 }
-                                return Err(pg_reason.with_original_reason(reason));
+                                Ok(()) => pg_projected_resnos.push(te.resno as pg_sys::AttrNumber),
                             }
                         }
                         _ => {
@@ -840,7 +842,8 @@ impl JoinScan {
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct)
-            .with_window_aggs(window_aggs);
+            .with_window_aggs(window_aggs)
+            .with_pg_projected_resnos(pg_projected_resnos);
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist = source.contains_score((*root).processed_tlist.cast());
@@ -1261,9 +1264,28 @@ impl CustomScan for JoinScan {
                 pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast::<pg_sys::List>();
             node.scan.plan.targetlist = tlist_ptr;
 
+            let mut private_data = PrivateData::from(node.custom_private);
+
             let mut custom_scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(
                 pg_sys::copyObjectImpl(tlist_ptr.cast()).cast(),
             );
+            // replace pg_projected slots with NULL placeholders, and add their inputs to the tlist.
+            for resno in &private_data.join_clause.pg_projected_resnos {
+                let te = custom_scan_tlist
+                    .get_ptr(((*resno) - 1) as usize)
+                    .expect("pg-projected resno must be in the target list");
+                assert_eq!((*te).resno, *resno);
+
+                let expr = (*te).expr.cast::<pg_sys::Node>();
+                (*te).expr = pg_sys::makeNullConst(
+                    pg_sys::exprType(expr),
+                    pg_sys::exprTypmod(expr),
+                    pg_sys::exprCollation(expr),
+                )
+                .cast();
+                crate::postgres::utils::add_vars_to_tlist(expr, &mut custom_scan_tlist);
+            }
+
             let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
             for i in 1..path_private_full.len() {
                 if let Some(node_ptr) = path_private_full.get_ptr(i) {
@@ -1280,8 +1302,6 @@ impl CustomScan for JoinScan {
 
             // Extract the column mappings from custom_scan_tlist (including any added
             // custom_exprs Vars) so INDEX_VAR references can be resolved.
-            let mut private_data = PrivateData::from(node.custom_private);
-
             private_data.output_columns =
                 compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
 

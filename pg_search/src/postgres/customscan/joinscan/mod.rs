@@ -2116,7 +2116,13 @@ unsafe fn compute_output_columns(
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
     for te in original_entries.iter_ptr() {
-        let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        let te = &(*te);
+        if join_clause.pg_projected_resnos.contains(&te.resno) {
+            output_columns.push(privdat::OutputColumnInfo::Pruned);
+            continue;
+        }
+
+        let check_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
         if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
             let rti = (*var).varno as pg_sys::Index;
@@ -2158,7 +2164,7 @@ unsafe fn compute_output_columns(
         } else if is_supported_window_agg_node(check_expr) {
             let agg_index = join_clause
                 .window_aggs
-                .find_index(window_func::WindowAggId::bare((*te).resno))
+                .find_index(window_func::WindowAggId::bare(te.resno))
                 .expect(
                     "At this point, any window agg found should have successfully been extracted and be findable",
                 );

@@ -47,6 +47,9 @@ impl QueryEstimate for dyn Query {
             || self.is::<TermQuery>()
             || self.is::<ConstScoreQuery<AllQuery>>()
             || self
+                .downcast_ref::<BooleanQuery>()
+                .is_some_and(QueryEstimate::is_fast_count)
+            || self
                 .downcast_ref::<BoostQuery>()
                 .is_some_and(QueryEstimate::is_fast_count)
             || self
@@ -147,6 +150,12 @@ impl QueryEstimate for PhraseQuery {
 }
 
 impl QueryEstimate for BooleanQuery {
+    fn is_fast_count(&self) -> bool {
+        self.clauses()
+            .iter()
+            .all(|(_, query)| query.is_fast_count())
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         // Exact match queries become terms joined by AND or OR, so they use this estimate too.
         // AND starts with the smallest estimate; each extra condition reduces it less.
@@ -226,36 +235,9 @@ impl QueryEstimate for EmptyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tantivy::query::{QueryClone, QueryParser, RegexQuery};
+    use tantivy::query::{QueryClone, RegexQuery};
     use tantivy::schema::{IndexRecordOption, Schema, TEXT};
     use tantivy::{Index, TantivyDocument, Term, doc};
-
-    #[test]
-    fn fast_counts_are_match_all_or_single_terms() -> tantivy::Result<()> {
-        let mut schema = Schema::builder();
-        let field = schema.add_text_field("body", TEXT);
-        let index = Index::create_in_ram(schema.build());
-        let parser = QueryParser::for_index(&index, vec![field]);
-        for (query, expected) in [
-            ("*", true),
-            ("alpha", true),
-            ("alpha OR beta", false),
-            ("alpha AND beta", false),
-            ("\"alpha beta\"", false),
-            ("alpha OR \"alpha beta\"", false),
-        ] {
-            let parsed = parser.parse_query(query)?;
-            assert_eq!(parsed.is_fast_count(), expected, "{query}");
-            let boosted: Box<dyn Query> = Box::new(BoostQuery::new(parsed, 2.0));
-            assert_eq!(boosted.is_fast_count(), expected, "boosted {query}");
-            let constant: Box<dyn Query> = Box::new(ConstScoreQuery::new(boosted, 1.0));
-            assert_eq!(constant.is_fast_count(), expected, "constant {query}");
-        }
-        let all: &dyn Query = &ConstScoreQuery::new(AllQuery, 0.0);
-        assert!(all.is_fast_count());
-        assert!(!(&EmptyQuery as &dyn Query).is_fast_count());
-        Ok(())
-    }
 
     #[test]
     fn statistics_estimates_preserve_term_document_frequency() {

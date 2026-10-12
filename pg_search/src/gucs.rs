@@ -534,7 +534,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.count_parallel_threshold_multiplier",
         c"Parallelism threshold multiplier for fast count traversal",
-        c"Discounts traversal work for match-all or single-term counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
+        c"Discounts traversal work for match-all or term-only counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
         &COUNT_PARALLEL_THRESHOLD_MULTIPLIER,
         1.0,
         1_000_000.0,

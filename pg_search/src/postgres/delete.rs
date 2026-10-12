@@ -21,7 +21,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{SegmentMetaEntry, SegmentMetaEntryContent};
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::vacuum_delay_point;
 
@@ -148,7 +148,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         .merge_list()
         .garbage_collect(pg_sys::ReadNextFullTransactionId());
 
-    let mutable_segments = seal_mutable_segments(&mut metadata);
+    let mutable_segments = metadata.seal_mutable_segments();
     drop(cleanup_lock);
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)
@@ -250,43 +250,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(vacuum_sentinel);
 
     stats.into_pg()
-}
-
-unsafe fn seal_mutable_segments(metadata: &mut MetaPage) -> Vec<SegmentMetaEntry> {
-    let mut metas = metadata.segment_metas();
-    if !metas
-        .list(None)
-        .iter()
-        .any(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
-    {
-        return Vec::new();
-    }
-
-    let mut sealed = metas.atomically();
-    let mut entries = sealed
-        .list(None)
-        .into_iter()
-        .filter(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
-        .collect::<Vec<_>>();
-    for entry in &mut entries {
-        sealed
-            .update_item(
-                |candidate| candidate.segment_id() == entry.segment_id(),
-                |candidate| {
-                    let SegmentMetaEntryContent::Mutable(content) = &mut candidate.content else {
-                        unreachable!();
-                    };
-                    content.frozen = true;
-                },
-            )
-            .expect("mutable segment should exist while sealing");
-        let SegmentMetaEntryContent::Mutable(content) = &mut entry.content else {
-            unreachable!();
-        };
-        content.frozen = true;
-    }
-    sealed.commit();
-    entries
 }
 
 fn flush_mutable_segments(

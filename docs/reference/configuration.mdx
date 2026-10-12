@@ -62,6 +62,7 @@ These settings affect `pdb.agg`, `GROUP BY`, and faceted search. See [Aggregate 
 | `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.             |
 | `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes. |
 | `paradedb.check_aggregate_scan`                | `on`      | user    | Logs a warning when a query expected to use aggregate scan cannot use it.                 |
+| `paradedb.enable_bitmap_postings`              | `on`      | user    | Uses posting bitmaps for eligible counts; disable to use ordinary postings.               |
 | `paradedb.add_doc_count_to_aggs`               | `off`     | user    | Internal testing setting for aggregate null-handling compatibility.                       |
 
 ## Vector Search

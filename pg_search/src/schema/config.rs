@@ -40,6 +40,8 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pnorms: bool,
+        #[serde(default = "default_as_true", skip_serializing_if = "is_true")]
+        bitmap_postings: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
         #[serde(default)]
@@ -68,6 +70,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
+        #[serde(default = "default_as_true", skip_serializing_if = "is_true")]
+        bitmap_postings: bool,
         #[serde(default = "default_as_true")]
         expand_dots: bool,
         #[serde(default)]
@@ -479,6 +483,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 indexed,
                 fast,
                 fieldnorms,
+                bitmap_postings,
                 pnorms,
                 tokenizer,
                 record,
@@ -499,6 +504,7 @@ impl From<SearchFieldConfig> for TextOptions {
                     let text_field_indexing = TextFieldIndexing::default()
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
+                        .set_bitmap_postings(bitmap_postings)
                         .set_pnorms(pnorms)
                         .set_tokenizer(&tokenizer.name());
                     let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
@@ -586,6 +592,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 indexed,
                 fast,
                 fieldnorms,
+                bitmap_postings,
                 expand_dots,
                 tokenizer,
                 record,
@@ -605,6 +612,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                     let text_field_indexing = TextFieldIndexing::default()
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
+                        .set_bitmap_postings(bitmap_postings)
                         .set_tokenizer(&tokenizer.name());
                     let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
                     json_options = json_options.set_indexing_options(text_field_indexing);
@@ -734,6 +742,10 @@ impl Display for IndexRecordOption {
     }
 }
 
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
 fn default_as_true() -> bool {
     true
 }
@@ -751,6 +763,34 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitmap_defaults_preserve_opt_out_and_unindexed_fields() {
+        for kind in ["Text", "Json"] {
+            for (mut options, expected) in [
+                (json!({}), Some(true)),
+                (json!({"bitmap_postings": false}), Some(false)),
+                (json!({"bitmap_postings": true}), Some(true)),
+                (json!({"indexed": false, "fast": true}), None),
+            ] {
+                let config = SearchFieldConfig::from_json(json!({kind: options.clone()}));
+                let serialized = serde_json::to_value(&config).unwrap();
+                options.as_object_mut().unwrap().remove("bitmap_postings");
+                if let Some(value) = serialized[kind].get("bitmap_postings") {
+                    options["bitmap_postings"] = value.clone();
+                }
+                let restored = SearchFieldConfig::from_json(json!({kind: options}));
+                assert_eq!(config, restored);
+                let indexing = match kind {
+                    "Text" => TextOptions::from(restored).get_indexing_options().cloned(),
+                    _ => JsonObjectOptions::from(restored)
+                        .get_text_indexing_options()
+                        .cloned(),
+                };
+                assert_eq!(indexing.map(|options| options.bitmap_postings()), expected);
+            }
+        }
+    }
 
     #[test]
     fn vector_quantization_accepts_default_and_explicit_schedules() {

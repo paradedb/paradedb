@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791660766112,
+  "lastUpdate": 1791883119708,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -12128,6 +12128,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.987,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a637cbee55a987807325e445b00c31ae64ef7241",
+          "message": "perf: Discount match-all and term-only count traversal (#6779)\n\nFast bare document counts can spend more on parallel startup than on\ntraversal. Aggregate scans now request workers when estimated work\nexceeds `parallel_setup_cost + transfer_cost`, and EXPLAIN reports that\nsame cutoff.\n\nEligible bare SQL counts discount traversal by\n`paradedb.count_parallel_threshold_multiplier` (default 96). Match-all,\nterms, Boolean queries composed entirely of eligible clauses, and score\nwrappers qualify. Phrases and unknown queries do not qualify. Heap\nchecks and collector updates remain full cost.\n`SearchIndexReader::query()` exposes the inner query so the type checks\nwork.\n\nFor discounted counts, also charge the visibility-map work needed to\nprove segments visible: sum aligned 32-heap-block words over immutable\nsegment bounds, at `cpu_operator_cost` per word. Reuse the executor's\nsparse-span cutoff and skip this correction when MVCC or visibility\nshortcuts are disabled. Limit the correction to discounted bare counts\nto preserve existing grouped-aggregate worker choices.\n\nLocal Wikipedia count-mixed validation, one client, same\n5.03M-document/eight-segment index, parallelism 2:\n\n| Version | QPS | p95 ms | p99 ms |\n|---|---:|---:|---:|\n| Main (earlier reference) | 577.63 | 7.980 | 9.081 |\n| 96x before visibility correction (fresh) | 895.63 | 2.167 | 10.009 |\n| 96x with visibility correction (fresh) | 895.69 | 2.124 | 10.007 |\n| Forced serial (earlier reference) | 949.19 | 2.060 | 5.220 |\n\nEach version has two runs with 30s warmup and 120s measurement, using\nbenchmarker `8e48aa849bec45df13a3d3f4da0e78e95e891dbd`. Main and\nforced-serial references were measured earlier; compare the visibility\ncorrection primarily with the fresh control. Fresh control ranges\n889.05–902.22 QPS; final candidate ranges 879.40–911.97. One exploratory\nrun overlapped unrelated compilation and is excluded. These are repeated\npoint comparisons, not a statistical-significance claim.\n\nAll 906 query results and worker choices match the previous 96x build\n(896 serial, 10 parallel), with no query errors or median planning-time\nincrease. All repository pre-commit checks and the native release build\npassed. Main runtime is equivalent to `9c7ff146` (its only difference\nfrom the baseline build is the publishing action).\n\n[StackOverflow validation at 1589ad9a5 is\nrunning](https://github.com/paradedb/paradedb/actions/runs/38329292342).\nThe 20M filtered-count regression is not yet confirmed resolved.\nWikipedia's remaining parallel phrases and its p99 gap versus the\nearlier main/forced-serial references remain.",
+          "timestamp": "2026-10-13T01:36:22-07:00",
+          "tree_id": "c79d1ccf795f466103e38e6b3c6c0cb29b9ad924",
+          "url": "https://github.com/paradedb/paradedb/commit/a637cbee55a987807325e445b00c31ae64ef7241"
+        },
+        "date": 1791883112839,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.323,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.695,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.673,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.999,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.395,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.796,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.479,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 6.902,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.874,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.182,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.979,
             "unit": "ms"
           }
         ]

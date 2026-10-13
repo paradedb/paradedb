@@ -334,33 +334,46 @@ pub unsafe fn do_merge(
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
-    let (needs_background_merge, largest_layer_size) =
+    let (needs_immutable_merge, needs_mutable_merge, largest_layer_size) =
         if layer_sizes.user_configured_background_layers() {
             let combined_layers = layer_sizes.combined();
             let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
             let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+            background_merge_policy.set_mergeable_segment_entries(
+                &metadata,
+                &merge_lock,
+                &merger,
+                |entry| !entry.is_mutable(),
+            );
             let (merge_candidates, largest_layer_size, skipped) =
                 background_merge_policy.simulate_supported(&merger)?;
             warn_unsupported_vector_merge(index, skipped);
 
             (
-                !merge_candidates.is_empty()
-                    || has_unclaimed_mutable_segments(&metadata, &merge_lock, true),
+                !merge_candidates.is_empty(),
+                has_unclaimed_mutable_segments(&metadata, &merge_lock, true),
                 largest_layer_size,
             )
         } else {
-            (false, 0)
+            (false, false, 0)
         };
 
-    if needs_background_merge && !need_backpressure {
+    if (needs_immutable_merge || needs_mutable_merge) && !need_backpressure {
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
         drop(cleanup_lock);
 
-        try_launch_background_merger(index, largest_layer_size);
+        if needs_mutable_merge {
+            try_launch_background_merger(index, MergeSlotVariant::Mutable);
+        }
+        if needs_immutable_merge {
+            try_launch_background_merger(
+                index,
+                MergeSlot::for_layer_size(index.oid(), largest_layer_size).variant(),
+            );
+        }
     } else if style == MergeStyle::Insert
         && (!foreground_layer_sizes.is_empty() || need_backpressure)
     {
@@ -375,7 +388,7 @@ pub unsafe fn do_merge(
             foreground_merge_policy,
             merge_lock,
             cleanup_lock,
-            false,
+            None,
             false,
             current_xid.expect("foreground merging requires a current transaction id"),
             next_xid.expect("foreground merging requires a next transaction id"),
@@ -396,12 +409,12 @@ pub unsafe fn do_merge(
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 pub(crate) unsafe fn try_launch_background_merger(
     index: &PgSearchRelation,
-    largest_layer_size: u64,
+    slot_variant: MergeSlotVariant,
 ) {
     if !index.is_valid() {
         return;
     }
-    let slot = MergeSlot::for_layer_size(index.oid(), largest_layer_size);
+    let slot = MergeSlot::new(index.oid(), slot_variant);
     if !slot.is_available() {
         return;
     }
@@ -496,16 +509,17 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             if !index.is_valid() || index.options().background_layer_sizes().is_empty() {
                 return None;
             }
-            // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
-            // this checks to see if a merger is already running for the given layer
+            // Each index has separate mutable, small immutable, and large immutable slots.
             let merge_slot = MergeSlot::new(index.oid(), args.slot_variant()).lock();
             // todo: this could potentially wait instead of returning immediately if the lock is not available
             // to avoid racing with other backends trying to probe the slot
             merge_slot.as_ref()?;
             let metadata = MetaPage::open(&index);
 
-            let layer_sizes = IndexLayerSizes::from(&index);
-            let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
+            let merge_policy = LayeredMergePolicy::new(match args.slot_variant() {
+                MergeSlotVariant::Mutable => Vec::new(),
+                _ => IndexLayerSizes::from(&index).combined(),
+            });
 
             let cleanup_lock = metadata.cleanup_lock_shared();
             // this ensures there's only one merge running at a time for the given index,
@@ -519,7 +533,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                         merge_policy,
                         merge_lock,
                         cleanup_lock,
-                        true,
+                        Some(args.slot_variant()),
                         true,
                         current_xid,
                         next_xid,
@@ -547,6 +561,9 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let Some(merged) = merged else {
             break;
         };
+        if args.slot_variant() != MergeSlotVariant::Mutable {
+            break;
+        }
 
         // Release the slot before checking again so a concurrent append can launch a successor.
         let pending = BackgroundWorker::transaction(|| {
@@ -561,7 +578,13 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             };
             let metadata = MetaPage::open(&index);
             let merge_lock = metadata.acquire_merge_lock();
-            has_unclaimed_mutable_segments(&metadata, &merge_lock, merged)
+            let pending = has_unclaimed_mutable_segments(&metadata, &merge_lock, merged);
+            drop(merge_lock);
+            if !pending && merged {
+                do_merge(&index, MergeStyle::Vacuum, None, None)
+                    .expect("should be able to schedule immutable merges after flushing");
+            }
+            pending
         });
         if !pending {
             break;
@@ -576,7 +599,7 @@ unsafe fn merge_index(
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
-    is_background: bool,
+    background_slot: Option<MergeSlotVariant>,
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
@@ -586,7 +609,7 @@ unsafe fn merge_index(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
-    if is_background {
+    if background_slot == Some(MergeSlotVariant::Mutable) {
         metadata.seal_mutable_segments();
     }
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
@@ -595,7 +618,13 @@ unsafe fn merge_index(
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger, |entry| {
+        match background_slot {
+            Some(MergeSlotVariant::Mutable) => entry.is_mutable(),
+            Some(_) => !entry.is_mutable(),
+            None => true,
+        }
+    });
     let (merge_candidates, _, skipped) = merge_policy
         .simulate_supported(&merger)
         .expect("should be able to validate merge candidates");
@@ -625,7 +654,7 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
-            if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
+            if background_slot.is_some() && VacuumSignal::new(indexrel.oid()).wants_cancel() {
                 pgrx::debug1!("VACUUM waiting, exiting merge early");
                 break;
             }
@@ -731,19 +760,16 @@ pub fn free_entries(
 // with other Postgres advisory locks
 const MERGE_SLOT_KEY_BASE: u32 = 0x5047534D;
 
-// We at most allow 2 concurrent background merges
-// The first background merge is for "small" merges, the second is for "large" merges
-// This makes it so that a long-running large merge doesn't block smaller merges from happening
-// We arbitrarily say that a merge is "large" if the largest layer size is greater than
-// or equal to this threshold
+// Mutable flushes have a dedicated slot. Immutable merges use separate small and large slots.
 const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
 const SLOT_BITS: u32 = 8; // slot is u8
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum MergeSlotVariant {
+pub(crate) enum MergeSlotVariant {
     Small = 0,
     Large = 1,
+    Mutable = 2,
 }
 
 impl TryFrom<u8> for MergeSlotVariant {
@@ -753,6 +779,7 @@ impl TryFrom<u8> for MergeSlotVariant {
         Ok(match value {
             0 => MergeSlotVariant::Small,
             1 => MergeSlotVariant::Large,
+            2 => MergeSlotVariant::Mutable,
             _ => anyhow::bail!("invalid merge slot variant: {value}"),
         })
     }

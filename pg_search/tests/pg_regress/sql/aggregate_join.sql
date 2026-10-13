@@ -41,10 +41,10 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES
     (5, 'tech'), (5, 'kids');
 
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating) WITH (background_layer_sizes = '0');
 
 CREATE INDEX agg_join_tags_idx ON agg_join_tags
-USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true'))) WITH (background_layer_sizes = '0');
 
 -- =====================================================================
 -- SECTION 1: Scalar Aggregates on JOIN (no GROUP BY)
@@ -485,7 +485,8 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category;
+GROUP BY o.category
+ORDER BY o.category;
 
 -- Parity check for TIMESTAMP (no TZ)
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -493,14 +494,16 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category;
+GROUP BY o.category
+ORDER BY o.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category;
+GROUP BY o.category
+ORDER BY o.category;
 
 DROP TABLE ts_items;
 DROP TABLE ts_orders;
@@ -550,7 +553,8 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category;
+GROUP BY o.category
+ORDER BY o.category;
 
 -- Parity check: TIMESTAMPTZ results must match native PG
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -604,7 +608,7 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_2');
 -- Rebuild the BM25 index so the new rows are visible
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating) WITH (background_layer_sizes = '0');
 
 -- Test 11.1: DESC NULLS LAST — non-NULL rows should come first
 SELECT p.category, SUM(t.product_id)
@@ -815,7 +819,7 @@ UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
 -- We need fast field access for in_stock; recreate BM25 index
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating, in_stock);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating, in_stock) WITH (background_layer_sizes = '0');
 
 -- Test 14.1: BOOL_AND on join
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -903,7 +907,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DROP INDEX agg_join_products_idx;
 ALTER TABLE agg_join_products DROP COLUMN in_stock;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating) WITH (background_layer_sizes = '0');
 
 -- =====================================================================
 -- SECTION 15: FULL OUTER JOIN aggregates

@@ -33,6 +33,7 @@ INSERT INTO sorted_scan_test (content, category, priority, score) VALUES
 CREATE INDEX sorted_scan_test_idx ON sorted_scan_test
 USING paradedb (id, content, category, priority, score)
 WITH (
+    background_layer_sizes = '0',
     sort_by = 'priority DESC NULLS LAST',
     mutable_segment_rows = 5
 );
@@ -447,7 +448,7 @@ CREATE TABLE multi_segment_test (
 
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
+WITH (background_layer_sizes = '0', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
 
 -- Insert batches to create multiple segments
 INSERT INTO multi_segment_test (content, priority)
@@ -494,7 +495,7 @@ TRUNCATE multi_segment_test RESTART IDENTITY;
 
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
+WITH (background_layer_sizes = '0', sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
 
 -- Insert interleaved values across segments
 INSERT INTO multi_segment_test (content, priority) VALUES ('item', 10);
@@ -720,7 +721,7 @@ CREATE TABLE parallel_sorted_test (
 
 CREATE INDEX parallel_sorted_test_idx ON parallel_sorted_test
 USING paradedb (id, content, priority)
-WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (background_layer_sizes = '0', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 
 -- Insert enough data across multiple segments for meaningful parallel test
 INSERT INTO parallel_sorted_test (content, priority)
@@ -819,7 +820,7 @@ CREATE TABLE lazy_checkout_test (
 
 CREATE INDEX lazy_checkout_test_idx ON lazy_checkout_test
 USING paradedb (id, content, priority)
-WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (background_layer_sizes = '0', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 
 -- Insert multiple batches to create segments
 INSERT INTO lazy_checkout_test (content, priority)

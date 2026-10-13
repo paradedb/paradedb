@@ -56,15 +56,29 @@ A higher value generally improves write throughput at the expense of read perfor
 since the mutable data structure is slower to search. Additionally, the mutable data structure is read into
 memory, so higher values cause reads to consume more RAM.
 
-Alternatively, this setting can be set to apply to all indexes in the database:
+Mutable segments also freeze when the estimated indexed byte size of buffered rows reaches
+`mutable_segment_bytes` (default `1MB`), or when a single indexed row is large
+(≥ `64kB`). That keeps small-document write buffering intact while ensuring PDF-sized
+updates cannot accumulate unbounded rematerialize cost. When a segment freezes for a
+byte/large-doc reason, ParadeDB immediately foreground-merges it and consolidates recent
+freeze-product segments. Set the byte cap to `0` to disable byte/large-doc freeze and
+rely only on `mutable_segment_rows`:
 
 ```sql
-SET paradedb.global_mutable_segment_rows = 1000
+ALTER INDEX search_idx SET (mutable_segment_bytes = '1MB');
 ```
 
-If both a per-index setting and global setting exist, the global `paradedb.global_mutable_segment_rows` will be used.
-To ignore the global setting, set `paradedb.global_mutable_segment_rows` to `-1` (this is the default).
+Alternatively, these settings can be set to apply to all indexes in the database:
 
 ```sql
-SET paradedb.global_mutable_segment_rows = -1
+SET paradedb.global_mutable_segment_rows = 1000;
+SET paradedb.global_mutable_segment_bytes = 1048576; -- bytes; 0 disables
+```
+
+If both a per-index setting and global setting exist, the global GUCs are used.
+To ignore the global settings, set them to `-1` (this is the default).
+
+```sql
+SET paradedb.global_mutable_segment_rows = -1;
+SET paradedb.global_mutable_segment_bytes = -1;
 ```

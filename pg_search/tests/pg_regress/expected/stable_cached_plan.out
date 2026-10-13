@@ -99,16 +99,45 @@ EXECUTE stable_query;
 -- A pinned GROUP BY key uses the DataFusion aggregate backend. Its runtime
 -- expression must also be solved again when the cached plan is reused.
 SET app.tenant_id = '1';
-PREPARE stable_group AS SELECT tenant_id, count(*) FROM stable_plan_docs
-WHERE body ||| 'canal' AND tenant_id = stable_plan_tenant() GROUP BY tenant_id;
-EXECUTE stable_group;
+PREPARE stable_group(text) AS SELECT tenant_id, count(*) FROM stable_plan_docs
+WHERE body ||| $1 AND tenant_id = stable_plan_tenant() GROUP BY tenant_id;
+-- Plain EXPLAIN must show both runtime expressions without executor state.
+EXPLAIN (COSTS OFF) EXECUTE stable_group('canal');
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: stable_plan_idx (stable_plan_docs)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(stable_plan_docs_0.tenant_id) ORDER BY [stable_plan_docs_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     :   ProjectionExec: expr=[ctid@0 as ctid_0, tenant_id@1 as tenant_id]
+     :     CooperativeExec
+     :       PgSearchScan: table=stable_plan_docs, segments=1, visibility=eager, query={"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('stable_plan_idx'::regclass, paradedb.match_disjunction('body'::paradedb.fieldname, $1))"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('tenant_id'::paradedb.fieldname, '='::text, stable_plan_tenant())"}}}]}}
+(9 rows)
+
+EXECUTE stable_group('canal');
  tenant_id | count 
 -----------+-------
          1 |     1
 (1 row)
 
 SET app.tenant_id = '2';
-EXECUTE stable_group;
+EXPLAIN (COSTS OFF) EXECUTE stable_group('canal');
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: stable_plan_idx (stable_plan_docs)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(stable_plan_docs_0.tenant_id) ORDER BY [stable_plan_docs_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     :   ProjectionExec: expr=[ctid@0 as ctid_0, tenant_id@1 as tenant_id]
+     :     CooperativeExec
+     :       PgSearchScan: table=stable_plan_docs, segments=1, visibility=eager, query={"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('stable_plan_idx'::regclass, paradedb.match_disjunction('body'::paradedb.fieldname, $1))"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('tenant_id'::paradedb.fieldname, '='::text, stable_plan_tenant())"}}}]}}
+(9 rows)
+
+EXECUTE stable_group('canal');
  tenant_id | count 
 -----------+-------
          2 |     1

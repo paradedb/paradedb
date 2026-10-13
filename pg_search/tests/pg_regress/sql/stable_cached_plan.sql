@@ -43,11 +43,14 @@ EXECUTE stable_query;
 -- A pinned GROUP BY key uses the DataFusion aggregate backend. Its runtime
 -- expression must also be solved again when the cached plan is reused.
 SET app.tenant_id = '1';
-PREPARE stable_group AS SELECT tenant_id, count(*) FROM stable_plan_docs
-WHERE body ||| 'canal' AND tenant_id = stable_plan_tenant() GROUP BY tenant_id;
-EXECUTE stable_group;
+PREPARE stable_group(text) AS SELECT tenant_id, count(*) FROM stable_plan_docs
+WHERE body ||| $1 AND tenant_id = stable_plan_tenant() GROUP BY tenant_id;
+-- Plain EXPLAIN must show both runtime expressions without executor state.
+EXPLAIN (COSTS OFF) EXECUTE stable_group('canal');
+EXECUTE stable_group('canal');
 SET app.tenant_id = '2';
-EXECUTE stable_group;
+EXPLAIN (COSTS OFF) EXECUTE stable_group('canal');
+EXECUTE stable_group('canal');
 
 -- RLS applies even when the policy's indexed tenant value changes within one role.
 CREATE ROLE stable_plan_app NOSUPERUSER NOBYPASSRLS;

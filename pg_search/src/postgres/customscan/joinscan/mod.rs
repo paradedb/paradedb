@@ -736,8 +736,7 @@ impl JoinScan {
             } else {
                 match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
                     Err(JoinDeclineWithErrorMessage(reason, message)) => match reason {
-                        JoinDeclineReason::ContainsVolatile
-                        | JoinDeclineReason::NonColumnar { .. }
+                        JoinDeclineReason::NonColumnar { .. }
                         | JoinDeclineReason::NotArrowConvertable { .. } => {
                             match can_pg_project(check_expr, &plan.output_sources()) {
                                 Err(JoinDeclineWithErrorMessage(pg_reason, pg_message)) => {

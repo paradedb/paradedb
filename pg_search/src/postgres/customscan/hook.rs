@@ -408,6 +408,20 @@ fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
 
+    // A partitioned table is scanned once per partition, and each partition's scan
+    // would compute the window aggregate over its own index alone. The plain
+    // `pdb.agg()` aggregate declines such a table (`build_tantivy_aggregate_path`),
+    // and so does the window form; a SQL window function is left for PostgreSQL to
+    // run above the partitions.
+    if unsafe { query_scans_partitioned_table(parse) } {
+        if has_paradedb_agg_current_level {
+            pgrx::error!(
+                "Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)"
+            );
+        }
+        return false;
+    }
+
     // Check if WHERE clause can be handled
     if !unsafe { can_handle_where_clause(parse) } {
         if has_paradedb_agg_current_level {
@@ -511,6 +525,39 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     emit_planner_warnings();
 
     result
+}
+
+/// Whether the query reads a partitioned table, which has no scan of its own, at this
+/// level or in a subquery or CTE the planner may pull up into it. The parser leaves
+/// `inh` set on every table until the planner clears it, so the kind of the relation
+/// is the test here, not the flag.
+unsafe fn query_scans_partitioned_table(parse: *mut pg_sys::Query) -> bool {
+    if !(*parse).rtable.is_null() {
+        for rte in PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable).iter_ptr() {
+            match (*rte).rtekind {
+                pg_sys::RTEKind::RTE_RELATION
+                    if (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE =>
+                {
+                    return true;
+                }
+                pg_sys::RTEKind::RTE_SUBQUERY
+                    if !(*rte).subquery.is_null()
+                        && query_scans_partitioned_table((*rte).subquery) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+        }
+    }
+    if !(*parse).cteList.is_null() {
+        for cte in PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList).iter_ptr() {
+            if !(*cte).ctequery.is_null() && query_scans_partitioned_table((*cte).ctequery.cast()) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Check if the query (or any subquery/CTE) contains window functions (WindowFunc nodes)

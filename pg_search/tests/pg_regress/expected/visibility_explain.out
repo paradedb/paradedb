@@ -32,7 +32,6 @@ DECLARE
     launched int;
     leader boolean;
     setup_cost float8;
-    divisor float8;
     actual_count bigint;
     expected_count bigint;
     enabled boolean;
@@ -70,19 +69,14 @@ BEGIN
             ELSE
                 ASSERT parallelism ->> 'Worker Selection' = 'Cost model';
                 ASSERT jsonb_typeof(parallelism -> 'Estimated Query Work') = 'number';
-                IF parallelism ? 'Parallel Threshold' THEN
-                    ASSERT jsonb_typeof(parallelism -> 'Parallel Threshold') = 'number';
-                    ASSERT (requested > 0) =
-                        ((parallelism ->> 'Estimated Query Work')::float8 >
-                         (parallelism ->> 'Parallel Threshold')::float8);
-                    ASSERT (requested > 0) = (setup_cost = 0);
-                    IF requested > 0 THEN
-                        divisor := requested + leader::int;
-                        ASSERT abs((parallelism ->> 'Parallel Threshold')::float8 -
-                            (setup_cost + requested * 0.1) / (1 - 1 / divisor)) < 0.01;
-                    END IF;
-                ELSE
-                    ASSERT NOT leader AND worker_limit = 1 AND requested = 0;
+                ASSERT jsonb_typeof(parallelism -> 'Parallel Threshold') = 'number';
+                ASSERT (requested > 0) =
+                    ((parallelism ->> 'Estimated Query Work')::float8 >
+                     (parallelism ->> 'Parallel Threshold')::float8);
+                ASSERT (requested > 0) = (setup_cost = 0);
+                IF requested > 0 THEN
+                    ASSERT abs((parallelism ->> 'Parallel Threshold')::float8 -
+                        (setup_cost + requested * 0.1)) < 0.01;
                 END IF;
             END IF;
             SELECT count(*) INTO actual_count FROM visibility_stats_docs

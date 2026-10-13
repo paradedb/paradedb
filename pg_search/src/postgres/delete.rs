@@ -260,33 +260,32 @@ fn flush_mutable_segments(
     segments: &[SegmentMetaEntry],
     callback: &impl Fn(u64) -> bool,
 ) -> Result<()> {
-    if segments.is_empty() {
-        return Ok(());
+    for batch in segments.chunks(2) {
+        let mut live_ctids = HashMap::default();
+        let mut segment_ids = Vec::with_capacity(batch.len());
+        for segment in batch {
+            let ctids = segment
+                .mutable_snapshot(indexrel)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let ctids = ctids
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, ctid)| {
+                    if i % 100 == 0 {
+                        vacuum_delay_point();
+                    }
+                    // Dead tuples may already have lost their TOAST values. Never fetch them.
+                    (!callback(ctid)).then_some(ctid)
+                })
+                .collect();
+            let segment_id = segment.segment_id();
+            segment_ids.push(segment_id);
+            live_ctids.insert(segment_id, ctids);
+        }
+        let mut merger =
+            SearchIndexMerger::open(indexrel, MvccSatisfies::VacuumMerge { live_ctids })?;
+        merger.merge_segments(&segment_ids)?;
     }
-
-    let mut live_ctids = HashMap::default();
-    let mut segment_ids = Vec::with_capacity(segments.len());
-    for segment in segments {
-        let ctids = segment
-            .mutable_snapshot(indexrel)
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
-        let ctids = ctids
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, ctid)| {
-                if i % 100 == 0 {
-                    vacuum_delay_point();
-                }
-                // Dead tuples may already have lost their TOAST values. Never fetch them.
-                (!callback(ctid)).then_some(ctid)
-            })
-            .collect();
-        let segment_id = segment.segment_id();
-        segment_ids.push(segment_id);
-        live_ctids.insert(segment_id, ctids);
-    }
-    let mut merger = SearchIndexMerger::open(indexrel, MvccSatisfies::VacuumMerge { live_ctids })?;
-    merger.merge_segments(&segment_ids)?;
     Ok(())
 }
 
@@ -378,4 +377,80 @@ fn save_delete_metas(
         .directory()
         .save_metas(&new_index_meta, &old_index_meta, &mut ())?;
     Ok(())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::storage::block::{MutableSegmentEntry, SegmentMetaEntryMutable};
+    use tantivy::index::SegmentId;
+
+    #[pg_test]
+    unsafe fn test_vacuum_flushes_mutable_batches() {
+        Spi::run(
+            "CREATE TABLE vacuum_batches (id INT, message TEXT);
+             CREATE INDEX vacuum_batches_idx ON vacuum_batches USING paradedb (id, message)
+             WITH (mutable_segment_rows = 100, layer_sizes = '0', background_layer_sizes = '0');
+             INSERT INTO vacuum_batches SELECT i, 'hello' FROM generate_series(1, 10) i;",
+        )
+        .unwrap();
+        let indexrel = PgSearchRelation::open(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'vacuum_batches_idx'::regclass::oid")
+                .unwrap()
+                .unwrap(),
+        );
+        let metadata = MetaPage::open(&indexrel);
+        let mut metas = metadata.segment_metas();
+        let original = metas.list(None)[0];
+        let mut ctids = original.mutable_snapshot(&indexrel).unwrap();
+        ctids.sort_unstable();
+        assert_eq!(ctids.len(), 10);
+        metas
+            .update_item(
+                |entry| entry.segment_id() == original.segment_id(),
+                |entry| entry.set_xmax(pg_sys::FrozenTransactionId),
+            )
+            .unwrap();
+        for ctids in ctids.chunks(2) {
+            let (content, mut items) = SegmentMetaEntryMutable::create(&indexrel);
+            items.add_items(
+                &ctids
+                    .iter()
+                    .copied()
+                    .map(MutableSegmentEntry::Add)
+                    .collect::<Vec<_>>(),
+                None,
+            );
+            metas.add_items(
+                &[SegmentMetaEntry::new_mutable(
+                    SegmentId::generate_random(),
+                    ctids.len() as u32,
+                    pg_sys::InvalidTransactionId,
+                    content,
+                )],
+                None,
+            );
+        }
+        let segments = metadata.freeze_mutable_segments();
+        assert_eq!(segments.len(), 5);
+        flush_mutable_segments(&indexrel, &segments, &|ctid| ctids[4..8].contains(&ctid)).unwrap();
+        let entries = metas
+            .list(None)
+            .into_iter()
+            .filter(|entry| !entry.is_deleted())
+            .collect::<Vec<_>>();
+        assert!(entries.iter().all(|entry| !entry.is_mutable()));
+        let mut counts = entries
+            .iter()
+            .map(|entry| entry.max_doc())
+            .collect::<Vec<_>>();
+        counts.sort_unstable();
+        assert_eq!(counts, [2, 4]);
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM vacuum_batches WHERE message @@@ 'hello'")
+                .unwrap(),
+            Some(6),
+        );
+    }
 }

@@ -608,6 +608,14 @@ pub unsafe fn garbage_collect_index(
     // SEGMENT_METAS_GARBAGE need not be because it is only ever consumed on the physical
     // replication primary.
     let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
+    let mut has_recyclable = false;
+    segment_metas_linked_list.for_each(|bman, entry| {
+        has_recyclable = has_recyclable || entry.recyclable(bman);
+    });
+    if !has_recyclable {
+        return;
+    }
+
     let mut segment_metas = segment_metas_linked_list.atomically();
     let entries = segment_metas.garbage_collect(next_xid);
 
@@ -800,6 +808,38 @@ mod tests {
         )
         .expect("spi should succeed")
         .unwrap()
+    }
+
+    #[pg_test]
+    unsafe fn test_garbage_collect_skips_live_and_pinned_segments() {
+        use crate::postgres::storage::block::LinkedList;
+
+        let indexrel = PgSearchRelation::open(create_index_with_layer_sizes(LayerSizes::Default));
+        let mut metas = MetaPage::open(&indexrel).segment_metas();
+        let start_blockno = metas.get_linked_list_data().start_blockno;
+        let xid = pg_sys::ReadNextFullTransactionId();
+        garbage_collect_index(&indexrel, xid, xid);
+        assert_eq!(start_blockno, {
+            metas.get_linked_list_data().start_blockno
+        });
+
+        let entry = metas.list(None)[0];
+        let pin = metas.bman().pinned_buffer(entry.pintest_blockno());
+        metas
+            .update_item(
+                |candidate| candidate.segment_id() == entry.segment_id(),
+                |candidate| candidate.set_xmax(pg_sys::FrozenTransactionId),
+            )
+            .unwrap();
+        garbage_collect_index(&indexrel, xid, xid);
+        assert_eq!(start_blockno, {
+            metas.get_linked_list_data().start_blockno
+        });
+        assert_eq!(metas.list(None).len(), 1);
+
+        drop(pin);
+        garbage_collect_index(&indexrel, xid, xid);
+        assert!(metas.list(None).is_empty());
     }
 
     #[pg_test]

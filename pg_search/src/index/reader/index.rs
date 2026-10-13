@@ -932,7 +932,7 @@ impl SearchIndexReader {
     /// The compiled query. Segment pruning happens in the reader's search and collection
     /// methods, not in the query.
     pub fn query(&self) -> &dyn Query {
-        &self.query
+        self.query.as_ref()
     }
 
     /// Pruning keeps deciding from the original query input, which stays correct because a

@@ -536,7 +536,8 @@ unsafe fn query_scans_partitioned_table(parse: *mut pg_sys::Query) -> bool {
         for rte in PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable).iter_ptr() {
             match (*rte).rtekind {
                 pg_sys::RTEKind::RTE_RELATION
-                    if (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE =>
+                    if pg_sys::get_rel_relkind((*rte).relid) as u8
+                        == pg_sys::RELKIND_PARTITIONED_TABLE =>
                 {
                     return true;
                 }

@@ -2,4 +2,4 @@
 header: stability
 ---
 
-Range and term searches on an integer or `oid` field with a bound or value at or beyond the edge of its range now return the correct rows, as do searches on an `int4range` or `int8range` field with a value or bound beyond the range of `bigint`. They used to fail with an overflow error or return wrong rows; for example, `x > 9223372036854775807` matched every row (#6673).
+Range and term queries on integer fields are now correct at the edges of the type (#6673).

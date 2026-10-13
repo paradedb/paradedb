@@ -2880,6 +2880,11 @@ mod tests {
             for scoring in [false, true] {
                 let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
                 assert_pruning_matches_tantivy(&reader, expected);
+                // A query that no value of the field can match prunes every segment.
+                if expected == 0 {
+                    let candidates = reader.segment_pruning_estimate().candidate_segments;
+                    assert_eq!(candidates, 0, "{query:?}");
+                }
             }
         }
     }

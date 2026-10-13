@@ -70,10 +70,6 @@ impl<'a> SegmentPruner<'a> {
     }
 
     fn term_value(&self, field: &SearchField, value: &PdbOwnedValue) -> Option<PdbOwnedValue> {
-        // An integer that the field cannot hold would convert to the nearest one it can.
-        if is_outside_int_domain(value, &field.field_type()) {
-            return None;
-        }
         let value = convert_value_for_field(
             value.clone(),
             &field.field_type(),
@@ -125,8 +121,11 @@ impl<'a> SegmentPruner<'a> {
         };
         let stats = self.snapshot.empirical(segment as usize, &field);
         terms.any(|value| {
-            self.term_value(&field, value)
-                .is_none_or(|value| term_can_match(stats.as_ref(), &value))
+            // A number that no integer of the field equals matches nothing.
+            !is_outside_int_domain(value, &field.field_type())
+                && self
+                    .term_value(&field, value)
+                    .is_none_or(|value| term_can_match(stats.as_ref(), &value))
         })
     }
 

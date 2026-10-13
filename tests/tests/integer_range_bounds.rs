@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Queries on integer and integer range fields with bounds or values at or beyond the edges of
-//! the integer types return the same rows as the equivalent plain SQL.
+//! Queries on integer and integer range fields with bounds or values that are fractional, NaN,
+//! infinite, or at or beyond the edges of the integer types return the same rows as the
+//! equivalent plain SQL.
 //! Timestamps are stored as i64, with '-infinity' and 'infinity' at the edges.
 
 use pretty_assertions::assert_eq;
@@ -152,6 +153,118 @@ fn bigint_bounds(mut conn: PgConnection) {
                 "x IN (-9223372036854775809, 5, 18000000000000000000)",
                 1,
             ),
+            // JSON bounds with a fractional part or beyond either edge as a float.
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":2.5},"upper_bound":null}}'::jsonb"#,
+                "x >= 2.5",
+                999,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":null,"upper_bound":{"excluded":2.5}}}'::jsonb"#,
+                "x < 2.5",
+                4,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"excluded":-2.5},"upper_bound":null}}'::jsonb"#,
+                "x > -2.5",
+                1001,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":5.0},"upper_bound":null}}'::jsonb"#,
+                "x >= 5.0",
+                997,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":-1e19},"upper_bound":null}}'::jsonb"#,
+                "x >= -1e19",
+                1003,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":null,"upper_bound":{"included":-1e19}}}'::jsonb"#,
+                "x <= -1e19",
+                0,
+            ),
+            // String bounds read as Postgres reads a numeric, with NaN above every number.
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":"1e19"},"upper_bound":null}}'::jsonb"#,
+                "x >= 1e19",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":"2.5"},"upper_bound":null}}'::jsonb"#,
+                "x >= 2.5",
+                999,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":"NaN"},"upper_bound":null}}'::jsonb"#,
+                "x >= 'NaN'::numeric",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":null,"upper_bound":{"excluded":"NaN"}}}'::jsonb"#,
+                "x < 'NaN'::numeric",
+                1003,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"included":"infinity"},"upper_bound":null}}'::jsonb"#,
+                "x >= 'infinity'::numeric",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"x","lower_bound":{"excluded":"-infinity"},"upper_bound":null}}'::jsonb"#,
+                "x > '-infinity'::numeric",
+                1003,
+            ),
+            // pdb.range bounds with a fractional part or at infinity.
+            (
+                "x @@@ pdb.range(numrange(2.5, NULL, '[]'))",
+                "x >= 2.5",
+                999,
+            ),
+            ("x @@@ pdb.range(numrange(NULL, 2.5, '[]'))", "x <= 2.5", 4),
+            (
+                "x @@@ pdb.range(numrange(9223372036854775806.5, NULL, '[]'))",
+                "x >= 9223372036854775806.5",
+                1,
+            ),
+            (
+                "x @@@ pdb.range(numrange(1, 'Infinity', '[)'))",
+                "x >= 1",
+                1001,
+            ),
+            // Terms that no integer equals match nothing.
+            ("x @@@ pdb.term(2.5::numeric)", "x = 2.5", 0),
+            ("x @@@ pdb.term('NaN'::numeric)", "x = 'NaN'::numeric", 0),
+            (
+                "x @@@ pdb.term('Infinity'::numeric)",
+                "x = 'Infinity'::numeric",
+                0,
+            ),
+            (
+                "x @@@ pdb.term(9223372036854775807.5::numeric)",
+                "x = 9223372036854775807.5",
+                0,
+            ),
+            (
+                "x @@@ pdb.term_set(ARRAY[2.5, 5, 'NaN']::numeric[])",
+                "x IN (2.5, 5, 'NaN')",
+                1,
+            ),
+            (
+                r#"id @@@ '{"term":{"field":"x","value":5.0}}'::jsonb"#,
+                "x = 5.0",
+                1,
+            ),
+            (
+                r#"id @@@ '{"term":{"field":"x","value":"1e19"}}'::jsonb"#,
+                "x = 1e19",
+                0,
+            ),
+            (
+                r#"id @@@ '{"term_set":{"terms":[{"field":"x","value":2.5},{"field":"x","value":"5"}]}}'::jsonb"#,
+                "x IN (2.5, 5)",
+                1,
+            ),
             // A bigint constant at the maximum is pushed down as a range.
             (
                 "id @@@ pdb.all() AND x > 9223372036854775807::bigint",
@@ -197,6 +310,22 @@ fn oid_bounds(mut conn: PgConnection) {
                 "o::bigint >= -5",
                 3,
             ),
+            (
+                r#"id @@@ '{"range":{"field":"o","lower_bound":{"included":-0.5},"upper_bound":null}}'::jsonb"#,
+                "o::bigint >= -0.5",
+                3,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"o","lower_bound":null,"upper_bound":{"included":"2e19"}}}'::jsonb"#,
+                "o::bigint <= 2e19",
+                3,
+            ),
+            (
+                r#"id @@@ '{"range":{"field":"o","lower_bound":{"excluded":"2e19"},"upper_bound":null}}'::jsonb"#,
+                "o::bigint > 2e19",
+                0,
+            ),
+            ("o @@@ pdb.term(4.5::numeric)", "o::bigint = 4.5", 0),
         ],
     );
 }
@@ -321,6 +450,64 @@ fn int_range_fields(mut conn: PgConnection) {
                 "r4 @> -10000000000000000000::numeric",
                 2,
             ),
+            // Values and bounds with a fractional part, or NaN.
+            (
+                r#"id @@@ '{"range_term":{"field":"r8","value":2.5}}'::jsonb"#,
+                "r8 @> 2.5::numeric",
+                5,
+            ),
+            (
+                r#"id @@@ '{"range_term":{"field":"r4","value":"-2.5"}}'::jsonb"#,
+                "r4 @> -2.5::numeric",
+                3,
+            ),
+            (
+                "r8 @@@ pdb.range_term('NaN'::numeric)",
+                "r8 @> 'NaN'::numeric",
+                3,
+            ),
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"included":2.5},"upper_bound":{"included":2.7}}}'::jsonb"#,
+                "r8 && numrange(2.5, 2.7, '[]')",
+                5,
+            ),
+            (
+                r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":{"included":0.5},"upper_bound":{"included":10.5}}}'::jsonb"#,
+                "numrange(0.5, 10.5, '[]') @> r8",
+                2,
+            ),
+            (
+                r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"included":"1e19"},"upper_bound":null}}'::jsonb"#,
+                "r8 @> numrange(1e19, NULL)",
+                3,
+            ),
+            (
+                r#"id @@@ '{"range_within":{"field":"r4","lower_bound":{"included":2.5},"upper_bound":{"included":2.7}}}'::jsonb"#,
+                "r4 @> numrange(2.5, 2.7, '[]')",
+                5,
+            ),
+            // A bound that equals an integer, written as a float or a string, acts as the integer
+            // does in an int8range or an int4range.
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"excluded":4.0},"upper_bound":null}}'::jsonb"#,
+                "r8::text::int8range && int8range(4, NULL, '()')",
+                5,
+            ),
+            (
+                r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":null,"upper_bound":{"included":"4"}}}'::jsonb"#,
+                "int8range(NULL, 4, '(]') @> r8::text::int8range",
+                4,
+            ),
+            (
+                r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"excluded":"4.0"},"upper_bound":null}}'::jsonb"#,
+                "r8::text::int8range @> int8range(4, NULL, '()')",
+                2,
+            ),
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r4","lower_bound":{"excluded":4.0},"upper_bound":null}}'::jsonb"#,
+                "r4::text::int4range && int4range(4, NULL, '()')",
+                5,
+            ),
             // JSON range bounds beyond the edges of bigint.
             (
                 r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"included":18000000000000000000},"upper_bound":null}}'::jsonb"#,
@@ -354,4 +541,19 @@ fn int_range_fields(mut conn: PgConnection) {
             ),
         ],
     );
+}
+
+#[rstest]
+fn non_numeric_bound_on_an_integer_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE words (id SERIAL PRIMARY KEY, x BIGINT);
+    INSERT INTO words (x) VALUES (1);
+    CREATE INDEX words_idx ON words USING paradedb (id, x);
+    "#
+    .execute(&mut conn);
+
+    let result = r#"SELECT id FROM words WHERE id @@@ '{"range":{"field":"x","lower_bound":{"included":"abc"},"upper_bound":null}}'::jsonb"#
+        .fetch_result::<(i32,)>(&mut conn);
+    let error = result.expect_err("a bound that is not a number should be an error");
+    assert!(error.to_string().contains("is not a number"), "{error}");
 }

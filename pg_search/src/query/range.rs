@@ -17,8 +17,9 @@
 
 use crate::api::version::Version;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::query::numeric::{Clamped, clamp_to_int_domain};
 use crate::query::value_to_json_term;
-use crate::schema::IndexRecordOption;
+use crate::schema::{IndexRecordOption, SearchFieldType};
 use anyhow::Result;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -45,6 +46,7 @@ const RECORD: IndexRecordOption = IndexRecordOption::Basic;
 #[derive(Clone, Debug)]
 pub struct RangeField {
     field: Field,
+    field_type: SearchFieldType,
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,8 +58,8 @@ pub enum Comparison {
 }
 
 impl RangeField {
-    pub fn new(field: Field) -> Self {
-        Self { field }
+    pub fn new(field: Field, field_type: SearchFieldType) -> Self {
+        Self { field, field_type }
     }
 
     pub fn exists(&self) -> Result<RegexQuery> {
@@ -115,12 +117,12 @@ impl RangeField {
         comparison: Comparison,
         index_created_by_version: Option<Version>,
     ) -> Result<RangeQuery> {
-        let (owned, comparison) = clamp_to_i64(owned, comparison);
+        let (owned, comparison) = self.clamp_to_int(owned, comparison);
         let query = match comparison {
             Comparison::LessThan => RangeQuery::new(
                 Bound::Excluded(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(LOWER_KEY),
                     index_created_by_version,
                 )?),
@@ -129,7 +131,7 @@ impl RangeField {
             Comparison::LessThanOrEqual => RangeQuery::new(
                 Bound::Included(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(LOWER_KEY),
                     index_created_by_version,
                 )?),
@@ -139,7 +141,7 @@ impl RangeField {
                 Bound::Unbounded,
                 Bound::Excluded(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(LOWER_KEY),
                     index_created_by_version,
                 )?),
@@ -148,7 +150,7 @@ impl RangeField {
                 Bound::Unbounded,
                 Bound::Included(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(LOWER_KEY),
                     index_created_by_version,
                 )?),
@@ -164,12 +166,12 @@ impl RangeField {
         comparison: Comparison,
         index_created_by_version: Option<Version>,
     ) -> Result<RangeQuery> {
-        let (owned, comparison) = clamp_to_i64(owned, comparison);
+        let (owned, comparison) = self.clamp_to_int(owned, comparison);
         let query = match comparison {
             Comparison::LessThan => RangeQuery::new(
                 Bound::Excluded(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(UPPER_KEY),
                     index_created_by_version,
                 )?),
@@ -178,7 +180,7 @@ impl RangeField {
             Comparison::LessThanOrEqual => RangeQuery::new(
                 Bound::Included(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(UPPER_KEY),
                     index_created_by_version,
                 )?),
@@ -188,7 +190,7 @@ impl RangeField {
                 Bound::Unbounded,
                 Bound::Excluded(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(UPPER_KEY),
                     index_created_by_version,
                 )?),
@@ -197,7 +199,7 @@ impl RangeField {
                 Bound::Unbounded,
                 Bound::Included(Self::as_range_term(
                     self,
-                    owned,
+                    &owned,
                     Some(UPPER_KEY),
                     index_created_by_version,
                 )?),
@@ -205,6 +207,29 @@ impl RangeField {
         };
 
         Ok(query)
+    }
+
+    /// Rewrite a comparison of `value` with the bounds of an `int4range` or an `int8range` field as
+    /// one of an integer with them. A number above `n` and below the next integer, or above every
+    /// integer when `n` is the largest, is less than a bound exactly when `n` is, and greater than
+    /// a bound exactly when `n` is at least that bound. A number below every integer is less than
+    /// every bound and greater than none. Other values, and the bounds of other fields, are
+    /// unchanged.
+    fn clamp_to_int(
+        &self,
+        value: &PdbOwnedValue,
+        comparison: Comparison,
+    ) -> (PdbOwnedValue, Comparison) {
+        use Comparison::*;
+
+        match (clamp_to_int_domain(value, &self.field_type), comparison) {
+            (Some(Clamped::Exact(n)), comparison) => (n, comparison),
+            (Some(Clamped::Above(n)), LessThan | LessThanOrEqual) => (n, LessThan),
+            (Some(Clamped::Above(n)), GreaterThan | GreaterThanOrEqual) => (n, GreaterThanOrEqual),
+            (Some(Clamped::BelowMin(min)), LessThan | LessThanOrEqual) => (min, LessThanOrEqual),
+            (Some(Clamped::BelowMin(min)), GreaterThan | GreaterThanOrEqual) => (min, GreaterThan),
+            (None, comparison) => (value.clone(), comparison),
+        }
     }
 
     fn as_range_term(
@@ -220,31 +245,6 @@ impl RangeField {
             EXPAND_DOTS,
             index_created_by_version,
         )
-    }
-}
-
-/// Range fields store every number as an `i64`. A number beyond the `i64` range lies above or
-/// below every stored bound, so it compares with each bound like the nearest `i64` under a strict
-/// or a non-strict comparison.
-fn clamp_to_i64(value: &PdbOwnedValue, comparison: Comparison) -> (&PdbOwnedValue, Comparison) {
-    use Comparison::*;
-    static MIN: PdbOwnedValue = PdbOwnedValue::I64(i64::MIN);
-    static MAX: PdbOwnedValue = PdbOwnedValue::I64(i64::MAX);
-
-    let above = match *value {
-        PdbOwnedValue::U64(n) if n > i64::MAX as u64 => true,
-        PdbOwnedValue::F64(f) if f >= -(i64::MIN as f64) => true,
-        PdbOwnedValue::F64(f) if f < i64::MIN as f64 => false,
-        _ => return (value, comparison),
-    };
-    // A value above every stored bound is greater than each of them, as `i64::MAX` is under
-    // `GreaterThanOrEqual`, and less than none, as `i64::MAX` is under `LessThan`. A value below
-    // every stored bound is the mirror image, with `i64::MIN`.
-    match (above, comparison) {
-        (true, LessThan | LessThanOrEqual) => (&MAX, LessThan),
-        (true, GreaterThan | GreaterThanOrEqual) => (&MAX, GreaterThanOrEqual),
-        (false, LessThan | LessThanOrEqual) => (&MIN, LessThanOrEqual),
-        (false, GreaterThan | GreaterThanOrEqual) => (&MIN, GreaterThan),
     }
 }
 
@@ -340,30 +340,49 @@ enum CapitalizedBoundDef<T> {
 mod tests {
     use super::*;
     use Comparison::*;
-    use PdbOwnedValue::{F64, I64, U64};
+    use PdbOwnedValue::{F64, I64, Str, U64};
     use rstest::rstest;
 
-    #[rstest]
-    #[case::u64_above(U64(1 << 63), LessThanOrEqual, i64::MAX, LessThan)]
-    #[case::f64_above(F64(-(i64::MIN as f64)), GreaterThan, i64::MAX, GreaterThanOrEqual)]
-    #[case::infinity(F64(f64::INFINITY), LessThan, i64::MAX, LessThan)]
-    #[case::f64_below(F64(-1e19), LessThan, i64::MIN, LessThanOrEqual)]
-    #[case::negative_infinity(F64(f64::NEG_INFINITY), GreaterThanOrEqual, i64::MIN, GreaterThan)]
-    fn test_clamp_to_i64_beyond(
-        #[case] value: PdbOwnedValue,
-        #[case] comparison: Comparison,
-        #[case] edge: i64,
-        #[case] expected: Comparison,
-    ) {
-        assert_eq!(clamp_to_i64(&value, comparison), (&I64(edge), expected));
+    fn range_field(range_oid: pgrx::pg_sys::Oid) -> RangeField {
+        RangeField::new(Field::from_field_id(0), SearchFieldType::Range(range_oid))
     }
 
     #[rstest]
-    #[case::u64_at_max(U64(i64::MAX as u64))]
-    #[case::f64_at_min(F64(i64::MIN as f64))]
-    #[case::i64(I64(5))]
-    #[case::string(PdbOwnedValue::Str("18000000000000000000".into()))]
-    fn test_clamp_to_i64_inside(#[case] value: PdbOwnedValue) {
-        assert_eq!(clamp_to_i64(&value, LessThan), (&value, LessThan));
+    #[case::integer(I64(5), LessThanOrEqual, I64(5), LessThanOrEqual)]
+    #[case::string(Str("5".into()), GreaterThan, I64(5), GreaterThan)]
+    #[case::fraction_less(F64(2.5), LessThanOrEqual, I64(2), LessThan)]
+    #[case::fraction_greater(F64(2.5), GreaterThan, I64(2), GreaterThanOrEqual)]
+    #[case::negative_fraction(Str("-2.5".into()), LessThan, I64(-3), LessThan)]
+    #[case::u64_above(U64(1 << 63), LessThanOrEqual, I64(i64::MAX), LessThan)]
+    #[case::exponent_above(Str("1e19".into()), GreaterThan, I64(i64::MAX), GreaterThanOrEqual)]
+    #[case::nan(F64(f64::NAN), LessThan, I64(i64::MAX), LessThan)]
+    #[case::below(F64(-1e19), LessThan, I64(i64::MIN), LessThanOrEqual)]
+    #[case::negative_infinity(Str("-Infinity".into()), GreaterThanOrEqual, I64(i64::MIN), GreaterThan)]
+    fn test_clamp_to_int(
+        #[case] value: PdbOwnedValue,
+        #[case] comparison: Comparison,
+        #[case] expected_value: PdbOwnedValue,
+        #[case] expected: Comparison,
+        #[values(pgrx::pg_sys::INT4RANGEOID, pgrx::pg_sys::INT8RANGEOID)]
+        range_oid: pgrx::pg_sys::Oid,
+    ) {
+        assert_eq!(
+            range_field(range_oid).clamp_to_int(&value, comparison),
+            (expected_value, expected)
+        );
+    }
+
+    #[rstest]
+    // A numrange field compares hex-encoded bytes, which can be all digits.
+    #[case::numrange(pgrx::pg_sys::NUMRANGEOID, Str("8180000000000000".into()))]
+    #[case::not_a_number(pgrx::pg_sys::INT8RANGEOID, Str("abc".into()))]
+    fn test_clamp_to_int_unchanged(
+        #[case] range_oid: pgrx::pg_sys::Oid,
+        #[case] value: PdbOwnedValue,
+    ) {
+        assert_eq!(
+            range_field(range_oid).clamp_to_int(&value, LessThan),
+            (value, LessThan)
+        );
     }
 }

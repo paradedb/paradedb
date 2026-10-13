@@ -1077,6 +1077,8 @@ fn check_range_bounds(
     // to match the indexed format (see SortableDecimal in range.rs)
     let lower_bound = convert_numrange_bound(typeoid, lower_bound, index_created_by_version);
     let upper_bound = convert_numrange_bound(typeoid, upper_bound, index_created_by_version);
+    let lower_bound = convert_int_range_bound(typeoid, lower_bound);
+    let upper_bound = convert_int_range_bound(typeoid, upper_bound);
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized, unless it is the maximum, which has no next value
@@ -1268,6 +1270,24 @@ fn convert_numrange_bound(
         }
         Bound::Unbounded => Bound::Unbounded,
     }
+}
+
+/// Convert a number that equals an integer, such as `2.0` or `"2"`, in an INT4RANGEOID or
+/// INT8RANGEOID bound to an I64, so that it is canonicalized like one.
+fn convert_int_range_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
+    if !matches!(
+        typeoid,
+        PgOid::BuiltIn(PgBuiltInOids::INT4RANGEOID | PgBuiltInOids::INT8RANGEOID)
+    ) {
+        return bound;
+    }
+    let field_type = crate::schema::SearchFieldType::Range(typeoid.value());
+    numeric::map_bound(bound, |value| {
+        match numeric::clamp_to_int_domain(&value, &field_type) {
+            Some(numeric::Clamped::Exact(n)) => n,
+            _ => value,
+        }
+    })
 }
 
 fn coerce_bound_to_field_type(
@@ -1615,7 +1635,8 @@ impl SearchQueryInput {
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
                         let field_type = search_field.field_entry().field_type();
 
-                        // An integer that the field cannot hold matches nothing, so it is left out.
+                        // A number that no integer of the field equals matches nothing, so it is
+                        // left out.
                         if numeric::is_outside_int_domain(&value, &search_field.field_type()) {
                             return Ok(None);
                         }

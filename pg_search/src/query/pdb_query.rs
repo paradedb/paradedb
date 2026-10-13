@@ -19,12 +19,12 @@ use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::is_pgoid_datetime_type;
+use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
     clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
     is_outside_int_domain, map_bound, numeric_bound_to_bytes, scale_numeric_bound, string_to_f64,
-    string_to_i64, string_to_json_numeric, string_to_u64,
+    string_to_i64, string_to_json_numeric,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -863,7 +863,7 @@ fn term_set(
     // Convert terms based on field type (uses same logic as term())
     let converted_terms = terms
         .into_iter()
-        // An integer that the field cannot hold matches nothing, so it is left out.
+        // A number that no integer of the field equals matches nothing, so it is left out.
         .filter(|term| !is_outside_int_domain(term, &search_field_type))
         .map(|term| convert_value_for_field(term, &search_field_type, index_created_by_version))
         .collect::<anyhow::Result<Vec<PdbOwnedValue>>>()?;
@@ -893,7 +893,7 @@ fn term(
     let field_type = search_field.field_entry().field_type();
     let search_field_type = search_field.field_type();
 
-    // An integer that the field cannot hold matches nothing.
+    // A number that no integer of the field equals matches nothing.
     if is_outside_int_domain(value, &search_field_type) {
         return Ok(Box::new(EmptyQuery));
     }
@@ -964,7 +964,7 @@ fn range_within(
     let (lower_bound, upper_bound) =
         check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
 
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), search_field.field_type());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1130,7 +1130,7 @@ fn range_term(
 
     // Convert numeric values to appropriate types based on range field type.
     // Range fields are indexed as JSON with specific element types:
-    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64 (or an infinity beyond i64)
+    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → unchanged, clamped by `RangeField`
     // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
     // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(
@@ -1139,7 +1139,7 @@ fn range_term(
         index_created_by_version,
     );
 
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), search_field.field_type());
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1253,7 +1253,7 @@ fn range_intersects(
 
     let (lower_bound, upper_bound) =
         check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), search_field.field_type());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1425,7 +1425,7 @@ fn range_contains(
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) =
         check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), search_field.field_type());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1598,16 +1598,14 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             let upper = map_bound(upper_bound, string_to_json_numeric);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::I64(_) => {
-            let (lower, upper) = clamp_int_bounds(&search_field_type, lower_bound, upper_bound);
-            let lower = map_bound(lower, string_to_i64);
-            let upper = map_bound(upper, string_to_i64);
+        // Dates and times are stored in I64 fields, but they are not numbers
+        SearchFieldType::I64(oid) if is_datetime_type(oid) => {
+            let lower = map_bound(lower_bound, string_to_i64);
+            let upper = map_bound(upper_bound, string_to_i64);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::U64(_) => {
-            let (lower, upper) = clamp_int_bounds(&search_field_type, lower_bound, upper_bound);
-            let lower = map_bound(lower, string_to_u64);
-            let upper = map_bound(upper, string_to_u64);
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) => {
+            let (lower, upper) = clamp_int_bounds(&search_field_type, lower_bound, upper_bound)?;
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         SearchFieldType::F64(_) => {

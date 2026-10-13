@@ -79,35 +79,29 @@ WHERE s.id @@@ paradedb.match('title', 'dragon')
   AND NOT EXISTS (
     SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
 ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.path' which is not columnar (tables: e, s)
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: (paradedb.score(s.id)) DESC, s.rating DESC, s.id
-         ->  Hash Right Anti Join
-               Hash Cond: (e.s_id = s.id)
-               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_e e
-                     Table: issue_6576_e
-                     Index: issue_6576_e_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
-                           Table: issue_6576_s
-                           Index: issue_6576_s_idx
-                           Exec Method: NormalScanExecState
-                           Scores: true
-                           Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(18 rows)
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s ANTI e
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: pdb.score(s) desc, s.rating desc, s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(s)@0 as col_3, rating@3 as col_4, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[pdb.score(s)@0 DESC, rating@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(s_id@0, id@2)]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT s.id, 'x/' || s.path AS url FROM issue_6576_s s
 WHERE s.id @@@ paradedb.match('title', 'dragon')
   AND NOT EXISTS (
     SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
 ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.path' which is not columnar (tables: e, s)
   id  |   url    
 ------+----------
    99 | x/p/99
@@ -140,34 +134,28 @@ SELECT s.id, 'x/' || s.path AS url, s.path || ':' || e.note AS tag
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
 ORDER BY s.rating DESC, s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.path' which is not columnar (tables: e, s)
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: s.rating DESC, s.id
-         ->  Hash Join
-               Hash Cond: (s.id = e.s_id)
-               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
-                     Table: issue_6576_s
-                     Index: issue_6576_s_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on issue_6576_e e
-                           Table: issue_6576_e
-                           Index: issue_6576_e_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
-(18 rows)
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: s.rating desc, e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, rating@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[rating@2 DESC, s_id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@1, id@1)], projection=[ctid_0@2, id@3, rating@4, ctid_1@0, s_id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT s.id, 'x/' || s.path AS url, s.path || ':' || e.note AS tag
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
 ORDER BY s.rating DESC, s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.path' which is not columnar (tables: e, s)
   id  |   url    |     tag     
 ------+----------+-------------
   198 | x/p/198  | p/198:n99
@@ -225,29 +213,28 @@ SELECT s.id, coalesce('n/' || e.note, 'none') AS note_url
 FROM issue_6576_s s LEFT JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon')
 ORDER BY s.id LIMIT 10;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_e.note' which is not columnar (tables: e, s)
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: s.id
-         ->  Hash Left Join
-               Hash Cond: (s.id = e.s_id)
-               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
-                     Table: issue_6576_s
-                     Index: issue_6576_s_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     ->  Seq Scan on issue_6576_e e
-(13 rows)
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s LEFT e
+   Join Cond: e.s_id = s.id
+   Limit: 10
+   Order By: s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(s_id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT s.id, coalesce('n/' || e.note, 'none') AS note_url
 FROM issue_6576_s s LEFT JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon')
 ORDER BY s.id LIMIT 10;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_e.note' which is not columnar (tables: e, s)
  id | note_url 
 ----+----------
   3 | none
@@ -289,7 +276,7 @@ SELECT s.id, 'x/' || s.path AS url
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
 ORDER BY 'x/' || s.path, s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.path' which is not columnar (tables: e, s)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: e, s)
                                                                                                   QUERY PLAN                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

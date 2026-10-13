@@ -41,7 +41,7 @@ use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
 use tantivy_common::TinySet;
 
 // Prefer per-match CTID checks at this heap-block span per live document.
-const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
+pub(crate) const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap

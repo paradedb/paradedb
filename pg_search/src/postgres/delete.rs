@@ -148,7 +148,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         .merge_list()
         .garbage_collect(pg_sys::ReadNextFullTransactionId());
 
-    let mutable_segments = metadata.seal_mutable_segments();
+    let mutable_segments = metadata.freeze_mutable_segments();
     drop(cleanup_lock);
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)

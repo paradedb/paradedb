@@ -395,7 +395,7 @@ impl MetaPage {
         LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
     }
 
-    pub(crate) unsafe fn seal_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
+    pub(crate) unsafe fn freeze_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
         let mut metas = self.segment_metas();
         if !metas
             .list(None)
@@ -405,14 +405,14 @@ impl MetaPage {
             return Vec::new();
         }
 
-        let mut sealed = metas.atomically();
-        let mut entries = sealed
+        let mut frozen = metas.atomically();
+        let mut entries = frozen
             .list(None)
             .into_iter()
             .filter(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
             .collect::<Vec<_>>();
         for entry in &mut entries {
-            sealed
+            frozen
                 .update_item(
                     |candidate| candidate.segment_id() == entry.segment_id(),
                     |candidate| {
@@ -423,13 +423,13 @@ impl MetaPage {
                         content.frozen = true;
                     },
                 )
-                .expect("mutable segment should exist while sealing");
+                .expect("mutable segment should exist while freezing");
             let SegmentMetaEntryContent::Mutable(content) = &mut entry.content else {
                 unreachable!();
             };
             content.frozen = true;
         }
-        sealed.commit();
+        frozen.commit();
         entries
     }
 

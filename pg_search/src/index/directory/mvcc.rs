@@ -331,14 +331,21 @@ impl SegmentView {
 pub enum MvccSatisfies {
     /// Replay exactly the given view; see [`SegmentView`].
     ParallelWorker(SegmentView),
+    /// Read only the largest segment visible to the active snapshot, for estimates.
     LargestSegment,
+    /// Read all segments visible to the active snapshot.
     Snapshot,
+    /// Read all segments not retired by a merge, regardless of snapshot visibility,
+    /// so VACUUM can find dead CTIDs.
     Vacuum,
-    /// Merge one frozen mutable segment using VACUUM's surviving CTIDs.
+    /// Materialize and merge one frozen mutable segment using only the CTIDs that
+    /// survived VACUUM's deletion callback, without fetching dead heap tuples.
     VacuumMerge {
         segment_id: SegmentId,
         live_ctids: Vec<u64>,
     },
+    /// Read non-retired segments eligible for merging. Mutable segments must be
+    /// frozen unless mutable segments have been disabled on the index.
     Mergeable,
 }
 

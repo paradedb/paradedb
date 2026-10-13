@@ -56,7 +56,7 @@ pub(crate) fn vacuum_delay_point() {
     unsafe {
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         pg_sys::vacuum_delay_point();
-        #[cfg(feature = "pg18")]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
         pg_sys::vacuum_delay_point(false);
     }
 }

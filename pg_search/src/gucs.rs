@@ -56,11 +56,15 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
 static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(96.0);
 
 /// Allows visibility proofs from segment bounds and heap-block document ranges.
 static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -404,6 +408,15 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
+        c"paradedb.enable_bitmap_postings",
+        c"Use optional term posting bitmaps for unscored queries",
+        c"Disable to read ordinary postings without rebuilding the index",
+        &ENABLE_BITMAP_POSTINGS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
         c"paradedb.enable_bitmap_intersection",
         c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
         c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
@@ -514,6 +527,17 @@ pub fn init() {
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.count_parallel_threshold_multiplier",
+        c"Parallelism threshold multiplier for fast count traversal",
+        c"Discounts traversal work for match-all or term-only counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
+        &COUNT_PARALLEL_THRESHOLD_MULTIPLIER,
+        1.0,
+        1_000_000.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -977,6 +1001,10 @@ pub fn enable_visibility_map_shortcuts() -> bool {
     ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
 }
 
+pub fn enable_bitmap_postings() -> bool {
+    ENABLE_BITMAP_POSTINGS.get()
+}
+
 pub fn enable_bitmap_intersection() -> bool {
     ENABLE_BITMAP_INTERSECTION.get()
 }
@@ -1117,6 +1145,10 @@ impl WorkMem {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn count_parallel_threshold_multiplier() -> f64 {
+    COUNT_PARALLEL_THRESHOLD_MULTIPLIER.get()
 }
 
 pub fn expensive_query_cost_factor() -> f64 {

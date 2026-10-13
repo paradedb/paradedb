@@ -1141,18 +1141,15 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
-   DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
-     :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
-     :     CooperativeExec
-     :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
-(9 rows)
+   DataFusion Plan: (rebuild failed during EXPLAIN: Internal error: postgres expressions have not been solved: missing planstate.
+ This issue was likely caused by a bug in DataFusion's code. Please help us to resolve this by filing a bug report in our issue tracker: https://github.com/apache/datafusion/issues)
+(6 rows)
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items

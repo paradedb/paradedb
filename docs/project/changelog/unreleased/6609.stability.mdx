@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`float4` and `float8` `+0` and `-0` are indexed and searched as the same value, matching PostgreSQL. An index created by an earlier version can still store `-0` as its own term, so `REINDEX` any index that contains a negative zero.

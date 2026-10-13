@@ -162,8 +162,11 @@ pub(crate) fn aggregate_nworkers(
         } else {
             0.0
         };
+        let fast_count = matches!(aggregation, AggregateRequest::Sql(clause)
+            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
+            && reader.query().is_fast_count();
         let mut visibility_map_words = 0u64;
-        if solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
+        if fast_count && solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
             let view = reader.segment_view();
             for (segment, entry) in reader.segment_readers().iter().zip(view.entries()) {
                 if !matches!(entry.docs, SegmentViewDocs::Immutable { .. })
@@ -186,10 +189,7 @@ pub(crate) fn aggregate_nworkers(
             }
         }
         let mut traversal_work = cost as f64 * pg_sys::cpu_index_tuple_cost;
-        if matches!(aggregation, AggregateRequest::Sql(clause)
-            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
-            && reader.query().is_fast_count()
-        {
+        if fast_count {
             traversal_work /= crate::gucs::count_parallel_threshold_multiplier();
         }
         let work = traversal_work

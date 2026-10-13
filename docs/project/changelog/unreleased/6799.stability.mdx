@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`pdb.agg()` as a window function with a `LIMIT` over a partitioned table no longer returns one partition's aggregate, or fails opening the parent index. It declines with the same error as the plain `pdb.agg()` aggregate over a partitioned table, and a SQL window function over a partitioned table runs natively (#6783).

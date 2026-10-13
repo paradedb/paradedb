@@ -277,7 +277,7 @@ SET client_min_messages TO notice;
 DROP TABLE IF EXISTS progress_test CASCADE;
 CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX progress_idx ON progress_test USING paradedb (id, content) 
-    WITH (mutable_segment_rows = 20);
+    WITH (background_layer_sizes = '0', mutable_segment_rows = 20);
 INSERT INTO progress_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
 INSERT INTO progress_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 

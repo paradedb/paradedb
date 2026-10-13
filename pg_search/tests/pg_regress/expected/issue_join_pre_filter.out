@@ -34,7 +34,7 @@ WHERE
     AND u.id @@@ pdb.all()
     AND u.reputation > 100
 ORDER BY
-    relevance DESC
+    relevance DESC, p.id
 LIMIT 10;
                                                                                                                               QUERY PLAN                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -42,12 +42,12 @@ LIMIT 10;
    Relation Tree: p INNER u
    Join Cond: p.owner_user_id = u.id
    Limit: 10
-   Order By: pdb.score(p) desc
+   Order By: pdb.score(p) desc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score(p)@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score(p)@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(p)@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, u], pruned=[u]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@0)], projection=[pdb.score(p)@0, ctid_0@1, ctid_1@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@0)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@5]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -66,20 +66,20 @@ WHERE
     AND u.id @@@ pdb.all()
     AND u.reputation > 100
 ORDER BY
-    relevance DESC
+    relevance DESC, p.id
 LIMIT 10;
-  id   |        title         |   relevance   
--------+----------------------+---------------
-  2000 | how using get create | 0.00019978978
-  3000 | how using get create | 0.00019978978
-  4000 | how using get create | 0.00019978978
-  5000 | how using get create | 0.00019978978
-  6000 | how using get create | 0.00019978978
-  7000 | how using get create | 0.00019978978
-  8000 | how using get create | 0.00019978978
-  9000 | how using get create | 0.00019978978
- 10000 | how using get create | 0.00019978978
-  1000 | how using get create | 0.00019978978
+ id |        title         |   relevance   
+----+----------------------+---------------
+  1 | how using get create | 0.00019978978
+  2 | how using get create | 0.00019978978
+  3 | how using get create | 0.00019978978
+  4 | how using get create | 0.00019978978
+  5 | how using get create | 0.00019978978
+  6 | how using get create | 0.00019978978
+  7 | how using get create | 0.00019978978
+  8 | how using get create | 0.00019978978
+  9 | how using get create | 0.00019978978
+ 10 | how using get create | 0.00019978978
 (10 rows)
 
 -- Teardown

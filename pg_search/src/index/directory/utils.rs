@@ -265,7 +265,7 @@ pub unsafe fn save_new_metas(
     // now change things on disk
     //
 
-    // Retire entries replaced by a merge or a mutable-segment VACUUM flush.
+    // Retire entries removed by a merge or VACUUM.
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax() == pg_sys::FrozenTransactionId);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
@@ -382,10 +382,10 @@ pub unsafe fn load_metas(
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
                 matches!(solve_mvcc, MvccSatisfies::ParallelWorker(view) if view.contains(&entry.segment_id()))
 
-                    // vacuum sees everything that hasn't been deleted by a merge
+                    // vacuum sees all non-retired segments
                     || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
 
-                    || (matches!(solve_mvcc, MvccSatisfies::VacuumMerge { segment_id, .. } if *segment_id == entry.segment_id())
+                    || (matches!(solve_mvcc, MvccSatisfies::VacuumMerge { live_ctids } if live_ctids.contains_key(&entry.segment_id()))
                         && entry.xmax() == pg_sys::InvalidTransactionId)
 
                     // a snapshot or ::LargestSegment can see any that are visible in its snapshot
@@ -422,7 +422,8 @@ pub unsafe fn load_metas(
             }
 
             let mut tantivy_meta = entry.as_tantivy();
-            if let MvccSatisfies::VacuumMerge { live_ctids, .. } = solve_mvcc {
+            if let MvccSatisfies::VacuumMerge { live_ctids } = solve_mvcc {
+                let live_ctids = &live_ctids[&entry.segment_id()];
                 assert!(entry.is_mutable() && entry.is_mergeable(indexrel));
                 assert!(live_ctids.len() <= entry.num_docs());
                 tantivy_meta.max_doc = live_ctids.len().try_into().expect("too many mutable CTIDs");

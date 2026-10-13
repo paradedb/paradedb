@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -191,19 +192,22 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             .unwrap_or_else(|| panic!("segment meta not found for segment_id: {segment_id:?}"));
         let mut deleter = SegmentDeleter::open(segment_meta);
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
-        let mut needs_commit = false;
-        for doc_id in 0..segment_reader.max_doc() {
-            if doc_id % 100 == 0 {
+        let mut num_deleted = 0;
+        for (i, doc_id) in segment_reader.doc_ids_alive().enumerate() {
+            if i % 100 == 0 {
                 vacuum_delay_point();
             }
             if callback(ctid_ff.as_u64(doc_id).expect("ctid should be present")) {
                 did_delete = true;
-                needs_commit = true;
+                num_deleted += 1;
                 deleter.delete(doc_id);
             }
         }
 
-        if needs_commit {
+        if num_deleted == segment_reader.num_docs() {
+            did_delete = true;
+            old_metas.push(segment_meta.clone());
+        } else if num_deleted > 0 {
             let meta_change = deleter
                 .commit(&index)
                 .expect("ambulkdelete: segment deleter commit should succeed");
@@ -228,7 +232,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     if !old_metas.is_empty() {
         // Save the new delete metas entries in one atomic operation
-        assert_eq!(old_metas.len(), new_metas.len());
         save_delete_metas(&index, old_metas, new_metas)
             .expect("ambulkdelete: should be able to save delete metas entries");
     }
@@ -257,11 +260,17 @@ fn flush_mutable_segments(
     segments: &[SegmentMetaEntry],
     callback: &impl Fn(u64) -> bool,
 ) -> Result<()> {
+    if segments.is_empty() {
+        return Ok(());
+    }
+
+    let mut live_ctids = HashMap::default();
+    let mut segment_ids = Vec::with_capacity(segments.len());
     for segment in segments {
         let ctids = segment
             .mutable_snapshot(indexrel)
             .map_err(|error| anyhow::anyhow!("{error}"))?;
-        let live_ctids = ctids
+        let ctids = ctids
             .into_iter()
             .enumerate()
             .filter_map(|(i, ctid)| {
@@ -273,15 +282,11 @@ fn flush_mutable_segments(
             })
             .collect();
         let segment_id = segment.segment_id();
-        let mut merger = SearchIndexMerger::open(
-            indexrel,
-            MvccSatisfies::VacuumMerge {
-                segment_id,
-                live_ctids,
-            },
-        )?;
-        merger.merge_segments(&[segment_id])?;
+        segment_ids.push(segment_id);
+        live_ctids.insert(segment_id, ctids);
     }
+    let mut merger = SearchIndexMerger::open(indexrel, MvccSatisfies::VacuumMerge { live_ctids })?;
+    merger.merge_segments(&segment_ids)?;
     Ok(())
 }
 

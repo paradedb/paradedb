@@ -335,14 +335,13 @@ pub enum MvccSatisfies {
     LargestSegment,
     /// Read all segments visible to the active snapshot.
     Snapshot,
-    /// Read all segments not retired by a merge, regardless of snapshot visibility,
+    /// Read all non-retired segments, regardless of snapshot visibility,
     /// so VACUUM can find dead CTIDs.
     Vacuum,
-    /// Materialize and merge one frozen mutable segment using only the CTIDs that
+    /// Materialize and merge frozen mutable segments using only the CTIDs that
     /// survived VACUUM's deletion callback, without fetching dead heap tuples.
     VacuumMerge {
-        segment_id: SegmentId,
-        live_ctids: Vec<u64>,
+        live_ctids: HashMap<SegmentId, Vec<u64>>,
     },
     /// Read non-retired segments eligible for merging. Mutable segments must be
     /// frozen unless mutable segments have been disabled on the index.
@@ -1110,7 +1109,9 @@ pub fn index_memory_segment(
 
     let directory = RamDirectory::create();
     let ctids = match mvcc_style {
-        MvccSatisfies::VacuumMerge { live_ctids, .. } => Cow::Borrowed(live_ctids.as_slice()),
+        MvccSatisfies::VacuumMerge { live_ctids } => {
+            Cow::Borrowed(live_ctids[&segment.segment_id()].as_slice())
+        }
         _ => Cow::Owned(
             segment
                 .mutable_snapshot(indexrel)

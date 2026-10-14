@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791967117273,
+  "lastUpdate": 1791967129598,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -152234,6 +152234,106 @@ window.BENCHMARK_DATA = {
             "value": 58.734375,
             "unit": "median mem",
             "extra": "avg mem: 58.46313406349333, max mem: 64.734375, count: 59459"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791967122528,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.03741399323721885, max background_merging: 1.0, count: 59443"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.710403061252472, max cpu: 9.6337185, count: 59443"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.688327999091566, max mem: 26.71484375, count: 59443"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.570091850595014, max cpu: 9.619239, count: 59443"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 71.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 67.40099260005384, max mem: 71.0703125, count: 59443"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 68503,
+            "unit": "median block_count",
+            "extra": "avg block_count: 67683.51018622883, max block_count: 68504.0, count: 59443"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 74,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.25754083744091, max segment_count: 99.0, count: 59443"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.645319,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.170221760139775, max cpu: 33.718014, count: 59443"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 95.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 87.53618040601921, max mem: 95.28125, count: 59443"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.173294978753781, max cpu: 28.713858, count: 59443"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 59.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 59.49475048575947, max mem: 65.88671875, count: 59443"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.727235471502195, max cpu: 9.638554, count: 59443"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.99446968892468, max mem: 43.00390625, count: 59443"
           }
         ]
       }

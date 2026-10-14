@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791885742612,
+  "lastUpdate": 1791943084893,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -12326,6 +12326,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.979,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e2bc0a12aa863d5997135fe100e87d1228b5589",
+          "message": "fix: Evaluate STABLE search predicates at execution time (#6798)\n\n# Ticket(s) Closed\n\n- Closes #6642\n\n## What\n\nEvaluate STABLE expressions at execution time instead of storing their\nplan-time values in cached search queries. Prepared searches now observe\nthe current setting or timestamp on every execution, including indexed\ntenant predicates supplied by row-level security policies.\n\n## Why\n\nThe shared expression-complexity check rejected VOLATILE functions but\nallowed STABLE functions to be evaluated during planning. A cached\ngeneric plan could therefore keep an old tenant ID or range bound and\nreturn incorrect rows after the expression's value changed.\n\n## How\n\nUse PostgreSQL's `contain_mutable_functions` in the shared check so only\nimmutable expressions can take the plan-time evaluation path. STABLE\npushdown expressions use the existing executor-time PostgreSQL\nexpression solver. Score thresholds containing STABLE expressions stay\nout of literal score-bound pushdown.\n\nFor plain DataFusion aggregate EXPLAIN, build the physical shape using\nan unfiltered reader for index metadata while retaining unresolved\nexpressions in the displayed scan query. The EXPLAIN-only provider mode\nis skipped during serialization; execution still requires a PlanState\nand solves the query normally. This also replaces existing\ninternal-error output for prepared parameters, InitPlans, and correlated\nheap filters with physical plans.\n\nAdd cached-plan regression coverage for Base Scan equality, Aggregate\nScan ranges, integer and UUID RLS policies, row-independent boolean\nexpressions, and direct search-query expressions. Update the node-walker\nunit test to distinguish immutable, stable, and volatile functions.\n\n## Tests\n\n- Built and packaged the patched extension from current main with\nPostgreSQL 18.6 on ARM64.\n- Reproduced the stale-plan behavior on the unpatched 0.26.1 release;\nthe supplied auto-plan reproduction returns the correct tenant's rows\nwith the patch after five custom plans and one generic plan. Both\ncontrols still pass.\n- Built and packaged the EXPLAIN fix with PostgreSQL 18.6 on ARM64. All\n18 focused pg_regress tests pass: the cached-plan, pinned-group-key,\nRLS, numeric/array pushdown, prepared-statement and score-filter tests,\nplus eight aggregate-on-join suites.\n- Plain EXPLAIN of a cached DataFusion aggregate displays both the\nsearch parameter and STABLE tenant expression; subsequent executions\nreturn the current tenant's group. The updated pinned-group-key fixture\ncontains no EXPLAIN rebuild errors.\n- `cargo fmt --all -- --check` and source/SQL `git diff --check` pass.\nThe generated expected output retains psql's aligned-header whitespace,\nconsistent with existing fixtures.\n- Full suite, updated pg_test unit test, and other PostgreSQL majors\nremain for CI.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-10-13T18:15:48-07:00",
+          "tree_id": "33e864599ea100ed42cb9f9c5d6794fbae0b5bec",
+          "url": "https://github.com/paradedb/paradedb/commit/2e2bc0a12aa863d5997135fe100e87d1228b5589"
+        },
+        "date": 1791943077679,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.314,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.68,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.993,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.416,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.552,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.126,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.599,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.464,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 6.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 8.954,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.867,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.985,
             "unit": "ms"
           }
         ]

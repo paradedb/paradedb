@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792001321649,
+  "lastUpdate": 1792002186813,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10771,6 +10771,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 186.647,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9991bf135d1e21c6b9c77c5986c69e7b5cbc44ed",
+          "message": "perf: run heap filters only on the index matches in AggregateScan and JoinScan (#6773)\n\n## Ticket(s) Closed\n\n- None.\n\n## What\n\nThis PR runs heap filters (predicates the index cannot answer, such as a\nUDF over non-indexed columns) only on the rows the `@@@` predicates\nmatched, in the Aggregate Scan and the Join Scan too.\n\n## Why\n\nA user's `COUNT(*)` over three `@@@` predicates and `haversine(...) < r`\ntook 22 s with `paradedb.enable_filter_pushdown` on and 1.2 s off. Only\nthe Base Scan wrapped the heap filter around the indexed clauses. The\nother scans left it as a sibling\n`{\"heap_filter\":{\"indexed_query\":\"all\"}}`, and Tantivy's `count`\nevaluates every clause of an intersection on every document, so the UDF\nran on the whole table.\n\n## How\n\n- The Aggregate Scan and the Join Scan now call\n`optimize_quals_with_heap_expr`, as the Base Scan does.\n- Several heap filters in one `AND` are nested instead of intersected.\nThe index is read once, and each filter sees only the rows the previous\nones accepted. This also stops the intersection from summing the BM25\nscore once per filter.\n- `HeapFilterScorer` gets a `seek` and a lazy `seek_danger`, so a probe\nat a rejected row no longer walks the heap.\n\n## Tests\n\n- `heap_filter_indexed_conjuncts` \n- Existing expected files change, and two score tests lose a 3x\ninflation.",
+          "timestamp": "2026-10-14T09:57:00-07:00",
+          "tree_id": "f1cce20a37a79e63d172649b6a2fffa120f535f5",
+          "url": "https://github.com/paradedb/paradedb/commit/9991bf135d1e21c6b9c77c5986c69e7b5cbc44ed"
+        },
+        "date": 1792002177096,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.549,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 94.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 346.08,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.37,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.163,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 183.878,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 211.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.504,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.398,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 193.472,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 83.004,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 186.314,
             "unit": "ms"
           }
         ]

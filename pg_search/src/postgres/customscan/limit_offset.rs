@@ -36,6 +36,21 @@ use serde::{Deserialize, Serialize};
 /// - **Planning time guards:** call `has_any_param()` and `static_fetch()`.
 /// - **Immutable context (snippets):** call `resolve(estate)` — clones on
 ///   each call, acceptable when dominated by heavier per-row work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitClauseKind {
+    Limit,
+    Offset,
+}
+
+impl LimitClauseKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Limit => "LIMIT",
+            Self::Offset => "OFFSET",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LimitOffset {
     pub limit: ParameterizedValue<i64>,
@@ -52,10 +67,46 @@ impl LimitOffset {
             return None;
         }
         let parse = unsafe { &*parse };
+        if parse.limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
+            return None;
+        }
 
         let limit = ParameterizedValue::<i64>::from_node(parse.limitCount)?;
         let offset = ParameterizedValue::<i64>::from_node(parse.limitOffset);
         Some(Self { limit, offset })
+    }
+
+    /// Parse a static `LIMIT` or `OFFSET` bound for a scan planned at
+    /// `UPPERREL_FINAL` (where no PostgreSQL `Limit` node sits above the scan).
+    ///
+    /// Unlike [`Self::from_parse`] / [`Self::static_limit`] (which sit below
+    /// PostgreSQL's `Limit` node and can return `None` on non-constants or clamp
+    /// negatives to `0` while letting `ExecLimit` raise the error), a scan at
+    /// `UPPERREL_FINAL` must:
+    /// - treat `NULL` (`LIMIT ALL`, `LIMIT NULL`, `OFFSET NULL`) as `Ok(None)`,
+    /// - reject non-constant bounds (`Param` or volatile expressions) with `Err`,
+    /// - reject negative values with `"{clause} must not be negative"`.
+    pub unsafe fn parse_static_bound(
+        node: *mut pg_sys::Node,
+        clause: LimitClauseKind,
+    ) -> Result<Option<usize>, String> {
+        if node.is_null() {
+            return Ok(None);
+        }
+        if let Some(const_node) = crate::nodecast!(Const, T_Const, node)
+            && (*const_node).constisnull
+        {
+            return Ok(None);
+        }
+        let clause_name = clause.as_str();
+        let val = ParameterizedValue::<i64>::from_node(node)
+            .and_then(|pv| pv.static_value().copied())
+            .ok_or_else(|| {
+                format!("non-constant {clause_name} is not supported with pdb.combine_agg()")
+            })?;
+        let val =
+            usize::try_from(val).map_err(|_| format!("{clause_name} must not be negative"))?;
+        Ok(Some(val))
     }
 
     /// Extract LIMIT and OFFSET from the planner root, preferring PG's combined

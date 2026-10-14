@@ -566,6 +566,12 @@ impl JoinScan {
             return Err(JoinDeclineReason::ContainsAggregate);
         }
 
+        if (*(*root).parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: FETCH FIRST ... WITH TIES is not supported",
+            ));
+        }
+
         // Require LIMIT for top-level queries (without it, JoinScan's TopK
         // optimization has no bound). Subqueries are exempt because the parent
         // plan provides the cardinality constraint. Either a static or

@@ -263,6 +263,10 @@ pub enum WindowAggInput {
 }
 
 /// A window aggregate evaluated across all groups in Stage 2 (`OVER ()`).
+///
+/// TODO: Consolidate with [`crate::postgres::customscan::joinscan::window_func::WindowAggDef`]
+/// once `AggregateScan` and `JoinScan` are unified and share a single targetlist
+/// and input-resolution model.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum WindowAggKind {
     /// `pdb.combine_agg(pdb.agg(...)) OVER ()`

@@ -27,8 +27,8 @@
 //! and the aggregate scan's assembler folds them into the document.
 //!
 //! For `pdb.combine_agg(pdb.agg(...)) OVER ()` in a `GROUP BY` query, computing a
-//! separate `PdbAggAccumulator` per SQL group and then merging $G$ states would do
-//! $O(\text{groups} \times \text{buckets})$ work. Instead, execution splits across
+//! separate `PdbAggAccumulator` per SQL group and then merging `G` states would do
+//! `O(groups * buckets)` work. Instead, execution splits across
 //! two UDAFs:
 //! - [`pdb_precombine_agg`] runs in Stage 1 (the grouped `Aggregate`). Its
 //!   [`PdbPrecombineAccumulator`] holds a single partition-wide [`PdbAggAccumulator`],

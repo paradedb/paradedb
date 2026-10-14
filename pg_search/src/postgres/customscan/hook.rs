@@ -440,6 +440,12 @@ fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return true;
     }
 
+    if has_paradedb_agg_current_level
+        && unsafe { (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES }
+    {
+        pgrx::error!("FETCH FIRST ... WITH TIES is not supported with pdb.agg() window functions");
+    }
+
     // Even without full Top K compatibility (e.g., LIMIT without ORDER BY),
     // we can still replace window functions when pdb.agg() is present and the
     // query has a LIMIT clause. The unordered TopK or NormalScan execution

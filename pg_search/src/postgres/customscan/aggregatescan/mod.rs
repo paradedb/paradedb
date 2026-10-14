@@ -2863,6 +2863,9 @@ unsafe fn detect_join_aggregate_topk(
     }
 
     if args.stage == pg_sys::UpperRelationKind::UPPERREL_FINAL {
+        if (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
+            return Err("FETCH FIRST ... WITH TIES is not supported with pdb.combine_agg()".into());
+        }
         let mut sorts = Vec::new();
         if !(*parse).sortClause.is_null() {
             let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
@@ -2878,22 +2881,11 @@ unsafe fn detect_join_aggregate_topk(
                 sorts.push((sort_target, direction));
             }
         }
-        let parse_static_bound =
-            |node: *mut pg_sys::Node, clause: &str| -> Result<Option<usize>, String> {
-                if node.is_null() {
-                    return Ok(None);
-                }
-                let val = crate::postgres::customscan::parameterized_value::ParameterizedValue::<
-                    i64,
-                >::from_node(node)
-                .and_then(|pv| pv.static_value().copied())
-                .ok_or_else(|| {
-                    format!("non-constant {clause} is not supported with pdb.combine_agg()")
-                })?;
-                Ok(Some(val.max(0) as usize))
-            };
-        let limit = parse_static_bound((*parse).limitCount, "LIMIT")?;
-        let offset = parse_static_bound((*parse).limitOffset, "OFFSET")?.unwrap_or(0);
+        use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
+        let limit = LimitOffset::parse_static_bound((*parse).limitCount, LimitClauseKind::Limit)?;
+        let offset =
+            LimitOffset::parse_static_bound((*parse).limitOffset, LimitClauseKind::Offset)?
+                .unwrap_or(0);
         if sorts.is_empty() && limit.is_none() && offset == 0 {
             return Ok(None);
         }

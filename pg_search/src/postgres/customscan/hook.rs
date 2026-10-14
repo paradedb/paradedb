@@ -399,6 +399,15 @@ fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
 
+    // GROUP BY / aggregate queries with window functions (such as
+    // `pdb.combine_agg(pdb.agg(...)) OVER ()`) are handled by AggregateScan at
+    // UPPERREL_FINAL rather than BaseScan's early window-function replacement.
+    if unsafe {
+        !(*parse).groupClause.is_null() || !(*parse).groupingSets.is_null() || (*parse).hasAggs
+    } {
+        return false;
+    }
+
     // Check if pdb.agg() is used at the CURRENT level (not in subqueries/CTEs)
     let has_paradedb_agg_current_level = unsafe { query_has_paradedb_agg(parse, false) };
 

@@ -15,26 +15,41 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! `pdb.agg()` as one aggregate function.
+//! `pdb.agg()` and `pdb.combine_agg(pdb.agg(...)) OVER ()` as DataFusion UDAFs.
 //!
-//! The aggregate scan lowers a `pdb.agg()` spec onto the group keys of its
-//! `Aggregate` node: every `terms` level is a grouping set. JoinScan computes
+//! The aggregate scan lowers a per-group `pdb.agg()` spec onto the group keys of
+//! its `Aggregate` node: every `terms` level is a grouping set. JoinScan computes
 //! its window aggregates in the node that also holds its Top-K, which has to
-//! stay free of group keys, so here the grouping moves inside the accumulator.
-//! Each `terms` level interns its keys into bucket ids, and the aggregates the
-//! aggregate scan would have planned for that level run per bucket. The finished
-//! buckets are laid out as the rows the grouping-set plan produces, and the
-//! aggregate scan's assembler folds them into the document.
+//! stay free of group keys, so here (`pdb_agg`) the grouping moves inside the
+//! accumulator. Each `terms` level interns its keys into bucket ids, and the
+//! aggregates the aggregate scan would have planned for that level run per bucket.
+//! The finished buckets are laid out as the rows the grouping-set plan produces,
+//! and the aggregate scan's assembler folds them into the document.
+//!
+//! For `pdb.combine_agg(pdb.agg(...)) OVER ()` in a `GROUP BY` query, computing a
+//! separate `PdbAggAccumulator` per SQL group and then merging $G$ states would do
+//! $O(\text{groups} \times \text{buckets})$ work. Instead, execution splits across
+//! two UDAFs:
+//! - [`pdb_precombine_agg`] runs in Stage 1 (the grouped `Aggregate`). Its
+//!   [`PdbPrecombineAccumulator`] holds a single partition-wide [`PdbAggAccumulator`],
+//!   ignores the SQL `group_indices` passed to `GroupsAccumulator::update_batch`,
+//!   and emits the serialized binary bucket state on group 0 and `NULL` on groups
+//!   `1..N` (so only one state per partition is serialized and shuffled).
+//! - [`pdb_combine_agg`] runs in Stage 2 (an ungrouped `Aggregate` alongside
+//!   `topk_as_agg` and any SQL `OVER ()` window aggregates). Its
+//!   [`PdbCombineAccumulator`] merges the non-null pre-combined states from Stage 1
+//!   and finalizes the Tantivy JSON document.
 
 use std::mem::size_of_val;
 use std::ops::Range;
 use std::sync::{Arc, LazyLock, Mutex};
 
+use arrow_array::builder::BinaryBuilder;
 use arrow_array::cast::AsArray;
 use arrow_array::types::UInt32Type;
 use arrow_array::{
-    Array, ArrayRef, GenericListArray, RecordBatch, RecordBatchOptions, Scalar, UInt32Array,
-    UInt64Array, new_null_array,
+    Array, ArrayRef, BinaryArray, BooleanArray, GenericListArray, RecordBatch, RecordBatchOptions,
+    Scalar, UInt32Array, UInt64Array, new_null_array,
 };
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::arrow::compute::kernels::zip::zip;
@@ -49,28 +64,48 @@ use datafusion::logical_expr::{
     Accumulator, Aggregate, AggregateUDF, AggregateUDFImpl, EmitTo, Expr, GroupsAccumulator,
     Signature, Volatility, lit, udaf_default_human_display,
 };
-use datafusion::physical_expr::GroupsAccumulatorAdapter;
 use datafusion::physical_expr::aggregate::{AggregateExprBuilder, AggregateFunctionExpr};
+use datafusion::physical_expr::{GroupsAccumulatorAdapter, PhysicalExpr};
 use datafusion::physical_plan::aggregates::group_values::{GroupValues, new_group_values};
 use datafusion::physical_plan::aggregates::order::GroupOrdering;
+use datafusion::physical_plan::expressions::{
+    Column as PhysicalColumn, Literal as PhysicalLiteral,
+};
 use pgrx::{IntoDatum, pg_sys};
 
 use super::{literal_arg, reject_distinct};
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    make_plan_position_col, pdb_key_expr, pdb_metric_call, pdb_missing_scalar,
+    PdbMetricCall, make_plan_position_col, pdb_key_expr, pdb_metric_call, pdb_missing_scalar,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::{
-    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, assemble_pdb_agg_rows,
+    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
+    assemble_pdb_agg_rows,
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 
 pub const PDB_AGG_NAME: &str = "pdb_agg";
+pub const PDB_PRECOMBINE_AGG_NAME: &str = "pdb_precombine_agg";
+pub const PDB_COMBINE_AGG_NAME: &str = "pdb_combine_agg";
 
 static PDB_AGG: LazyLock<Arc<AggregateUDF>> =
     LazyLock::new(|| Arc::new(AggregateUDF::from(PdbAgg::new())));
 
+static PDB_PRECOMBINE_AGG: LazyLock<Arc<AggregateUDF>> =
+    LazyLock::new(|| Arc::new(AggregateUDF::from(PdbPrecombineAgg::new())));
+
+static PDB_COMBINE_AGG: LazyLock<Arc<AggregateUDF>> =
+    LazyLock::new(|| Arc::new(AggregateUDF::from(PdbCombineAgg::new())));
+
 pub fn pdb_agg_udaf() -> Arc<AggregateUDF> {
     Arc::clone(&PDB_AGG)
+}
+
+pub fn pdb_precombine_agg_udaf() -> Arc<AggregateUDF> {
+    Arc::clone(&PDB_PRECOMBINE_AGG)
+}
+
+pub fn pdb_combine_agg_udaf() -> Arc<AggregateUDF> {
+    Arc::clone(&PDB_COMBINE_AGG)
 }
 
 /// The leading literal argument of a call: the request. The key columns and the
@@ -176,7 +211,21 @@ fn request_from_literal(literal: &ScalarValue) -> Result<PdbAggRequest> {
 /// list. The aggregate scan instead names the column of its own plan-level
 /// unnest, which this plan does not have.
 pub fn pdb_agg(request: &PdbAggRequest, plan: &RelNode) -> Result<Expr> {
-    pdb_agg_call(
+    pdb_plan_call(pdb_agg_udaf(), request, plan)
+}
+
+/// `pdb_precombine_agg(request, keys..., metric arguments...)`: Stage 1
+/// partition-level pre-combiner for `pdb.combine_agg(pdb.agg(...)) OVER ()` in a
+/// `GROUP BY` query. Accumulates all rows in a partition into a single
+/// `PdbAggAccumulator` (ignoring the SQL group indices) and emits the serialized
+/// intermediate state on group 0 and NULL on groups `1..N`.
+pub fn pdb_precombine_agg(request: &PdbAggRequest, plan: &RelNode) -> Result<Expr> {
+    pdb_plan_call(pdb_precombine_agg_udaf(), request, plan)
+}
+
+fn pdb_plan_call(udaf: Arc<AggregateUDF>, request: &PdbAggRequest, plan: &RelNode) -> Result<Expr> {
+    pdb_udaf_call(
+        udaf,
         request,
         |key| {
             if key.field.is_array {
@@ -189,9 +238,26 @@ pub fn pdb_agg(request: &PdbAggRequest, plan: &RelNode) -> Result<Expr> {
     )
 }
 
+/// `pdb_combine_agg(request, precombined_state)`: Stage 2 final combiner that
+/// merges the non-null pre-combined states emitted by Stage 1 across all groups
+/// and partitions and finalizes the Tantivy JSON document.
+pub fn pdb_combine_agg(request: &PdbAggRequest, state_col: Expr) -> Result<Expr> {
+    Ok(pdb_combine_agg_udaf().call(vec![request_literal(request)?, state_col]))
+}
+
 /// [`pdb_agg`] over whatever supplies the key expressions and the metric
 /// columns.
+#[cfg(any(test, feature = "pg_test"))]
 fn pdb_agg_call(
+    request: &PdbAggRequest,
+    key: impl Fn(&PdbKeySpec) -> Expr,
+    column: impl Fn(&PdbAggFieldRef) -> Expr,
+) -> Result<Expr> {
+    pdb_udaf_call(pdb_agg_udaf(), request, key, column)
+}
+
+fn pdb_udaf_call(
+    udaf: Arc<AggregateUDF>,
     request: &PdbAggRequest,
     key: impl Fn(&PdbKeySpec) -> Expr,
     column: impl Fn(&PdbAggFieldRef) -> Expr,
@@ -202,7 +268,7 @@ fn pdb_agg_call(
     for metric in &pdb_plan.metrics {
         args.extend(pdb_metric_call(metric, &column).args);
     }
-    Ok(pdb_agg_udaf().call(args))
+    Ok(udaf.call(args))
 }
 
 /// One metric of the request's plan as the aggregate it runs as.
@@ -225,6 +291,41 @@ impl Metric {
             expr.create_accumulator()
         })))
     }
+}
+
+/// Synthetic input schema and physical expressions for building a metric's
+/// `AggregateFunctionExpr` solely from its [`PdbMetricSpec`] (used by both
+/// Stage 1 and Stage 2, where Stage 2 only receives the serialized state column).
+fn metric_physical_args(
+    metric: &PdbMetricSpec,
+    call: &PdbMetricCall,
+) -> Result<(SchemaRef, Vec<Arc<dyn PhysicalExpr>>)> {
+    let mut exprs: Vec<Arc<dyn PhysicalExpr>> = Vec::with_capacity(call.args.len());
+    let schema = match metric {
+        PdbMetricSpec::DocCount { .. } => Arc::new(Schema::empty()),
+        PdbMetricSpec::Stat { stat, field, .. } => {
+            let arg0_type = if *stat == PdbStat::Sum && !field.field_type.is_numeric() {
+                DataType::Float64
+            } else {
+                field.field_type.arrow_data_type()
+            };
+            exprs.push(Arc::new(PhysicalColumn::new("__arg0", 0)));
+            Arc::new(Schema::new(vec![Field::new("__arg0", arg0_type, true)]))
+        }
+    };
+    for arg in &call.args[exprs.len()..] {
+        match arg {
+            Expr::Literal(scalar, _) => {
+                exprs.push(Arc::new(PhysicalLiteral::new(scalar.clone())));
+            }
+            other => {
+                return Err(DataFusionError::Internal(format!(
+                    "{PDB_AGG_NAME} unexpected non-literal metric argument: {other}"
+                )));
+            }
+        }
+    }
+    Ok((schema, exprs))
 }
 
 /// The buckets of one level of the plan: a `terms` level, or the root, which
@@ -300,19 +401,31 @@ impl std::fmt::Debug for PdbAggAccumulator {
 impl PdbAggAccumulator {
     fn try_new(args: &AccumulatorArgs) -> Result<Self> {
         let request = request_from_args(args)?;
+        let acc = Self::from_request(request)?;
+        let expected_args = acc
+            .metrics
+            .last()
+            .map_or(LITERAL_ARGS + acc.key_fields.len(), |m| m.args.end);
+        if args.expr_fields.len() != expected_args {
+            return Err(wrong_arguments(args.expr_fields.len()));
+        }
+        Ok(acc)
+    }
+
+    fn from_request(request: PdbAggRequest) -> Result<Self> {
         let plan = request_plan(&request)?;
 
-        let arg_fields = args.expr_fields;
         let keys_end = LITERAL_ARGS + plan.keys.len();
-        let key_fields: Vec<FieldRef> = arg_fields
-            .get(LITERAL_ARGS..keys_end)
-            .ok_or_else(|| wrong_arguments(arg_fields.len()))?
+        let key_fields: Vec<FieldRef> = plan
+            .keys
             .iter()
-            .map(|field| match field.data_type() {
-                // An array key arrives as the list column; its buckets are keyed
-                // on the elements, and a NULL or empty list is a NULL element.
-                DataType::List(element) => Arc::new(element.as_ref().clone().with_nullable(true)),
-                _ => Arc::clone(field),
+            .enumerate()
+            .map(|(k, key)| {
+                Arc::new(Field::new(
+                    format!("__pdb_k{k}"),
+                    key.field.field_type.arrow_data_type(),
+                    true,
+                ))
             })
             .collect();
         let key_missing = plan
@@ -324,22 +437,15 @@ impl PdbAggAccumulator {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let input_schema = Arc::new(args.schema.clone());
         let mut next_arg = keys_end;
         let mut metrics = Vec::with_capacity(plan.metrics.len());
         for (j, metric) in plan.metrics.iter().enumerate() {
-            // Only the function and the number of arguments are read here, and
-            // neither depends on the column.
             let call = pdb_metric_call(metric, |_| lit(ScalarValue::Null));
             let metric_args = next_arg..next_arg + call.args.len();
             next_arg = metric_args.end;
-            let exprs = args
-                .exprs
-                .get(metric_args.clone())
-                .ok_or_else(|| wrong_arguments(arg_fields.len()))?
-                .to_vec();
+            let (metric_schema, exprs) = metric_physical_args(metric, &call)?;
             let expr = AggregateExprBuilder::new(call.udaf, exprs)
-                .schema(Arc::clone(&input_schema))
+                .schema(metric_schema)
                 .alias(format!("__pdb_m{j}"))
                 .build()?;
             metrics.push(Metric {
@@ -347,9 +453,6 @@ impl PdbAggAccumulator {
                 expr: Arc::new(expr),
                 args: metric_args,
             });
-        }
-        if next_arg != arg_fields.len() {
-            return Err(wrong_arguments(arg_fields.len()));
         }
 
         let mut levels = Vec::new();
@@ -742,6 +845,25 @@ impl PdbAgg {
     }
 }
 
+fn pdb_udaf_human_display<U: AggregateUDFImpl>(
+    udf: &U,
+    params: &AggregateFunctionParams,
+) -> Result<String> {
+    match params.args.first() {
+        Some(Expr::Literal(literal, _)) => {
+            let request = request_from_literal(literal)?;
+            Ok(format!("{}({})", udf.name(), request.agg_json))
+        }
+        _ => udaf_default_human_display(udf, params),
+    }
+}
+
+fn pdb_udaf_state_fields(args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
+    Ok(vec![
+        Field::new(format!("{}[buckets]", args.name), DataType::Binary, true).into(),
+    ])
+}
+
 impl AggregateUDFImpl for PdbAgg {
     fn name(&self) -> &str {
         PDB_AGG_NAME
@@ -759,13 +881,7 @@ impl AggregateUDFImpl for PdbAgg {
     /// The arguments are the serialized request, which prints as the first
     /// bytes of a binary literal, and columns the spec already names.
     fn human_display(&self, params: &AggregateFunctionParams) -> Result<String> {
-        match params.args.first() {
-            Some(Expr::Literal(literal, _)) => {
-                let request = request_from_literal(literal)?;
-                Ok(format!("{PDB_AGG_NAME}({})", request.agg_json))
-            }
-            _ => udaf_default_human_display(self, params),
-        }
+        pdb_udaf_human_display(self, params)
     }
 
     fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
@@ -774,9 +890,280 @@ impl AggregateUDFImpl for PdbAgg {
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
-        Ok(vec![
-            Field::new(format!("{}[buckets]", args.name), DataType::Binary, true).into(),
-        ])
+        pdb_udaf_state_fields(args)
+    }
+}
+
+/// Stage 1 partition-level pre-combiner for `pdb.combine_agg(pdb.agg(...)) OVER ()`.
+///
+/// Holds a single partition-wide [`PdbAggAccumulator`] rather than one per SQL
+/// `GROUP BY` group. Every row in the partition is accumulated into `inner`
+/// (ignoring `group_indices`). When groups are emitted (`state` or `evaluate`),
+/// group 0 receives the serialized binary state and groups `1..N` receive `NULL`
+/// (0 payload bytes).
+struct PdbPrecombineAccumulator {
+    inner: PdbAggAccumulator,
+    total_groups: usize,
+}
+
+impl std::fmt::Debug for PdbPrecombineAccumulator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PdbPrecombineAccumulator")
+    }
+}
+
+impl PdbPrecombineAccumulator {
+    fn try_new(args: &AccumulatorArgs) -> Result<Self> {
+        Ok(Self {
+            inner: PdbAggAccumulator::try_new(args)?,
+            total_groups: 0,
+        })
+    }
+
+    fn emit_state_array(&mut self, emit_to: EmitTo) -> Result<ArrayRef> {
+        let n = match emit_to {
+            EmitTo::All => {
+                let n = self.total_groups;
+                self.total_groups = 0;
+                n
+            }
+            EmitTo::First(n) => {
+                self.total_groups = self.total_groups.saturating_sub(n);
+                n
+            }
+        };
+        if n == 0 {
+            return Ok(Arc::new(BinaryArray::from_opt_vec(Vec::new())));
+        }
+        let mut scalars = self.inner.state()?;
+        let bytes = match scalars.pop() {
+            Some(ScalarValue::Binary(Some(bytes))) => bytes,
+            _ => unreachable!("PdbAggAccumulator::state returns one Binary scalar"),
+        };
+        let mut builder = BinaryBuilder::with_capacity(n, bytes.len());
+        builder.append_value(&bytes);
+        for _ in 1..n {
+            builder.append_null();
+        }
+        Ok(Arc::new(builder.finish()))
+    }
+}
+
+impl Accumulator for PdbPrecombineAccumulator {
+    fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
+        self.inner.update_batch(values)
+    }
+
+    fn evaluate(&mut self) -> Result<ScalarValue> {
+        Ok(self
+            .inner
+            .state()?
+            .into_iter()
+            .next()
+            .unwrap_or(ScalarValue::Binary(None)))
+    }
+
+    fn size(&self) -> usize {
+        self.inner.size() + size_of::<usize>()
+    }
+
+    fn state(&mut self) -> Result<Vec<ScalarValue>> {
+        self.inner.state()
+    }
+
+    fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        self.inner.merge_batch(states)
+    }
+}
+
+impl GroupsAccumulator for PdbPrecombineAccumulator {
+    fn update_batch(
+        &mut self,
+        values: &[ArrayRef],
+        _group_indices: &[usize],
+        opt_filter: Option<&BooleanArray>,
+        total_num_groups: usize,
+    ) -> Result<()> {
+        self.total_groups = self.total_groups.max(total_num_groups);
+        match opt_filter {
+            Some(filter) => {
+                let filtered: Vec<ArrayRef> = values
+                    .iter()
+                    .map(|v| Ok(arrow_select::filter::filter(v.as_ref(), filter)?))
+                    .collect::<Result<_>>()?;
+                self.inner.update_batch(&filtered)
+            }
+            None => self.inner.update_batch(values),
+        }
+    }
+
+    fn evaluate(&mut self, emit_to: EmitTo) -> Result<ArrayRef> {
+        self.emit_state_array(emit_to)
+    }
+
+    fn state(&mut self, emit_to: EmitTo) -> Result<Vec<ArrayRef>> {
+        Ok(vec![self.emit_state_array(emit_to)?])
+    }
+
+    fn merge_batch(
+        &mut self,
+        values: &[ArrayRef],
+        _group_indices: &[usize],
+        total_num_groups: usize,
+    ) -> Result<()> {
+        self.total_groups = self.total_groups.max(total_num_groups);
+        self.inner.merge_batch(values)
+    }
+
+    fn convert_to_state(
+        &self,
+        _values: &[ArrayRef],
+        _opt_filter: Option<&BooleanArray>,
+    ) -> Result<Vec<ArrayRef>> {
+        Err(DataFusionError::NotImplemented(
+            "convert_to_state is not supported for PdbPrecombineAccumulator".to_string(),
+        ))
+    }
+
+    fn size(&self) -> usize {
+        self.inner.size() + size_of::<usize>()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct PdbPrecombineAgg {
+    signature: Signature,
+}
+
+impl PdbPrecombineAgg {
+    fn new() -> Self {
+        Self {
+            signature: Signature::variadic_any(Volatility::Immutable),
+        }
+    }
+}
+
+impl AggregateUDFImpl for PdbPrecombineAgg {
+    fn name(&self) -> &str {
+        PDB_PRECOMBINE_AGG_NAME
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
+        Ok(DataType::Binary)
+    }
+
+    fn human_display(&self, params: &AggregateFunctionParams) -> Result<String> {
+        pdb_udaf_human_display(self, params)
+    }
+
+    fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
+        reject_distinct(&args, PDB_PRECOMBINE_AGG_NAME)?;
+        Ok(Box::new(PdbPrecombineAccumulator::try_new(&args)?))
+    }
+
+    fn groups_accumulator_supported(&self, _args: AccumulatorArgs) -> bool {
+        true
+    }
+
+    fn create_groups_accumulator(
+        &self,
+        args: AccumulatorArgs,
+    ) -> Result<Box<dyn GroupsAccumulator>> {
+        reject_distinct(&args, PDB_PRECOMBINE_AGG_NAME)?;
+        Ok(Box::new(PdbPrecombineAccumulator::try_new(&args)?))
+    }
+
+    fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
+        pdb_udaf_state_fields(args)
+    }
+}
+
+/// Stage 2 final combiner for `pdb.combine_agg(pdb.agg(...)) OVER ()`.
+///
+/// Merges the non-null pre-combined binary states from Stage 1 across all groups
+/// and partitions and finalizes the Tantivy JSON document.
+struct PdbCombineAccumulator {
+    inner: PdbAggAccumulator,
+}
+
+impl std::fmt::Debug for PdbCombineAccumulator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PdbCombineAccumulator")
+    }
+}
+
+impl Accumulator for PdbCombineAccumulator {
+    fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
+        let Some(state_col) = values.get(1) else {
+            return Err(DataFusionError::Internal(format!(
+                "{PDB_COMBINE_AGG_NAME} requires (request, state_col) arguments"
+            )));
+        };
+        self.inner.merge_batch(std::slice::from_ref(state_col))
+    }
+
+    fn evaluate(&mut self) -> Result<ScalarValue> {
+        self.inner.evaluate()
+    }
+
+    fn size(&self) -> usize {
+        self.inner.size()
+    }
+
+    fn state(&mut self) -> Result<Vec<ScalarValue>> {
+        self.inner.state()
+    }
+
+    fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        self.inner.merge_batch(states)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct PdbCombineAgg {
+    signature: Signature,
+}
+
+impl PdbCombineAgg {
+    fn new() -> Self {
+        Self {
+            signature: Signature::variadic_any(Volatility::Immutable),
+        }
+    }
+}
+
+impl AggregateUDFImpl for PdbCombineAgg {
+    fn name(&self) -> &str {
+        PDB_COMBINE_AGG_NAME
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
+        Ok(document_type())
+    }
+
+    fn human_display(&self, params: &AggregateFunctionParams) -> Result<String> {
+        pdb_udaf_human_display(self, params)
+    }
+
+    fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
+        reject_distinct(&args, PDB_COMBINE_AGG_NAME)?;
+        let request =
+            request_from_literal(literal_arg(&args, 0, PDB_COMBINE_AGG_NAME, "request")?)?;
+        Ok(Box::new(PdbCombineAccumulator {
+            inner: PdbAggAccumulator::from_request(request)?,
+        }))
+    }
+
+    fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
+        pdb_udaf_state_fields(args)
     }
 }
 

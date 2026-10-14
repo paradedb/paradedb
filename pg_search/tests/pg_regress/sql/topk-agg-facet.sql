@@ -1591,6 +1591,92 @@ WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
+-- Test 41a: Single-table GROUP BY with pdb.combine_agg(pdb.agg(...)) OVER ()
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock;
+
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock;
+
+-- Test 41b: JOIN + GROUP BY + ORDER BY + LIMIT with pdb.combine_agg(pdb.agg(...)) OVER ()
+-- and SQL window aggregates over groups
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+
+-- Test 41c: Validation errors for invalid pdb.combine_agg / pdb.agg OVER () usage
+-- Bare pdb.agg() OVER () in a GROUP BY query must suggest pdb.combine_agg
+SELECT in_stock, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock;
+
+-- pdb.combine_agg without OVER ()
+SELECT in_stock, pdb.combine_agg('{"avg": {"field": "rating"}}'::jsonb)
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock;
+
+-- pdb.combine_agg OVER () without GROUP BY
+SELECT pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop';
+
+-- pdb.combine_agg OVER () with HAVING
+SELECT in_stock, COUNT(*), pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+HAVING COUNT(*) > 1;
+
 -- Cleanup
 DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;

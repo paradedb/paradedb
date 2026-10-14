@@ -38,21 +38,23 @@
 //! The `bool` overload is the deprecated `solve_mvcc` spelling, kept so existing
 //! queries keep working: `true` means 'transaction' and `false` means 'raw'.
 //!
-//! When used with GROUP BY, the aggregate currently returns an error indicating it's not supported.
-//! The window function variant is the primary use case.
+//! In `GROUP BY` queries:
+//! - `pdb.agg(...)` computes a Tantivy aggregation per SQL `GROUP BY` group.
+//! - `pdb.combine_agg(pdb.agg(...)) OVER ()` combines a `pdb.agg(...)` across all
+//!   `GROUP BY` groups (before `ORDER BY` / `LIMIT` / `OFFSET` truncate the groups),
+//!   allowing a single query to return both paginated group rows and global facet buckets.
 //!
 //! ## Internal Function: `window_agg(text)`
 //!
 //! This is an internal placeholder function (in `window_aggregate.rs`) that replaces
-//! `pdb.agg()` calls when they appear in window function context during planning.
+//! `pdb.agg()` calls when they appear in non-grouped window function context during planning.
 //! It should never be called by users directly.
 //!
-//! ## Placeholder Aggregate: `AggPlaceholder`
+//! ## Placeholder Aggregates: `AggPlaceholder` and `CombineAggStub`
 //!
-//! This implements the `pdb.agg()` aggregate using pgrx's native aggregate API.
-//! It should never actually execute - if it does, it will error immediately with a
-//! clear message. This is similar to how `paradedb.score()` works as a placeholder
-//! that the custom scan intercepts and handles.
+//! These implement `pdb.agg()` and `pdb.combine_agg()` using pgrx's native aggregate API.
+//! They should never actually execute - if they do, they error immediately with a
+//! clear message. They act as planner stubs that ParadeDB's custom scans intercept.
 
 use std::error::Error;
 
@@ -346,6 +348,48 @@ mod pdb {
         }
     }
 
+    /// Placeholder aggregate for `pdb.combine_agg(jsonb) -> jsonb`.
+    ///
+    /// Used in `pdb.combine_agg(pdb.agg(...)) OVER ()` to combine a `pdb.agg()`
+    /// across all groups of a `GROUP BY` query. Intercepted and evaluated by
+    /// ParadeDB's AggregateScan DataFusion backend.
+    ///
+    /// Keep the struct name short so pgrx's derived `<snake>_<snake>_finalize`
+    /// symbol stays under PostgreSQL's 63-byte identifier limit.
+    #[derive(pgrx::AggregateName, Default)]
+    #[aggregate_name = "combine_agg"]
+    pub struct CombineAggStub;
+
+    #[pgrx::pg_aggregate]
+    impl Aggregate<CombineAggStub> for CombineAggStub {
+        const PARALLEL: Option<ParallelOption> = Some(ParallelOption::Safe);
+        type Args = JsonB;
+        type State = Internal;
+        type Finalize = JsonB;
+
+        fn state(
+            _current: Self::State,
+            _arg: Self::Args,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            pgrx::error!(
+                "pdb.combine_agg() must be used as pdb.combine_agg(pdb.agg(...)) OVER () \
+                 in a GROUP BY query handled by ParadeDB's custom scan."
+            )
+        }
+
+        fn finalize(
+            _current: Self::State,
+            _direct_arg: Self::OrderedSetArgs,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::Finalize {
+            pgrx::error!(
+                "pdb.combine_agg() must be used as pdb.combine_agg(pdb.agg(...)) OVER () \
+                 in a GROUP BY query handled by ParadeDB's custom scan."
+            )
+        }
+    }
+
     /// Placeholder function for aggregate replacement in custom scans.
     ///
     /// This function should never execute - it's used to replace Aggref nodes
@@ -366,6 +410,18 @@ mod pdb {
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn agg_fn_oid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg_fn", &[pgrx::pg_sys::TEXTOID])
+}
+
+/// Get the OID of the pdb.combine_agg(jsonb) aggregate function.
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
+pub fn combine_agg_funcoid() -> pgrx::pg_sys::Oid {
+    lookup_pdb_function("combine_agg", &[pgrx::pg_sys::JSONBOID])
+}
+
+/// True when `funcoid` is `pdb.combine_agg(jsonb)`.
+pub fn is_combine_agg_funcoid(funcoid: u32) -> bool {
+    let oid = combine_agg_funcoid().to_u32();
+    oid != pgrx::pg_sys::InvalidOid.to_u32() && funcoid == oid
 }
 
 /// Get the OID of the pdb.agg() aggregate function

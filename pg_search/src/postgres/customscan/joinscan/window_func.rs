@@ -55,6 +55,19 @@ impl SupportedWindowAggType {
     }
 }
 
+impl fmt::Display for SupportedWindowAggType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CountStar => write!(f, "COUNT(*)"),
+            Self::Count => write!(f, "COUNT"),
+            Self::Sum => write!(f, "SUM"),
+            Self::Avg => write!(f, "AVG"),
+            Self::Min => write!(f, "MIN"),
+            Self::Max => write!(f, "MAX"),
+        }
+    }
+}
+
 /// A SQL aggregate and the column it reads, `None` for `COUNT(*)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SqlWindowAggDef(pub SupportedWindowAggType, pub Option<ColumnInfo>);
@@ -297,6 +310,30 @@ impl WindowAggList {
     }
 }
 
+/// Returns `true` iff `winref` resolves to a `WindowClause` in `parse.windowClause` with an
+/// empty `OVER ()` specification (no `PARTITION BY`, no `ORDER BY`, and default framing).
+pub unsafe fn has_empty_over_clause(parse: *const pg_sys::Query, winref: pg_sys::Index) -> bool {
+    if parse.is_null() {
+        return false;
+    }
+    let Some(clause) = PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause)
+        .iter_ptr()
+        .find(|wc| (**wc).winref == winref)
+    else {
+        return false;
+    };
+    (*clause).partitionClause.is_null()
+        && (*clause).orderClause.is_null()
+        && ((*clause).frameOptions & FRAMEOPTION_NONDEFAULT as i32) == 0
+}
+
+/// Extracts an `OVER ()` window aggregate for an **ungrouped** query (`JoinScan`),
+/// where arguments resolve directly to base-table `Var`s or `pdb.agg(...) OVER ()`.
+///
+/// For the **post-`GROUP BY`** counterpart (`AggregateScan`), where Stage 2
+/// `OVER ()` window aggregates resolve against Stage 1 `GROUP BY` columns,
+/// per-group `Aggref`s, or `pdb.combine_agg(pdb.agg(...)) OVER ()`, see
+/// `aggregatescan::join_targetlist::extract_raw_window_entry`.
 pub fn extract_window_agg(
     wf: *const WindowFunc,
     sources: &[&JoinSource],
@@ -316,19 +353,7 @@ pub fn extract_window_agg(
         );
     }
 
-    let clause = unsafe {
-        PgList::<pg_sys::WindowClause>::from_pg(parse.windowClause)
-            .iter_ptr()
-            .find(|wc| (**wc).winref == wf.winref)
-            .expect("WindowFunc.winref should always match a clause")
-    };
-    assert!(!clause.is_null());
-    let clause = unsafe { *clause };
-
-    if !clause.partitionClause.is_null()
-        || !clause.orderClause.is_null()
-        || clause.frameOptions & FRAMEOPTION_NONDEFAULT as i32 != 0
-    {
+    if !unsafe { has_empty_over_clause(parse, wf.winref) } {
         return Err(
             "only bare window functions of the style 'agg OVER ()' are supported".to_string(),
         );
@@ -518,6 +543,10 @@ unsafe extern "C-unwind" fn placeholder_mutator(
 
 /// Human-readable description of a window aggregate for the EXPLAIN
 /// placeholder, e.g. `count(*) OVER ()` or `sum(price) OVER ()`.
+///
+/// Crucially, distinct `WindowFunc` expressions in the same query must produce
+/// distinct descriptions so that `setrefs.c` (`tlist_member` via `equal()`) does
+/// not alias one window aggregate's target entry onto another's output slot.
 unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::PlannerInfo) -> String {
     let func_name = {
         let name_ptr = pg_sys::get_func_name(wf.winfnoid);
@@ -529,36 +558,63 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
                 .into_owned()
         }
     };
+    let filter_suffix = if wf.aggfilter.is_null() {
+        String::new()
+    } else {
+        let filter_str = crate::postgres::deparse::deparse_planner_expr(root, wf.aggfilter.cast())
+            .unwrap_or_else(|| "...".to_string());
+        format!(" FILTER (WHERE {filter_str})")
+    };
     if wf.winstar {
-        return format!("{func_name}(*) OVER ()");
+        return format!("{func_name}(*){filter_suffix} OVER ()");
     }
     let args = PgList::<pg_sys::Node>::from_pg(wf.args);
+    if crate::api::is_combine_agg_funcoid(wf.winfnoid.to_u32()) {
+        let spec = args
+            .get_ptr(0)
+            .and_then(|arg| nodecast!(Aggref, T_Aggref, crate::postgres::utils::strip_relabel(arg)))
+            .and_then(|aggref| {
+                let agg_args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                let first_te = agg_args.get_ptr(0)?;
+                crate::api::pdb_agg_spec((*aggref).aggfnoid.to_u32(), (*first_te).expr.cast(), None)
+            })
+            .map(|(spec, _)| spec.to_string())
+            .unwrap_or_else(|| "...".to_string());
+        return format!("pdb.{func_name}(pdb.agg('{spec}')){filter_suffix} OVER ()");
+    }
     if is_agg_funcoid(wf.winfnoid.to_u32()) {
         let spec = args
             .get_ptr(0)
             .and_then(|spec| crate::api::pdb_agg_spec(wf.winfnoid.to_u32(), spec, None))
             .map(|(spec, _)| spec.to_string())
             .unwrap_or_else(|| "...".to_string());
-        return format!("pdb.{func_name}('{spec}') OVER ()");
+        return format!("pdb.{func_name}('{spec}'){filter_suffix} OVER ()");
     }
     let arg_name = args
         .get_ptr(0)
         .and_then(|arg| {
-            let var = unwrap_to_var(arg)?;
-            var_column_name(&*var, root)
+            if let Some(var) = unwrap_to_var(arg)
+                && let Some(col_name) = var_column_name(&*var, root)
+            {
+                return Some(col_name);
+            }
+            crate::postgres::deparse::deparse_planner_expr(root, arg)
         })
         .unwrap_or_else(|| "...".to_string());
-    format!("{func_name}({arg_name}) OVER ()")
+    format!("{func_name}({arg_name}){filter_suffix} OVER ()")
 }
 
-/// The column name a parse-tree Var refers to, resolved through the query's
-/// range table; `None` when anything along the way is unresolvable.
+/// The unqualified column name a parse-tree Var refers to, resolved through the
+/// query's range table; returns `None` when unresolvable or when another relation
+/// in the range table has a column with the same name (so the caller falls back
+/// to relation-qualified deparsing).
 fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<String> {
     if root.is_null() || unsafe { (*root).parse.is_null() } || var.varno < 1 {
         return None;
     }
     let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable) };
-    let rte = rtable.get_ptr(var.varno as usize - 1)?;
+    let var_rte_idx = var.varno as usize - 1;
+    let rte = rtable.get_ptr(var_rte_idx)?;
     let rte = unsafe { &*rte };
     if rte.rtekind != pg_sys::RTEKind::RTE_RELATION {
         return None;
@@ -566,6 +622,19 @@ fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<
     let name_ptr = unsafe { pg_sys::get_attname(rte.relid, var.varattno, true) };
     if name_ptr.is_null() {
         return None;
+    }
+    for (idx, other_ptr) in rtable.iter_ptr().enumerate() {
+        if idx == var_rte_idx {
+            continue;
+        }
+        let other = unsafe { &*other_ptr };
+        if other.rtekind == pg_sys::RTEKind::RTE_RELATION
+            && other.relid != pg_sys::InvalidOid
+            && unsafe { pg_sys::get_attnum(other.relid, name_ptr) }
+                != pg_sys::InvalidAttrNumber as pg_sys::AttrNumber
+        {
+            return None;
+        }
     }
     Some(
         unsafe { std::ffi::CStr::from_ptr(name_ptr) }

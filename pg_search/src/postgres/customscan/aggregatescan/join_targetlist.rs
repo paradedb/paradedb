@@ -34,6 +34,7 @@ use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
+pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
@@ -144,6 +145,9 @@ pub struct JoinGroupColumn {
     #[serde(default)]
     pub numeric_scale: Option<i16>,
 
+    /// Set when the referenced field is NUMERIC (used by Stage 2 window aggregates).
+    pub numeric: Option<SearchFieldType>,
+
     /// Transformation applied to the fast-field value before grouping.
     #[serde(default)]
     pub transform: GroupingTransform,
@@ -249,6 +253,35 @@ pub struct JoinAggregateEntry {
     pub numeric: Option<SearchFieldType>,
 }
 
+/// What a post-grouping `OVER ()` window aggregate reads as its argument.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum WindowAggInput {
+    /// Reads `group_columns[idx]`.
+    GroupColumn(usize),
+    /// Reads `aggregates[idx]` (e.g. `SUM(COUNT(*)) OVER ()` or `AVG(SUM(x)) OVER ()`).
+    Aggregate(usize),
+}
+
+/// A window aggregate evaluated across all groups in Stage 2 (`OVER ()`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum WindowAggKind {
+    /// `pdb.combine_agg(pdb.agg(...)) OVER ()`
+    CombinePdbAgg(Box<PdbAggRequest>),
+    /// Standard SQL aggregate `OVER ()` (e.g. `COUNT(*) OVER ()`, `SUM(cnt) OVER ()`).
+    SqlAgg {
+        op: SupportedWindowAggType,
+        input: Option<WindowAggInput>,
+        numeric: Option<SearchFieldType>,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WindowAggEntry {
+    pub func_oid: u32,
+    pub kind: WindowAggKind,
+    pub result_type_oid: pg_sys::Oid,
+}
+
 /// The complete aggregate target list for a join aggregate query. Each
 /// targetlist ref carries a resolved `plan_position` (an opaque, unique
 /// per-`RelNode::Scan` identity), so execution-time column binding is a
@@ -258,6 +291,8 @@ pub struct JoinAggregateEntry {
 pub struct JoinAggregateTargetList {
     pub group_columns: Vec<JoinGroupColumn>,
     pub aggregates: Vec<JoinAggregateEntry>,
+    /// Post-grouping `OVER ()` window aggregates evaluated in Stage 2.
+    pub window_aggregates: Vec<WindowAggEntry>,
     /// The query has a GROUP BY clause. With no key to group on, it still has
     /// no row when no row matches, unlike an aggregate with no GROUP BY.
     #[serde(default)]
@@ -273,6 +308,7 @@ pub struct ExtractedDataFusionTarget {
     runtime: JoinAggregateTargetList,
     group_exprs: Vec<*mut pg_sys::Node>,
     aggrefs: Vec<*mut pg_sys::Aggref>,
+    window_funcs: Vec<*mut pg_sys::WindowFunc>,
 }
 
 impl ExtractedDataFusionTarget {
@@ -280,16 +316,17 @@ impl ExtractedDataFusionTarget {
         &self.runtime
     }
 
-    /// The runtime metadata and the raw `TargetEntry`s it describes, both
-    /// listing groups first and aggregates second. The entries wrap the
-    /// planner's own nodes; the caller copies them into the plan.
+    /// The runtime metadata and the raw `TargetEntry`s it describes, listing
+    /// groups first, aggregates second, and window functions third. The entries
+    /// wrap the planner's own nodes; the caller copies them into the plan.
     #[must_use]
     pub unsafe fn into_parts(self) -> (JoinAggregateTargetList, PgList<pg_sys::TargetEntry>) {
         let exprs = self
             .group_exprs
             .iter()
             .copied()
-            .chain(self.aggrefs.iter().map(|aggref| aggref.cast()));
+            .chain(self.aggrefs.iter().map(|aggref| aggref.cast()))
+            .chain(self.window_funcs.iter().map(|wf| wf.cast()));
         let mut scan_tlist = PgList::new();
         for (offset, expr) in exprs.enumerate() {
             scan_tlist.push(pg_sys::makeTargetEntry(
@@ -336,6 +373,16 @@ impl JoinAggregateTargetList {
         format!("{}agg_{idx}", self.internal_prefix())
     }
 
+    /// The DataFusion name of the window aggregate at `idx` in `window_aggregates`.
+    pub fn window_aggregate_name(&self, idx: usize) -> String {
+        format!("{}win_{idx}", self.internal_prefix())
+    }
+
+    /// The DataFusion name of the Stage 1 pre-combine state column at `idx` in `window_aggregates`.
+    pub fn precombine_name(&self, idx: usize) -> String {
+        format!("{}precombine_{idx}", self.internal_prefix())
+    }
+
     /// The DataFusion name of the row value column at `gc_idx` in `group_columns`.
     pub fn row_value_name(&self, gc_idx: usize) -> String {
         format!("{}row_{gc_idx}", self.internal_prefix())
@@ -353,7 +400,7 @@ impl JoinAggregateTargetList {
     fn internal_prefix(&self) -> String {
         let is_internal = |name: &str| {
             name == "__one_group"
-                || ["agg_", "row_"].iter().any(|kind| {
+                || ["agg_", "row_", "win_", "precombine_"].iter().any(|kind| {
                     name.strip_prefix(kind)
                         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
                 })
@@ -369,14 +416,23 @@ impl JoinAggregateTargetList {
         prefix
     }
 
-    /// The lowered `pdb.agg()` calls, in target-list order.
+    /// The lowered `pdb.agg()` calls (including `pdb.combine_agg(pdb.agg(...))`), in target-list order.
     pub fn pdb_agg_requests(&self) -> impl Iterator<Item = &PdbAggRequest> {
-        self.aggregates
+        let per_group = self
+            .aggregates
             .iter()
             .filter_map(|agg| match &agg.agg_kind {
                 AggKind::PdbAgg(request) => Some(request.as_ref()),
                 _ => None,
-            })
+            });
+        let across_groups = self
+            .window_aggregates
+            .iter()
+            .filter_map(|win| match &win.kind {
+                WindowAggKind::CombinePdbAgg(request) => Some(request.as_ref()),
+                WindowAggKind::SqlAgg { .. } => None,
+            });
+        per_group.chain(across_groups)
     }
 
     /// Every fast field a `pdb.agg()` spec reads.
@@ -480,7 +536,7 @@ fn extract_timestamp_to_date_var(
     Ok(Some(var))
 }
 
-/// Collect the output Vars and Aggrefs of `expr`.
+/// Collect the output Vars, Aggrefs, and WindowFuncs of `expr`.
 ///
 /// GROUP BY expressions and aggregate arguments are boundaries: setrefs first
 /// matches the former as whole expressions, while the latter are evaluated by
@@ -490,10 +546,12 @@ unsafe fn collect_output_nodes(
     expr: *mut pg_sys::Node,
     group_exprs: &mut Vec<*mut pg_sys::Node>,
     aggrefs: &mut Vec<*mut pg_sys::Aggref>,
+    window_funcs: &mut Vec<*mut pg_sys::WindowFunc>,
 ) {
     struct WalkerContext<'a> {
         group_exprs: &'a mut Vec<*mut pg_sys::Node>,
         aggrefs: &'a mut Vec<*mut pg_sys::Aggref>,
+        window_funcs: &'a mut Vec<*mut pg_sys::WindowFunc>,
     }
 
     #[pg_guard]
@@ -509,6 +567,15 @@ unsafe fn collect_output_nodes(
             return false;
         }
         match (*node).type_ {
+            pg_sys::NodeTag::T_WindowFunc => {
+                let wf = node.cast::<pg_sys::WindowFunc>();
+                push_unique(ctx.window_funcs, wf);
+                if crate::api::is_combine_agg_funcoid((*wf).winfnoid.to_u32()) {
+                    false
+                } else {
+                    pg_sys::expression_tree_walker(node, Some(walker), context)
+                }
+            }
             pg_sys::NodeTag::T_Aggref => {
                 push_unique(ctx.aggrefs, node.cast());
                 false
@@ -524,6 +591,7 @@ unsafe fn collect_output_nodes(
     let mut context = WalkerContext {
         group_exprs,
         aggrefs,
+        window_funcs,
     };
     walker(expr, (&mut context as *mut WalkerContext).cast());
 }
@@ -607,13 +675,27 @@ pub unsafe fn extract_aggregate_targetlist(
     }
 
     let mut aggrefs: Vec<*mut pg_sys::Aggref> = Vec::new();
+    let mut window_funcs: Vec<*mut pg_sys::WindowFunc> = Vec::new();
     let having = (*parse).havingQual;
+    let sort_exprs: Vec<*mut pg_sys::Node> = if args.stage
+        == pg_sys::UpperRelationKind::UPPERREL_FINAL
+        && !(*parse).sortClause.is_null()
+    {
+        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
+            .iter_ptr()
+            .map(|sc| pg_sys::get_sortgroupclause_expr(sc, (*parse).targetList))
+            .filter(|expr| !expr.is_null())
+            .collect()
+    } else {
+        Vec::new()
+    };
     let output_exprs = target_exprs
         .iter_ptr()
         .map(|expr| expr.cast::<pg_sys::Node>())
+        .chain(sort_exprs)
         .chain((!having.is_null()).then_some(having));
     for expr in output_exprs {
-        collect_output_nodes(expr, &mut group_exprs, &mut aggrefs);
+        collect_output_nodes(expr, &mut group_exprs, &mut aggrefs, &mut window_funcs);
     }
 
     let context = RawColumnContext {
@@ -641,8 +723,33 @@ pub unsafe fn extract_aggregate_targetlist(
             .and_then(|route| route.take_request(*aggref));
         aggregates.push(extract_raw_aggregate_entry(&context, *aggref, pdb_request)?);
     }
+    let mut window_aggregates = Vec::with_capacity(window_funcs.len());
+    for wf in &window_funcs {
+        window_aggregates.push(extract_raw_window_entry(
+            &context,
+            parse,
+            *wf,
+            &group_exprs,
+            &group_columns,
+            &aggrefs,
+            &aggregates,
+        )?);
+    }
+    // Per-group `pdb.agg()` lowers Stage 1 to `GROUPING SETS` (emitting internal
+    // bucket rows assembled in Rust after the plan finishes), whereas
+    // `pdb.combine_agg()` adds a Stage 2 ungrouped `Aggregate` inside the
+    // DataFusion plan that expects Stage 1 to emit one row per SQL group.
+    if !window_aggregates.is_empty()
+        && aggregates
+            .iter()
+            .any(|agg| matches!(agg.agg_kind, AggKind::PdbAgg(_)))
+    {
+        return Err(
+            "cannot mix per-group pdb.agg() with pdb.combine_agg() in the same query".into(),
+        );
+    }
 
-    if group_columns.is_empty() && aggregates.is_empty() {
+    if group_columns.is_empty() && aggregates.is_empty() && window_aggregates.is_empty() {
         return Err(format!(
             "{} target contains no supported grouping columns or aggregates",
             shape.clause_name()
@@ -653,10 +760,12 @@ pub unsafe fn extract_aggregate_targetlist(
         runtime: JoinAggregateTargetList {
             group_columns,
             aggregates,
+            window_aggregates,
             has_group_by,
         },
         group_exprs,
         aggrefs,
+        window_funcs,
     })
 }
 
@@ -687,7 +796,7 @@ unsafe fn keys_decide_column(
     let rte = pg_sys::rt_fetch((*var).varno as pg_sys::Index, (*parse).rtable);
     if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION || (*var).varlevelsup != 0 {
         return false;
-    }
+    };
     let mut key_vars = PgList::<pg_sys::Var>::new();
     for key in keys {
         if let Some(key_var) = nodecast!(Var, T_Var, strip_relabel(*key)) {
@@ -875,26 +984,167 @@ unsafe fn extract_raw_group_column(
             find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
         )
     };
-    let numeric_scale = numeric_source
+    let numeric_info = numeric_source
         .and_then(|source| source.bm25_index.as_ref())
         .and_then(|index| index.schema().ok())
         .and_then(|schema| schema.numeric_field_type(&field_name))
-        .map(|(_, scale)| {
-            scale.ok_or_else(|| {
+        .map(|(field_type, scale)| {
+            let scale = scale.ok_or_else(|| {
                 format!(
                     "{label} {field_name} is an unbounded NUMERIC; declare a precision and \
                      scale to enable aggregate pushdown"
                 )
-            })
+            })?;
+            Ok::<_, String>((field_type, scale))
         })
         .transpose()?;
+    let (numeric, numeric_scale) = match numeric_info {
+        Some((field_type, scale)) => (Some(field_type), Some(scale)),
+        None => (None, None),
+    };
     Ok(JoinGroupColumn {
         plan_position,
         attno,
         field_name,
         numeric_scale,
+        numeric,
         transform,
         row_value,
+    })
+}
+
+/// Extracts a Stage 2 `OVER ()` window aggregate for a **grouped** query (`AggregateScan`),
+/// resolving its input against Stage 1 `GROUP BY` columns (`group_exprs`), Stage 1
+/// per-group `Aggref`s (`aggrefs`), or `pdb.combine_agg(pdb.agg(...)) OVER ()`.
+///
+/// For the **ungrouped** counterpart (`JoinScan`), where `OVER ()` window functions
+/// resolve directly against base-table `Var`s or `pdb.agg(...) OVER ()`, see
+/// [`crate::postgres::customscan::joinscan::window_func::extract_window_agg`].
+unsafe fn extract_raw_window_entry(
+    context: &RawColumnContext<'_>,
+    parse: *mut pg_sys::Query,
+    wf: *mut pg_sys::WindowFunc,
+    group_exprs: &[*mut pg_sys::Node],
+    group_columns: &[JoinGroupColumn],
+    aggrefs: &[*mut pg_sys::Aggref],
+    aggregates: &[JoinAggregateEntry],
+) -> Result<WindowAggEntry, String> {
+    if !crate::postgres::customscan::joinscan::window_func::has_empty_over_clause(
+        parse,
+        (*wf).winref,
+    ) {
+        return Err(
+            "window aggregate pushdown in GROUP BY only supports an empty OVER () specification"
+                .into(),
+        );
+    }
+    if !(*wf).aggfilter.is_null() {
+        return Err("FILTER on a window function is not supported in GROUP BY pushdown".into());
+    }
+
+    let winfnoid = (*wf).winfnoid.to_u32();
+    if crate::api::is_combine_agg_funcoid(winfnoid) {
+        let args = PgList::<pg_sys::Node>::from_pg((*wf).args);
+        if args.len() != 1 {
+            return Err("pdb.combine_agg() requires a single pdb.agg() argument".into());
+        }
+        let arg = strip_relabel(args.get_ptr(0).unwrap());
+        let Some(inner_aggref) = nodecast!(Aggref, T_Aggref, arg) else {
+            return Err("pdb.combine_agg() argument must be a direct pdb.agg() call".into());
+        };
+        if !context
+            .pdb_agg_funcoids
+            .contains(&(*inner_aggref).aggfnoid.to_u32())
+        {
+            return Err("pdb.combine_agg() argument must be a direct pdb.agg() call".into());
+        }
+        if !(*inner_aggref).aggdistinct.is_null() || !(*inner_aggref).aggorder.is_null() {
+            return Err(
+                "pdb.agg() inside pdb.combine_agg() does not accept DISTINCT or ORDER BY".into(),
+            );
+        }
+        if !(*inner_aggref).aggfilter.is_null() {
+            return Err("FILTER on pdb.agg() inside pdb.combine_agg() is not supported".into());
+        }
+        let mut request = lower_pdb_agg(inner_aggref, context.sources)?;
+        request.assign_plan_positions(|field| {
+            context
+                .plan
+                .plan_position(context.outer_root_id, field.rti, field.attno)
+        })?;
+        return Ok(WindowAggEntry {
+            func_oid: winfnoid,
+            kind: WindowAggKind::CombinePdbAgg(Box::new(request)),
+            result_type_oid: (*wf).wintype,
+        });
+    }
+
+    let op =
+        SupportedWindowAggType::from_funcoid((*wf).winfnoid, (*wf).winstar).ok_or_else(|| {
+            crate::postgres::catalog::lookup_fully_qualified_func_name((*wf).winfnoid)
+                .map(|name| format!("unsupported window function in GROUP BY: {name}"))
+                .unwrap_or_else(|| {
+                    format!("unsupported window function OID in GROUP BY: {winfnoid}")
+                })
+        })?;
+    if op == SupportedWindowAggType::CountStar {
+        return Ok(WindowAggEntry {
+            func_oid: winfnoid,
+            kind: WindowAggKind::SqlAgg {
+                op,
+                input: None,
+                numeric: None,
+            },
+            result_type_oid: (*wf).wintype,
+        });
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*wf).args);
+    if args.len() != 1 {
+        return Err(format!("{op} OVER () requires a single argument"));
+    }
+    let raw_arg = args.get_ptr(0).unwrap();
+    let stripped_arg = strip_relabel(raw_arg);
+    let (input, numeric) = if let Some(agg_idx) =
+        position_equal(aggrefs, raw_arg).or_else(|| position_equal(aggrefs, stripped_arg))
+    {
+        let agg = &aggregates[agg_idx];
+        if matches!(agg.agg_kind, AggKind::PdbAgg(_)) {
+            return Err(format!("{op} OVER () cannot aggregate over pdb.agg()"));
+        }
+        if agg.numeric.is_some()
+            || (matches!(agg.agg_kind, AggKind::Avg) && op != SupportedWindowAggType::Count)
+        {
+            return Err(format!(
+                "{op} OVER () on a NUMERIC or AVG aggregate is not supported in GROUP BY pushdown"
+            ));
+        }
+        (WindowAggInput::Aggregate(agg_idx), None)
+    } else if let Some(gc_idx) =
+        position_equal(group_exprs, raw_arg).or_else(|| position_equal(group_exprs, stripped_arg))
+    {
+        let gc = &group_columns[gc_idx];
+        let numeric = match op {
+            SupportedWindowAggType::Count | SupportedWindowAggType::CountStar => None,
+            SupportedWindowAggType::Sum
+            | SupportedWindowAggType::Avg
+            | SupportedWindowAggType::Min
+            | SupportedWindowAggType::Max => gc.numeric,
+        };
+        (WindowAggInput::GroupColumn(gc_idx), numeric)
+    } else {
+        return Err(format!(
+            "{op} OVER () argument in GROUP BY must be a direct GROUP BY expression or aggregate"
+        ));
+    };
+    Ok(WindowAggEntry {
+        func_oid: winfnoid,
+        kind: WindowAggKind::SqlAgg {
+            op,
+            input: Some(input),
+            numeric,
+        },
+        result_type_oid: (*wf).wintype,
     })
 }
 

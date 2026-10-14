@@ -15,10 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! DataFusion plan builder for aggregate-on-join queries.
+//! DataFusion plan builder for aggregate-on-join (and single-table DataFusion
+//! aggregate) queries.
 //!
 //! Builds a DataFusion logical plan from a [`RelNode`] join tree and a
-//! [`JoinAggregateTargetList`], producing: scan(s) → join → aggregate.
+//! [`JoinAggregateTargetList`], producing:
+//! - Without window aggregates: `scan(s) → [join] → aggregate [→ filter (HAVING)] [→ sort → limit]`.
+//! - With `OVER ()` window aggregates (`pdb.combine_agg(pdb.agg(...)) OVER ()` and/or
+//!   standard SQL `OVER ()` window aggregates):
+//!   1. Stage 1 grouped `Aggregate` computing the SQL group keys, per-group aggregates,
+//!      and `pdb_precombine_agg` for each `pdb.combine_agg`.
+//!   2. Stage 2 ungrouped `Aggregate` combining `topk_as_agg` (over the Stage 1 payload
+//!      columns, bounded by `OFFSET + LIMIT`), `pdb_combine_agg`, and any SQL `OVER ()`
+//!      window aggregates (`COUNT(*)`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`), followed by
+//!      `unnest_columns` + projection + optional `OFFSET`/`LIMIT`.
 //!
 //! Key difference from JoinScan's plan builder: no CTID columns, no late
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
@@ -32,7 +42,8 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, JoinAggregateEntry, JoinAggregateTargetList,
+    AggKind, JoinAggregateEntry, JoinAggregateTargetList, SupportedWindowAggType, WindowAggInput,
+    WindowAggKind,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{
     CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
@@ -41,7 +52,11 @@ use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinalit
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
+use crate::postgres::customscan::datafusion::pdb_agg_udaf::{pdb_combine_agg, pdb_precombine_agg};
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
+use crate::postgres::customscan::datafusion::topk_agg::{
+    TOPK_AGG_ROWS_COL_NAME, topk_as_agg_static,
+};
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
@@ -57,7 +72,7 @@ use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
 use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
-use datafusion::functions::core::expr_fn::coalesce;
+use datafusion::functions::core::expr_fn::{coalesce, get_field};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
@@ -315,6 +330,14 @@ pub async fn build_join_aggregate_plan(
         group_df_indices[gc_idx] = num_group_exprs + agg_exprs.len();
         agg_exprs.push(expr);
     }
+    let num_stage1_payload_cols = num_group_exprs + agg_exprs.len();
+    for (win_idx, win) in targetlist.window_aggregates.iter().enumerate() {
+        if let WindowAggKind::CombinePdbAgg(request) = &win.kind {
+            agg_exprs.push(
+                pdb_precombine_agg(request, plan)?.alias(targetlist.precombine_name(win_idx)),
+            );
+        }
+    }
 
     let having_expr = having_filter
         .map(|having| {
@@ -378,17 +401,112 @@ pub async fn build_join_aggregate_plan(
         }
     };
 
-    // Step 5: If TopK is requested, add sort + limit so DataFusion handles
-    // it internally. DataFusion's built-in TopKAggregation optimizer rule
-    // can then push the limit into AggregateExec for group-key and MIN/MAX
-    // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
-    // bounded TopK heap.
-    if let Some(topk) = topk {
-        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
-        let sort_expr = Expr::Column(sort_column)
-            .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
-        df = df.sort(vec![sort_expr])?;
-        df = df.limit(0, Some(topk.k))?;
+    // Step 5: Apply TopK and/or Stage 2 window aggregates (`OVER ()`).
+    let sort_exprs: Vec<Sort> = topk
+        .map(|t| {
+            t.sorts
+                .iter()
+                .map(|(target, dir)| {
+                    let sort_column = target.resolve_sort_column(targetlist, plan);
+                    Expr::Column(sort_column).sort(dir.is_asc(), dir.is_nulls_first())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if targetlist.window_aggregates.is_empty() {
+        // Without window aggregates, add sort + limit so DataFusion's built-in
+        // TopKAggregation optimizer rule can push the limit into AggregateExec
+        // for group-key and MIN/MAX ordering, or use SortExec(fetch=K) for
+        // COUNT/SUM/AVG ordering.
+        if let Some(topk) = topk {
+            if !sort_exprs.is_empty() {
+                df = df.sort(sort_exprs)?;
+            }
+            if topk.offset > 0 || topk.limit.is_some() {
+                df = df.limit(topk.offset, topk.limit)?;
+            }
+        }
+    } else {
+        // Stage 2: Ungrouped Aggregate combining `topk_as_agg` over the Stage 1
+        // group/aggregate columns with `pdb_combine_agg` and any SQL `OVER ()`
+        // window aggregates, followed by `unnest_columns` to fan out the window
+        // results across the surviving group rows.
+        let stage1_cols = df.schema().columns();
+        let payload_cols = &stage1_cols[..num_stage1_payload_cols];
+        let payload_exprs: Vec<Expr> = payload_cols.iter().cloned().map(Expr::Column).collect();
+        let fetch = topk
+            .and_then(|t| t.limit.map(|l| t.offset.saturating_add(l)))
+            .unwrap_or(usize::MAX);
+        let topk_expr = topk_as_agg_static(&payload_exprs, sort_exprs, fetch, &[], false)
+            .alias(TOPK_AGG_ROWS_COL_NAME);
+
+        let mut stage2_aggs = Vec::with_capacity(1 + targetlist.window_aggregates.len());
+        stage2_aggs.push(topk_expr);
+        for (win_idx, win) in targetlist.window_aggregates.iter().enumerate() {
+            let win_expr = match &win.kind {
+                WindowAggKind::CombinePdbAgg(request) => {
+                    pdb_combine_agg(request, col(targetlist.precombine_name(win_idx)))?
+                }
+                WindowAggKind::SqlAgg { op, input, numeric } => {
+                    let resolve_input = |inp: &Option<WindowAggInput>| -> Result<Expr> {
+                        match inp {
+                            Some(WindowAggInput::GroupColumn(gc_idx)) => Ok(Expr::Column(
+                                payload_cols[group_df_indices[*gc_idx]].clone(),
+                            )),
+                            Some(WindowAggInput::Aggregate(agg_idx)) => {
+                                Ok(col(targetlist.aggregate_name(*agg_idx)))
+                            }
+                            None => Err(DataFusionError::Internal(
+                                "non-COUNT(*) window aggregate must have an input".to_string(),
+                            )),
+                        }
+                    };
+                    match op {
+                        SupportedWindowAggType::CountStar => count(lit(1)),
+                        SupportedWindowAggType::Count => count(resolve_input(input)?),
+                        SupportedWindowAggType::Sum => {
+                            let input_expr = resolve_input(input)?;
+                            match numeric {
+                                None => sum(input_expr),
+                                Some(field_type) => numeric_sum(input_expr, field_type),
+                            }
+                        }
+                        SupportedWindowAggType::Avg => {
+                            let input_expr = resolve_input(input)?;
+                            match numeric {
+                                None => avg(input_expr),
+                                Some(field_type) => numeric_avg(input_expr, field_type),
+                            }
+                        }
+                        SupportedWindowAggType::Min => min(resolve_input(input)?),
+                        SupportedWindowAggType::Max => max(resolve_input(input)?),
+                    }
+                }
+            };
+            stage2_aggs.push(win_expr.alias(targetlist.window_aggregate_name(win_idx)));
+        }
+
+        df = df.aggregate(vec![], stage2_aggs)?;
+        df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+
+        let mut select_exprs =
+            Vec::with_capacity(num_stage1_payload_cols + targetlist.window_aggregates.len());
+        for (i, c) in payload_cols.iter().enumerate() {
+            select_exprs.push(
+                get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                    .alias_qualified(c.relation.clone(), &c.name),
+            );
+        }
+        for win_idx in 0..targetlist.window_aggregates.len() {
+            select_exprs.push(col(targetlist.window_aggregate_name(win_idx)));
+        }
+        df = df.select(select_exprs)?;
+        if let Some(topk) = topk
+            && topk.offset > 0
+        {
+            df = df.limit(topk.offset, topk.limit)?;
+        }
     }
 
     Ok(JoinAggregatePlan {

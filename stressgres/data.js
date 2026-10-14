@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791965745428,
+  "lastUpdate": 1791965759172,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -438982,6 +438982,58 @@ window.BENCHMARK_DATA = {
             "value": 38.53675512196725,
             "unit": "median tps",
             "extra": "avg tps: 60.04238630656938, max tps: 576.2335758958336, count: 58795"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791965726209,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 36.92512099413305,
+            "unit": "median tps",
+            "extra": "avg tps: 56.59247642397511, max tps: 542.1648149018889, count: 58803"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.846153928976904,
+            "unit": "median tps",
+            "extra": "avg tps: 31.411901123941206, max tps: 370.0012696329281, count: 58803"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 71.90059302032559,
+            "unit": "median tps",
+            "extra": "avg tps: 134.09441442804376, max tps: 1256.7510161737252, count: 58803"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.62385477169061,
+            "unit": "median tps",
+            "extra": "avg tps: 29.75712477672277, max tps: 262.653591985756, count: 58803"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.86626393338285,
+            "unit": "median tps",
+            "extra": "avg tps: 60.45557795338863, max tps: 570.4553293624466, count: 58803"
           }
         ]
       }

@@ -250,9 +250,6 @@ impl BaseScanState {
     }
 
     pub fn parallel_scan_args(&self) -> ParallelScanArgs {
-        let query = serde_json::to_vec(self.search_query_input())
-            .expect("should be able to serialize query");
-
         let segment_view = self
             .search_reader
             .as_ref()
@@ -263,7 +260,6 @@ impl BaseScanState {
 
         ParallelScanArgs {
             all_sources: vec![segment_view],
-            query,
             with_aggregates,
             with_segment_info: true,
         }

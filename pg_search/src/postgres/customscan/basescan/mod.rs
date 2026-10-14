@@ -112,6 +112,16 @@ use tantivy::snippet::SnippetGenerator;
 pub struct BaseScan;
 
 impl BaseScan {
+    /// Solve the query for the coming execution: a fresh copy of the base query with its
+    /// Postgres expressions and parameters evaluated in the runtime context.
+    fn prepare_query(state: &mut CustomScanStateWrapper<Self>) {
+        let planstate = state.planstate();
+        let runtime_context = state.custom_state().runtime_context;
+        state
+            .custom_state_mut()
+            .prepare_query_for_execution(planstate, runtime_context);
+    }
+
     /// (Re-)initializes the search reader for the current execution context.
     ///
     /// This function handles two distinct execution scenarios:
@@ -138,11 +148,8 @@ impl BaseScan {
             (*state.csstate.ss.ps.state).es_snapshot
         });
 
+        Self::prepare_query(state);
         let planstate = state.planstate();
-        let runtime_context = state.custom_state().runtime_context;
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, runtime_context);
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index

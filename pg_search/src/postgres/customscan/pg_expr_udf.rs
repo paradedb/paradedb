@@ -37,16 +37,21 @@ use std::sync::OnceLock;
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::*;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
+use datafusion::logical_expr::{
+    ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility,
+};
 use pgrx::PgMemoryContexts;
 
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::debug_assert_single_document;
+use crate::postgres::types_arrow::pg_type_to_arrow;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use super::expr_eval::{InputVarInfo, PreparedPgExpr};
 use crate::postgres::types_arrow;
 use crate::schema::SearchFieldType;
+
+use crate::postgres::datetime::PostgresDateTime;
 
 /// Prefix for PgExprUdf names. UDF names follow the pattern `{PREFIX}{index}`.
 pub const PG_EXPR_UDF_PREFIX: &str = "pdb_eval_expr_";
@@ -151,28 +156,21 @@ impl PgExprUdf {
         DataType::Utf8
     }
 
+    /// Inputs are decoded per-column in `populate_slot`, so accept any arg
+    /// types. `Nullary` covers UDFs over only constants (no input Vars),
+    /// which `VariadicAny` alone rejects.
     fn default_signature() -> Signature {
-        Signature::variadic_any(Volatility::Immutable)
+        Signature::one_of(
+            vec![TypeSignature::VariadicAny, TypeSignature::Nullary],
+            Volatility::Immutable,
+        )
     }
 
     /// Returns the Arrow `DataType` for a PG result type OID if `PgExprUdf`
     /// can evaluate it, or `None` if unsupported. This is the single gate for
     /// whether an expression can be UDF-wrapped.
-    ///
-    /// KEEP IN SYNC with the `eval_expr_to_arrow!` arms in
-    /// [`Self::invoke_with_args`] — every OID accepted here must have a
-    /// matching match arm there, and vice versa.
     pub fn get_result_type_to_arrow(oid: pg_sys::Oid) -> Option<DataType> {
-        match oid {
-            pg_sys::BOOLOID => Some(DataType::Boolean),
-            pg_sys::INT2OID => Some(DataType::Int16),
-            pg_sys::INT4OID => Some(DataType::Int32),
-            pg_sys::INT8OID => Some(DataType::Int64),
-            pg_sys::FLOAT4OID => Some(DataType::Float32),
-            pg_sys::FLOAT8OID => Some(DataType::Float64),
-            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => Some(DataType::Utf8),
-            _ => None,
-        }
+        pg_type_to_arrow(oid)
     }
 
     /// Hash the expression structure and constant values separately so UDF names
@@ -213,32 +211,10 @@ impl PgExprUdf {
         format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash:08x}")
     }
 
-    /// Compute the DataFusion signature for the given inputs.
-    ///
-    /// A storage-encoded input's Arrow type is its encoding, not what
-    /// `pg_type_to_tantivy_arrow` derives from the PG type (e.g. a numeric
-    /// AVG blob is Binary and a scaled NUMERIC column is Int64 while their
-    /// `type_oid` is NUMERIC, which the plain mapping would coerce to
-    /// Utf8), so any such input switches the signature to variadic_any —
-    /// the per-input decode in `populate_slot` handles the actual types.
-    fn compute_signature(input_vars: &[InputVarInfo], input_decodes: &[InputDecode]) -> Signature {
-        if input_decodes
-            .iter()
-            .any(|d| !matches!(d, InputDecode::Plain))
-        {
-            return Signature::variadic_any(Volatility::Immutable);
-        }
-        let input_types: Vec<DataType> = input_vars
-            .iter()
-            .map(|v| types_arrow::pg_type_to_tantivy_arrow(v.type_oid))
-            .collect();
-        Signature::exact(input_types, Volatility::Immutable)
-    }
-
     /// Rebuild derived fields after deserialization.
     pub fn fixup_after_deserialize(&mut self) {
-        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);
-        self.signature = Self::compute_signature(&self.input_vars, &self.input_decodes);
+        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid)
+            .expect("should always be a valid type");
     }
 
     pub fn new(
@@ -247,12 +223,12 @@ impl PgExprUdf {
         input_vars: Vec<InputVarInfo>,
         input_decodes: Vec<InputDecode>,
         result_type_oid: pg_sys::Oid,
-    ) -> Self {
+    ) -> Option<Self> {
         debug_assert_eq!(input_vars.len(), input_decodes.len());
-        let return_type = types_arrow::pg_type_to_arrow(result_type_oid);
-        let signature = Self::compute_signature(&input_vars, &input_decodes);
+        let return_type = types_arrow::pg_type_to_arrow(result_type_oid)?;
+        let signature = Self::default_signature();
 
-        Self {
+        Some(Self {
             name,
             pg_expr_string,
             input_vars,
@@ -261,7 +237,7 @@ impl PgExprUdf {
             return_type,
             signature,
             initialized_state: OnceLock::new(),
-        }
+        })
     }
 
     /// Lazily initialize PG expression state on first call.
@@ -464,6 +440,7 @@ impl ScalarUDFImpl for PgExprUdf {
         Ok(self.return_type.clone())
     }
 
+    /// NOTE: This must be kept in sync with `types_arrow::pg_type_to_arrow`
     fn invoke_with_args(
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
@@ -485,6 +462,11 @@ impl ScalarUDFImpl for PgExprUdf {
             pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
             pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
             pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
+            pg_sys::DATEOID        => |d| datetime_datum_to_pg_micros::<pgrx::datum::Date>(d)                  => TimestampMicrosecondBuilder::with_capacity(n),
+            pg_sys::TIMESTAMPOID   => |d| datetime_datum_to_pg_micros::<pgrx::datum::Timestamp>(d)             => TimestampMicrosecondBuilder::with_capacity(n),
+            pg_sys::TIMESTAMPTZOID => |d| datetime_datum_to_pg_micros::<pgrx::datum::TimestampWithTimeZone>(d) => TimestampMicrosecondBuilder::with_capacity(n),
+            pg_sys::TIMEOID        => |d| datetime_datum_to_pg_micros::<pgrx::datum::Time>(d)                  => TimestampMicrosecondBuilder::with_capacity(n),
+            pg_sys::TIMETZOID      => |d| datetime_datum_to_pg_micros::<pgrx::datum::TimeWithTimeZone>(d)      => TimestampMicrosecondBuilder::with_capacity(n),
             pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
                 use pgrx::FromDatum;
                 String::from_datum(d, false).expect("non-null TEXT datum")
@@ -498,6 +480,21 @@ impl ScalarUDFImpl for PgExprUdf {
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
+
+/// Decode a non-null datetime Datum of PG type `T` into the raw PG-epoch
+/// microseconds that `TimestampMicrosecond` arrays carry in pg_search (the
+/// inverse of `types_arrow::try_convert_timestamp_pg_micros_to_datum`).
+///
+/// # Safety
+/// `d` must be a valid, non-null Datum of type `T`.
+unsafe fn datetime_datum_to_pg_micros<T>(d: pg_sys::Datum) -> i64
+where
+    T: pgrx::FromDatum,
+    PostgresDateTime: From<T>,
+{
+    let value = T::from_datum(d, false).expect("non-null datetime datum");
+    PostgresDateTime::from(value).into_inner()
+}
 
 /// Build a TupleDescriptor matching the input variables.
 ///

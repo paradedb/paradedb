@@ -606,53 +606,28 @@ pub fn datetime_to_pg_micros(datetime: tantivy::DateTime) -> i64 {
 /// by the `eval_expr_to_arrow!` macro. Used at planning time to decline JoinScan
 /// for unsupported expression result types, falling back to native PG.
 pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
-    matches!(
-        type_oid,
-        pg_sys::BOOLOID
-            | pg_sys::INT2OID
-            | pg_sys::INT4OID
-            | pg_sys::INT8OID
-            | pg_sys::FLOAT4OID
-            | pg_sys::FLOAT8OID
-            | pg_sys::TEXTOID
-            | pg_sys::VARCHAROID
-            | pg_sys::NAMEOID
-    )
+    pg_type_to_arrow(type_oid).is_some()
 }
 
-/// Arrow DataType for UDF INPUTS — matches what Tantivy fast fields produce.
-/// We store datetime types as microsecond integers, so convey that here as well.
-/// Tantivy widens Int16/Int32 → Int64 and Float32 → Float64.
-pub fn pg_type_to_tantivy_arrow(type_oid: pg_sys::Oid) -> DataType {
+/// Arrow data type UDF OUTPUTS
+///
+/// KEEP IN SYNC with the `eval_expr_to_arrow!` arms in `invoke_with_args` on
+/// [`crate::postgres::customscan::pg_expr_udf::PgExprUdf`]
+/// — every OID accepted here must have a matching match arm there, and vice versa.
+pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> Option<DataType> {
     match type_oid {
-        pg_sys::BOOLOID => DataType::Boolean,
-        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
-        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
-        _ if is_datetime_type(type_oid) => {
-            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
-        }
-        _ => DataType::Utf8,
-    }
-}
-
-/// Arrow DataType for UDF OUTPUTS — preserves the PG expression result type
-/// without Tantivy widening.
-pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> DataType {
-    match type_oid {
-        pg_sys::BOOLOID => DataType::Boolean,
-        pg_sys::INT2OID => DataType::Int16,
-        pg_sys::INT4OID => DataType::Int32,
-        pg_sys::INT8OID => DataType::Int64,
-        pg_sys::FLOAT4OID => DataType::Float32,
-        pg_sys::FLOAT8OID => DataType::Float64,
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
-        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
-        pg_sys::TIMESTAMPTZOID => {
-            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
-        }
-        pg_sys::DATEOID => DataType::Date32,
-        _ => DataType::Utf8,
+        pg_sys::BOOLOID => Some(DataType::Boolean),
+        pg_sys::INT2OID => Some(DataType::Int16),
+        pg_sys::INT4OID => Some(DataType::Int32),
+        pg_sys::INT8OID => Some(DataType::Int64),
+        pg_sys::FLOAT4OID => Some(DataType::Float32),
+        pg_sys::FLOAT8OID => Some(DataType::Float64),
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => Some(DataType::Utf8),
+        _ if is_datetime_type(type_oid) => Some(DataType::Timestamp(
+            arrow_schema::TimeUnit::Microsecond,
+            None,
+        )),
+        _ => None,
     }
 }
 

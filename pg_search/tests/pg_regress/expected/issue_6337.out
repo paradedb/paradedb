@@ -27,8 +27,8 @@ JOIN scalar_uuid_orders o ON p.id = o.id
 WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
   AND u.id @@@ pdb.all()
 ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (u INNER p) INNER o
    Join Cond: p.id = o.id, u.id = o.id, u.id = p.id
@@ -42,8 +42,8 @@ ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
      :     SortExec: TopK(fetch=29), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :       VisibilityFilterExec: tables=[u, p, o]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, id@1), (id@1, id@1)]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=id@0 < 4 OR pdb_eval_expr_opexpr_bcf2dc22(CAST(uuid@1 AS Utf8)), projection=[ctid_0@3, id@4, ctid_1@0, id@1]
-     :             FilterExec: id@1 < 4 OR pdb_eval_expr_opexpr_bcf2dc22(CAST(uuid@2 AS Utf8))
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=id@0 < 4 OR pdb_eval_expr_opexpr_bcf2dc22(uuid@1), projection=[ctid_0@3, id@4, ctid_1@0, id@1]
+     :             FilterExec: id@1 < 4 OR pdb_eval_expr_opexpr_bcf2dc22(uuid@2)
      :               CooperativeExec
      :                 PgSearchScan: table=p, segments=1, query="all"
      :             CooperativeExec

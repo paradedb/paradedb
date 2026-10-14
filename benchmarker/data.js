@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791989938821,
+  "lastUpdate": 1791989952714,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13019,6 +13019,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 378.4344816193564,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5be4dd2dbe2025a135d509a404693d6f8dc9442",
+          "message": "fix: route pdb.query rhs through per-operator dispatch in |||, &&&, ### (#5851)\n\n## Summary\n\nExtends #5799 to the sibling operators `&&&`, `|||` and `###`.\n`rewrite_exec` only routed `===` through a runtime classification\npg_extern; the other three fell through to `build_text_funcexpr`, which\npanics on a `pdb.query` RHS. A `Param` RHS under a generic prepared plan\nis exactly that case.\n\nSource change is 122 added and 80 removed lines across six files:\napi/operator.rs, rewrite.rs, andandand.rs, ororor.rs, hashhashhash.rs\nand eqeqeq.rs. The rest is the per operator regress matrix for\nissue_5779 (three sql and expected pairs, 1044 lines), four one line\ngolden touches, a 27 line SQL migration fragment and the changelog\nentry.\n\nEach operator gets its own `*_search_query_input` pg_extern.\n`classify_rhs` holds the acceptance rule (`Unclassified*` and\n`ScoreAdjusted` classify, anything already classified is rejected) and\nboth `rewrite_const` and the pg_externs call it, so a prepared statement\nbehaves the same under generic and custom plans. `rewrite_exec` carries\nthe RHS type as `PdbQueryRhs` instead of rederiving it from the OID.\n\nThe `classify_query` arm that built a `TermSet` for `&&&` and `|||`\narrays is removed. It only became a `MatchArray` when fuzzy data was\npresent, so a bare `::pdb.fuzzy` cast hit its assertion on both the\nconst and the runtime path; the fallthrough builds the `MatchArray`\ndirectly.\n\n## Testing\n\n`issue_5779_andandand`, `issue_5779_ororor` and\n`issue_5779_hashhashhash`: literal baselines including the bare array\ncast, two token queries so `&&&` and `|||` differ, a second value per\nprepared statement, the `text[]` overload with and without a typmod\nunder `force_generic_plan`, and a finished `pdb.query` rejected\nidentically under both plan modes.\n\nFixes #5779 for `&&&`, `|||` and `###`.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-10-14T07:16:25-07:00",
+          "tree_id": "7ca55b00da53daa77b53ac4673ea1700b47c6085",
+          "url": "https://github.com/paradedb/paradedb/commit/c5be4dd2dbe2025a135d509a404693d6f8dc9442"
+        },
+        "date": 1791989944191,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 531.9244128800631,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 510.7549743127414,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 145.4805161202313,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 259.86973050201146,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 376.5050574109573,
             "unit": "queries/s"
           }
         ]

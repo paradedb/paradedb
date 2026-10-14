@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791994356524,
+  "lastUpdate": 1791994369092,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13661,6 +13661,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.292044764701835,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa819b447fc924540a22504305890e9dda162de0",
+          "message": "chore: repin Tantivy to the #317 squash commit on main (#6811)\n\n# Ticket(s) Closed\n\n- None. Follow-up to #6794.\n\n## What\n\nMoves the Tantivy pin from `5266713d` to `1ce0e17a`.\n\n## Why\n\n#6794 pinned Tantivy at `5266713d`, the head of paradedb/tantivy#317, by\nmistake instead of a commit on Tantivy `main`; #317 has since been\nsquash-merged as `1ce0e17a`, so the pin moves to that commit.\n\n## How\n\nThe four `rev` entries in `Cargo.toml` and the matching `source` lines\nin `Cargo.lock` move to `1ce0e17a`. Nothing else re-resolves. `5266713d`\nand `1ce0e17a` have the same tree (`d0d162c4`), so the built code is\nunchanged. The `cargoHash` in `nix/pg_search.nix` is left for the bot to\nupdate.\n\n## Tests\n\n- `cargo pgrx regress pg18 must_not_late_phrase` (the test #6794 added):\npasses.\n- Pre-commit: fmt, clippy, rustdoc, machete and taplo all pass.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-14T20:16:04+05:30",
+          "tree_id": "f7b820a65f36badd9c4716a7bfdb021fee46fdc4",
+          "url": "https://github.com/paradedb/paradedb/commit/aa819b447fc924540a22504305890e9dda162de0"
+        },
+        "date": 1791994360647,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.600835786108455,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.09496149558659,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.61482435426922,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.391821388587505,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.481665493501005,
             "unit": "queries/s"
           }
         ]

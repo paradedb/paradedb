@@ -158,6 +158,26 @@ embedding: { metric: :ip }      # inner product
   expensive.
 </Note>
 
+## Storage Precision
+
+New indexes store vector coordinates as `f16` by default. This uses two bytes per
+dimension, with an additional four bytes per vector for cosine normalization.
+Queries are rounded to `f16` once; distance calculations accumulate in `f32`.
+The original pgvector column is unchanged. Rounding can change close rankings.
+
+Use `dtype` in `vector_fields` to retain `f32` storage:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, embedding vector_cosine_ops)
+WITH (vector_fields = '{"embedding": {"dtype": "f32"}}');
+```
+
+Both `"f16"` and `"f32"` are supported. Existing indexes retain their stored dtype;
+rebuild an index to change it. For L2 and inner product, values that overflow the
+finite `f16` range are rejected; use `f32` for those vectors. Cosine vectors are
+normalized before conversion.
+
 ## Index Options
 
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve

@@ -22,7 +22,7 @@ use std::fmt::{Display, Formatter};
 use tantivy::Bm25Params;
 use tantivy::schema::{
     BytesOptions, DateOptions, DateTimePrecision, FacetOptions, IpAddrOptions, JsonObjectOptions,
-    NumericOptions, TextFieldIndexing, TextOptions,
+    NumericOptions, TextFieldIndexing, TextOptions, VectorDType,
 };
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
@@ -118,6 +118,8 @@ pub enum SearchFieldConfig {
     Facet,
     /// A vector field.
     Vector {
+        #[serde(default)]
+        dtype: Option<VectorDType>,
         /// Quantization schedule.
         #[serde(default)]
         quantization: Option<VectorQuantizationConfig>,
@@ -446,7 +448,11 @@ impl SearchFieldConfig {
     /// Applies the dimension-dependent default to an explicit vector configuration.
     pub fn resolve_vector_defaults(self, dims: usize) -> Self {
         match self {
-            Self::Vector { quantization } => Self::Vector {
+            Self::Vector {
+                quantization,
+                dtype,
+            } => Self::Vector {
+                dtype,
                 quantization: quantization.or_else(|| default_vector_quantization(dims)),
             },
             config => config,
@@ -456,6 +462,7 @@ impl SearchFieldConfig {
     /// Creates the default configuration for a vector field.
     pub fn default_vector(dims: usize) -> Self {
         Self::Vector {
+            dtype: None,
             quantization: default_vector_quantization(dims),
         }
     }

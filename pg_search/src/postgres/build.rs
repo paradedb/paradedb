@@ -31,8 +31,7 @@ use crate::schema::{MIN_QUANTIZATION_DIMENSIONS, SearchFieldConfig, SearchFieldT
 use anyhow::Result;
 use pgrx::*;
 use tantivy::Index;
-use tantivy::schema::Schema;
-use tantivy::schema::VectorOptions;
+use tantivy::schema::{Schema, VectorDType, VectorOptions};
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -345,7 +344,14 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
             SearchFieldType::Vector(_, dims, metric) => {
-                builder.add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()))
+                let dtype = match config {
+                    SearchFieldConfig::Vector { dtype, .. } => dtype.unwrap_or(VectorDType::F16),
+                    _ => VectorDType::F16,
+                };
+                builder.add_vector_field(
+                    name.as_ref(),
+                    VectorOptions::new(dims, metric.into()).with_dtype(dtype),
+                )
             }
         };
     }

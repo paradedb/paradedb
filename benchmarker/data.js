@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792009432275,
+  "lastUpdate": 1792014206895,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13910,6 +13910,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.006,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44dd9f4a37a8b65b7e72cf9d0f91352bb84155f9",
+          "message": "refactor(vector)!: remove the graph router and adopt tantivy's vector setup (#6802)\n\nMoves pg_search onto tantivy's vector setup and removes the graph\nrouter.\n- Pins tantivy to `52e6862d111c419219ed94cad7d03f08e8090897`.\n- IVF segments use tantivy's `SuperKMeansClusterer` with the index's\n`max_leaf_size` and `training_sample_ratio`, and the stacked router.\npg_search's own clusterer and the `vector_router` option are removed.\n- Quantization seeds, the fixed probe cost and the probe defaults come\nfrom tantivy.\n\n**Upgrading.** Indexes whose IVF segments were built with the graph\nrouter, the previous default, must be rebuilt: vector queries fail with\na REINDEX hint and merges skip those segments until then; text search is\nunaffected. An index created with `vector_router` set needs `ALTER INDEX\n… RESET (vector_router)` before `ALTER INDEX … SET`, pg_dump or\npg_upgrade.\n\nRegress: the 10 `vector_*` files passed with unchanged expected output\nagainst the previous PR 11; `vector_router` is deleted. This revision\npasses `cargo check`, clippy and `cargo metadata --locked`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-15T02:30:48+05:30",
+          "tree_id": "95a8c4b6056a38ff0e4949ed52275d4b3de5f2f2",
+          "url": "https://github.com/paradedb/paradedb/commit/44dd9f4a37a8b65b7e72cf9d0f91352bb84155f9"
+        },
+        "date": 1792014198864,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.313,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.7,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.91,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.518,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.992,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.361,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.799,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.326,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.47,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.114,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.874,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.191,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.022,
             "unit": "ms"
           }
         ]

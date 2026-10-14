@@ -198,7 +198,10 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations;
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::scan::codec::{
+    deserialize_logical_plan_for_explain, deserialize_logical_plan_with_runtime,
+    serialize_logical_plan,
+};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
@@ -926,9 +929,7 @@ impl JoinScan {
     /// `join_level_predicates` — still carries a Param or PostgresExpression(SubPlan) the
     /// executor needs to resolve. Clause-wide (not per-source): a cross-relation predicate
     /// (e.g. an `OR` spanning two joined tables) lives in `join_level_predicates`, outside
-    /// every source's `scan_info.query`, so a per-source-only check misses it. Read-only
-    /// (`&JoinCSClause`) so EXPLAIN's `&CustomScanStateWrapper` call site doesn't need a
-    /// mutable borrow just to ask a yes/no question.
+    /// every source's `scan_info.query`, so a per-source-only check misses it.
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.has_postgres_expressions() || join_clause.has_parameters()
     }
@@ -1479,18 +1480,6 @@ impl CustomScan for JoinScan {
                 explainer.add_text("MPP Launch", t.explain_text());
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
-            // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
-            // plan and calling PgSearchTableProvider::scan(), but without executor state
-            // (planstate=None). If any source query contains a PostgresExpression
-            // (e.g., prepared-statement parameter), scan() would fail with "missing
-            // planstate". Skip physical plan display for those cases.
-            if Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
-                explainer.add_text(
-                    "DataFusion Physical Plan",
-                    "omitted for EXPLAIN because source queries require executor-time expression resolution",
-                );
-                return;
-            }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
             // matching EXPLAIN ANALYZE. When MPP is active, first build against
@@ -1502,13 +1491,10 @@ impl CustomScan for JoinScan {
                 .build()
                 .expect("Failed to create tokio runtime");
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
-                let logical_plan = deserialize_logical_plan_with_runtime(
+                let logical_plan = deserialize_logical_plan_for_explain(
                     bytes,
                     &ctx.task_ctx(),
-                    None,
-                    Some(expr_context.as_ptr()),
-                    None,
-                    vec![],
+                    expr_context.as_ptr(),
                 )
                 .expect("Failed to deserialize logical plan");
                 runtime

@@ -34,7 +34,7 @@ use tantivy::Opstamp;
 use tantivy::index::{SegmentComponent, SegmentId};
 
 /// Extensions of tantivy's per-segment vector files. These mirror tantivy's
-/// (`pub(crate)`) `vector::VEC_EXT` and `vector::ivf::CENTROIDS_EXT`: `.vec`
+/// (`pub(crate)`) `vector::storage::header::{VEC_EXT, CENTROIDS_EXT}`: `.vec`
 /// is written for every segment with a vector field (both storage layouts),
 /// `.centroids` only for IVF (clustered) segments.
 pub(crate) const VECTOR_VEC_EXT: &str = "vec";

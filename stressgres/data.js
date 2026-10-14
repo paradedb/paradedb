@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791964686400,
+  "lastUpdate": 1791964699191,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -219460,6 +219460,124 @@ window.BENCHMARK_DATA = {
             "value": 37.51953125,
             "unit": "median mem",
             "extra": "avg mem: 37.511082752376495, max mem: 39.51953125, count: 59331"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791964634621,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.407154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.170310536376407, max cpu: 28.959278, count: 59309"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 52.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.53966092835826, max mem: 52.5859375, count: 59309"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.565561978831383, max cpu: 28.166258, count: 59309"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.69197148356489, max mem: 33.69921875, count: 59309"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.874397112233118, max cpu: 19.133034, count: 59309"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 54.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.49919160140114, max mem: 56.5390625, count: 59309"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 19209,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19380.532364396633, max block_count: 36817.0, count: 59309"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.949182364948566, max cpu: 4.7151275, count: 59309"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.141874546864724, max mem: 28.1875, count: 59309"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 28,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.512721509383063, max segment_count: 38.0, count: 59309"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.781809830025496, max cpu: 28.959278, count: 59309"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 49.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.03097508915173, max mem: 50.11328125, count: 59309"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7784967,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.884086393739799, max cpu: 28.500742, count: 118618"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 57.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.13449970440827, max mem: 63.046875, count: 118618"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.402546,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.639602348175861, max cpu: 23.483368, count: 59309"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 36.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.93770878471227, max mem: 38.953125, count: 59309"
           }
         ]
       }

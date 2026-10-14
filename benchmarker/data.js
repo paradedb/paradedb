@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791998686428,
+  "lastUpdate": 1791998697552,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13513,6 +13513,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 376.26139019856356,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d951b1ac1187e1709ad5a0afb42e84668ca322c4",
+          "message": "chore: bump rustls to 0.23.46 for the cargo-audit failure (#6815)\n\n# Ticket(s) Closed\n\n- None.\n\n## What\n\nBumps rustls from 0.23.45 to 0.23.46 in `Cargo.lock`.\n\n## Why\n\nRustSec published four advisories against rustls 0.23.45 today\n(RUSTSEC-2026-0346, 0347, 0348 and 0349), so the `cargo audit` step of\nthe lint job fails on every PR since 14:16 UTC. All four name 0.23.46 as\nthe fix. Same situation as #6330, one version later.\n\n## How\n\n`cargo update -p rustls`. Only rustls moves; no other crate re-resolves.\nrustls is transitive (lindera-dictionary → ureq, used at build time to\ndownload dictionaries), so no pg_search code changes. The `cargoHash` in\n`nix/pg_search.nix` is left for the bot to update.\n\n## Tests\n\n- `cargo audit` (cargo-audit 0.22.2, installed as in the lint workflow):\nexits 1 on `main`, exits 0 on this branch with the 7 allowed warnings\nfrom `.cargo/audit.toml`.\n- Pre-commit: fmt, clippy, rustdoc, machete and taplo all pass.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-14T22:11:28+05:30",
+          "tree_id": "aa51ace83bc22ccbbeddcdb10fefb296f4dc313c",
+          "url": "https://github.com/paradedb/paradedb/commit/d951b1ac1187e1709ad5a0afb42e84668ca322c4"
+        },
+        "date": 1791998690041,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 529.419070478105,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 510.8592009638789,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 145.6188425127398,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 260.28909422631045,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 375.3975472430731,
             "unit": "queries/s"
           }
         ]

@@ -510,6 +510,60 @@ impl MVCCDirectory {
             })
     }
 
+    fn memory_directory<'a>(
+        &self,
+        meta: &SegmentMetaEntry,
+        tantivy_meta: &SegmentMeta,
+        directory: &'a OnceLock<RamDirectory>,
+    ) -> anyhow::Result<Option<&'a RamDirectory>> {
+        if directory.get().is_none() {
+            let _snapshot_guard = ActiveSnapshotGuard::ensure();
+            let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
+                let heaprel = self
+                    .indexrel
+                    .heap_relation()
+                    .expect("Should have a heap relation.");
+                HeapFetchState::new(&heaprel)
+            });
+            let expression_state = self
+                .expression_state
+                .get_or_init(|| ExpressionState::new(&self.indexrel));
+            let Some(materialized) = index_memory_segment(
+                &self.indexrel,
+                tantivy_meta,
+                meta,
+                heap_fetch_state,
+                expression_state,
+                &self.mvcc_style,
+            )?
+            else {
+                return Ok(None);
+            };
+            let _ = directory.set(materialized);
+        }
+        Ok(directory.get())
+    }
+
+    /// Returns false when the candidate must retain its inputs until VACUUM can clean them.
+    pub fn prepare_mutable_segments(&self, segment_ids: &[SegmentId]) -> anyhow::Result<bool> {
+        for segment_id in segment_ids {
+            let entry = self.all_entries.lock().get(segment_id).cloned();
+            if let Some(LoadedSegmentMetaEntry::Memory {
+                meta,
+                tantivy_meta,
+                directory,
+                ..
+            }) = entry
+                && self
+                    .memory_directory(&meta, &tantivy_meta, &directory)?
+                    .is_none()
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
         let file_name = path
             .file_name()
@@ -559,29 +613,12 @@ impl MVCCDirectory {
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
                 }
-                let file_handle = directory
-                    .get_or_init(|| {
-                        let _snapshot_guard = ActiveSnapshotGuard::ensure();
-                        let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
-                            let heaprel = self
-                                .indexrel
-                                .heap_relation()
-                                .expect("Should have a heap relation.");
-                            HeapFetchState::new(&heaprel)
-                        });
-                        let expression_state = self
-                            .expression_state
-                            .get_or_init(|| ExpressionState::new(&self.indexrel));
-                        index_memory_segment(
-                            &self.indexrel,
-                            &tantivy_meta,
-                            &meta,
-                            heap_fetch_state,
-                            expression_state,
-                            &self.mvcc_style,
-                        )
-                        .expect("Failed to index mutable segment.")
-                    })
+                let file_handle = self
+                    .memory_directory(&meta, &tantivy_meta, &directory)
+                    .map_err(|error| TantivyError::SystemError(error.to_string()))?
+                    .ok_or_else(|| {
+                        TantivyError::SystemError("mutable segment needs VACUUM".into())
+                    })?
                     .get_file_handle(path)
                     .map_err(|err| match err {
                         OpenReadError::FileDoesNotExist(missing) => {
@@ -1076,6 +1113,7 @@ impl PinCushion {
 ///
 /// Note that between `prepare` and `index`, additional documents may have been added. We limit the
 /// number of contained docs to the `max_doc` value and ignore trailing values.
+/// Returns `None` when maintenance materialization must be deferred without replacing the input.
 pub fn index_memory_segment(
     indexrel: &PgSearchRelation,
     segment_meta: &SegmentMeta,
@@ -1083,7 +1121,7 @@ pub fn index_memory_segment(
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
     mvcc_style: &MvccSatisfies,
-) -> anyhow::Result<RamDirectory> {
+) -> anyhow::Result<Option<RamDirectory>> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::heap::HeapDocFetcher;
     use pgrx::PgTupleDesc;
@@ -1148,15 +1186,20 @@ pub fn index_memory_segment(
         }
         // A ctid with nothing to index becomes an empty document: the segment must contain
         // every ctid in the mutable snapshot.
-        unsafe {
-            per_row_context.switch_to(|context| -> anyhow::Result<()> {
-                let doc = fetcher.fetch_doc(ctid).unwrap_or_default();
-                writer.insert(doc, ctid, || {
+        let indexed = unsafe {
+            per_row_context.switch_to(|context| -> anyhow::Result<bool> {
+                let Ok(doc) = fetcher.fetch_doc(ctid) else {
+                    return Ok(false);
+                };
+                writer.insert(doc.unwrap_or_default(), ctid, || {
                     unreachable!("No limits configured: should not finalize.")
                 })?;
                 context.reset();
-                Ok(())
-            })?;
+                Ok(true)
+            })?
+        };
+        if !indexed {
+            return Ok(None);
         }
     }
 
@@ -1164,7 +1207,7 @@ pub fn index_memory_segment(
         "Segment should be non-empty because we created a `SegmentMeta` for it in the first place.",
     );
 
-    Ok(directory)
+    Ok(Some(directory))
 }
 
 #[cfg(any(test, feature = "pg_test"))]

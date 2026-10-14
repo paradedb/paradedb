@@ -1550,7 +1550,9 @@ impl ExpressionState {
 /// Maintenance mode (`query_visible: false`) must index every live ctid regardless of any
 /// single snapshot, since the resulting segment may serve future snapshots, so it fetches with
 /// `SnapshotAny` and filters dead tuples with `HeapTupleSatisfiesVacuum`, walking HOT chains
-/// for a live member. See: <https://github.com/paradedb/paradedb/issues/5365>
+/// for a live member. Mutable merges defer recently dead tuples with external TOAST until
+/// VACUUM removes their ctids: the conservative horizon can move backwards after TOAST cleanup.
+/// See: <https://github.com/paradedb/paradedb/issues/5365>
 pub struct HeapDocFetcher<'a> {
     fetch_state: &'a HeapFetchState,
     expression_state: &'a ExpressionState,
@@ -1564,6 +1566,10 @@ pub struct HeapDocFetcher<'a> {
     values: Vec<pg_sys::Datum>,
     isnull: Vec<bool>,
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("mutable segment contains a recently dead tuple with external TOAST data")]
+pub struct NeedsVacuum;
 
 impl<'a> HeapDocFetcher<'a> {
     pub fn new(
@@ -1610,7 +1616,8 @@ impl<'a> HeapDocFetcher<'a> {
     /// nothing to index at `ctid`: its block was truncated by a previous VACUUM, the tuple is
     /// not visible to the active snapshot (query-visible mode), or every version in its HOT
     /// chain is dead (maintenance mode).
-    pub unsafe fn fetch_doc(&mut self, ctid: u64) -> Option<TantivyDocument> {
+    /// Returns `NeedsVacuum` when a mutable merge cannot safely materialize a historical tuple.
+    pub unsafe fn fetch_doc(&mut self, ctid: u64) -> Result<Option<TantivyDocument>, NeedsVacuum> {
         unsafe {
             // Guard against stale ctids referencing heap blocks truncated by VACUUM.
             if !utils::ctid_satisfies_nblocks(
@@ -1618,7 +1625,7 @@ impl<'a> HeapDocFetcher<'a> {
                 self.heaprel.as_ptr(),
                 self.heaprel.fork_number(),
             ) {
-                return None;
+                return Ok(None);
             }
 
             let mut ipd = pg_sys::ItemPointerData::default();
@@ -1651,7 +1658,7 @@ impl<'a> HeapDocFetcher<'a> {
                     // Either the tuple is not visible to `fetch_snapshot` (query-visible mode) or
                     // heap page pruning removed it (SnapshotAny mode). In both cases there is no
                     // content to index for this ctid.
-                    return None;
+                    return Ok(None);
                 }
 
                 if self.query_visible {
@@ -1671,16 +1678,7 @@ impl<'a> HeapDocFetcher<'a> {
                 };
 
                 if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
-                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
-                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
-                    // must also see it as DEAD, otherwise we'll crash trying to read them.
-                    //
-                    // A single re-check is sufficient (no loop needed) because
-                    // `GetOldestNonRemovableTransactionId` returns the current global
-                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
-                    // horizon, then no concurrent VACUUM could have considered it DEAD
-                    // (VACUUM uses the same or an older horizon), so its TOAST data is
-                    // guaranteed to still exist.
+                    // Refresh a stale cutoff, but do not assume horizons are monotonic.
                     let fresh_oldest_xmin =
                         pg_sys::GetOldestNonRemovableTransactionId(self.heaprel.as_ptr());
                     if fresh_oldest_xmin != self.oldest_xmin {
@@ -1709,7 +1707,7 @@ impl<'a> HeapDocFetcher<'a> {
                     } else {
                         // There are no more entries in the HOT chain, so no copy of the tuple is
                         // visible in any transaction.
-                        return None;
+                        return Ok(None);
                     }
                 }
 
@@ -1734,6 +1732,19 @@ impl<'a> HeapDocFetcher<'a> {
                     continue 'next_hot_chain;
                 }
 
+                if !self.root_ctids
+                    && htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
+                    && pg_sys::HeapTupleHasExternal(
+                        (*self.fetch_state.buffer_heap_slot()).base.tuple,
+                    )
+                {
+                    // A TOAST-only VACUUM may already have reclaimed this version under a
+                    // newer cutoff. Keep the mutable input until VACUUM can remove the ctid;
+                    // dropping the document here could lose a version an old snapshot needs.
+                    pg_sys::ExecClearTuple(self.fetch_state.slot());
+                    return Err(NeedsVacuum);
+                }
+
                 // We successfully fetched a tuple. Break out to fetch and deform it.
                 break;
             }
@@ -1742,8 +1753,8 @@ impl<'a> HeapDocFetcher<'a> {
             //
             // NOTE: We intentionally pass `false` (don't materialize) to keep the
             // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
-            // VACUUM's LockBufferForCleanup, which prevents it from removing the
-            // heap tuple and deleting its TOAST chunks while we read them below.
+            // VACUUM's LockBufferForCleanup from removing the heap tuple. TOAST-only
+            // VACUUM is independent, so historical external values were deferred above.
             // See: https://github.com/paradedb/paradedb/issues/5076
             let htup = pg_sys::ExecFetchSlotHeapTuple(
                 self.fetch_state.slot(),
@@ -1759,9 +1770,7 @@ impl<'a> HeapDocFetcher<'a> {
             );
 
             // Eagerly detoast all variable-length (varlena) datums while the
-            // buffer pin is still held. Without this, the lazy detoasting in
-            // row_to_search_document can race with VACUUM deleting TOAST chunks
-            // after we release the pin (the "missing chunk number 0" crash).
+            // buffer pin and active snapshot are still held.
             // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
             for i in 0..self.heaptupdesc.len() {
                 if !self.isnull[i] {
@@ -1817,7 +1826,7 @@ impl<'a> HeapDocFetcher<'a> {
             // end-of-query, unnecessarily blocking VACUUM on this buffer.
             pg_sys::ExecClearTuple(self.fetch_state.slot());
 
-            Some(doc)
+            Ok(Some(doc))
         }
     }
 }

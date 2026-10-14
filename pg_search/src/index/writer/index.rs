@@ -533,7 +533,8 @@ impl SearchIndexMerger {
             return Ok(unsupported);
         }
         for segment in self.index.searchable_segments()? {
-            if !candidates.contains_key(&segment.id()) {
+            // Mutable inputs will be written in the current vector format during preparation.
+            if !candidates.contains_key(&segment.id()) || self.directory.is_mutable(&segment.id()) {
                 continue;
             }
             match segment.validate_vector_format() {
@@ -620,6 +621,13 @@ impl Mergeable for SearchIndexMerger {
                 .all(|segment_id| !self.merged_segment_ids.contains(segment_id)),
             "segment was already merged by this merger instance"
         );
+
+        if !self.directory.prepare_mutable_segments(segment_ids)? {
+            pgrx::debug1!(
+                "deferring mutable merge until VACUUM removes recently dead TOAST tuples"
+            );
+            return Ok(None);
+        }
 
         let mut writer: IndexWriter = self.index.writer_with_options(
             IndexWriterOptions::builder()

@@ -1186,10 +1186,8 @@ async fn build_source_df(
     let source_query = scan_info.mode.query().clone();
     let needs_runtime_context =
         source_query.has_postgres_expressions() || source_query.has_parameters();
-    // `.or(expr_context)` can hand every source the same context, but only the
-    // EXPLAIN-only rebuild reaches it. There it is safe: `PgSearchTableProvider::scan()` returns
-    // "postgres expressions have not been solved: missing planstate" before it would call
-    // `solve_postgres_expressions`, so the shared context is never reset.
+    // Only the EXPLAIN-only rebuild has no planstate. It preserves runtime
+    // expressions without solving them, so the fallback context is never reset.
     let source_expr_context = if needs_runtime_context {
         planstate
             .and_then(|planstate| {
@@ -1237,6 +1235,7 @@ async fn build_source_df(
     // agg-on-join path match JoinScan and Base Scan.
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
+    provider.set_explain_only(planstate.is_none());
 
     // Strings leave the scan deferred, so the placement rule can put each half of their
     // lookup where it pays and the aggregate can group on term ordinals. Visibility stays in

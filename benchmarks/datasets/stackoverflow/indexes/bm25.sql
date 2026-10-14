@@ -68,6 +68,7 @@ USING bm25 (
 -- Foreign Key / Join Columns (Standard B-tree)
 CREATE INDEX stackoverflow_posts_owner_user_id_idx ON stackoverflow_posts (owner_user_id);
 CREATE INDEX comments_post_id_idx ON comments (post_id);
+CREATE INDEX badges_user_id_idx ON badges (user_id);
 
 -- Full-Text Search Columns (GIN on tsvector)
 CREATE INDEX stackoverflow_posts_title_fts_idx ON stackoverflow_posts USING gin (to_tsvector('english', title));

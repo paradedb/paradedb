@@ -47,7 +47,7 @@ use crate::postgres::customscan::datafusion::translator::{
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
 use crate::postgres::customscan::joinscan::build::{
-    JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
+    JoinLevelSearchPredicate, JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
@@ -1169,6 +1169,32 @@ impl FilterExpr {
                 let e = inner.to_datafusion(ctx)?;
                 Some(e.is_not_null())
             }
+        }
+    }
+
+    /// Collects every FILTER search predicate in this tree.
+    pub fn collect_search_predicates<'a>(&'a self, out: &mut Vec<&'a JoinLevelSearchPredicate>) {
+        match self {
+            FilterExpr::SearchTag { predicate, .. } => out.push(predicate),
+            FilterExpr::BinOp { left, right, .. } => {
+                left.collect_search_predicates(out);
+                right.collect_search_predicates(out);
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children
+                    .iter()
+                    .for_each(|c| c.collect_search_predicates(out));
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.collect_search_predicates(out);
+            }
+            FilterExpr::AggRef(_)
+            | FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => {}
         }
     }
 }

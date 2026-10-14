@@ -1682,6 +1682,7 @@ impl AggregateScan {
 
         let mut predicates = plan.search_predicates();
         predicates.extend(extracted_target.filter_predicates());
+        predicates.dedup();
         crate::postgres::customscan::joinscan::build::assign_tagged_queries(
             plan.sources_mut(),
             &predicates,

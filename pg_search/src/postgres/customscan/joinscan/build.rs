@@ -334,7 +334,7 @@ impl JoinKeyPair {
 }
 
 /// A join-level search predicate - a search query that applies to a specific relation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JoinLevelSearchPredicate {
     /// The RTI of the relation this predicate applies to (used for column resolution).
     pub rti: pg_sys::Index,
@@ -2084,7 +2084,7 @@ impl JoinCSClause {
     }
 
     /// Configures `ScanMode::Tagged` on each join source that participates in search predicates.
-    pub fn assign_tagged_queries(&mut self) {
+    pub fn jssign_tagged_queries(&mut self) {
         let predicates = self.plan.search_predicates();
         assign_tagged_queries(self.plan.sources_mut(), &predicates);
     }

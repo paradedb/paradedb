@@ -93,6 +93,8 @@ impl OptimizerRule for PropagateEmptyUnnestRule {
 
 #[cfg(test)]
 mod tests {
+    use crate::postgres::customscan::limit_offset::LimitOffset;
+
     use super::*;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::common::DFSchema;
@@ -146,7 +148,13 @@ mod tests {
         };
         use datafusion::logical_expr::col;
 
-        let topk = topk_as_agg(&[col("id"), col("ctid")], vec![], 3, &[1], false);
+        let topk = topk_as_agg(
+            &[col("id"), col("ctid")],
+            vec![],
+            &LimitOffset::from_k(3),
+            &[1],
+            false,
+        );
         let plan = LogicalPlanBuilder::from(id_ctid_rows(false)?)
             .aggregate(Vec::<Expr>::new(), vec![topk.alias(TOPK_AGG_ROWS_COL_NAME)])?
             .build()?;

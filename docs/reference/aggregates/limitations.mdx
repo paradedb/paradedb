@@ -142,7 +142,7 @@ The [faceted query](/reference/aggregates/facets) form `pdb.agg(...) OVER ()` ru
 
 This path turns down the following shapes. Because `pdb.agg()` cannot fall back to Postgres, a query with one of them raises an error rather than running natively:
 
-- No `LIMIT`, or a `LIMIT` or `OFFSET` whose value is not known when the query is planned, such as a parameter under a generic plan
+- No `LIMIT`
 - A `visibility` other than the default
 - A `FILTER (WHERE ...)` clause on the window function
 - `PARTITION BY`, `ORDER BY`, or a frame inside the `OVER` clause

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791964604303,
+  "lastUpdate": 1791964617252,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -330120,6 +330120,52 @@ window.BENCHMARK_DATA = {
             "value": 24.607252279810346,
             "unit": "median tps",
             "extra": "avg tps: 39.150150950989094, max tps: 412.6518478306623, count: 59248"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791964596478,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 24.97292661698092,
+            "unit": "median tps",
+            "extra": "avg tps: 39.71427270215229, max tps: 395.10071846338184, count: 59308"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 24.580641341857504,
+            "unit": "median tps",
+            "extra": "avg tps: 39.41803069176191, max tps: 395.253136313874, count: 59308"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 27.930002880306873,
+            "unit": "median tps",
+            "extra": "avg tps: 46.765565864677804, max tps: 544.5275049715935, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 24.6243444288326,
+            "unit": "median tps",
+            "extra": "avg tps: 39.57470419090731, max tps: 411.0451238817874, count: 59308"
           }
         ]
       }

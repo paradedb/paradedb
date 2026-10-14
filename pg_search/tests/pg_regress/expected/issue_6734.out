@@ -126,6 +126,104 @@ FROM drv d ORDER BY d.n;
  3 | {3,7,11}
 (3 rows)
 
+-- The workers of each round read the round's parameters (#6790): one in a heap
+-- filter, with the bitmap intersection off so the btree does not take it, and
+-- one inside the search query. Only the workers answer, so the leader's own
+-- (correct) rows cannot cover for them.
+SET parallel_leader_participation TO off;
+SET paradedb.enable_bitmap_intersection TO off;
+EXPLAIN (COSTS OFF)
+SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
+    SELECT id FROM clean_units
+    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
+    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+FROM drv d ORDER BY d.n;
+                                                                                                                                                                             QUERY PLAN                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 2
+   ->  Sort
+         Sort Key: d.n
+         ->  Parallel Seq Scan on drv d
+   SubPlan 2
+     ->  Aggregate
+           ->  Sort
+                 Sort Key: s.id
+                 ->  Subquery Scan on s
+                       ->  Limit
+                             InitPlan 1
+                               ->  Result
+                             ->  Gather Merge
+                                   Workers Planned: 2
+                                   ->  Parallel Custom Scan (ParadeDB Base Scan) on clean_units
+                                         Table: clean_units
+                                         Index: clean_search
+                                         Exec Method: TopKScanExecState
+                                         Scores: true
+                                            TopK Order By: pdb.score() desc, id asc
+                                            TopK Limit: 3
+                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(bank_id = $2)"}]}}]}}
+(23 rows)
+
+SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
+    SELECT id FROM clean_units
+    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
+    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+FROM drv d ORDER BY d.n;
+ n |   ids    
+---+----------
+ 1 | {1,5,9}
+ 2 | {2,6,10}
+ 3 | {3,7,11}
+(3 rows)
+
+SET paradedb.enable_bitmap_intersection TO on;
+EXPLAIN (COSTS OFF)
+SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
+    SELECT id FROM clean_units
+    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
+    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+FROM drv d ORDER BY d.n;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 2
+   ->  Sort
+         Sort Key: d.n
+         ->  Parallel Seq Scan on drv d
+   SubPlan 2
+     ->  Aggregate
+           ->  Sort
+                 Sort Key: s.id
+                 ->  Subquery Scan on s
+                       ->  Limit
+                             InitPlan 1
+                               ->  Result
+                             ->  Gather Merge
+                                   Workers Planned: 2
+                                   ->  Parallel Custom Scan (ParadeDB Base Scan) on clean_units
+                                         Table: clean_units
+                                         Index: clean_search
+                                         Exec Method: TopKScanExecState
+                                         Scores: true
+                                            TopK Order By: pdb.score() desc, id asc
+                                            TopK Limit: 3
+                                         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('clean_search'::regclass, paradedb.term('body'::paradedb.fieldname, $2))"}}}
+(23 rows)
+
+SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
+    SELECT id FROM clean_units
+    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
+    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+FROM drv d ORDER BY d.n;
+ n | ids  
+---+------
+ 1 | {5}
+ 2 | {9}
+ 3 | {13}
+(3 rows)
+
+RESET parallel_leader_participation;
 -- A plain Gather under a Limit, rescanned the same way.
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT count(*) FROM (
@@ -196,6 +294,18 @@ FROM drv d ORDER BY d.n;
  1 | {1,5,9}
  2 | {2,6,10}
  3 | {3,7,11}
+(3 rows)
+
+SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
+    SELECT id FROM clean_units
+    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
+    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+FROM drv d ORDER BY d.n;
+ n | ids  
+---+------
+ 1 | {5}
+ 2 | {9}
+ 3 | {13}
 (3 rows)
 
 SELECT d.n, (SELECT count(*) FROM (

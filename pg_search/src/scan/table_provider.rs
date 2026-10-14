@@ -92,6 +92,10 @@ pub struct PgSearchTableProvider {
     /// that need to solve runtime Postgres expressions before opening a real reader.
     #[serde(skip)]
     planstate: Option<*mut pg_sys::PlanState>,
+    /// Plain EXPLAIN builds a display plan without evaluating runtime expressions.
+    /// Never propagate this mode to execution workers through serialization.
+    #[serde(skip)]
+    explain_only: bool,
     /// The visibility strategy for this source.
     ///
     /// `Deferred { plan_position }` means the scan emits packed DocAddresses in its
@@ -178,6 +182,7 @@ impl Clone for PgSearchTableProvider {
             parallel_state: self.parallel_state,
             expr_context: self.expr_context,
             planstate: self.planstate,
+            explain_only: self.explain_only,
             visibility_mode: self.visibility_mode,
             late_materialization_active: std::sync::atomic::AtomicBool::new(
                 self.late_materialization_active
@@ -231,6 +236,7 @@ impl PgSearchTableProvider {
             parallel_state: None,
             expr_context: None,
             planstate: None,
+            explain_only: false,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             deferred_visibility_active: AtomicBool::new(false),
@@ -278,6 +284,10 @@ impl PgSearchTableProvider {
 
     pub(crate) fn set_expr_context(&mut self, expr_context: Option<*mut pg_sys::ExprContext>) {
         self.expr_context = expr_context;
+    }
+
+    pub(crate) fn set_explain_only(&mut self, explain_only: bool) {
+        self.explain_only = explain_only;
     }
 
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
@@ -746,7 +756,8 @@ impl PgSearchTableProvider {
         let base_query = self.scan_info.mode.query().clone();
         let needs_tokenizer = self.scan_info.mode.needs_tokenizer();
         let mut query = self.combine_query_with_filters(base_query, filters);
-        if query.has_postgres_expressions() || query.has_parameters() {
+        let has_runtime_expressions = query.has_postgres_expressions() || query.has_parameters();
+        if has_runtime_expressions && !self.explain_only {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
                     "postgres expressions have not been solved: missing planstate".to_string(),
@@ -768,6 +779,16 @@ impl PgSearchTableProvider {
         // physical scan later through `stamp_parallel_state`.
         let expr_ctx = expr_context.and_then(std::ptr::NonNull::new);
         let needs_tokenizer = query.needs_tokenizer() || needs_tokenizer;
+        // A plain EXPLAIN needs index metadata to build the physical shape, but
+        // has no executor state with which to solve STABLE functions or Params.
+        // Open an unfiltered reader for metadata only and retain the original
+        // expression-bearing query on the display plan. Execution still solves
+        // the query above and opens its reader with the actual runtime value.
+        let reader_query = if self.explain_only && has_runtime_expressions {
+            SearchQueryInput::All
+        } else {
+            query.clone()
+        };
         let reader = match self.manifest.as_ref() {
             Some(manifest) => {
                 assert_eq!(
@@ -778,7 +799,7 @@ impl PgSearchTableProvider {
                 SearchIndexReader::from_manifest(
                     manifest,
                     &index_rel,
-                    query.clone(),
+                    reader_query,
                     self.scan_info.score_needed,
                     expr_ctx,
                     needs_tokenizer,
@@ -786,7 +807,7 @@ impl PgSearchTableProvider {
             }
             None => SearchIndexReader::open_with_context(
                 &index_rel,
-                query.clone(),
+                reader_query,
                 self.scan_info.score_needed,
                 MvccSatisfies::Snapshot,
                 expr_ctx,

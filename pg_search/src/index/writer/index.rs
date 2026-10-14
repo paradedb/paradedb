@@ -30,12 +30,12 @@ use tantivy::{
 
 use crate::index::ctid_map;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::reader::index::needs_rebuild;
 use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::schema::SearchIndexSchema;
-use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 
@@ -305,9 +305,6 @@ impl SerialIndexWriter {
         let mut index = crate::index::open_index(directory)?;
         stats::register(&mut index);
         ctid_map::register(&mut index);
-        if has_vector_field {
-            set_ivf_clusterer(&mut index, index_relation.options());
-        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -527,13 +524,9 @@ impl SearchIndexMerger {
         mvcc_satisfies: MvccSatisfies,
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
-        let schema = indexrel.schema()?;
         let mut index = crate::index::open_index(directory.clone())?;
         stats::register(&mut index);
         ctid_map::register(&mut index);
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, indexrel.options());
-        }
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),
@@ -561,9 +554,7 @@ impl SearchIndexMerger {
             }
             match segment.validate_vector_format() {
                 Ok(()) => {}
-                Err(tantivy::TantivyError::IncompatibleIndex(
-                    tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. },
-                )) => {
+                Err(error) if needs_rebuild(&error) => {
                     unsupported.insert(segment.id());
                 }
                 Err(error) => return Err(error),

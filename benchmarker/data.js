@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791945789166,
+  "lastUpdate": 1791946402571,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10375,6 +10375,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 187.954,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8a6e8660634b51f3ccb6a4ad5d8e69c9246bcf2",
+          "message": "fix: debug-build panic in NOT phrase queries (#6794)\n\n## What\n\nPins Tantivy to a commit that fixes a panic in debug builds for queries\nwith `NOT` around a phrase.\n\n## Why\n\nIn a query such as:\n\n```sql\nSELECT count(*) FROM t WHERE body === 'alpha' AND NOT (tag ### 'red apple');\n```\n\nTantivy asked the phrase about the first row containing `alpha`, even\nwhen the phrase's first match was a later row. Debug builds fail on that\nwith `ERROR: target (0) should be greater than or equal to doc (150)`.\nThis happens for counts, row fetches and Top K.\n\nRelease builds return correct results. See paradedb/tantivy#317 for the\ncause.\n\n## How\n\nThe pin moves from `5646f289` to `5266713d`, the head of\nparadedb/tantivy#317. Once #317 merges, this PR will be repinned to the\nmerge commit.\n\n## Tests\n\n- New `must_not_late_phrase`: `NOT` around a phrase whose first match is\nrow 150, while `alpha` starts at row 0. It checks the count and Top K.\nIt fails on `main` with the error above and passes with this pin.\n- `cargo pgrx regress pg17` locally (debug): 37 tests fail, the same 37\nwith the same differences as on current `main` apart from timings and\nOIDs. Every other test passes, including the new one.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-13T18:26:56-07:00",
+          "tree_id": "3b964ab4197a22f9bb274389d43b5adf732ea50b",
+          "url": "https://github.com/paradedb/paradedb/commit/e8a6e8660634b51f3ccb6a4ad5d8e69c9246bcf2"
+        },
+        "date": 1791946395189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.464,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.979,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 346.255,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.211,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.261,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.08,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.641,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.47,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 199.286,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.478,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 83.871,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 187.097,
             "unit": "ms"
           }
         ]

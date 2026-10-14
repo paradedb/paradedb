@@ -1248,7 +1248,7 @@ unsafe fn list(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub unsafe fn opexpr(
+unsafe fn opexpr(
     context: &PlannerContext,
     rti: pg_sys::Index,
     opexpr: OpExpr,

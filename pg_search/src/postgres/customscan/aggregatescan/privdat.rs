@@ -95,6 +95,32 @@ impl FilterExpr {
             }
         }
     }
+
+    /// Collects every FILTER search predicate in this tree.
+    pub fn collect_search_predicates<'a>(&'a self, out: &mut Vec<&'a JoinLevelSearchPredicate>) {
+        match self {
+            FilterExpr::SearchTag { predicate, .. } => out.push(predicate),
+            FilterExpr::BinOp { left, right, .. } => {
+                left.collect_search_predicates(out);
+                right.collect_search_predicates(out);
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children
+                    .iter()
+                    .for_each(|c| c.collect_search_predicates(out));
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.collect_search_predicates(out);
+            }
+            FilterExpr::AggRef(_)
+            | FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

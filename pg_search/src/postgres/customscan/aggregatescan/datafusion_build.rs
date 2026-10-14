@@ -1696,6 +1696,12 @@ impl FilterExpr {
         plan: &RelNode,
         node: *mut pg_sys::Node,
     ) -> Option<Self> {
+        // Same contract as apply_search_filter_or_decline: the DataFusion
+        // aggregate executor can't bind PARAM_EXTERN in scan queries.
+        if node.contains_extern_param() {
+            return None;
+        }
+
         // Must reference exactly one relation (the lhs Var, ctid and row args all share it).
         let rtis = node.collect_rtis();
         if rtis.len() != 1 {
@@ -1703,7 +1709,6 @@ impl FilterExpr {
         }
         let rti = *rtis.iter().next()?;
 
-        // Same source lookup as build_search_filter.
         let source = plan
             .output_sources()
             .into_iter()

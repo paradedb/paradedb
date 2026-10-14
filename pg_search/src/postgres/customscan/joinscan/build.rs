@@ -2082,12 +2082,6 @@ impl JoinCSClause {
             q.solve_postgres_expressions_no_reset(expr_context);
         });
     }
-
-    /// Configures `ScanMode::Tagged` on each join source that participates in search predicates.
-    pub fn jssign_tagged_queries(&mut self) {
-        let predicates = self.plan.search_predicates();
-        assign_tagged_queries(self.plan.sources_mut(), &predicates);
-    }
 }
 
 // ---------------------------------------------------------------------------

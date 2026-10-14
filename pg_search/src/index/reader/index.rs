@@ -1648,6 +1648,8 @@ impl SearchIndexReader {
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
                     );
                 }
+                // Only the field ID is needed; constructing a SearchField loads PostgreSQL
+                // metadata and tokenizer settings for every indexed field.
                 let tantivy_field = self
                     .schema
                     .tantivy_schema()

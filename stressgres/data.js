@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791964699191,
+  "lastUpdate": 1791965712629,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -454666,6 +454666,58 @@ window.BENCHMARK_DATA = {
             "value": 23.998197171875265,
             "unit": "median tps",
             "extra": "avg tps: 40.95866962740294, max tps: 612.4075038344698, count: 59236"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791965705397,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3815.187099462585,
+            "unit": "median tps",
+            "extra": "avg tps: 3816.85048964718, max tps: 4236.228165833829, count: 59238"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4354.923470525871,
+            "unit": "median tps",
+            "extra": "avg tps: 4419.595354479693, max tps: 5204.333529476614, count: 59238"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.38875079706949,
+            "unit": "median tps",
+            "extra": "avg tps: 167.91000714241284, max tps: 2807.6425391196067, count: 59238"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.042177185403187,
+            "unit": "median tps",
+            "extra": "avg tps: 40.83703902227348, max tps: 593.621609139524, count: 59238"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.06700852045986,
+            "unit": "median tps",
+            "extra": "avg tps: 40.627710510548056, max tps: 576.4695994602753, count: 59238"
           }
         ]
       }

@@ -113,6 +113,51 @@ impl HarvestedBitmap {
     }
 }
 
+/// Collects the expression node of every HeapFilter reachable through AND-position structure
+/// (`must` chains and score-neutral wrappers). A HeapFilter under `should`/`must_not` cannot
+/// have its bitmap used to reject rows, so it disqualifies the whole query.
+unsafe fn collect_heap_filter_nodes(
+    sqi: &SearchQueryInput,
+    out: &mut Vec<*mut pg_sys::Node>,
+) -> bool {
+    unsafe {
+        match sqi {
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                always_filters,
+                ..
+            } => {
+                for filter in always_filters {
+                    let node = filter.get_expression_node();
+                    if !node.is_null() {
+                        out.push(node);
+                    }
+                }
+                collect_heap_filter_nodes(indexed_query, out)
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                must.iter().all(|q| collect_heap_filter_nodes(q, out))
+                    && !should
+                        .iter()
+                        .chain(must_not.iter())
+                        .any(|q| q.has_heap_filters())
+            }
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => collect_heap_filter_nodes(query, out),
+            SearchQueryInput::ScoreFilter { query, .. } => query
+                .as_ref()
+                .is_none_or(|q| collect_heap_filter_nodes(q, out)),
+            other => !other.has_heap_filters(),
+        }
+    }
+}
+
 impl BitmapPlanner {
     /// Collect the expr node of every `Qual::HeapExpr` reachable through top-level AND
     /// structure. Returns `None` when there is nothing to cover, or when a HeapExpr
@@ -127,9 +172,14 @@ impl BitmapPlanner {
     ) -> Option<Self> {
         fn collect(qual: &Qual, out: &mut Vec<*mut pg_sys::Node>) -> bool {
             match qual {
-                Qual::HeapExpr { expr_node, .. } => {
+                Qual::HeapExpr {
+                    expr_node,
+                    search_query_input,
+                    ..
+                } => {
                     out.push(*expr_node);
-                    true
+                    // Heap filters nested inside this one's indexed query are AND-position too.
+                    unsafe { collect_heap_filter_nodes(search_query_input, out) }
                 }
                 Qual::And(qs) => qs.iter().all(|q| collect(q, out)),
                 Qual::Or(_) | Qual::Not(_) => !qual.contains_heap_expr(),
@@ -151,9 +201,7 @@ impl BitmapPlanner {
     }
 
     /// Like `from_query`, but for callers that only have the built `SearchQueryInput`
-    /// (the Aggregate Scan). HeapFilter expressions are collected through AND-position
-    /// structure (`must` chains and score-neutral wrappers); a HeapFilter under
-    /// `should`/`must_not` disqualifies for the same reason OR/NOT do in `from_query`.
+    /// (the Aggregate Scan).
     pub fn from_search_query(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
@@ -161,47 +209,11 @@ impl BitmapPlanner {
         query: &SearchQueryInput,
         bm25_row_estimate: Option<f64>,
     ) -> Option<Self> {
-        unsafe fn collect(sqi: &SearchQueryInput, out: &mut Vec<*mut pg_sys::Node>) -> bool {
-            unsafe {
-                match sqi {
-                    SearchQueryInput::HeapFilter {
-                        indexed_query,
-                        always_filters,
-                        ..
-                    } => {
-                        for filter in always_filters {
-                            let node = filter.get_expression_node();
-                            if !node.is_null() {
-                                out.push(node);
-                            }
-                        }
-                        collect(indexed_query, out)
-                    }
-                    SearchQueryInput::Boolean {
-                        must,
-                        should,
-                        must_not,
-                        ..
-                    } => {
-                        must.iter().all(|q| collect(q, out))
-                            && !should
-                                .iter()
-                                .chain(must_not.iter())
-                                .any(|q| q.has_heap_filters())
-                    }
-                    SearchQueryInput::Boost { query, .. }
-                    | SearchQueryInput::ConstScore { query, .. }
-                    | SearchQueryInput::WithIndex { query, .. } => collect(query, out),
-                    SearchQueryInput::ScoreFilter { query, .. } => {
-                        query.as_ref().is_none_or(|q| collect(q, out))
-                    }
-                    other => !other.has_heap_filters(),
-                }
-            }
-        }
-
         let mut heap_exprs = Vec::new();
-        if rel.is_null() || unsafe { !collect(query, &mut heap_exprs) } || heap_exprs.is_empty() {
+        if rel.is_null()
+            || unsafe { !collect_heap_filter_nodes(query, &mut heap_exprs) }
+            || heap_exprs.is_empty()
+        {
             return None;
         }
         Some(Self {

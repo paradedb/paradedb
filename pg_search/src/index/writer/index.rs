@@ -345,7 +345,13 @@ impl SerialIndexWriter {
             max_docs_per_segment: None,
         };
 
-        let pending_segment = Some(PendingSegment::with_id(&index, memory_budget, segment_id)?);
+        // Size the initial term table independently of the unlimited flush threshold.
+        let initial_memory_budget = NonZeroUsize::new(1024 * 1024).unwrap();
+        let pending_segment = Some(PendingSegment::with_id(
+            &index,
+            initial_memory_budget,
+            segment_id,
+        )?);
 
         Ok(Self {
             id: worker_number,

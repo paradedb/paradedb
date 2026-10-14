@@ -47,3 +47,22 @@ WHERE doc_text ||| 'BigData_'
 ORDER BY id;
 
 DROP TABLE data_docstore_query;
+
+-- Materializing many distinct terms must grow the writer without splitting the segment.
+DROP TABLE IF EXISTS mutable_many_terms;
+CREATE TABLE mutable_many_terms (id INTEGER PRIMARY KEY, message TEXT);
+CREATE INDEX mutable_many_terms_idx ON mutable_many_terms USING paradedb (id, message)
+WITH (mutable_segment_rows = 1000, layer_sizes = '0', background_layer_sizes = '0');
+INSERT INTO mutable_many_terms
+SELECT doc, string_agg('term' || ((doc - 1) * 1000 + term), ' ')
+FROM generate_series(1, 100) doc, generate_series(1, 1000) term
+GROUP BY doc;
+SELECT mutable, num_docs FROM paradedb.index_info('mutable_many_terms_idx');
+SELECT id FROM mutable_many_terms
+WHERE message ||| 'term1 term50000 term100000' ORDER BY id;
+DELETE FROM mutable_many_terms WHERE id % 2 = 0;
+VACUUM mutable_many_terms;
+SELECT mutable, num_docs FROM paradedb.index_info('mutable_many_terms_idx', true);
+SELECT id FROM mutable_many_terms
+WHERE message ||| 'term1 term49000 term50000 term99000 term100000' ORDER BY id;
+DROP TABLE mutable_many_terms;

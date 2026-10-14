@@ -172,9 +172,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
     let mut did_delete = !mutable_segments.is_empty();
 
-    flush_mutable_segments(&index_relation, &mutable_segments, &callback)
-        .expect("ambulkdelete: should be able to flush mutable segments");
-
     for segment_reader in reader.segment_readers() {
         let segment_id = segment_reader.segment_id();
         if !writer_segment_ids.contains(&segment_id) || directory.is_mutable(&segment_id) {
@@ -235,6 +232,12 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         save_delete_metas(&index, old_metas, new_metas)
             .expect("ambulkdelete: should be able to save delete metas entries");
     }
+
+    drop(index);
+    drop(directory);
+
+    flush_mutable_segments(&index_relation, &mutable_segments, &callback)
+        .expect("ambulkdelete: should be able to flush mutable segments");
 
     if did_delete {
         // As soon as ambulkdelete returns, Postgres will update the visibility map

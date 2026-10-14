@@ -26,9 +26,9 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::heap::{VisibilityChecker, VisibilityStats};
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::{AggregationVariants, Aggregations};
@@ -49,6 +49,7 @@ pub trait AggregationExec {
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
         limits: AggregationLimitsGuard,
+        visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
     ) -> (DistributedAggregationCollector, Option<VisibilityChecker>);
 }
 
@@ -60,6 +61,7 @@ impl AggregationExec for Aggregations {
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
         limits: AggregationLimitsGuard,
+        visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
     ) -> (DistributedAggregationCollector, Option<VisibilityChecker>) {
         let use_cardinality_fast_path = solve_mvcc
             && !self.is_empty()
@@ -76,26 +78,43 @@ impl AggregationExec for Aggregations {
         let tokenizers = reader.searcher().index().tokenizers().clone();
         let mut params = AggContextParams::new(limits, tokenizers);
         if use_cardinality_fast_path {
+            let ffhelper = Arc::new(FFHelper::for_ctid(reader));
             let vischeck = SendSyncWrapper(Arc::new(Mutex::new(
                 VisibilityChecker::with_rel_and_snap(heaprel, unsafe {
                     pg_sys::GetActiveSnapshot()
-                }),
+                })
+                .with_ffhelper(ffhelper)
+                .with_visibility_stats(visibility_stats.clone()),
             )));
+            let snapshot = Arc::clone(reader.segment_stats_snapshot());
+            let cardinality_stats = visibility_stats.clone();
             let factory: DocVisibilityFilterFactory = Arc::new(move |segment_reader| {
-                let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+                let segment_ord = snapshot
+                    .segment_ordinal(segment_reader.segment_id())
+                    .expect("segment must belong to searcher");
+
+                let mut checker = vischeck.get().lock();
+                if checker.is_segment_all_visible(segment_ord).unwrap_or(false) {
+                    return None;
+                }
+                if let Some(stats) = &cardinality_stats {
+                    stats.lock().record_segment(segment_reader, false);
+                }
+                drop(checker);
+
                 let vischeck = vischeck.get().clone();
                 Some(Box::new(move |doc| {
-                    let Some(ctid) = ctid_ff.as_u64(doc) else {
-                        return false;
-                    };
-                    vischeck.lock().check_one(ctid)
+                    vischeck.lock().check_doc(segment_ord, doc)
                 }))
             });
             params = params.with_doc_visibility_factory(factory);
         }
         let collector = DistributedAggregationCollector::from_aggs(self.clone(), params);
         let vischeck = (solve_mvcc && !use_cardinality_fast_path).then(|| {
+            let ffhelper = Arc::new(FFHelper::for_ctid(reader));
             VisibilityChecker::with_rel_and_snap(heaprel, unsafe { pg_sys::GetActiveSnapshot() })
+                .with_ffhelper(ffhelper)
+                .with_visibility_stats(visibility_stats)
         });
         (collector, vischeck)
     }

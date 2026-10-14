@@ -134,7 +134,7 @@ pub(crate) fn find_matching_fast_field(
                 && let Some(field_type) =
                     field_type_for_pullup(search_field.field_type(), data.is_array)
             {
-                return Some(WhichFastField::Named(
+                return Some(WhichFastField::eager(
                     search_field.field_name().to_string(),
                     field_type,
                 ));
@@ -270,12 +270,12 @@ pub unsafe fn pullup_fast_fields(
             // 2. a call to `pdb.score` inside of an expression which will be solved by a
             //    wrapping/outer scan because it contains vars from other relations.
             if is_score_func((*te).expr.cast(), rti) {
-                matches.push(WhichFastField::Score);
+                matches.push(WhichFastField::score());
                 continue;
             } else if !can_scan_evaluate_expr(rti, (*te).expr.cast()) {
                 // The expression depends on other relations, so it will be evaluated by an upper node.
                 // We just need to provide the score.
-                matches.push(WhichFastField::Score);
+                matches.push(WhichFastField::score());
                 continue;
             }
             // Fallthrough: expression is local but complex -> cannot use fast fields
@@ -372,7 +372,7 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     // Count columns that we have fast fields for (excluding system/junk fields)
     let fast_field_column_count = which_fast_fields
         .iter()
-        .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
+        .filter(|ff| matches!(ff, WhichFastField::Named { .. }))
         .count();
 
     // If we're missing any columns, we can't use fast field execution
@@ -398,7 +398,7 @@ pub fn is_columnar_capable(privdata: &PrivateData) -> bool {
     let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     let named_field_count = which_fast_fields
         .iter()
-        .filter(|wff| matches!(wff, WhichFastField::Named(_, _)))
+        .filter(|wff| matches!(wff, WhichFastField::Named { .. }))
         .count();
 
     0 < named_field_count && named_field_count < gucs::columnar_exec_column_threshold()
@@ -413,7 +413,7 @@ pub fn is_all_special_or_junk_fields<'a>(
             WhichFastField::Junk(_)
                 | WhichFastField::TableOid
                 | WhichFastField::Ctid
-                | WhichFastField::Score
+                | WhichFastField::Score(_)
         )
     })
 }
@@ -429,7 +429,7 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
         // Get all fast fields used, sorted for deterministic output
         let mut fields: Vec<_> = which_fast_fields
             .iter()
-            .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
+            .filter(|ff| matches!(ff, WhichFastField::Named { .. }))
             .map(|ff| ff.name())
             .collect();
         fields.sort();

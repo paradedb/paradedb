@@ -1,0 +1,608 @@
+-- RLS leaky-qual ordering under ParadeDB filter pushdown.
+--
+-- PostgreSQL never evaluates a non-leakproof predicate on a row before the row passes the
+-- relation's RLS policy quals (restriction_is_securely_promotable). The custom scans must
+-- not break that by pushing such a predicate into the scan.
+--
+-- Probe: `secret::int` is non-leakproof (a failed cast reports the value). Org-1 secrets
+-- are integers, org-2 secrets are not, so any ORG2-* value in an error is a leak.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated;
+    END IF;
+END
+$$;
+DO $$
+DECLARE
+    v_session_user name := session_user;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_auth_members m
+        JOIN pg_roles r_member ON r_member.oid = m.member
+        JOIN pg_roles r_role   ON r_role.oid   = m.roleid
+        WHERE r_member.rolname = v_session_user
+          AND r_role.rolname = 'authenticated'
+    ) THEN
+        EXECUTE format('GRANT authenticated TO %I', v_session_user);
+    END IF;
+END
+$$;
+DROP TABLE IF EXISTS leaky_rls_docs CASCADE;
+DROP TABLE IF EXISTS memberships CASCADE;
+-- Which role may see which org. Drives a subquery-based RLS policy.
+CREATE TABLE memberships (role_name text NOT NULL, org_id int NOT NULL);
+INSERT INTO memberships (role_name, org_id) VALUES ('authenticated', 1);
+GRANT SELECT ON memberships TO authenticated;
+CREATE TABLE leaky_rls_docs (
+    id     bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    org_id int  NOT NULL,
+    secret text NOT NULL,
+    body   text NOT NULL
+);
+-- `body` matches the search term in BOTH orgs. Org-1 secrets are castable to int;
+-- org-2 secrets are not, so casting an org-2 row raises an error embedding the value.
+INSERT INTO leaky_rls_docs (org_id, secret, body) VALUES
+    (1, '111',                   'sheriff department report'),
+    (1, '222',                   'sheriff patrol log'),
+    (2, 'ORG2-TOPSECRET-uvwxyz', 'sheriff incident summary'),
+    (2, 'ORG2-CLASSIFIED-98765', 'sheriff dispatch record');
+CREATE INDEX leaky_rls_bm25 ON leaky_rls_docs
+    USING paradedb (id, body, secret, org_id);
+GRANT SELECT ON leaky_rls_docs TO authenticated;
+ALTER TABLE leaky_rls_docs ENABLE ROW LEVEL SECURITY;
+-- Subquery RLS policy -> becomes a SubPlan that stays above the scan.
+CREATE POLICY org_isolation ON leaky_rls_docs FOR SELECT
+    USING (org_id IN (SELECT m.org_id FROM memberships m WHERE m.role_name = current_user));
+--------------------------------------------------------------------------------
+-- CASE A: ParadeDB filter pushdown ON (default). @@@ present.
+-- Safe = rows 1,2 and NO error. A cast error naming an ORG2-* value is an RLS leak.
+--------------------------------------------------------------------------------
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND secret::int > 0
+ORDER BY id;
+ id | org_id 
+----+--------
+  1 |      1
+  2 |      1
+(2 rows)
+
+COMMIT;
+--------------------------------------------------------------------------------
+-- CASE B (control): identical query, filter pushdown OFF. The cast stays a
+-- PostgreSQL post-filter, correctly ordered after RLS, so it must be safe.
+--------------------------------------------------------------------------------
+BEGIN;
+SET LOCAL paradedb.enable_filter_pushdown = off;
+SET LOCAL ROLE authenticated;
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND secret::int > 0
+ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | org_id 
+----+--------
+  1 |      1
+  2 |      1
+(2 rows)
+
+COMMIT;
+--------------------------------------------------------------------------------
+-- CASE C (reference): stock PostgreSQL, no @@@, custom scan disabled. Safe baseline.
+--------------------------------------------------------------------------------
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL ROLE authenticated;
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE secret::int > 0
+ORDER BY id;
+ id | org_id 
+----+--------
+  1 |      1
+  2 |      1
+(2 rows)
+
+COMMIT;
+--------------------------------------------------------------------------------
+-- CASE D: the leaky predicate hidden inside an OR with an `@@@`. The clause can
+-- neither be lowered into the scan nor deferred above it, so the custom scan must
+-- step aside. Safe = rows 1,2 and NO error.
+--------------------------------------------------------------------------------
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND (body @@@ 'zzznomatch' OR secret::int > 0)
+ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | org_id 
+----+--------
+  1 |      1
+  2 |      1
+(2 rows)
+
+COMMIT;
+--------------------------------------------------------------------------------
+-- CASE E: yes/no oracle. Division by zero fires only if the predicate is
+-- evaluated on a hidden ORG2-* row. Safe = rows 1,2 and NO error.
+--------------------------------------------------------------------------------
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND (CASE WHEN secret LIKE 'ORG2-%' THEN 1 ELSE 0 END)
+      / (CASE WHEN secret LIKE 'ORG2-%' THEN 0 ELSE 1 END) = 0
+ORDER BY id;
+ id | org_id 
+----+--------
+  1 |      1
+  2 |      1
+(2 rows)
+
+COMMIT;
+DROP POLICY org_isolation ON leaky_rls_docs;
+DROP TABLE leaky_rls_docs CASCADE;
+DROP TABLE memberships CASCADE;
+--------------------------------------------------------------------------------
+-- CASE F: a deferred predicate must not be combined with LIMIT pushdown. TopK
+-- would count rows that the deferred plan.qual later rejects and stop early.
+-- Rows 1..100 fail the predicate, so the correct answer is 101..105. The policy
+-- is a heap filter rather than an indexed conjunct, so the predicate is deferred.
+--------------------------------------------------------------------------------
+CREATE TABLE leaky_rls_topk (id int PRIMARY KEY, body text NOT NULL, tag text NOT NULL);
+INSERT INTO leaky_rls_topk
+SELECT i, 'sheriff', CASE WHEN i <= 100 THEN 'no' ELSE 'yes' END
+FROM generate_series(1, 200) i;
+CREATE INDEX leaky_rls_topk_bm25 ON leaky_rls_topk USING paradedb (id, body, tag);
+GRANT SELECT ON leaky_rls_topk TO authenticated;
+-- plpgsql so it is not inlined into an indexed `id >= 0`.
+CREATE FUNCTION leaky_rls_topk_visible(int) RETURNS boolean
+    LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN $1 >= 0; END $$;
+ALTER TABLE leaky_rls_topk ENABLE ROW LEVEL SECURITY;
+CREATE POLICY topk_visible ON leaky_rls_topk FOR SELECT USING (leaky_rls_topk_visible(id));
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM leaky_rls_topk
+WHERE body @@@ 'sheriff' AND tag LIKE 'yes%'
+ORDER BY id LIMIT 5;
+                                                                                                                                                 QUERY PLAN                                                                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: id
+         ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_topk
+               Filter: (tag ~~ 'yes%'::text)
+               Table: leaky_rls_topk
+               Index: leaky_rls_topk_bm25
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"leaky_rls_topk_visible(id)"}]}}]}}
+(10 rows)
+
+SELECT id FROM leaky_rls_topk
+WHERE body @@@ 'sheriff' AND tag LIKE 'yes%'
+ORDER BY id LIMIT 5;
+ id  
+-----
+ 101
+ 102
+ 103
+ 104
+ 105
+(5 rows)
+
+COMMIT;
+DROP POLICY topk_visible ON leaky_rls_topk;
+DROP TABLE leaky_rls_topk CASCADE;
+DROP FUNCTION leaky_rls_topk_visible(int);
+--------------------------------------------------------------------------------
+-- Aggregate Scan and Join Scan have no PostgreSQL filter step above the scan,
+-- so they must step aside (leaving the query to the Base Scan) instead of
+-- lowering the leaky predicate next to the RLS policy. A simple policy is used
+-- here because it is pushed into the Tantivy query as well.
+--------------------------------------------------------------------------------
+CREATE TABLE leaky_rls_agg (id int PRIMARY KEY, org_id int NOT NULL, secret text NOT NULL, body text NOT NULL);
+INSERT INTO leaky_rls_agg VALUES
+    (1, 1, '111',                   'sheriff department report'),
+    (2, 1, '222',                   'sheriff patrol log'),
+    (3, 2, 'ORG2-TOPSECRET-uvwxyz', 'sheriff incident summary'),
+    (4, 2, 'ORG2-CLASSIFIED-98765', 'sheriff dispatch record');
+CREATE INDEX leaky_rls_agg_bm25 ON leaky_rls_agg USING paradedb (id, body, secret, org_id);
+CREATE TABLE leaky_rls_tags (id int PRIMARY KEY, doc_id int NOT NULL, label text NOT NULL);
+INSERT INTO leaky_rls_tags SELECT i, ((i - 1) % 4) + 1, 'sheriff tag' FROM generate_series(1, 8) i;
+CREATE INDEX leaky_rls_tags_bm25 ON leaky_rls_tags USING paradedb (id, doc_id, label);
+GRANT SELECT ON leaky_rls_agg, leaky_rls_tags TO authenticated;
+ALTER TABLE leaky_rls_agg ENABLE ROW LEVEL SECURITY;
+CREATE POLICY agg_org ON leaky_rls_agg FOR SELECT USING (org_id = 1);
+-- CASE G: Aggregate Scan. Expect a Base Scan whose heap filter runs the cast
+-- after the indexed policy (see CASE M).
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT count(*) FROM leaky_rls_agg WHERE body @@@ 'sheriff' AND secret::int > 0;
+WARNING:  Aggregate Scan not used: WHERE clause has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: leaky_rls_agg)
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_agg
+         Table: leaky_rls_agg
+         Index: leaky_rls_agg_bm25
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+(7 rows)
+
+SELECT count(*) FROM leaky_rls_agg WHERE body @@@ 'sheriff' AND secret::int > 0;
+WARNING:  Aggregate Scan not used: WHERE clause has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: leaky_rls_agg)
+ count 
+-------
+     2
+(1 row)
+
+COMMIT;
+-- CASE H: aggregate FILTER (WHERE ...) is evaluated after RLS by PostgreSQL.
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT count(*) FILTER (WHERE secret::int > 0) FROM leaky_rls_agg WHERE body @@@ 'sheriff';
+WARNING:  Aggregate Scan not used: aggregate FILTER has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: leaky_rls_agg)
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_agg
+         Table: leaky_rls_agg
+         Index: leaky_rls_agg_bm25
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}}
+(7 rows)
+
+SELECT count(*) FILTER (WHERE secret::int > 0) FROM leaky_rls_agg WHERE body @@@ 'sheriff';
+WARNING:  Aggregate Scan not used: aggregate FILTER has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: leaky_rls_agg)
+ count 
+-------
+     2
+(1 row)
+
+COMMIT;
+-- CASE I: Join Scan. Expect no Join Scan; safe = (1,1),(1,5),(2,2),(2,6).
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT d.id, t.id FROM leaky_rls_agg d JOIN leaky_rls_tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' AND t.label @@@ 'sheriff' AND d.secret::int > 0
+ORDER BY d.id, t.id LIMIT 10;
+WARNING:  JoinScan not used: a WHERE predicate must be evaluated after row-level security policies (tables: d, t)
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.id, t.id
+         ->  Nested Loop
+               Join Filter: (d.id = t.doc_id)
+               ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_agg d
+                     Table: leaky_rls_agg
+                     Index: leaky_rls_agg_bm25
+                     Exec Method: ColumnarExecState
+                     Columnar: id
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+               ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_tags t
+                     Table: leaky_rls_tags
+                     Index: leaky_rls_tags_bm25
+                     Exec Method: ColumnarExecState
+                     Columnar: doc_id, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT d.id, t.id FROM leaky_rls_agg d JOIN leaky_rls_tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' AND t.label @@@ 'sheriff' AND d.secret::int > 0
+ORDER BY d.id, t.id LIMIT 10;
+WARNING:  JoinScan not used: a WHERE predicate must be evaluated after row-level security policies (tables: d, t)
+ id | id 
+----+----
+  1 |  1
+  1 |  5
+  2 |  2
+  2 |  6
+(4 rows)
+
+COMMIT;
+-- CASE J: OR-subquery policy (`is_public OR org_id IN (SELECT ...)`), which the
+-- Join Scan lifts into a join above the scan. Safe = rows 1,2 and NO error.
+DROP POLICY agg_org ON leaky_rls_agg;
+CREATE TABLE leaky_rls_members (role_name text NOT NULL, org_id int NOT NULL);
+INSERT INTO leaky_rls_members VALUES ('authenticated', 1);
+CREATE INDEX leaky_rls_members_bm25 ON leaky_rls_members USING paradedb (org_id, role_name);
+GRANT SELECT ON leaky_rls_members TO authenticated;
+ALTER TABLE leaky_rls_agg ADD COLUMN is_public boolean NOT NULL DEFAULT false;
+CREATE POLICY agg_org_or ON leaky_rls_agg FOR SELECT
+    USING (is_public OR org_id IN (SELECT m.org_id FROM leaky_rls_members m WHERE m.role_name = current_user));
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT id FROM leaky_rls_agg WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT id FROM leaky_rls_agg WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 10;
+ id 
+----
+  1
+  2
+(2 rows)
+
+COMMIT;
+DROP POLICY agg_org_or ON leaky_rls_agg;
+DROP TABLE leaky_rls_agg, leaky_rls_tags, leaky_rls_members CASCADE;
+--------------------------------------------------------------------------------
+-- CASE K: stacked policies. PostgreSQL gives each policy its own security level
+-- (restrictive ones first, then the permissive OR) and evaluates them in that
+-- order before the caller's predicates. Here:
+--   level 0: restrictive SubPlan policy that admits every org (stays in plan.qual)
+--   level 1: permissive non-leakproof function admitting org 1 only (deferred)
+--   level 2: the caller's correlated SubPlan with the leaky cast
+-- plan.qual must keep that order, so the cast never sees an org-2 row.
+-- Safe = rows 1,2 and NO error.
+--------------------------------------------------------------------------------
+CREATE TABLE leaky_rls_stack (id int PRIMARY KEY, org_id int NOT NULL, secret text NOT NULL, body text NOT NULL);
+INSERT INTO leaky_rls_stack VALUES
+    (1, 1, '111',                   'sheriff department report'),
+    (2, 1, '222',                   'sheriff patrol log'),
+    (3, 2, 'ORG2-TOPSECRET-uvwxyz', 'sheriff incident summary'),
+    (4, 2, 'ORG2-CLASSIFIED-98765', 'sheriff dispatch record');
+CREATE INDEX leaky_rls_stack_bm25 ON leaky_rls_stack USING paradedb (id, body, secret, org_id);
+CREATE TABLE leaky_rls_stack_orgs (org_id int NOT NULL);
+INSERT INTO leaky_rls_stack_orgs VALUES (1), (2);
+GRANT SELECT ON leaky_rls_stack, leaky_rls_stack_orgs TO authenticated;
+-- plpgsql so it is not inlined into a (leakproof) `org_id = 1`.
+CREATE FUNCTION leaky_rls_stack_org_check(int) RETURNS boolean
+    LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN $1 = 1; END $$;
+ALTER TABLE leaky_rls_stack ENABLE ROW LEVEL SECURITY;
+CREATE POLICY stack_all_orgs ON leaky_rls_stack AS RESTRICTIVE FOR SELECT
+    USING (org_id IN (SELECT o.org_id FROM leaky_rls_stack_orgs o));
+CREATE POLICY stack_org_1 ON leaky_rls_stack FOR SELECT
+    USING (leaky_rls_stack_org_check(org_id));
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM leaky_rls_stack s
+WHERE body @@@ 'sheriff' AND (SELECT s.secret::int) > 0
+ORDER BY id;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: s.id
+   ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_stack s
+         Filter: ((ANY (org_id = (hashed SubPlan 2).col1)) AND leaky_rls_stack_org_check(org_id) AND ((SubPlan 1) > 0))
+         Table: leaky_rls_stack
+         Index: leaky_rls_stack_bm25
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}
+         SubPlan 2
+           ->  Seq Scan on leaky_rls_stack_orgs o
+         SubPlan 1
+           ->  Result
+(13 rows)
+
+SELECT id FROM leaky_rls_stack s
+WHERE body @@@ 'sheriff' AND (SELECT s.secret::int) > 0
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+COMMIT;
+DROP TABLE leaky_rls_stack, leaky_rls_stack_orgs CASCADE;
+DROP FUNCTION leaky_rls_stack_org_check(int);
+--------------------------------------------------------------------------------
+-- Shared fixture for the remaining cases: hidden (org 2) rows come FIRST in doc
+-- order, so a predicate evaluated before RLS hits an ORG2-* value.
+--------------------------------------------------------------------------------
+CREATE TABLE leaky_rls_members (role_name text NOT NULL, org_id int NOT NULL);
+INSERT INTO leaky_rls_members VALUES ('authenticated', 1);
+GRANT SELECT ON leaky_rls_members TO authenticated;
+CREATE TABLE leaky_rls_join (id int PRIMARY KEY, org_id int NOT NULL, secret text NOT NULL, body text NOT NULL);
+INSERT INTO leaky_rls_join VALUES
+    (1, 2, 'ORG2-TOPSECRET-uvwxyz', 'sheriff incident summary'),
+    (2, 2, 'ORG2-CLASSIFIED-98765', 'sheriff dispatch record'),
+    (3, 1, '111',                   'sheriff department report'),
+    (4, 1, '222',                   'sheriff patrol log');
+CREATE INDEX leaky_rls_join_bm25 ON leaky_rls_join USING paradedb (id, body, secret, org_id);
+CREATE TABLE leaky_rls_join_tags (id int PRIMARY KEY, doc_id int NOT NULL, label text NOT NULL);
+INSERT INTO leaky_rls_join_tags SELECT i, ((i - 1) % 4) + 1, 'sheriff tag' FROM generate_series(1, 8) i;
+CREATE INDEX leaky_rls_join_tags_bm25 ON leaky_rls_join_tags USING paradedb (id, doc_id, label);
+GRANT SELECT ON leaky_rls_join, leaky_rls_join_tags TO authenticated;
+ALTER TABLE leaky_rls_join ENABLE ROW LEVEL SECURITY;
+CREATE POLICY join_org ON leaky_rls_join FOR SELECT
+    USING (org_id IN (SELECT m.org_id FROM leaky_rls_members m WHERE m.role_name = current_user));
+--------------------------------------------------------------------------------
+-- CASE L: a leaky join clause. With pdb.score() the Base Scan pushes join
+-- clauses into its query for scoring. The leaky cast must become `all` there,
+-- leaving it to the join, which runs after RLS.
+-- Safe = (3,3),(3,7),(4,4),(4,8), all scored, and NO error.
+--------------------------------------------------------------------------------
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM leaky_rls_join d JOIN leaky_rls_join_tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' OR (t.label @@@ 'tag' AND d.secret::int > 0)
+ORDER BY d.id, t.id;
+WARNING:  JoinScan not used: subquery cannot be pushed into the scan (tables: d, t)
+ id | id | scored 
+----+----+--------
+  3 |  3 | t
+  3 |  7 | t
+  4 |  4 | t
+  4 |  8 | t
+(4 rows)
+
+COMMIT;
+-- CASE L (control): stock PostgreSQL. Safe = (3,3),(3,7),(4,4),(4,8) and NO error.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL ROLE authenticated;
+SELECT d.id, t.id
+FROM leaky_rls_join d JOIN leaky_rls_join_tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' OR (t.label @@@ 'tag' AND d.secret::int > 0)
+ORDER BY d.id, t.id;
+WARNING:  JoinScan not used: subquery cannot be pushed into the scan (tables: d, t)
+ id | id 
+----+----
+  3 |  3
+  3 |  7
+  4 |  4
+  4 |  8
+(4 rows)
+
+COMMIT;
+DROP TABLE leaky_rls_join, leaky_rls_join_tags CASCADE;
+--------------------------------------------------------------------------------
+-- CASE M: a policy on an indexed column is part of the heap filter's
+-- indexed_query, so Tantivy applies it before the leaky cast runs. The cast
+-- stays in the scan (with TopK). Safe = rows 3,4 and NO error.
+--------------------------------------------------------------------------------
+CREATE TABLE leaky_rls_indexed (id int PRIMARY KEY, org_id int NOT NULL, secret text NOT NULL, body text NOT NULL);
+INSERT INTO leaky_rls_indexed VALUES
+    (1, 2, 'ORG2-TOPSECRET-uvwxyz', 'sheriff incident summary'),
+    (2, 2, 'ORG2-CLASSIFIED-98765', 'sheriff dispatch record'),
+    (3, 1, '111',                   'sheriff department report'),
+    (4, 1, '222',                   'sheriff patrol log');
+CREATE INDEX leaky_rls_indexed_bm25 ON leaky_rls_indexed USING paradedb (id, body, secret, org_id);
+GRANT SELECT ON leaky_rls_indexed TO authenticated;
+ALTER TABLE leaky_rls_indexed ENABLE ROW LEVEL SECURITY;
+CREATE POLICY indexed_org ON leaky_rls_indexed FOR SELECT USING (org_id = 1);
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 5;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_indexed
+         Table: leaky_rls_indexed
+         Index: leaky_rls_indexed_bm25
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+(9 rows)
+
+SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id;
+ id 
+----
+  3
+  4
+(2 rows)
+
+SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 5;
+ id 
+----
+  3
+  4
+(2 rows)
+
+COMMIT;
+-- CASE M (boundary): with a second, subquery-based policy the cast must be
+-- deferred again, since the SubPlan is not part of the indexed_query.
+-- Safe = rows 3,4 and NO error.
+CREATE POLICY indexed_member ON leaky_rls_indexed AS RESTRICTIVE FOR SELECT
+    USING (org_id IN (SELECT m.org_id FROM leaky_rls_members m WHERE m.role_name = current_user));
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 5;
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: leaky_rls_indexed.id
+         ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_indexed
+               Filter: ((ANY (org_id = (hashed SubPlan 1).col1)) AND ((secret)::integer > 0))
+               Table: leaky_rls_indexed
+               Index: leaky_rls_indexed_bm25
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}}
+               SubPlan 1
+                 ->  Seq Scan on leaky_rls_members m
+                       Filter: (role_name = CURRENT_USER)
+(13 rows)
+
+SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 5;
+ id 
+----
+  3
+  4
+(2 rows)
+
+COMMIT;
+DROP TABLE leaky_rls_indexed CASCADE;
+--------------------------------------------------------------------------------
+-- CASE N: a leaky predicate implied by the partial index predicate is dropped
+-- before extraction and never evaluated, so it is neither deferred nor a reason
+-- to decline. Expect no `tag` filter in the plan. Safe = rows 103,104 and NO error.
+--------------------------------------------------------------------------------
+CREATE TABLE leaky_rls_partial (id int PRIMARY KEY, org_id int NOT NULL, tag text NOT NULL, body text NOT NULL);
+INSERT INTO leaky_rls_partial VALUES
+    (101, 2, 'yes', 'sheriff incident summary'),
+    (102, 2, 'yes', 'sheriff dispatch record'),
+    (103, 1, 'yes', 'sheriff department report'),
+    (104, 1, 'yes', 'sheriff patrol log'),
+    (105, 1, 'no',  'sheriff archive');
+CREATE INDEX leaky_rls_partial_bm25 ON leaky_rls_partial USING paradedb (id, body, org_id)
+    WHERE tag LIKE 'yes%';
+GRANT SELECT ON leaky_rls_partial TO authenticated;
+ALTER TABLE leaky_rls_partial ENABLE ROW LEVEL SECURITY;
+CREATE POLICY partial_member ON leaky_rls_partial FOR SELECT
+    USING (org_id IN (SELECT m.org_id FROM leaky_rls_members m WHERE m.role_name = current_user));
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM leaky_rls_partial WHERE body @@@ 'sheriff' AND tag LIKE 'yes%' ORDER BY id LIMIT 5;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: leaky_rls_partial.id
+         ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_partial
+               Filter: (ANY (org_id = (hashed SubPlan 1).col1))
+               Table: leaky_rls_partial
+               Index: leaky_rls_partial_bm25
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}
+               SubPlan 1
+                 ->  Seq Scan on leaky_rls_members m
+                       Filter: (role_name = CURRENT_USER)
+(13 rows)
+
+SELECT id FROM leaky_rls_partial WHERE body @@@ 'sheriff' AND tag LIKE 'yes%' ORDER BY id LIMIT 5;
+ id  
+-----
+ 103
+ 104
+(2 rows)
+
+COMMIT;
+DROP TABLE leaky_rls_partial, leaky_rls_members CASCADE;

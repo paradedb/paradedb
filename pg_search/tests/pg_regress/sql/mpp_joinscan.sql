@@ -225,10 +225,10 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
--- Pass 6: outer joins keep the shuffle path
+-- Pass 6: outer joins
 --
--- The co-partitioned range flip applies to inner joins only. A LEFT JOIN
--- must keep the shuffle-based shape and stay correct under MPP.
+-- A LEFT JOIN on the partition keys is co-partitioned like an inner join and
+-- runs task-locally. On any other key it shuffles, and must stay correct.
 -- =====================================================================
 
 SET max_parallel_workers_per_gather TO 4;
@@ -248,17 +248,18 @@ LIMIT 10;
 
 -- With the fetch in the scan, only the decode sits above the shuffle. Its worker
 -- has no scan of `f` in its stage, so it rebuilds the dictionary reader itself.
+-- `p.id` is not the partition key, so this join shuffles.
 SET paradedb.defer_column_fetch TO off;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
-FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.id
 WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
-FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.id
 WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;

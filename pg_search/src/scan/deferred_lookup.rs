@@ -133,13 +133,14 @@ pub(crate) fn open_rebuilt_ffhelper(
         None,
         None,
         /* needs_tokenizer_manager */ false,
+        None,
     )
     .map_err(|e| DataFusionError::Internal(format!("ffhelper rebuild: open reader: {e}")))?;
 
     let width = entries.iter().map(|(i, _)| i + 1).max().unwrap_or(0);
     let mut which: Vec<WhichFastField> = vec![WhichFastField::Junk(String::new()); width];
     for (ff_index, rb) in entries {
-        which[*ff_index] = WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+        which[*ff_index] = WhichFastField::eager(rb.field_name.clone(), rb.field_type);
     }
     Ok(Arc::new(FFHelper::with_fields(&reader, &which)))
 }

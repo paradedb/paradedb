@@ -4,7 +4,9 @@ description: "ParadeDB release notes for 0.25.4"
 noindex: true
 ---
 
-## New Features 🎉
+See GitHub release: [v0.25.4](https://github.com/paradedb/paradedb/releases/tag/v0.25.4)
+
+## New Features ✨
 
 - Added support for aggregate score joins, enabling queries to `ORDER BY` a sum of scores across
   joined tables.
@@ -26,7 +28,7 @@ noindex: true
 
 ## Stability Improvements 💪
 
-- Parallel MPP worker scans and leader consumers now replay the leaders's segment view and mutable
+- Parallel MPP worker scans and leader consumers now replay the leader's segment view and mutable
   segment bounds.
 - AggregateScan now validates collation semantics during `GROUP BY` pushdown, falling back to PostgreSQL
   for non-deterministic collations and `GROUPING SETS`.
@@ -38,5 +40,3 @@ noindex: true
 ## New Contributors 👋
 
 - [**aryanpatel-ctrl**](https://github.com/aryanpatel-ctrl)
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.4).

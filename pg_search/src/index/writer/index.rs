@@ -28,6 +28,7 @@ use tantivy::{
     directory::RamDirectory,
 };
 
+use crate::index::ctid_map;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
@@ -301,8 +302,9 @@ impl SerialIndexWriter {
         }
 
         let directory = mvcc_satisfies.directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = crate::index::open_index(directory)?;
         stats::register(&mut index);
+        ctid_map::register(&mut index);
         if has_vector_field {
             set_ivf_clusterer(&mut index, index_relation.options());
         }
@@ -526,8 +528,9 @@ impl SearchIndexMerger {
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
         let schema = indexrel.schema()?;
-        let mut index = Index::open(directory.clone())?;
+        let mut index = crate::index::open_index(directory.clone())?;
         stats::register(&mut index);
+        ctid_map::register(&mut index);
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, indexrel.options());
         }
@@ -536,6 +539,37 @@ impl SearchIndexMerger {
             merged_segment_ids: Default::default(),
             directory,
         })
+    }
+
+    /// Identifies candidate segments that require rebuilding before their vectors can be merged.
+    pub fn unsupported_vector_segments(
+        &self,
+        candidates: &HashMap<SegmentId, SegmentMetaEntry>,
+    ) -> tantivy::Result<HashSet<SegmentId>> {
+        let mut unsupported = HashSet::default();
+        if !self
+            .index
+            .schema()
+            .fields()
+            .any(|(_, entry)| matches!(entry.field_type(), tantivy::schema::FieldType::Vector(_)))
+        {
+            return Ok(unsupported);
+        }
+        for segment in self.index.searchable_segments()? {
+            if !candidates.contains_key(&segment.id()) {
+                continue;
+            }
+            match segment.validate_vector_format() {
+                Ok(()) => {}
+                Err(tantivy::TantivyError::IncompatibleIndex(
+                    tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. },
+                )) => {
+                    unsupported.insert(segment.id());
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(unsupported)
     }
 
     pub fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {

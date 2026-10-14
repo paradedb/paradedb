@@ -56,5 +56,5 @@ jobs:
       - name: Lint Migration Fragments
         run: |
           ./scripts/release.sh lint-fragments \
-            --base-ref "${{ github.base_ref }}" \
+            --base-ref "${GITHUB_BASE_REF}" \
             --base-sha "$(git rev-parse HEAD^1)"

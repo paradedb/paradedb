@@ -32,3 +32,14 @@ TRUNCATE paradedb._typmod_cache;
 SELECT 'hello, world'::pdb.ngram(66, 78)::text[];
 RESET ROLE;
 DROP ROLE IF EXISTS typmod_cache_lowpriv;
+-- An id that isn't in the cache table is reported as not found.
+SELECT paradedb.generic_typmod_out(2147483647);
+-- An index whose tokenizer options were deleted from the cache table reports the
+-- missing entry when a new session opens it.
+CREATE TABLE typmod_cache_deleted (id int PRIMARY KEY, body text);
+CREATE INDEX typmod_cache_deleted_idx ON typmod_cache_deleted
+    USING paradedb (id, (body::pdb.simple('alias=typmod_cache_deleted')));
+DELETE FROM paradedb._typmod_cache WHERE typmod = ARRAY['alias=typmod_cache_deleted'];
+\c
+SELECT count(*) FROM typmod_cache_deleted WHERE id @@@ pdb.all();
+DROP TABLE typmod_cache_deleted;

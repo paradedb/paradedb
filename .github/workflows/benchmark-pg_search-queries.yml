@@ -85,8 +85,8 @@ jobs:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
-      - image=ubuntu24-full-arm64
+      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
+      - image=ubuntu26-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
@@ -125,9 +125,10 @@ jobs:
           contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmarks \
             --remove-label benchmark-stackoverflow \
             --remove-label benchmark-cohere-hnsw \
@@ -138,17 +139,19 @@ jobs:
 
       - name: Determine Ref to Benchmark
         id: determine-ref
+        env:
+          INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # If a specific commit was provided via workflow_dispatch, use that.
           # For pull_request events, benchmark the PR merge commit (github.sha),
           # which exists in the base repo even for forks.
           # Otherwise, default to main.
-          if [ -n "${{ inputs.commit }}" ]; then
-            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from pull_request event: ${{ github.sha }}"
+          if [ -n "${INPUTS_COMMIT}" ]; then
+            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${INPUTS_COMMIT}"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${GITHUB_SHA}"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Determined ref as default: main"
@@ -158,7 +161,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -264,7 +267,9 @@ jobs:
               : ref;
 
       - name: Running for ${{ steps.pr_label.outputs.result }}
-        run: echo ${{ steps.pr_label.outputs.result }}
+        env:
+          STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
+        run: echo "${STEP_PR_LABEL_RESULT}"
 
       - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
@@ -300,9 +305,6 @@ jobs:
           size: 100k
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -332,9 +334,6 @@ jobs:
           size: 1m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -364,9 +363,6 @@ jobs:
           size: 20m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -424,9 +420,6 @@ jobs:
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -478,9 +471,6 @@ jobs:
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -493,6 +483,7 @@ jobs:
         working-directory: benchmarks/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           # A size that was skipped/failed leaves its .tsv missing; touch both so `cat` (and thus
@@ -520,16 +511,26 @@ jobs:
             printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the p50 / p95 / p99 latency at that point. Latency is measured once per held-out query vector (the same set recall uses), not by repeating a single vector. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
           } > recall_body.md
           cat recall_body.md
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file recall_body.md
+          if [ -n "${PR_NUMBER}" ]; then
+            gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file recall_body.md
           else
-            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@recall_body.md
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@recall_body.md
           fi
 
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [benchmark-pg_search-queries]
+    if: always() && needs.benchmark-pg_search-queries.result == 'failure' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    steps:
       - name: Notify Slack on Failure (push only)
-        if: failure() && github.event_name == 'push'
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
+          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
+          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"

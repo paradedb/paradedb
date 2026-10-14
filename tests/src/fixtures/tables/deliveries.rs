@@ -17,20 +17,21 @@
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
-use soa_derive::StructOfArray;
 use sqlx::FromRow;
 use sqlx::postgres::types::PgRange;
 use std::ops::Range;
 
-#[derive(Debug, PartialEq, FromRow, StructOfArray)]
-pub struct DeliveriesTable {
-    pub delivery_id: i32,
-    pub weights: Range<i32>,
-    pub quantities: PgRange<i64>,
-    pub prices: BigDecimal,
-    pub ship_dates: PgRange<NaiveDate>,
-    pub facility_arrival_times: PgRange<NaiveDateTime>,
-    pub delivery_times: PgRange<NaiveDateTime>,
+fixture_table! {
+    #[derive(Debug, PartialEq, FromRow)]
+    pub struct DeliveriesTable => DeliveriesTableVec {
+        pub delivery_id: i32,
+        pub weights: Range<i32>,
+        pub quantities: PgRange<i64>,
+        pub prices: BigDecimal,
+        pub ship_dates: PgRange<NaiveDate>,
+        pub facility_arrival_times: PgRange<NaiveDateTime>,
+        pub delivery_times: PgRange<NaiveDateTime>,
+    }
 }
 
 impl DeliveriesTable {

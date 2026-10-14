@@ -1,27 +1,42 @@
 ---
 title: Kubernetes
-description: How to deploy ParadeDB as a Kubernetes cluster into production
+description: Run ParadeDB in an existing Kubernetes cluster
 canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/kubernetes
 ---
 
-For Kubernetes deployments, we recommend running ParadeDB with [CloudNativePG](https://cloudnative-pg.io/). Both ParadeDB Community and Enterprise binaries can be deployed on Kubernetes.
+Both ParadeDB Community and Enterprise can be deployed on Kubernetes. There are two deployment options:
 
-<Note>
-  ParadeDB Community can run on Kubernetes as a single-node deployment. Use
-  [ParadeDB Enterprise](/operate/deploy/enterprise) when ParadeDB indexes need
-  physical replication for [high
-  availability](/operate/deploy/self-hosted/high-availability), failover, or
-  read replicas that can serve ParadeDB queries.
-</Note>
+- **If you don't already use CloudNativePG**, follow the [ParadeDB Helm Chart setup](#deploying-with-the-helm-chart) to install CloudNativePG and deploy your ParadeDB cluster.
+- **If you already use CloudNativePG**, use the [ParadeDB extension image](#using-the-extension-image-with-cloudnativepg) to add ParadeDB to your existing cluster.
 
-This guide uses the [ParadeDB Helm Chart](https://github.com/paradedb/charts). The chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+---
 
-## Prerequisites
+## Deploying with the Helm Chart
+
+The [ParadeDB Helm Chart](https://github.com/paradedb/charts) is based on [CloudNativePG](https://cloudnative-pg.io/) and is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+
+### Prerequisites
 
 This guide assumes you have installed [Helm](https://helm.sh/docs/intro/install/) and have a Kubernetes cluster running v1.29+.
 For local testing, we recommend [Minikube](https://minikube.sigs.k8s.io/docs/start/).
 
-## Install the Prometheus Stack
+Create the `paradedb` namespace.
+
+```bash
+kubectl create namespace paradedb
+```
+
+If you are using ParadeDB Enterprise, create a Kubernetes secret with the registry credentials provided by ParadeDB to pull the Enterprise image. If you are using Community, you can skip this step.
+
+```bash ParadeDB Enterprise
+kubectl create secret docker-registry paradedb-enterprise-registry-cred \
+--namespace paradedb \
+--docker-server="https://index.docker.io/v1/" \
+--docker-username="<username>" \
+--docker-password="<access_token>"
+```
+
+### Installing the Prometheus Stack
 
 The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. To enable this, you need to have the Prometheus CRDs installed before installing the CloudNativePG operator. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install them with:
 
@@ -34,7 +49,7 @@ helm upgrade --atomic --install prometheus-community \
 prometheus-community/kube-prometheus-stack
 ```
 
-## Install the CloudNativePG Operator
+### Installing the CloudNativePG Operator
 
 Skip this step if the CloudNativePG operator is already installed in your cluster. If you do not wish to monitor your cluster, omit the `--set` commands.
 
@@ -48,9 +63,9 @@ helm upgrade --atomic --install cnpg \
 cnpg/cloudnative-pg
 ```
 
-## Start a ParadeDB CNPG Cluster
+### Starting the ParadeDB Cluster
 
-Create a `values.yaml` and configure it to your requirements. Here is a basic example:
+Create a `values.yaml` and configure it to your requirements. See the chart's [default `values.yaml`](https://github.com/paradedb/charts/blob/dev/charts/paradedb/values.yaml) for available configuration options and their defaults. Here is a basic example:
 
 <CodeGroup>
 
@@ -61,7 +76,14 @@ mode: standalone
 cluster:
   instances: 1
   storage:
-    size: 256Mi
+    size: 10Gi
+  walStorage:
+    enabled: true
+    size: 1Gi
+
+monitoring:
+  grafanaDashboard:
+    create: true
 ```
 
 ```yaml ParadeDB Enterprise
@@ -69,59 +91,76 @@ type: paradedb-enterprise
 mode: standalone
 
 cluster:
-  instances: 1
+  instances: 3
   storage:
-    size: 256Mi
+    size: 10Gi
+  walStorage:
+    enabled: true
+    size: 1Gi
+
+monitoring:
+  grafanaDashboard:
+    create: true
 ```
 
 </CodeGroup>
-
-<Note>
-  If you are using ParadeDB Enterprise for high availability, set `instances` to
-  a number greater than `1`.
-</Note>
-
-Next, create a namespace for this step or use an existing namespace. The namespace can be any value.
-
-```bash
-kubectl create namespace <your-namespace>
-```
-
-For ParadeDB Enterprise, you should have received an enterprise Docker username and personal access token. The following step passes these
-credentials to Kubernetes and should be skipped if you are deploying ParadeDB Community.
-
-```bash ParadeDB Enterprise
-kubectl create secret docker-registry paradedb-enterprise-registry-cred \
---namespace <your-namespace> \
---docker-server="https://index.docker.io/v1/" \
---docker-username="<enterprise_docker_username>" \
---docker-password="<enterprise_docker_access_token>"
-```
 
 Finally, launch the ParadeDB cluster.
 
 ```bash
 helm repo add paradedb https://paradedb.github.io/charts
 helm upgrade --atomic --install paradedb \
---namespace <your-namespace> \
+--namespace paradedb \
 --values values.yaml \
 --set cluster.monitoring.enabled=true \
 paradedb/paradedb
 ```
 
-## Use the Extension Image with CloudNativePG
+### Connecting to the Cluster
 
-If you already run a CloudNativePG cluster and want to add ParadeDB to an
-existing Postgres image, use the ParadeDB extension image instead of the full
-`paradedb/paradedb` image. Extension images require Postgres 18+ because they
-depend on `extension_control_path`.
+Connect to the cluster via `kubectl exec`:
 
-Add the `pg_search` extension image to the `postgresql.extensions` section of
-your CloudNativePG `Cluster` resource:
+```bash
+kubectl exec service/paradedb-rw -n paradedb -it -- psql
+```
 
-import { version } from "/snippets/version.mdx";
+### Connecting to the Grafana Dashboard
 
-```yaml
+The ParadeDB Helm Chart includes a Grafana dashboard to help you monitor your cluster. To access the dashboard, forward the Grafana service to localhost:
+
+```bash
+kubectl --namespace prometheus-community port-forward svc/prometheus-community-grafana 3000:80
+```
+
+The dashboard will be accessible at `localhost:3000` under username `admin` and password `prom-operator`. A more detailed guide on configuring the monitoring stack can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.30/monitoring).
+
+---
+
+## Using the Extension Image with CloudNativePG
+
+The ParadeDB extension image uses CloudNativePG's [image volume support](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) to load ParadeDB into your existing Postgres cluster.
+
+### Prerequisites
+
+This requires Postgres 18+ and Kubernetes support for image volumes. See the [CloudNativePG extension image guide](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) for requirements and configuration details.
+
+If you are using ParadeDB Enterprise, create a Kubernetes secret with the registry credentials provided by ParadeDB to pull the Enterprise image. If you are using Community, you can skip this step. Use your cluster's namespace in place of `paradedb` if it differs.
+
+```bash ParadeDB Enterprise
+kubectl create secret docker-registry paradedb-enterprise-registry-cred \
+--namespace paradedb \
+--docker-server="https://index.docker.io/v1/" \
+--docker-username="<username>" \
+--docker-password="<access_token>"
+```
+
+### Configuring the Extension Image
+
+The `pg_search` extension requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource and save it as `cluster.yaml`:
+
+<CodeGroup>
+
+```yaml ParadeDB Community
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -137,58 +176,81 @@ spec:
     shared_preload_libraries:
       - "pg_search"
     extensions:
+      # You can omit this if pgvector is already installed on your cluster
+      - name: vector
+        image:
+          reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
       - name: pg_search
         image:
-          reference: docker.io/paradedb/paradedb-extension:{version}-18-trixie
+          reference: docker.io/paradedb/paradedb-extension:0.26.1-18-trixie
         extension_control_path:
-          - /share
+          - share
         dynamic_library_path:
-          - /lib
+          - lib
+        ld_library_path:
+          - system
 ```
 
-Then enable the extension in a database:
+```yaml ParadeDB Enterprise
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: paradedb
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+  instances: 3
+  imagePullSecrets:
+    - name: paradedb-enterprise-registry-cred
+
+  storage:
+    size: 1Gi
+
+  postgresql:
+    shared_preload_libraries:
+      - "pg_search"
+    extensions:
+      # You can omit this if pgvector is already installed on your cluster
+      - name: vector
+        image:
+          reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
+      - name: pg_search
+        image:
+          reference: docker.io/paradedb/paradedb-enterprise-extension:0.26.1-18-trixie
+        extension_control_path:
+          - share
+        dynamic_library_path:
+          - lib
+        ld_library_path:
+          - system
+```
+
+</CodeGroup>
+
+Configure your database to enable pgvector and `pg_search` using a `Database` resource and save it as `database.yaml`:
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
-  name: paradedb-app
+  name: paradedb
 spec:
   name: app
   owner: app
   cluster:
     name: paradedb
   extensions:
+    - name: vector
+      version: "0.8.6"
     - name: pg_search
-      version: "{version}"
+      version: "0.26.1"
 ```
 
-The extension image tag format is `<paradedb-version>-<postgres-major>-trixie`.
-For example, use `{version}-18-trixie` for ParadeDB `{version}` on Postgres 18.
+### Installing the Extension Image
 
-## Connect to the Cluster
-
-The command to connect to the primary instance of the cluster will be printed in your terminal. If you do not modify any settings, it will be:
+Apply the resources in your cluster's namespace:
 
 ```bash
-kubectl --namespace paradedb exec --stdin --tty services/paradedb-rw -- bash
+kubectl apply --namespace <namespace> -f cluster.yaml -f database.yaml
 ```
 
-This will launch a Bash shell inside the instance. You can connect to the ParadeDB database via `psql` with:
-
-```bash
-psql -d paradedb
-```
-
-## Connect to the Grafana Dashboard
-
-To connect to the Grafana dashboard for your cluster, we suggested port forwarding the Kubernetes service running Grafana to localhost:
-
-```bash
-kubectl --namespace prometheus-community port-forward svc/prometheus-community-grafana 3000:80
-```
-
-You can then access the Grafana dashboard at `localhost:3000` using `admin` as the username
-and `prom-operator` as the password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
-file used as the `values.yaml` file in [Install the Prometheus Stack](#install-the-prometheus-stack) and can be modified by providing
-your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.30/monitoring).
+Once the cluster is ready, connect to your database as usual. CloudNativePG enables `vector` and `pg_search` automatically, so you do not need to run `CREATE EXTENSION`.

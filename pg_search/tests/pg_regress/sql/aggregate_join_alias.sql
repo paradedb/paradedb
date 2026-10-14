@@ -13,6 +13,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan TO on;
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_custom_scan_without_operator TO on;
 
 -- Test Data
 CREATE TABLE repro_cccf (
@@ -112,5 +113,6 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- Cleanup
+RESET paradedb.enable_custom_scan_without_operator;
 DROP TABLE repro_cccf CASCADE;
 DROP TABLE repro_ti CASCADE;

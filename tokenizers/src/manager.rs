@@ -369,7 +369,10 @@ pub enum SearchTokenizer {
         pattern: String,
         filters: SearchTokenizerFilters,
     },
-    ChineseCompatible(SearchTokenizerFilters),
+    ChineseCompatible {
+        chinese_convert: Option<ConvertMode>,
+        filters: SearchTokenizerFilters,
+    },
     SourceCode(SearchTokenizerFilters),
     Ngram {
         min_gram: usize,
@@ -404,6 +407,8 @@ pub enum SearchTokenizer {
     ICUTokenizer(SearchTokenizerFilters),
     Jieba {
         chinese_convert: Option<ConvertMode>,
+        /// Emit compound words and their parts. Defaults to true.
+        search_mode: bool,
         filters: SearchTokenizerFilters,
     },
     LinderaDeprecated(LinderaLanguage, SearchTokenizerFilters),
@@ -420,6 +425,12 @@ pub enum SearchTokenizer {
     },
     UnicodeWords {
         remove_emojis: bool,
+        filters: SearchTokenizerFilters,
+    },
+    /// A `RegexTokenizer` under the name older versions gave it, which left out the pattern.
+    /// Only registered so that indexes built by those versions still find their analyzer.
+    RegexTokenizerDeprecated {
+        pattern: String,
         filters: SearchTokenizerFilters,
     },
 }
@@ -440,6 +451,21 @@ impl Default for SearchTokenizer {
             filters: SearchTokenizerFilters::default(),
         }
     }
+}
+
+/// Parses the `chinese_convert` field shared by the `jieba` and `chinese_compatible` JSON
+/// tokenizer configs. `tokenizer_name` is used only to name the tokenizer in the error message.
+fn parse_chinese_convert_json(
+    value: &serde_json::Value,
+    tokenizer_name: &str,
+) -> Result<Option<ConvertMode>, anyhow::Error> {
+    if value["chinese_convert"].is_null() {
+        return Ok(None);
+    }
+    let mode = serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
+        anyhow::anyhow!("{tokenizer_name} tokenizer requires a string 'chinese_convert' field")
+    })?;
+    Ok(Some(mode))
 }
 
 impl SearchTokenizer {
@@ -469,7 +495,13 @@ impl SearchTokenizer {
                     })?;
                 Ok(SearchTokenizer::RegexTokenizer { pattern, filters })
             }
-            "chinese_compatible" => Ok(SearchTokenizer::ChineseCompatible(filters)),
+            "chinese_compatible" => {
+                let chinese_convert = parse_chinese_convert_json(value, "chinese_compatible")?;
+                Ok(SearchTokenizer::ChineseCompatible {
+                    chinese_convert,
+                    filters,
+                })
+            }
             "source_code" => Ok(SearchTokenizer::SourceCode(filters)),
             "ngram" => {
                 let min_gram: usize =
@@ -517,19 +549,17 @@ impl SearchTokenizer {
             "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
-                let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
-                    None
+                let chinese_convert = parse_chinese_convert_json(value, "jieba")?;
+                let search_mode = if value["search_mode"].is_null() {
+                    true
                 } else {
-                    Some(
-                        serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
-                            anyhow::anyhow!(
-                                "jieba tokenizer requires a string 'chinese_convert' field"
-                            )
-                        })?,
-                    )
+                    value["search_mode"].as_bool().ok_or_else(|| {
+                        anyhow::anyhow!("jieba tokenizer requires a boolean 'search_mode' field")
+                    })?
                 };
                 Ok(SearchTokenizer::Jieba {
                     chinese_convert,
+                    search_mode,
                     filters,
                 })
             }
@@ -579,7 +609,8 @@ impl SearchTokenizer {
             SearchTokenizer::Raw(filters) => {
                 add_filters!(RawTokenizer::default(), filters)
             }
-            SearchTokenizer::RegexTokenizer { pattern, filters } => {
+            SearchTokenizer::RegexTokenizer { pattern, filters }
+            | SearchTokenizer::RegexTokenizerDeprecated { pattern, filters } => {
                 add_filters!(RegexTokenizer::new(pattern.as_str()).unwrap(), filters)
             }
             SearchTokenizer::Ngram {
@@ -610,8 +641,18 @@ impl SearchTokenizer {
                     filters
                 )
             }
-            SearchTokenizer::ChineseCompatible(filters) => {
-                add_filters!(ChineseTokenizer, filters)
+            SearchTokenizer::ChineseCompatible {
+                chinese_convert,
+                filters,
+            } => {
+                // If Chinese conversion is configured, perform the conversion before tokenization
+                if let Some(convert_mode) = chinese_convert {
+                    let convert_tokenizer =
+                        ChineseConvertTokenizer::new(ChineseTokenizer, *convert_mode);
+                    add_filters!(convert_tokenizer, filters)
+                } else {
+                    add_filters!(ChineseTokenizer, filters)
+                }
             }
             SearchTokenizer::SourceCode(filters) => {
                 // for backwards compatibility, the source_code tokenizer defaults to ascii_folding
@@ -695,20 +736,19 @@ impl SearchTokenizer {
             }
             SearchTokenizer::Jieba {
                 chinese_convert,
+                search_mode,
                 filters,
             } => {
+                // `with_ordinal_position_mode` also turns search mode on, so the
+                // caller's choice is applied afterwards.
+                let mut base = tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true);
+                base.set_search_mode(*search_mode);
                 // If Chinese conversion is configured, perform the conversion before tokenization
                 if let Some(convert_mode) = chinese_convert {
-                    let base_tokenizer =
-                        tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true);
-                    let convert_tokenizer =
-                        ChineseConvertTokenizer::new(base_tokenizer, *convert_mode);
+                    let convert_tokenizer = ChineseConvertTokenizer::new(base, *convert_mode);
                     add_filters!(convert_tokenizer, filters)
                 } else {
-                    add_filters!(
-                        tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true),
-                        filters
-                    )
+                    add_filters!(base, filters)
                 }
             }
             SearchTokenizer::LinderaDeprecated(LinderaLanguage::Unspecified, _)
@@ -744,7 +784,8 @@ impl SearchTokenizer {
             SearchTokenizer::LiteralNormalized(filters) => filters,
             SearchTokenizer::WhiteSpace(filters) => filters,
             SearchTokenizer::RegexTokenizer { filters, .. } => filters,
-            SearchTokenizer::ChineseCompatible(filters) => filters,
+            SearchTokenizer::RegexTokenizerDeprecated { filters, .. } => filters,
+            SearchTokenizer::ChineseCompatible { filters, .. } => filters,
             SearchTokenizer::SourceCode(filters) => filters,
             SearchTokenizer::Ngram { filters, .. } => filters,
             SearchTokenizer::EdgeNgram { filters, .. } => filters,
@@ -807,9 +848,22 @@ impl SearchTokenizer {
                 format!("literal_normalized{filters_suffix}")
             }
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
-            SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
-            SearchTokenizer::ChineseCompatible(_filters) => {
-                format!("chinese_compatible{filters_suffix}")
+            // The pattern is part of the name: fields with different patterns must not share
+            // one registered analyzer.
+            SearchTokenizer::RegexTokenizer {
+                pattern,
+                filters: _,
+            } => format!("regex_pattern:{pattern:?}{filters_suffix}"),
+            SearchTokenizer::RegexTokenizerDeprecated { .. } => format!("regex{filters_suffix}"),
+            SearchTokenizer::ChineseCompatible {
+                chinese_convert,
+                filters: _,
+            } => {
+                if let Some(chinese_convert) = chinese_convert {
+                    format!("chinese_compatible{chinese_convert:?}{filters_suffix}")
+                } else {
+                    format!("chinese_compatible{filters_suffix}")
+                }
             }
             SearchTokenizer::SourceCode(_filters) => format!("source_code{filters_suffix}"),
             SearchTokenizer::Ngram {
@@ -904,12 +958,15 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,
+                search_mode,
                 filters: _,
             } => {
+                // Keep existing names for the default mode and distinguish disabled mode.
+                let mode = if *search_mode { "" } else { "NoSearchMode" };
                 if let Some(chinese_convert) = chinese_convert {
-                    format!("jieba{chinese_convert:?}{filters_suffix}")
+                    format!("jieba{chinese_convert:?}{mode}{filters_suffix}")
                 } else {
-                    format!("jieba{filters_suffix}")
+                    format!("jieba{mode}{filters_suffix}")
                 }
             }
             SearchTokenizer::UnicodeWordsDeprecated {
@@ -1027,10 +1084,202 @@ mod tests {
         );
     }
 
+    fn regex(pattern: &str) -> SearchTokenizer {
+        SearchTokenizer::RegexTokenizer {
+            pattern: pattern.to_string(),
+            filters: SearchTokenizerFilters::default(),
+        }
+    }
+
+    fn regex_deprecated(pattern: &str) -> SearchTokenizer {
+        SearchTokenizer::RegexTokenizerDeprecated {
+            pattern: pattern.to_string(),
+            filters: SearchTokenizerFilters::default(),
+        }
+    }
+
+    fn registered_tokens(
+        manager: &tantivy::tokenizer::TokenizerManager,
+        name: &str,
+        text: &str,
+    ) -> Vec<String> {
+        use tantivy::tokenizer::TokenStream;
+
+        let mut analyzer = manager
+            .get(name)
+            .unwrap_or_else(|| panic!("no tokenizer registered as {name}"));
+        let mut stream = analyzer.token_stream(text);
+        let mut out = Vec::new();
+        while stream.advance() {
+            out.push(stream.token().text.clone());
+        }
+        out
+    }
+
+    #[rstest]
+    fn test_regex_tokenizer_name_includes_pattern() {
+        assert_ne!(regex("[0-9]+").name(), regex("[a-z]+").name());
+        assert_eq!(regex("[0-9]+").name(), regex("[0-9]+").name());
+
+        // The old name, which indexes built by earlier versions reference, is unchanged.
+        assert_eq!(regex_deprecated("[0-9]+").name(), "regex");
+        let lowercase = SearchTokenizerFilters {
+            lowercase: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            SearchTokenizer::RegexTokenizerDeprecated {
+                pattern: "[0-9]+".to_string(),
+                filters: lowercase,
+            }
+            .name(),
+            "regex[lowercase=true]"
+        );
+    }
+
+    #[rstest]
+    #[case::digits_first(&["[0-9]+", "[a-z]+"])]
+    #[case::letters_first(&["[a-z]+", "[0-9]+"])]
+    fn test_regex_tokenizers_with_different_patterns_keep_their_own_analyzer(
+        #[case] patterns: &[&str],
+    ) {
+        let manager = crate::create_tokenizer_manager(patterns.iter().map(|&p| regex(p)).collect());
+
+        assert_eq!(
+            registered_tokens(&manager, &regex("[0-9]+").name(), "abc123def"),
+            vec!["123"]
+        );
+        assert_eq!(
+            registered_tokens(&manager, &regex("[a-z]+").name(), "abc123def"),
+            vec!["abc", "def"]
+        );
+    }
+
+    #[rstest]
+    fn test_regex_tokenizer_old_name_still_resolves() {
+        // An index built before the pattern was part of the name looks its analyzer up as `regex`.
+        let manager =
+            crate::create_tokenizer_manager(vec![regex("[0-9]+"), regex_deprecated("[0-9]+")]);
+        assert_eq!(
+            registered_tokens(&manager, "regex", "abc123def"),
+            vec!["123"]
+        );
+
+        // With several regex fields, the last one owns the old name, as it always did.
+        let manager = crate::create_tokenizer_manager(vec![
+            regex("[0-9]+"),
+            regex_deprecated("[0-9]+"),
+            regex("[a-z]+"),
+            regex_deprecated("[a-z]+"),
+        ]);
+        assert_eq!(
+            registered_tokens(&manager, "regex", "abc123def"),
+            vec!["abc", "def"]
+        );
+        assert_eq!(
+            registered_tokens(&manager, &regex("[0-9]+").name(), "abc123def"),
+            vec!["123"]
+        );
+    }
+
     #[rstest]
     fn test_search_normalizer() {
         assert_eq!(SearchNormalizer::Lowercase.name(), "lowercase");
         assert_ne!(SearchNormalizer::Raw, SearchNormalizer::Lowercase);
+    }
+
+    #[rstest]
+    fn test_jieba_search_mode() {
+        use tantivy::tokenizer::TokenStream;
+
+        fn tokens(json: &str, text: &str) -> Vec<String> {
+            let tokenizer =
+                SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream(text);
+            let mut out = Vec::new();
+            while stream.advance() {
+                out.push(stream.token().text.clone());
+            }
+            out
+        }
+
+        // Default search mode emits compound words and their parts.
+        assert_eq!(
+            tokens(r#"{"type": "jieba"}"#, "南京市长江大桥"),
+            vec!["南京", "京市", "南京市", "长江", "大桥", "长江大桥"]
+        );
+        assert_eq!(
+            tokens(
+                r#"{"type": "jieba", "search_mode": false}"#,
+                "南京市长江大桥"
+            ),
+            vec!["南京市", "长江大桥"]
+        );
+
+        // Text with no compound to decompose is the same either way.
+        assert_eq!(
+            tokens(r#"{"type": "jieba"}"#, "你好"),
+            tokens(r#"{"type": "jieba", "search_mode": false}"#, "你好")
+        );
+
+        // The two configurations must not share a registered analyser.
+        let default_mode = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "jieba"}"#).unwrap(),
+        )
+        .unwrap();
+        let disabled_mode = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "jieba", "search_mode": false}"#).unwrap(),
+        )
+        .unwrap();
+        assert_ne!(default_mode.name(), disabled_mode.name());
+    }
+
+    #[rstest]
+    fn test_chinese_compatible_with_chinese_convert() {
+        use tantivy::tokenizer::TokenStream;
+
+        fn tokens(json: &str, text: &str) -> Vec<String> {
+            let tokenizer =
+                SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream(text);
+            let mut out = Vec::new();
+            while stream.advance() {
+                out.push(stream.token().text.clone());
+            }
+            out
+        }
+
+        // Without chinese_convert, Traditional input tokenizes as-is.
+        let plain = tokens(r#"{"type": "chinese_compatible"}"#, "繁體中文測試");
+        assert!(plain.iter().any(|t| t.contains('繁')));
+
+        // With chinese_convert=T2S, the Traditional input is converted to Simplified
+        // before tokenization -- mirrors the same option already supported by pdb.jieba.
+        // Note: the JSON tagged API (used here) deserializes ConvertMode via its plain
+        // derive, so it expects the Rust variant name ("T2S"); the typmod-string path
+        // (e.g. pdb.chinese_compatible('chinese_convert=t2s')) lowercases and matches
+        // separately -- same asymmetry already present for pdb.jieba.
+        let converted = tokens(
+            r#"{"type": "chinese_compatible", "chinese_convert": "T2S"}"#,
+            "繁體中文測試",
+        );
+        let converted_text = converted.join("");
+        assert!(converted_text.contains("繁体") || converted_text.contains("测试"));
+        assert_ne!(plain, converted);
+
+        // The two configurations must not share a registered analyzer.
+        let default_mode = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "chinese_compatible"}"#).unwrap(),
+        )
+        .unwrap();
+        let t2s_mode = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "chinese_compatible", "chinese_convert": "T2S"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_ne!(default_mode.name(), t2s_mode.name());
     }
 
     #[rstest]
@@ -1050,6 +1299,7 @@ mod tests {
             tokenizer,
             SearchTokenizer::Jieba {
                 chinese_convert: None,
+                search_mode: true,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: None,
@@ -1110,6 +1360,7 @@ mod tests {
             tokenizer,
             SearchTokenizer::Jieba {
                 chinese_convert: None,
+                search_mode: true,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: None,
@@ -1165,6 +1416,7 @@ mod tests {
             tokenizer,
             SearchTokenizer::Jieba {
                 chinese_convert: None,
+                search_mode: true,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: None,

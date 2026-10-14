@@ -926,7 +926,7 @@ fn try_convert_in_list_to_query(
     };
 
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
-    let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
+    let const_score_query = ConstScoreQuery::new(term_set_query, 0.0);
     InListPushdown::Query(Box::new(const_score_query) as Box<dyn Query>)
 }
 

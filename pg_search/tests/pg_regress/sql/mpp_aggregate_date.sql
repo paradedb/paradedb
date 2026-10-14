@@ -64,6 +64,12 @@ GROUP BY DATE(created_at);
 SELECT * FROM mpp_date_native
 ORDER BY day NULLS LAST;
 
+CREATE TEMP TABLE mpp_date_native_topk AS
+SELECT *
+FROM mpp_date_native
+ORDER BY day DESC
+LIMIT 2;
+
 -- Serial DataFusion: verify the plan, then save its results.
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -105,6 +111,44 @@ SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 
+-- MPP transformed date group-key TopK. DESC defaults to NULLS FIRST,
+-- followed by positive infinity.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at) AS day,
+       COUNT(*) AS cnt,
+       SUM(amount) AS total
+FROM mpp_date_events
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day DESC
+LIMIT 2;
+
+CREATE TEMP TABLE mpp_date_distributed_topk AS
+SELECT DATE(created_at) AS day,
+       COUNT(*) AS cnt,
+       SUM(amount) AS total
+FROM mpp_date_events
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day DESC
+LIMIT 2;
+
+SELECT * FROM mpp_date_distributed_topk
+ORDER BY day DESC;
+
+-- Compare the MPP TopK result with PostgreSQL in both directions.
+SELECT NOT EXISTS (
+    (SELECT * FROM mpp_date_distributed_topk
+     EXCEPT ALL
+     SELECT * FROM mpp_date_native_topk)
+
+    UNION ALL
+
+    (SELECT * FROM mpp_date_native_topk
+     EXCEPT ALL
+     SELECT * FROM mpp_date_distributed_topk)
+) AS mpp_topk_matches_postgres;
+
 -- MPP DataFusion: record the distributed plan and save the query results.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DATE(created_at) AS day,
@@ -139,7 +183,8 @@ SELECT NOT EXISTS (
 ) AS mpp_matches_postgres;
 
 -- Remove the fixture and restore the session settings changed by this test.
-DROP TABLE mpp_date_distributed, mpp_date_serial, mpp_date_native;
+DROP TABLE mpp_date_distributed_topk, mpp_date_native_topk,
+           mpp_date_distributed, mpp_date_serial, mpp_date_native;
 DROP TABLE mpp_date_events;
 
 RESET paradedb.enable_aggregate_custom_scan;

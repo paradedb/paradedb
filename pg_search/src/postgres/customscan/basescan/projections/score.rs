@@ -16,19 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
+use crate::postgres::customscan::basescan::projections::missing_scan_error;
 use crate::postgres::customscan::score_funcoids;
 use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_sys};
 
 #[pgrx::pg_schema]
 mod pdb {
+    use crate::postgres::customscan::basescan::projections::missing_scan_error;
     use pgrx::{AnyElement, extension_sql, pg_extern};
 
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
     fn score_from_relation(relation_reference: AnyElement) -> f32 {
-        panic!(
-            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-        );
+        missing_scan_error("pdb.score")
     }
 
     extension_sql!(
@@ -46,9 +46,7 @@ mod pdb {
 #[allow(unused_variables)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(relation_reference: AnyElement) -> Option<f32> {
-    panic!(
-        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
-    );
+    missing_scan_error("paradedb.score")
 }
 
 extension_sql!(

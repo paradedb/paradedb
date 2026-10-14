@@ -37,7 +37,7 @@ WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
    Index: idx_json_special_agg
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.user-profile.email@work"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*)
@@ -60,7 +60,7 @@ WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
    Index: idx_json_special_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"payload.api-response.status_code","value":"200"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*)

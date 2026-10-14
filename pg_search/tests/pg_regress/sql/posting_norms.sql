@@ -1,0 +1,56 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.global_mutable_segment_rows = 0;
+
+CREATE TABLE posting_norms_test (id integer PRIMARY KEY, body text, metadata jsonb);
+INSERT INTO posting_norms_test VALUES
+    (1, 'search search search', '{"body":"search"}'),
+    (2, 'search engine with extra words', '{}'),
+    (3, 'database engine', '{}'),
+    (4, 'search', '{}');
+
+CREATE INDEX posting_norms_idx ON posting_norms_test USING paradedb (
+    id,
+    (body::pdb.simple('alias=legacy')),
+    (body::pdb.simple('alias=accelerated', 'pnorms=true'))
+);
+
+WITH legacy AS MATERIALIZED (
+    SELECT id, pdb.score(id) AS score FROM posting_norms_test
+    WHERE (body::pdb.simple('alias=legacy')) ||| 'search'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3
+), accelerated AS MATERIALIZED (
+    SELECT id, pdb.score(id) AS score FROM posting_norms_test
+    WHERE (body::pdb.simple('alias=accelerated', 'pnorms=true')) ||| 'search'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3
+)
+SELECT count(*) AS matches, bool_and(legacy.score = accelerated.score AND legacy.score > 0) AS scores_match
+FROM legacy JOIN accelerated USING (id);
+
+INSERT INTO posting_norms_test VALUES (5, 'search database', '{}');
+UPDATE posting_norms_test SET body = 'search engine' WHERE id = 3;
+DELETE FROM posting_norms_test WHERE id = 4;
+VACUUM posting_norms_test;
+
+WITH legacy AS MATERIALIZED (
+    SELECT id, pdb.score(id) AS score FROM posting_norms_test
+    WHERE (body::pdb.simple('alias=legacy')) ||| 'search'
+    ORDER BY pdb.score(id) DESC, id LIMIT 4
+), accelerated AS MATERIALIZED (
+    SELECT id, pdb.score(id) AS score FROM posting_norms_test
+    WHERE (body::pdb.simple('alias=accelerated', 'pnorms=true')) ||| 'search'
+    ORDER BY pdb.score(id) DESC, id LIMIT 4
+)
+SELECT count(*) AS matches, bool_and(legacy.score = accelerated.score AND legacy.score > 0) AS scores_match
+FROM legacy JOIN accelerated USING (id);
+
+CREATE INDEX invalid_posting_norms ON posting_norms_test USING paradedb
+    (id, (body::pdb.simple('pnorms=invalid')));
+CREATE INDEX invalid_posting_norms ON posting_norms_test USING paradedb
+    (id, (body::pdb.simple('pnorms=true', 'fieldnorms=false')));
+CREATE INDEX invalid_posting_norms ON posting_norms_test USING paradedb
+    (id, (metadata::pdb.simple('pnorms=true')));
+
+DROP TABLE posting_norms_test;
+RESET paradedb.global_mutable_segment_rows;
+RESET max_parallel_workers_per_gather;

@@ -212,7 +212,7 @@ impl PdbOwnedValue {
                     && let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
                 {
                     // Strings that parse as a datetime must be assumed to be datetimes
-                    if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
+                    if let Ok(pgdt) = PostgresDateTime::try_from_serialized(s.as_str()) {
                         return PdbOwnedValue::Date(pgdt);
                     }
                 }

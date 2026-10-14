@@ -11,7 +11,8 @@ RUN set -eux; \
     rm /tmp/pg_search.deb; \
     apt-get dist-clean; \
     mkdir /symbols; \
-    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so; \
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so.dbg /symbols/pg_search.so.dbg
 # %%ANTITHESIS_END%%
 # %%STANDARD_BEGIN%%
 # Install pg_search from GitHub Releases
@@ -39,7 +40,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2; \
     rm /usr/lib/python*/EXTERNALLY-MANAGED; \
-    pip3 install --no-cache-dir 'setuptools==82.0.1' 'barman[cloud,azure,snappy,google]==3.18.0'; \
+    pip3 install --no-cache-dir 'setuptools==84.0.0' 'barman[cloud,azure,snappy,google]==3.20.1'; \
     apt-get remove -y python3-dev python3-pip --purge; \
     apt-get autoremove -y; \
     apt-get dist-clean; \
@@ -58,8 +59,8 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         postgresql-@@PG_VERSION_MAJOR@@-pgvector=0.8.6-1.pgdg13+1 \
-        postgresql-@@PG_VERSION_MAJOR@@-cron=1.6.7-3.pgdg13+1 \
-        postgresql-@@PG_VERSION_MAJOR@@-pg-ivm=1.13-1.pgdg13+1 \
+        postgresql-@@PG_VERSION_MAJOR@@-cron=1.6.8-1.pgdg13+2 \
+        postgresql-@@PG_VERSION_MAJOR@@-pg-ivm=1.15-2.pgdg13+1 \
         postgresql-@@PG_VERSION_MAJOR@@-postgis-$POSTGIS_VERSION_MAJOR=3.6.4+dfsg-2.pgdg13+1 \
         postgresql-@@PG_VERSION_MAJOR@@-postgis-$POSTGIS_VERSION_MAJOR-scripts=3.6.4+dfsg-2.pgdg13+1; \
     apt-get dist-clean

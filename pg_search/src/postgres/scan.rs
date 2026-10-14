@@ -22,6 +22,7 @@ use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::index_only::IndexOnlyScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::PgMemoryContextsExt;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
 
@@ -252,7 +253,7 @@ pub extern "C-unwind" fn amrescan(
     };
 
     scan.opaque = PgMemoryContexts::CurrentMemoryContext
-        .leak_and_drop_on_delete(Some(scan_state))
+        .leak_and_drop_unless_exiting(Some(scan_state))
         .cast();
 }
 

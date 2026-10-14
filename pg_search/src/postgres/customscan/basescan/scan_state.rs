@@ -17,9 +17,11 @@
 
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
@@ -30,6 +32,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
@@ -38,6 +41,7 @@ use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::BitmapCell;
+use std::ptr::NonNull;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
@@ -46,6 +50,7 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
+    pub io_trace: Option<crate::index::reader::io_stats::Trace>,
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).
@@ -61,7 +66,20 @@ pub struct BaseScanState {
 
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
+    /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
+    /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
+    /// `solve_expr.rs`.
+    pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
     pub search_reader: Option<SearchIndexReader>,
+    /// Executor startup before `SearchIndexReader::open`; consumed into the
+    /// reader's flat `scan_init_ns` metric on first execution.
+    pub executor_scan_init_ns: u64,
+    /// End-to-end CustomScan execution interval used to assign only the
+    /// residual around named nested stages to result assembly.
+    /// Whether the current execution is collecting stage timings for
+    /// `EXPLAIN ANALYZE`.  Timed queries leave the executor delivery path
+    /// uninstrumented.
+    pub explain_stage_accounting: bool,
 
     pub targetlist_len: usize,
 
@@ -79,7 +97,6 @@ pub struct BaseScanState {
     pub quals: Option<Qual>,
 
     pub need_scores: bool,
-    pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoids: [pg_sys::Oid; 2],
 
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
@@ -88,10 +105,8 @@ pub struct BaseScanState {
     /// TopK scan already provides the ordering and the column is junk-stripped
     /// — so the placeholder just spares `ExecProject` from calling
     /// `l2_distance(embedding, query)` and detoasting the heap vector. We track
-    /// it only so the projection path knows it must use `placeholder_targetlist`.
+    /// it only so the projection path knows it must use `placeholders`.
     pub vector_distance_placeholder: bool,
-
-    pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
     pub snippet_funcoids: [pg_sys::Oid; 2],
     pub snippets_funcoids: [pg_sys::Oid; 2],
@@ -100,7 +115,7 @@ pub struct BaseScanState {
     pub snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>>,
 
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-    pub placeholder_targetlist: Option<*mut pg_sys::List>,
+    pub placeholders: Option<BasePlaceholders>,
 
     // Store join-level search predicates for enhanced scoring/snippet generation
     pub join_predicates: Option<SearchQueryInput>,
@@ -118,10 +133,21 @@ pub struct BaseScanState {
     // Window aggregate support
     pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
-    pub const_window_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
+}
+
+/// The projection that gives a row its score, snippets and window aggregates, and the placeholder
+/// columns it reads them from.
+///
+/// One struct holds them, because the columns are valid only for the slot of this projection.
+pub struct BasePlaceholders {
+    pub projection: PlaceholderProjection,
+    pub score: PlaceholderColumn,
+    pub snippets: HashMap<SnippetType, Vec<PlaceholderColumn>>,
+    /// Indexed by target entry position.
+    pub window_aggs: HashMap<usize, PlaceholderColumn>,
 }
 
 impl CustomScanState for BaseScanState {
@@ -237,10 +263,6 @@ impl BaseScanState {
             with_aggregates,
             with_segment_info: true,
         }
-    }
-
-    pub fn has_postgres_expressions(&mut self) -> bool {
-        self.base_search_query_input.has_postgres_expressions()
     }
 
     #[inline(always)]
@@ -391,6 +413,9 @@ impl BaseScanState {
 
     pub fn increment_query_count(&mut self) {
         self.telemetry.record_query();
+        if let Some(parallel_state) = self.parallel_state() {
+            unsafe { (*parallel_state).increment_query_count() };
+        }
     }
 
     /// Merge per-segment JSON info. Last-write-wins per segment id (re-queries
@@ -427,10 +452,13 @@ impl BaseScanState {
         self.telemetry.reset();
         self.virtual_tuple_count = 0;
         if self.visibility_checker.is_some() {
-            self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                self.heaprel(),
-                unsafe { pg_sys::GetActiveSnapshot() },
-            ));
+            let mut checker = VisibilityChecker::with_rel_and_snap(self.heaprel(), unsafe {
+                pg_sys::GetActiveSnapshot()
+            });
+            if let Some(reader) = &self.search_reader {
+                checker.set_ffhelper(Arc::new(FFHelper::for_ctid(reader)));
+            }
+            self.visibility_checker = Some(checker);
         }
         if self.doc_from_heap_state.is_some() {
             self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
@@ -551,12 +579,14 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input = self.base_search_query_input.clone();
     }
 
+    // Ask the base query: `init_expr_context` asks in `begin_custom_scan`, before
+    // `init_search_query_input` fills `search_query_input`.
     fn has_postgres_expressions(&mut self) -> bool {
-        self.search_query_input.has_postgres_expressions()
+        self.base_search_query_input.has_postgres_expressions()
     }
 
     fn has_parameters(&mut self) -> bool {
-        self.search_query_input.has_parameters()
+        self.base_search_query_input.has_parameters()
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

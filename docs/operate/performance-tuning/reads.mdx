@@ -7,7 +7,7 @@ canonical: https://www.paradedb.com/docs/operate/performance-tuning/reads
 As a general rule of thumb, the performance of expensive search queries can be greatly improved
 if they are able to access more parallel Postgres workers and more shared buffer memory.
 
-## Raise Parallel Workers
+## Increasing Parallel Workers
 
 There are three settings that control how many parallel workers ultimately get assigned to a query.
 
@@ -39,11 +39,10 @@ query patterns, and volume of data.
 <Note>
   If all `max_parallel_workers` are in use, Postgres will still execute
   additional queries, but those queries will run without parallelism. This means
-  that queries do not fail — they just may run slower due to lack of
-  parallelism.
+  that queries do not fail, but they may run slower due to lack of parallelism.
 </Note>
 
-## Raise Shared Buffers
+## Increasing Shared Buffers
 
 `shared_buffers` controls how much memory is available to the Postgres buffer cache. We recommend starting with 25% of total memory for `shared_buffers` and no more than 40% of total memory.
 
@@ -59,7 +58,7 @@ CREATE EXTENSION pg_prewarm;
 SELECT pg_prewarm('search_idx');
 ```
 
-## Configure Autovacuum
+## Configuring Autovacuum
 
 If an index experiences frequent writes, the search performance of some queries like [sorting](/reference/full-text/score) or
 [aggregates](/reference/aggregates/overview) can degrade if `VACUUM` has not been recently run. This is because writes can cause parts of Postgres' visibility map
@@ -85,13 +84,13 @@ note are:
 This means that setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` will trigger an autovacuum
 for every `100000` row updates. As a general rule of thumb, we recommend autovacuuming at least once every `100000` single-row updates.
 
-## Adjust Target Segment Count
+## Adjusting Target Segment Count
 
 By default, `CREATE INDEX`/`REINDEX` will create as many segments as there are CPUs on the host machine. This can be changed using the
 `target_segment_count` index option.
 
 ```sql
-CREATE INDEX search_idx ON mock_items USING paradedb (id, description, rating) WITH (key_field = 'id', target_segment_count = 32, ...);
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description, rating) WITH (target_segment_count = 32, ...);
 ```
 
 This property is attached to the index so that during `REINDEX`, the same value will be used.
@@ -105,14 +104,12 @@ ALTER INDEX search_idx SET (target_segment_count = 8);
 However, a `REINDEX` is required to rebalance the index to that segment count.
 
 For optimal performance, the segment count should equal the number of parallel workers that a query can receive, which is controlled by
-[`max_parallel_workers_per_gather`](/operate/performance-tuning/reads#raise-parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
+[`max_parallel_workers_per_gather`](/operate/performance-tuning/reads#increasing-parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
 performance.
 
 <Note>
-`target_segment_count` is merely a suggestion.
+  Actual segment counts may vary depending on parallel builder distribution, memory limits, and table size.
 
-While `pg_search` will endeavor to ensure the created index will have exactly this many segments, it is possible for it
-to have less or more. Mostly this depends on the distribution of work across parallel builder processes, memory
-constraints, and table size.
+When partitioning an index with [`partition_by`](/reference/indexing/partition-by), we recommend setting `target_segment_count` to 2–4X `max_parallel_workers_per_gather` (or CPU count). Creating more segments allows ParadeDB to skip more non-matching data during filtered queries and better align partition ranges across tables during parallel joins.
 
 </Note>

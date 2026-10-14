@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.21.6"
 noindex: true
 ---
 
+See GitHub release: [v0.21.6](https://github.com/paradedb/paradedb/releases/tag/v0.21.6)
+
 ## Stability Improvements 💪
 
 - Fixed an issue where `ORDER BY lower()` was not getting an optimized Top K scan if `lower()` was literal normalized
@@ -20,5 +22,3 @@ gets fully pushed down to the index.
 CREATE INDEX idx ON profiles USING bm25 (...) WHERE deleted_at IS NULL;
 SELECT * FROM profiles WHERE headline ||| 'recruteur' AND deleted_at IS NULL;
 ```
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.6).

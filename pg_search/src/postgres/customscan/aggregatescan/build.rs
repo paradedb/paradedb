@@ -34,6 +34,7 @@ use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::node::NodeExt;
+use crate::postgres::search_operator_relations;
 use crate::postgres::utils::sort_json_keys;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -500,9 +501,11 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         let limit_offset = LimitOffset::from_parse(args.root().parse);
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
         if !gucs::enable_custom_scan_without_operator()
             && !quals.uses_our_operator()
             && !targetlist.uses_our_operator()
+            && !unsafe { search_operator_relations::applies_to(args.root, heap_rti) }
         {
             return Err(CustomScanBuildError::NotInteresting);
         }

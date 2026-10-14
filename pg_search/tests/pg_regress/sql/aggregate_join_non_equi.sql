@@ -48,7 +48,8 @@ INSERT INTO agg_nonequi_products (description, category, price, rating) VALUES
     ('Running shoes breathable', 'sports', 79.99, 4),
     ('Trail running shoes durable', 'sports', 119.99, 3),
     ('Winter jacket insulated', 'clothing', 149.99, 4),
-    ('Rain jacket waterproof', 'clothing', 69.99, 2);
+    ('Rain jacket waterproof', 'clothing', 69.99, 2),
+    ('Desk lamp adjustable', 'home', 39.99, 3);
 
 INSERT INTO agg_nonequi_promos (description, promo_code, min_price, max_price, min_rating) VALUES
     ('Summer tech discounts', 'electronics', 50.00, 200.00, 4),

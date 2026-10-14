@@ -25,6 +25,9 @@ pub mod config;
 pub mod operator;
 pub mod tokenize;
 pub mod tokenizers;
+mod vector;
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) use vector::test_support as vector_test_support;
 pub mod version;
 pub mod window_aggregate;
 

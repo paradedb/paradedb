@@ -1,7 +1,7 @@
 # Unreleased Changelog Fragments
 #
 # Place PR-level changelog fragments in this directory:
-#   docs/changelog/unreleased/<PR_NUMBER>.<category>.mdx (e.g. 1234.bugfix.mdx)
+#   docs/project/changelog/unreleased/<PR_NUMBER>.<category>.mdx (e.g. 1234.bugfix.mdx)
 #
 # Structure:
 #   ---
@@ -10,7 +10,7 @@
 #   Fixed an issue where blocks could get added to the free space map twice.
 #
 # Valid header keys are defined in .changelog_headers.json (e.g. features, performance, stability, breaking, docs).
-# At release time, scripts/release.sh groups and compiles these fragments into docs/changelog/<version>.mdx.
+# At release time, scripts/release.sh groups and compiles these fragments into docs/project/changelog/<version>.mdx.
 #
 # For full documentation on the workflow, see:
 #   - CONTRIBUTING.md (Pull Request Workflow)

@@ -135,7 +135,7 @@ FROM explain_analyze_lines(
 ) AS line;
 WARNING:  query exceeded work_mem and spilled to disk; consider raising work_mem for better performance (paradedb.spill_to_disk allowed it to complete instead of erroring)
 SELECT bool_or(
-    line ~ 'spill_count=\{?0?:?\s*[1-9]'
+    line ~ 'spill_count=(\d*[1-9]|\{[^}]*\d:\s*\d*[1-9])'
 ) AS something_spilled
 FROM mpp_spill_explain_output;
  something_spilled 

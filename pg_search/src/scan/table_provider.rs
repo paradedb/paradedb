@@ -30,7 +30,9 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{HashSet, MvccVisibility};
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{
+    CanonicalColumn, FFHelper, FieldCardinality, FieldDelivery, WhichFastField,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::ParallelScanState;
@@ -90,6 +92,10 @@ pub struct PgSearchTableProvider {
     /// that need to solve runtime Postgres expressions before opening a real reader.
     #[serde(skip)]
     planstate: Option<*mut pg_sys::PlanState>,
+    /// Plain EXPLAIN builds a display plan without evaluating runtime expressions.
+    /// Never propagate this mode to execution workers through serialization.
+    #[serde(skip)]
+    explain_only: bool,
     /// The visibility strategy for this source.
     ///
     /// `Deferred { plan_position }` means the scan emits packed DocAddresses in its
@@ -176,6 +182,7 @@ impl Clone for PgSearchTableProvider {
             parallel_state: self.parallel_state,
             expr_context: self.expr_context,
             planstate: self.planstate,
+            explain_only: self.explain_only,
             visibility_mode: self.visibility_mode,
             late_materialization_active: std::sync::atomic::AtomicBool::new(
                 self.late_materialization_active
@@ -229,6 +236,7 @@ impl PgSearchTableProvider {
             parallel_state: None,
             expr_context: None,
             planstate: None,
+            explain_only: false,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             deferred_visibility_active: AtomicBool::new(false),
@@ -278,6 +286,10 @@ impl PgSearchTableProvider {
         self.expr_context = expr_context;
     }
 
+    pub(crate) fn set_explain_only(&mut self, explain_only: bool) {
+        self.explain_only = explain_only;
+    }
+
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
         self.planstate = planstate;
     }
@@ -299,18 +311,19 @@ impl PgSearchTableProvider {
         }
         self.deferred_fetch_at_scan = crate::gucs::defer_column_fetch() == DeferredPlacement::Off;
         for wff in self.fields.iter_mut() {
-            if let WhichFastField::Named(name, field_type) = wff {
-                let is_string_or_bytes = matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::Utf8View
-                        | arrow_schema::DataType::BinaryView
-                        | arrow_schema::DataType::LargeUtf8
-                        | arrow_schema::DataType::LargeBinary
-                );
+            // Scalar only: the packed deferred encoding carries one value per
+            // row, so a list column stays eager.
+            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+            if let WhichFastField::Named {
+                name,
+                field_type,
+                cardinality: FieldCardinality::Scalar,
+                delivery,
+            } = wff
+            {
+                let is_string_or_bytes = field_type.is_dictionary_storage();
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
-                    let cloned_name = name.clone();
-                    let cloned_type = *field_type;
-                    *wff = WhichFastField::Deferred(cloned_name, cloned_type);
+                    *delivery = FieldDelivery::Deferred;
                 }
             }
         }
@@ -364,6 +377,20 @@ impl PgSearchTableProvider {
         }
     }
 
+    pub fn set_score_alias(&mut self, alias: &str) {
+        let mut modified = false;
+        for wff in self.fields.iter_mut() {
+            if let WhichFastField::Score(score_alias) = wff {
+                *score_alias = Some(alias.to_string());
+                modified = true;
+            }
+        }
+        if modified {
+            self.schema = OnceLock::new();
+            self.late_materialization_schema = OnceLock::new();
+        }
+    }
+
     /// Returns the JoinScan source identity configured for deferred visibility,
     /// regardless of whether deferred visibility is currently active.
     pub(crate) fn configured_deferred_ctid_plan_position(&self) -> Option<usize> {
@@ -398,11 +425,14 @@ impl PgSearchTableProvider {
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
         for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, field_type) = wff {
-                let is_bytes = matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                );
+            if let WhichFastField::Named {
+                name,
+                field_type,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } = wff
+            {
+                let is_bytes = field_type.is_bytes_storage();
                 deferred.push(DeferredField {
                     name: name.clone(),
                     is_bytes,
@@ -426,6 +456,22 @@ impl PgSearchTableProvider {
         deferred
     }
 
+    /// The fields as the SQL planner sees them: every named column eager,
+    /// whatever physical delivery the scan will use.
+    fn eager_view(&self) -> Vec<WhichFastField> {
+        self.fields.iter().map(WhichFastField::to_eager).collect()
+    }
+
+    /// The fields as the scan will actually deliver them: deferred where late
+    /// materialization is on, eager everywhere else.
+    fn active_fields(&self) -> Vec<WhichFastField> {
+        if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.fields.clone()
+        } else {
+            self.eager_view()
+        }
+    }
+
     fn get_schema(&self) -> SchemaRef {
         if self.late_materialization_active.load(Ordering::Relaxed) {
             self.late_materialization_schema
@@ -434,17 +480,7 @@ impl PgSearchTableProvider {
         } else {
             self.schema
                 .get_or_init(|| {
-                    let logical_fields: Vec<_> = self
-                        .fields
-                        .iter()
-                        .map(|wff| match wff {
-                            WhichFastField::Deferred(name, ty) => {
-                                WhichFastField::Named(name.clone(), *ty)
-                            }
-                            _ => wff.clone(),
-                        })
-                        .collect();
-                    crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
+                    crate::index::fast_fields_helper::build_arrow_schema(&self.eager_view())
                 })
                 .clone()
         }
@@ -454,17 +490,7 @@ impl PgSearchTableProvider {
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
-        let is_late_active = self.late_materialization_active.load(Ordering::Relaxed);
-        let active_fields: Vec<_> = self
-            .fields
-            .iter()
-            .map(|wff| match wff {
-                WhichFastField::Deferred(name, ty) if !is_late_active => {
-                    WhichFastField::Named(name.clone(), *ty)
-                }
-                _ => wff.clone(),
-            })
-            .collect();
+        let active_fields = self.active_fields();
 
         let schema = self.get_schema();
         match projection {
@@ -711,20 +737,7 @@ impl PgSearchTableProvider {
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
-        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
-            self.fields.clone()
-        } else {
-            self.fields
-                .iter()
-                .map(|wff| {
-                    if let WhichFastField::Deferred(name, ty) = wff {
-                        WhichFastField::Named(name.clone(), *ty)
-                    } else {
-                        wff.clone()
-                    }
-                })
-                .collect()
-        };
+        let active_fields = self.active_fields();
 
         let (projected_fields, projected_schema) = self.projected_fields_and_schema(projection)?;
         let heap_relid = self.scan_info.heaprelid;
@@ -743,7 +756,8 @@ impl PgSearchTableProvider {
         let base_query = self.scan_info.mode.query().clone();
         let needs_tokenizer = self.scan_info.mode.needs_tokenizer();
         let mut query = self.combine_query_with_filters(base_query, filters);
-        if query.has_postgres_expressions() || query.has_parameters() {
+        let has_runtime_expressions = query.has_postgres_expressions() || query.has_parameters();
+        if has_runtime_expressions && !self.explain_only {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
                     "postgres expressions have not been solved: missing planstate".to_string(),
@@ -765,6 +779,16 @@ impl PgSearchTableProvider {
         // physical scan later through `stamp_parallel_state`.
         let expr_ctx = expr_context.and_then(std::ptr::NonNull::new);
         let needs_tokenizer = query.needs_tokenizer() || needs_tokenizer;
+        // A plain EXPLAIN needs index metadata to build the physical shape, but
+        // has no executor state with which to solve STABLE functions or Params.
+        // Open an unfiltered reader for metadata only and retain the original
+        // expression-bearing query on the display plan. Execution still solves
+        // the query above and opens its reader with the actual runtime value.
+        let reader_query = if self.explain_only && has_runtime_expressions {
+            SearchQueryInput::All
+        } else {
+            query.clone()
+        };
         let reader = match self.manifest.as_ref() {
             Some(manifest) => {
                 assert_eq!(
@@ -775,7 +799,7 @@ impl PgSearchTableProvider {
                 SearchIndexReader::from_manifest(
                     manifest,
                     &index_rel,
-                    query.clone(),
+                    reader_query,
                     self.scan_info.score_needed,
                     expr_ctx,
                     needs_tokenizer,
@@ -783,12 +807,13 @@ impl PgSearchTableProvider {
             }
             None => SearchIndexReader::open_with_context(
                 &index_rel,
-                query.clone(),
+                reader_query,
                 self.scan_info.score_needed,
                 MvccSatisfies::Snapshot,
                 expr_ctx,
                 None,
                 needs_tokenizer,
+                None,
             ),
         }
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
@@ -801,11 +826,17 @@ impl PgSearchTableProvider {
         // checks. A dispatched worker inherits the decision.
         let check_visibility = self.scan_info.mvcc_visibility != MvccVisibility::Raw;
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
-            .with_check_visibility(check_visibility);
+            .with_check_visibility(check_visibility)
+            .with_ffhelper(Arc::clone(&scan_ffhelper));
 
-        let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
+        let pruning = reader.segment_pruning_estimate();
+        let total_estimated_rows = self
+            .scan_info
+            .estimate
+            .as_planner_estimate()
+            .min(pruning.candidate_docs);
 
-        let segment_count = reader.segment_readers().len();
+        let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();
         if self.range_split_points.is_some() {
             debug_assert!(

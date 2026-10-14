@@ -4,7 +4,9 @@ description: "ParadeDB release notes for 0.22.6"
 noindex: true
 ---
 
-## New Features 🎉
+See GitHub release: [v0.22.6](https://github.com/paradedb/paradedb/releases/tag/v0.22.6)
+
+## New Features ✨
 
 - Support expressions in JoinScan DISTINCT target lists (e.g., `upper(name)`, `name IS NULL`).
 
@@ -21,5 +23,3 @@ noindex: true
 - Prevent DSM buffer overflow in PG18 parallel index scans.
 - Fix `PlaceHolderVar found where not expected` error.
 - Restore `pdb.agg(jsonb)` if accidentally removed by an upgrade script.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.22.6).

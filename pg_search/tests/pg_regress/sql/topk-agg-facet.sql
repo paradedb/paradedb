@@ -1026,6 +1026,139 @@ WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 
+-- Test 27d: pdb.agg() as a global window function over a JOIN. JoinScan
+-- computes the document as one more aggregate in its Top-K aggregate node,
+-- above the SQL window aggregate. The spec reads fields of both tables.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "scores": {"terms": {"field": "score", "order": {"_key": "asc"}}}
+        }
+    }'::jsonb) OVER () AS by_brand,
+    COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "scores": {"terms": {"field": "score", "order": {"_key": "asc"}}}
+        }
+    }'::jsonb) OVER () AS by_brand,
+    COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Test 27e: The pdb.agg() document as an input of target list expressions:
+-- read as text, and mixed with a source column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () ->> 'value' AS avg_text,
+    (pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () -> 'value')::float8 + r.score AS avg_plus_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () ->> 'value' AS avg_text,
+    (pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () -> 'value')::float8 + r.score AS avg_plus_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Test 27f: SQL window aggregates over a JOIN with a parameterized LIMIT.
+-- In a generic plan the fetch is not known at planning, so the Top-K
+-- aggregate node cannot be used: JoinScan still engages and computes the
+-- window aggregates in a DataFusion window node instead.
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE window_join_param_limit(int) AS
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT $1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE window_join_param_limit(3);
+
+EXECUTE window_join_param_limit(3);
+
+DEALLOCATE window_join_param_limit;
+
+RESET plan_cache_mode;
+
+-- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
+-- folds into the Top-K aggregate (distinct_topk_as_agg), and the window
+-- aggregates sit beside it in the same node. The window frame is the join
+-- before DISTINCT: product 1 has two reviews, so the count is 4 while DISTINCT
+-- leaves three ids. An entry that is a function of a window aggregate stays
+-- out of the distinct key and is computed after the aggregate.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) OVER () + 1 AS total_plus_one
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT
+    p.id,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) OVER () + 1 AS total_plus_one
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- A DISTINCT target list of window aggregates alone leaves no key: every row
+-- is one group, so one row comes back.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 3;
+
+SELECT DISTINCT COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 3;
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

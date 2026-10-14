@@ -1,0 +1,116 @@
+---
+title: Faster BM25 Queries
+description: Speed up queries that return the most relevant results
+canonical: https://www.paradedb.com/docs/reference/indexing/faster-bm25-queries
+---
+
+<Note>This feature is available in versions `0.26.0` and above.</Note>
+
+Top K queries ordered by
+[BM25 score](/reference/full-text/score) can be sped up by setting `pnorms=true`
+when creating your index, at the cost of a larger index and longer builds.
+
+## Enable the Optimization
+
+Set `pnorms=true` on the [tokenizer](/reference/tokenizers/overview) cast for each
+text field used in BM25 scoring. The option defaults to `false`. This example
+enables it for `description`:
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.unicode_words('pnorms=true')), category);
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    indexing.paradedbField(
+      mockItems.description,
+      tokenizer.unicodeWords({ pnorms: true }),
+    ),
+    mockItems.category,
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={'id': {}, 'description': {'tokenizer': Tokenizer.unicode_words(options={"pnorms": True})}, 'category': {}},
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description, tokenizer=tokenizer.unicode_words(options={"pnorms": True})),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: { tokenizer: ParadeDB::Tokenizer.unicode_words(options: { pnorms: true }) },
+    category: {},
+  },
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Unicode(new() { ["pnorms"] = true }))
+    .HasField(e => e.Category);
+```
+
+</CodeGroup>
+
+Queries automatically use the setting from the index:
+
+```sql
+SELECT id, description, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+```
+
+This option is only supported for text fields. Existing indexes must be
+[rebuilt](/operate/index-maintenance/reindexing) with `pnorms=true` to enable it.
+
+## Performance Tradeoff
+
+BM25 scoring uses the length of each text field to help determine relevance.
+Setting `pnorms=true` stores an extra, denser copy of this information where the scoring
+process can read it more efficiently. Depending on the data and query, this can
+make queries several times faster without changing scores or relevance ranking.
+
+For each field with `pnorms` enabled, the extra storage is roughly one byte per
+distinct term in each document, plus metadata. The extra data also increases
+the work required to build and merge index segments. Enable `pnorms` on fields
+where faster BM25 top K queries justify those costs.

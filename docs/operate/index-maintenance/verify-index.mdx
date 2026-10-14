@@ -1,6 +1,6 @@
 ---
 title: Verify Index Integrity
-description: Check ParadeDB indexes for corruption and structural issues
+description: Inspect ParadeDB indexes for corruption and structural issues
 canonical: https://www.paradedb.com/docs/operate/index-maintenance/verify-index
 ---
 
@@ -128,8 +128,6 @@ This is particularly useful for detecting index entries that reference deleted o
   indexes.
 </Warning>
 
-## Options
-
 ### Sampling for Large Indexes
 
 For large indexes, you can check a random sample of documents instead of all documents:
@@ -195,6 +193,8 @@ await dbContext.Database.VerifyIndex(
 ```
 
 </CodeGroup>
+
+## Verification Settings
 
 ### Progress Reporting
 
@@ -334,7 +334,7 @@ await dbContext.Database.VerifyIndex(
 
 </CodeGroup>
 
-### Stop on First Error
+### Stopping on First Error
 
 To stop verification immediately when the first error is found (similar to `pg_amcheck --on-error-stop`):
 
@@ -440,7 +440,7 @@ await dbContext.Database.IndexSegments("search_idx").ToListAsync();
 
 ### Verifying Specific Segments
 
-Then verify specific segments using the `segment_ids` parameter:
+Then, verify specific segments using the `segment_ids` parameter:
 
 {/* prettier-ignore-start */}
 
@@ -581,7 +581,7 @@ if (oddSegments.Length > 0)
 
 {/* prettier-ignore-end */}
 
-### Automation Example
+### Distributing Verification Across Workers
 
 Distribute verification across N workers:
 
@@ -902,9 +902,9 @@ await dbContext.Database
  app        | articles    | articles_idx  |      16448 |            2 |      10000
 ```
 
-## Index Build Time
+## Inspecting Index Creation Time
 
-To see the wall-clock time a ParadeDB index was built at:
+To see when the index was built:
 
 ```sql SQL
 SELECT paradedb.index_created_at('search_idx');
@@ -918,11 +918,15 @@ SELECT paradedb.index_created_at('search_idx');
 
 Build-time stamping is supported on ParadeDB `0.24.2` and up. Indexes created before upgrading to `0.24.2` will return `NULL`.
 
+---
+
 ## Function Reference
 
 ### `pdb.verify_index`
 
 Verifies a single ParadeDB index.
+
+**Parameters**
 
 | Parameter         | Type     | Default    | Description                                                |
 | ----------------- | -------- | ---------- | ---------------------------------------------------------- |
@@ -934,9 +938,19 @@ Verifies a single ParadeDB index.
 | `on_error_stop`   | boolean  | `false`    | Stop on first error found                                  |
 | `segment_ids`     | int[]    | `NULL`     | Specific segment indices to check. NULL = all segments     |
 
+**Return Columns**
+
+| Column       | Type    | Description                                   |
+| ------------ | ------- | --------------------------------------------- |
+| `check_name` | text    | Name of the verification check                |
+| `passed`     | boolean | Whether the check passed                      |
+| `details`    | text    | Additional information about the check result |
+
 ### `pdb.verify_all_indexes`
 
 Verifies all ParadeDB indexes in the database.
+
+**Parameters**
 
 | Parameter         | Type    | Default | Description                                                |
 | ----------------- | ------- | ------- | ---------------------------------------------------------- |
@@ -947,15 +961,27 @@ Verifies all ParadeDB indexes in the database.
 | `report_progress` | boolean | `false` | Emit progress messages                                     |
 | `on_error_stop`   | boolean | `false` | Stop on first error found                                  |
 
+**Return Columns**
+
+| Column       | Type    | Description                                   |
+| ------------ | ------- | --------------------------------------------- |
+| `schemaname` | text    | Schema containing the index                   |
+| `indexname`  | text    | Name of the index                             |
+| `check_name` | text    | Name of the verification check                |
+| `passed`     | boolean | Whether the check passed                      |
+| `details`    | text    | Additional information about the check result |
+
 ### `pdb.index_segments`
 
 Lists all segments in a ParadeDB index.
+
+**Parameters**
 
 | Parameter | Type     | Default    | Description          |
 | --------- | -------- | ---------- | -------------------- |
 | `index`   | regclass | (required) | The index to inspect |
 
-Returns:
+**Return Columns**
 
 | Column           | Type   | Description                                      |
 | ---------------- | ------ | ------------------------------------------------ |
@@ -970,7 +996,11 @@ Returns:
 
 Lists all ParadeDB indexes in the database.
 
-Returns:
+**Parameters**
+
+None.
+
+**Return Columns**
 
 | Column         | Type   | Description                         |
 | -------------- | ------ | ----------------------------------- |
@@ -983,10 +1013,14 @@ Returns:
 
 ### `paradedb.index_created_at`
 
-Returns the wall-clock time the given ParadeDB index was built. Supported on ParadeDB `0.24.2` and up; indexes created before upgrading to `0.24.2` return `NULL`.
+Inspects when a ParadeDB index was built.
+
+**Parameters**
 
 | Parameter | Type     | Default    | Description          |
 | --------- | -------- | ---------- | -------------------- |
 | `index`   | regclass | (required) | The index to inspect |
 
-Returns a `timestamp with time zone`.
+**Return Value**
+
+Returns the index creation time as a `timestamp with time zone`, or `NULL` for indexes created before upgrading to ParadeDB `0.24.2`.

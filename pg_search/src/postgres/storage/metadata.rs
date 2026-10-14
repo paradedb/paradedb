@@ -142,7 +142,7 @@ impl MetaPage {
                 "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
                 function_name!(),
             )
-            .set_detail("Please contact ParadeDB for access to ParadeDB Enterprise")
+            .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.")
             .report(PgLogLevel::ERROR);
         }
 
@@ -351,6 +351,23 @@ impl MetaPage {
             self.data.schema_start
         };
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    /// Replaces persisted settings bytes for storage contract tests.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn replace_settings_for_test(indexrel: &PgSearchRelation, bytes: &[u8]) {
+        let header = unsafe { LinkedBytesList::create_without_fsm(indexrel) };
+        let mut writer = LinkedBytesList::open(indexrel, header).writer();
+        unsafe {
+            writer.write(bytes).unwrap();
+        }
+        writer.finalize_and_write().unwrap();
+        let mut bman = BufferManager::new(indexrel);
+        let mut buffer = bman.get_buffer_mut(METAPAGE);
+        buffer
+            .page_mut()
+            .contents_mut::<MetaPageData>()
+            .settings_start = header;
     }
 
     pub fn settings_bytes(&self) -> LinkedBytesList {

@@ -28,12 +28,16 @@ jobs:
     steps:
       - name: Check if Commenter Can Be Assigned
         id: check_assignee
+        env:
+          SECRETS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EVENT_COMMENT_USER_LOGIN: ${{ github.event.comment.user.login }}
         run: |
           HTTP_CODE=$(curl -X GET \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: token ${SECRETS_GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
             -o /dev/null -w '%{http_code}\n' -s \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/assignees/${{ github.event.comment.user.login }}")
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${EVENT_ISSUE_NUMBER}/assignees/${EVENT_COMMENT_USER_LOGIN}")
 
           if [ "$HTTP_CODE" -eq "204" ]; then
             echo "can_assign=true" >> $GITHUB_OUTPUT
@@ -42,15 +46,19 @@ jobs:
           fi
 
       - name: Assign GitHub Issue
+        env:
+          COMMENTER: ${{ github.event.comment.user.login }}
+          SECRETS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
         if: steps.check_assignee.outputs.can_assign == 'true'
         run: |
           curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: token ${SECRETS_GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
-            -d '{"assignees": ["${{ github.event.comment.user.login }}"]}' \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/assignees"
+            -d "$(jq -cn --arg commenter "${COMMENTER}" '{assignees: [$commenter]}')" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${EVENT_ISSUE_NUMBER}/assignees"
 
-          echo "Issue #${{ github.event.issue.number }} assigned to ${{ github.event.comment.user.login }}"
+          echo "Issue #${EVENT_ISSUE_NUMBER} assigned to ${COMMENTER}"
 
       - name: Notify of Assignment Failure
         if: steps.check_assignee.outputs.can_assign == 'false'
@@ -62,5 +70,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.name,
-              body: '@${{ github.event.comment.user.login }} Unable to assign this issue to you. You may not have the necessary permissions.'
+              body: `@${context.payload.comment.user.login} Unable to assign this issue to you. You may not have the necessary permissions.`
             })

@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.15.11"
 noindex: true
 ---
 
+See GitHub release: [v0.15.11](https://github.com/paradedb/paradedb/releases/tag/v0.15.11)
+
 ## Stability Improvements 💪
 
 We uncovered and fixed a bug where segment merging could silently fail on every transaction. This caused the segment count to grow
@@ -11,7 +13,3 @@ unbounded, which degraded search performance and ballooned the index size. In Pa
 the replica to fall behind since the silently-failing merge operations added overhead to every transaction.
 
 As part of fixing this issue, we also uncovered several areas of improvement to our index's concurrency controls and write throughput.
-
-## Full Changelog
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.15.11).

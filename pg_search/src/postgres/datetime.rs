@@ -114,6 +114,16 @@ impl PostgresDateTime {
         self.0.into_inner()
     }
 
+    /// Is this Postgres's `infinity`?
+    pub fn is_infinity(&self) -> bool {
+        self.0.is_infinity()
+    }
+
+    /// Is this Postgres's `-infinity`?
+    pub fn is_neg_infinity(&self) -> bool {
+        self.0.is_neg_infinity()
+    }
+
     /// Formats as UTC RFC 3339 without a Postgres output function, so it runs outside a backend.
     /// Returns `None` when the offset does not fit a `chrono` timestamp (the far extremes and the
     /// `infinity` sentinels).
@@ -128,6 +138,17 @@ impl PostgresDateTime {
         let ts = pgrx::datum::Timestamp::try_from(raw)
             .map_err(|_| DateTimeConversionError::OutOfRange)?;
         Ok(Self(ts))
+    }
+
+    /// Parses the string written by `From<PostgresDateTime> for String`, including `infinity` and
+    /// `-infinity`. User-supplied strings go through `TryFrom<&str>` instead, which accepts only
+    /// RFC 3339, so that the word "infinity" in a query is never promoted to a date.
+    pub fn try_from_serialized(s: &str) -> Result<Self, DateTimeConversionError> {
+        match s {
+            "infinity" => Ok(Self(pgrx::datum::Timestamp::positive_infinity())),
+            "-infinity" => Ok(Self(pgrx::datum::Timestamp::negative_infinity())),
+            _ => Self::try_from(s),
+        }
     }
 
     pub fn try_from_unix_nanos(unix_nanos: i64) -> Result<Self, DateTimeConversionError> {
@@ -189,8 +210,10 @@ impl Display for PostgresDateTime {
 impl TryFrom<String> for PostgresDateTime {
     type Error = DateTimeConversionError;
 
+    /// Used by serde, so it also reads back the `infinity` and `-infinity` written by
+    /// `From<PostgresDateTime> for String`.
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
+        Self::try_from_serialized(&value)
     }
 }
 impl TryFrom<&str> for PostgresDateTime {
@@ -228,12 +251,26 @@ fn can_be_rfc3339_date_time(text: &str) -> bool {
 
 impl From<PostgresDateTime> for String {
     fn from(value: PostgresDateTime) -> Self {
+        if value.is_infinity() {
+            return "infinity".to_string();
+        }
+        if value.is_neg_infinity() {
+            return "-infinity".to_string();
+        }
         // append Z to make the output rfc3339-compliant
         format!("{}Z", value.0.to_iso_string())
     }
 }
 impl From<pgrx::datum::Date> for PostgresDateTime {
     fn from(value: pgrx::datum::Date) -> Self {
+        // `date` keeps `infinity` and `-infinity` as the extreme day counts, and `timestamp` keeps
+        // them as the extreme microsecond counts. Map one onto the other: scaling them overflows.
+        if value.is_infinity() {
+            return Self(pgrx::datum::Timestamp::positive_infinity());
+        }
+        if value.is_neg_infinity() {
+            return Self(pgrx::datum::Timestamp::negative_infinity());
+        }
         let midnight_micros = (value.to_pg_epoch_days() as i64)
             .checked_mul(ONE_DAY_MICROS)
             .expect("days to micros should never overflow");
@@ -243,6 +280,12 @@ impl From<pgrx::datum::Date> for PostgresDateTime {
 }
 impl From<PostgresDateTime> for pgrx::datum::Date {
     fn from(value: PostgresDateTime) -> Self {
+        if value.is_infinity() {
+            return Self::positive_infinity();
+        }
+        if value.is_neg_infinity() {
+            return Self::negative_infinity();
+        }
         let pg_days: i32 = (value.into_inner() / ONE_DAY_MICROS)
             .try_into()
             .expect("This should always fit");
@@ -366,6 +409,7 @@ pub(crate) fn pg_timestamp_micros_to_date32(pg_micros: i64) -> i32 {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use pgrx::datum::{Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
     use proptest::*;
@@ -531,5 +575,36 @@ mod tests {
         assert_eq!(pg_timestamp_micros_to_date32(MIN_PG_MICROS), -2_440_588);
 
         assert_eq!(pg_timestamp_micros_to_date32(MAX_PG_MICROS), 106_762_939);
+    }
+
+    #[test]
+    fn date_infinity_maps_to_timestamp_infinity_and_back() {
+        let infinity = PostgresDateTime::from(pgrx::datum::Date::positive_infinity());
+        let neg_infinity = PostgresDateTime::from(pgrx::datum::Date::negative_infinity());
+        assert_eq!(infinity.into_inner(), i64::MAX);
+        assert_eq!(neg_infinity.into_inner(), i64::MIN);
+        assert!(pgrx::datum::Date::from(infinity).is_infinity());
+        assert!(pgrx::datum::Date::from(neg_infinity).is_neg_infinity());
+
+        // 2024-01-01 is 8766 days after the Postgres epoch.
+        let date_2024 = unsafe { pgrx::datum::Date::from_pg_epoch_days(8766) };
+        let pg_dt = PostgresDateTime::from(date_2024);
+        assert_eq!(pg_dt.into_inner(), PG_MICROS_2024);
+        assert_eq!(pgrx::datum::Date::from(pg_dt).to_pg_epoch_days(), 8766);
+    }
+
+    #[pg_test]
+    fn infinity_round_trips_through_serde() {
+        for raw in [i64::MAX, i64::MIN] {
+            let value = PdbOwnedValue::Date(PostgresDateTime::try_from_raw(raw).unwrap());
+            let json = serde_json::to_string(&value).unwrap();
+            assert_eq!(serde_json::from_str::<PdbOwnedValue>(&json).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn user_supplied_infinity_is_not_parsed_as_a_date() {
+        assert!(PostgresDateTime::try_from("infinity").is_err());
+        assert!(PostgresDateTime::try_from("-infinity").is_err());
     }
 }

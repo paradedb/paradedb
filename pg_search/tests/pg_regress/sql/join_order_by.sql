@@ -19,8 +19,8 @@ SET paradedb.enable_join_custom_scan = on;
 DROP TABLE IF EXISTS sorted_t1 CASCADE;
 DROP TABLE IF EXISTS sorted_t2 CASCADE;
 
-CREATE TABLE sorted_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE sorted_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 INSERT INTO sorted_t1 SELECT i, 'val ' || i FROM generate_series(1, 1000) i;
 INSERT INTO sorted_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series(1, 1000) i;
@@ -189,8 +189,8 @@ LIMIT 5;
 DROP TABLE IF EXISTS multi_seg_1 CASCADE;
 DROP TABLE IF EXISTS multi_seg_2 CASCADE;
 
-CREATE TABLE multi_seg_1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE multi_seg_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE multi_seg_1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE multi_seg_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 -- Force multiple segments using small mutable_segment_rows
 CREATE INDEX multi_seg_1_idx ON multi_seg_1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10);
@@ -229,9 +229,9 @@ DROP TABLE IF EXISTS recursive_smj_1 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_2 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_3 CASCADE;
 
-CREATE TABLE recursive_smj_1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE recursive_smj_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
-CREATE TABLE recursive_smj_3 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE recursive_smj_1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE recursive_smj_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE recursive_smj_3 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 INSERT INTO recursive_smj_1 SELECT i, 'val ' || i FROM generate_series(1, 100) i;
 INSERT INTO recursive_smj_2 SELECT i, i, 'val ' || i FROM generate_series(1, 100) i;
@@ -281,8 +281,8 @@ LIMIT 10;
 DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
 
-CREATE TABLE dyn_filter_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE dyn_filter_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE dyn_filter_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE dyn_filter_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments (index-build on existing data
@@ -327,6 +327,21 @@ ORDER BY t1.val ASC
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 5b: Top K dynamic score filter pushdown
+-- ORDER BY score DESC on the probe side allows Top K to tighten its score
+-- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
+-- =============================================================================
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id, paradedb.score(t2.id)
+FROM dyn_filter_t1 t1
+JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+  AND t2.val ||| 'val'
+ORDER BY paradedb.score(t2.id) DESC, t2.id
+LIMIT 10;
+
+-- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs
 -- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when
@@ -342,8 +357,8 @@ LIMIT 10;
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
 
-CREATE TABLE null_val_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE null_val_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE null_val_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE null_val_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 
 CREATE INDEX null_val_t1_idx ON null_val_t1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10000);
 

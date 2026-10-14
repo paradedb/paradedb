@@ -364,11 +364,62 @@ Skipping this check can improve query times by 2-4x in some cases, at the expens
 
 An unvacuumed dead tuple skews a small result visibly and a large one barely at all, so the tradeoff above is really a function of how many rows the query matches. `visibility => 'threshold'` makes that decision per query instead of hardcoding it in your application: visibility checks run when the estimated matching row count is below `paradedb.visibility_threshold`, and the aggregate reads raw index data otherwise.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"value_count": {"field": "id"}}', 'threshold')
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }, "threshold"),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
+```python Django
+from paradedb import Agg, MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes'))
+).aggregate(
+    agg=Agg('{"value_count": {"field": "id"}}', visibility="threshold")
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id"), visibility="threshold").label("agg"))
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("running shoes")
+        .facets_agg(visibility: :threshold, agg: ParadeDB::Aggregations.value_count(:id))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }, "threshold"))
+    .ToListAsync();
+```
+
+</CodeGroup>
 
 `paradedb.visibility_threshold` defaults to `10000` and can be set at the system, database, session, or transaction level.
 
@@ -457,3 +508,13 @@ await dbContext
   normalized](/reference/tokenizers/available-tokenizers/literal-normalized)
   tokenizer.
 </Note>
+
+## Segment Pruning with Partitioning (Beta)
+
+<Warning>
+  `partition_by` is currently a Beta feature under active development.
+</Warning>
+
+For aggregates filtered by high-selectivity keys (such as `tenant_id` in multi-tenant applications) or date ranges, configuring [`partition_by`](/reference/indexing/partition-by) allows ParadeDB to prune non-matching segments before computing the aggregate, significantly speeding up queries by scanning less data.
+
+See the [Partitioning Guide](/reference/indexing/partition-by) for details on column selection and pruning behavior.

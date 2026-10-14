@@ -157,6 +157,9 @@ impl BufFileReleaseGuard {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the callback holds a pointer to
+// this guard, so it has to be unregistered on every drop or a later release would call through
+// freed memory. Unregistering is a list unlink and cannot raise.
 impl Drop for BufFileReleaseGuard {
     fn drop(&mut self) {
         unsafe {

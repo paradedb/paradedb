@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.15.9"
 noindex: true
 ---
 
+See GitHub release: [v0.15.9](https://github.com/paradedb/paradedb/releases/tag/v0.15.9)
+
 ## Deprecation Notice 🗄️
 
 - As of this release, we have deprecated `pg_search` support for PostgreSQL 13. This decision was taken to enable our team to better serve our
@@ -30,7 +32,3 @@ noindex: true
 - Fixed an issue where `REFRESH MATERIALIZED VIEW CONCURRENTLY` failed with `pg_search` installed
 - Fixed an issue where the `max_num_chars` parameter was not being respected while querying for highlights using the snippets function
 - Fixed an issue where certain queries would have missing rows when querying data with `NULL` values in a string fast field
-
-## Full Changelog
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.15.9).

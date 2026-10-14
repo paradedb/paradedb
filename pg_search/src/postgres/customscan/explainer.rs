@@ -42,6 +42,10 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).analyze }
     }
 
+    pub fn is_buffers(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).buffers }
+    }
+
     pub fn is_costs(&self) -> bool {
         unsafe { (*self.state.as_ptr()).costs }
     }
@@ -122,12 +126,48 @@ impl Explainer {
         }
     }
 
+    /// Groups related properties in text and structured EXPLAIN formats.
+    pub fn add_group(&mut self, key: &str, properties: impl FnOnce(&mut Self)) {
+        let state = self.state.as_ptr();
+        unsafe {
+            pg_sys::ExplainOpenGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+            if (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT {
+                let header = format!(
+                    "{:indent$}{key}:\n",
+                    "",
+                    indent = 2 * (*state).indent as usize
+                );
+                pg_sys::appendStringInfoString((*state).str_, header.as_pg_cstr());
+                (*state).indent += 1;
+            }
+        }
+        properties(self);
+        unsafe {
+            if (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT {
+                (*state).indent -= 1;
+            }
+            pg_sys::ExplainCloseGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+        }
+    }
+
     pub fn add_unsigned_integer(&mut self, key: &str, value: u64, unit: Option<&str>) {
         unsafe {
             pg_sys::ExplainPropertyUInteger(
                 key.as_pg_cstr(),
                 unit.as_pg_cstr(),
                 value,
+                self.state.as_ptr(),
+            );
+        }
+    }
+
+    pub fn add_float(&mut self, key: &str, value: f64, digits: i32, unit: Option<&str>) {
+        unsafe {
+            pg_sys::ExplainPropertyFloat(
+                key.as_pg_cstr(),
+                unit.as_pg_cstr(),
+                value,
+                digits,
                 self.state.as_ptr(),
             );
         }

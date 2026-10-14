@@ -42,7 +42,7 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
    Index: idx_products
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
@@ -60,7 +60,7 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
    Index: idx_products
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
@@ -173,7 +173,7 @@ SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
    Index: idx_large
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_1:alpha","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
@@ -190,7 +190,7 @@ SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
    Index: idx_large
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_35:gamma","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
@@ -234,7 +234,7 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
    Index: idx_huge
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
@@ -251,7 +251,7 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
    Index: idx_huge
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f050:middle_field","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
@@ -268,7 +268,7 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
    Index: idx_huge
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f100:last_field","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
@@ -423,7 +423,7 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
    Index: idx_nullable
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:\"Product C\"","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
@@ -457,7 +457,7 @@ SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
    Index: idx_reindex
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
@@ -493,7 +493,7 @@ SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
    Index: idx_large_val
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:Large","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
@@ -537,7 +537,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
    Index: idx_full_pipeline
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Laptop","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
@@ -554,7 +554,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wire
    Index: idx_full_pipeline
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:Wireless","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
@@ -571,7 +571,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electro
    Index: idx_full_pipeline
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
@@ -588,7 +588,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
    Index: idx_full_pipeline
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:office","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
@@ -606,7 +606,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books O
    Index: idx_full_pipeline
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:books OR tags:computer","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
@@ -623,7 +623,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electro
    Index: idx_full_pipeline
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:electronics AND tags:accessories","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
@@ -668,7 +668,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
    Index: idx_multi_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
@@ -685,7 +685,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
    Index: idx_multi_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:pasta","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
@@ -702,7 +702,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
    Index: idx_multi_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"author:Alice","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
@@ -719,7 +719,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
    Index: idx_multi_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:food","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
@@ -737,7 +737,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND aut
    Index: idx_multi_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:guide AND author:alice","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
@@ -779,7 +779,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
    Index: idx_hybrid
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
@@ -797,7 +797,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
    Index: idx_hybrid
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
@@ -815,7 +815,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
    Index: idx_hybrid
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:tools","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
@@ -833,7 +833,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
    Index: idx_hybrid
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:tech","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
@@ -851,7 +851,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND descrip
    Index: idx_hybrid
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:widget AND description:useful","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
@@ -893,7 +893,7 @@ SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:Firs
    Index: idx_articles
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:First","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
@@ -911,7 +911,7 @@ SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('titl
    Index: idx_articles
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_upper:FIRST","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
@@ -958,7 +958,7 @@ SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:m
    Index: idx_mixed
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"medium:medium","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
@@ -975,7 +975,7 @@ SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny
    Index: idx_mixed
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"small:tiny","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
@@ -1022,7 +1022,7 @@ SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('
    Index: verify_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"first_field:hello","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
@@ -1039,7 +1039,7 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
    Index: verify_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"second_field:world","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
@@ -1094,7 +1094,7 @@ SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('prod
    Index: idx_products_schema
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_name:TestProduct","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
@@ -1111,7 +1111,7 @@ SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('prod
    Index: idx_products_schema
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_desc:TestDescription","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
@@ -1155,7 +1155,7 @@ SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.
    Index: idx_tokenized
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_simple:running","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
@@ -1173,7 +1173,7 @@ SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.pars
    Index: idx_tokenized
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:running","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
@@ -1217,7 +1217,7 @@ SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('
    Index: idx_ngram
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_ngram:gres","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
@@ -1235,7 +1235,7 @@ SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('co
    Index: idx_ngram
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:gres","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
@@ -1281,7 +1281,7 @@ SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('cont
    Index: idx_stemmer
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_stemmed:run","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
@@ -1299,7 +1299,7 @@ SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('con
    Index: idx_stemmer
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:run","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
@@ -1624,7 +1624,7 @@ SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electr
    Index: smoke_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
@@ -1674,13 +1674,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on smoke_test
    Index: smoke_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null,"none_if_no_match":true}},"2":{"avg":{"field":"rating","missing":null}},"3":{"min":{"field":"price","missing":null}},"4":{"max":{"field":"price","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"},"1":{"sum":{"field":"price","missing":null,"none_if_no_match":true}},"2":{"avg":{"field":"rating","missing":null}},"3":{"min":{"field":"price","missing":null}},"4":{"max":{"field":"price","missing":null}}}
 (5 rows)
 
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
@@ -2165,7 +2165,7 @@ WHERE id @@@ pdb.parse('category:Electronics');
    Index: smoke_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 -- Verify Top K with pdb.agg window function

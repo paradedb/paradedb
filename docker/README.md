@@ -45,7 +45,7 @@ helm repo update
 helm template cnpg cnpg/cloudnative-pg --namespace cnpg-system --version <chart_version> --set replicaCount=2
 ```
 
-Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The two operator replicas retain leader election so reconciliation can continue when one operator is unavailable. The current file is chart `0.29.0` / CNPG `1.30.0`.
+Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The two operator replicas retain leader election so reconciliation can continue when one operator is unavailable. The current file is chart `0.29.1` / CNPG `1.30.1`.
 
 ## Release Process
 

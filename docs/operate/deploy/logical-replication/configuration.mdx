@@ -1,61 +1,60 @@
 ---
-title: Schema Changes
-description: Handle DDL/schema changes when running ParadeDB as a logical replica
+title: Replication Configuration
+description: Configure publication boundaries, replication capacity, and replica identity
 canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/configuration
 ---
 
-<Note>
-  This section assumes that you have successfully completed the [getting
-  started](/operate/deploy/logical-replication/getting-started) guide and
-  reviewed the [Logical Replication Operational
-  Guide](/operate/deploy/logical-replication/operational-guide).
-</Note>
+Configure your publisher and subscriber for the tables and subscriptions you plan to replicate.
 
-## Schema Changes
+## Choosing Publication and Subscription Boundaries
 
-Postgres logical replication copies row changes, not DDL. That means schema
-changes on the publisher are not applied automatically on ParadeDB.
+For large or high-churn production tables, use one publication and one
+subscription per large table, or group only small related tables together.
 
-Keep these rules in mind:
+This gives each subscription its own apply worker and replication slot.
+In normal steady-state replication, Postgres does not parallelize ordinary
+change application across tables within a single subscription, so one hot table
+can delay other tables that share that apply worker. A publication per table
+alone does not provide that isolation unless it also has its own subscription.
 
-- Existing replicated tables must stay schema-compatible on both sides
-- New tables must exist on ParadeDB before they can replicate there
-- ParadeDB indexes are local to ParadeDB and must be created or rebuilt there
-- Publication membership still controls whether a new table is replicated at all
+If you split replication this way, allow enough slots and workers for all your
+subscriptions, including extra capacity during the initial copy.
 
-```sql
--- On Publisher
-ALTER TABLE mock_items ADD COLUMN num_stock int;
-INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating, num_stock)
-VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}', '2024-07-09 14:00:00', 2, 900);
+**On the publisher:**
 
--- On Subscriber
-ERROR: logical replication target relation "public.mock_items" is missing some replicated columns
-```
+- `max_replication_slots`: Allow one slot per subscription, plus extra slots
+  for table synchronization during bootstrap. With the default settings, each
+  bootstrapping subscription can use up to two extra slots.
+- `max_wal_senders`: Allow enough senders for those replication slots, plus
+  any physical replicas.
 
-For the safe rollout sequence, including subscriber-first additive DDL and how
-to handle non-additive changes, see [Roll Out DDL
-Safely](/operate/deploy/logical-replication/operational-guide#roll-out-ddl-safely).
+**On the subscriber:**
 
-If replication is already failing because the schemas diverged or because a
-conflict stopped the apply worker, see [Troubleshoot Apply
-Failures](/operate/deploy/logical-replication/operational-guide#troubleshoot-apply-failures).
+- `max_replication_slots` and `max_logical_replication_workers`: Allow capacity
+  for every subscription, plus extra capacity for table synchronization.
+- `max_worker_processes`: Allow enough processes for the logical replication
+  workers and any other background workers.
+- On Postgres 18+, also size `max_active_replication_origins` for replication
+  origin tracking.
 
-If you want a new table to replicate to ParadeDB, that table must be included
-in the publication. Publications created with `FOR ALL TABLES` include new
-tables automatically, and publications created with `FOR TABLES IN SCHEMA ...`
-include new tables created in those schemas automatically. If your publication
-was created from an explicit table list, new tables will not replicate until
-you add them manually. If you do not want a table replicated to ParadeDB, leave
-it out of the publication.
+## Handling Tables Without Primary Keys
 
-For the full sequence for adding a replicated searchable table, see [Add New
-Tables](/operate/deploy/logical-replication/operational-guide#add-new-tables).
+Postgres needs a replica identity to replicate `UPDATE` and `DELETE`
+operations. A primary key is best. Another suitable unique index can also be
+used as the replica identity. If a table has no suitable key, you can use the
+per-table fallback:
 
 ```sql
--- On Publisher
-ALTER PUBLICATION marketplace_pub ADD TABLE newly_added_table;
-
--- On Subscriber
-ALTER SUBSCRIPTION marketplace_sub REFRESH PUBLICATION;
+ALTER TABLE public.events REPLICA IDENTITY FULL;
 ```
+
+Do not think of this as a server-wide setting. `REPLICA IDENTITY FULL` is set
+per published table and should be treated as a fallback rather than the default
+design.
+
+Postgres explicitly warns that subscriber-side `UPDATE` and `DELETE` can
+become very inefficient under `FULL`, because the subscriber must locate the
+matching row using the entire old row image rather than a compact key.
+`FULL` also increases WAL volume and replication traffic on the publisher,
+since every `UPDATE` and `DELETE` writes the full before-image of the row
+into WAL instead of just the key columns.

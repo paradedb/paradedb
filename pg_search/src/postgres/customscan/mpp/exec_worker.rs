@@ -171,6 +171,10 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_desired_task_count_handler(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
+        // Disable the use of distributed dynamic filters until we fix
+        // https://github.com/paradedb/datafusion-distributed/issues/107
+        .with_distributed_remote_dynamic_filters(false)
+        .expect("with_distributed_remote_dynamic_filters")
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

@@ -30,7 +30,9 @@ INSERT INTO products_op VALUES
     (100, 1, 'A fine widget'),
     (101, 1, 'A cool gadget'),
     (200, 2, 'A neat gizmo'),
-    (300, 3, 'A boring thing');
+    (300, 3, 'A boring thing'),
+    (400, 3, 'A bright lamp'),
+    (401, 3, 'A sturdy chair');
 
 INSERT INTO product_tags_op VALUES
     (1, 100, 'popular'),

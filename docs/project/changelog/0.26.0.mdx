@@ -1,0 +1,162 @@
+---
+title: "0.26.0"
+description: "ParadeDB release notes for 0.26.0"
+noindex: true
+---
+
+See GitHub release: [v0.26.0](https://github.com/paradedb/paradedb/releases/tag/v0.26.0)
+
+## New Features ✨
+
+### Quantized Vector Search
+
+<Warning>
+  To benefit from this feature, you will need to `REINDEX` existing indexes.
+</Warning>
+
+Vector fields in a ParadeDB index are now quantized by default. Vectors are compressed into compact codes, which queries scan to shortlist candidates before reranking them against the full-precision vectors:
+
+```sql
+CREATE INDEX ON items USING paradedb (id, embedding);
+```
+
+Quantization is enabled by default for vector fields with at least 64 dimensions. Set `"quantization": false` in a field's `vector_fields` configuration to disable it. Quantization settings in `vector_fields` take effect only during `CREATE INDEX` and
+`REINDEX`. Changing quantization with `ALTER INDEX ... SET (vector_fields = ...)`
+does not affect new or existing segments until `REINDEX` rebuilds the index.
+
+- Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
+
+- Replaced the `centroid_ratio` and `training_samples_per_centroid` index options with `training_sample_ratio` (default `0.32`) and `max_leaf_size` (default `100`). The settings now directly control Tantivy's training fraction and SuperKMeans' maximum training leaf size. The old names are no longer accepted; recreate indexes that explicitly store them using the new options.
+- `paradedb.vector_info` reports quantization metadata for each stored segment; `paradedb.vector_config` reports the field build target.
+- Added `paradedb.vector_estimator_info(index, field[, queries])`, a read-only diagnostic that reports per-layer estimator bias and spread on indexed data or supplied `vector[]` queries. It never changes index behavior.
+
+Every index containing a vector field must be rebuilt with `REINDEX` after upgrading,
+including indexes with quantization disabled. Vector storage uses format 4.
+
+`paradedb.vector_info(index, field)` reports stored metadata for each segment:
+`quantized`, ordered `layers`, ordered `quantizer_kinds` (`sign` or `grid`),
+and `bytes_per_row`. Plain segments have NULL layer and byte fields. Quantized byte
+counts include codes, sidecars, constants and residual norms, excluding rows and padding.
+
+`paradedb.vector_config(index_relation, field)` reports the build target for each leaf index:
+`index_oid` (`oid`),
+`quantized`, `layers`, `bytes_per_row` and `settings_version`. This version describes
+settings serialization (3), independently of segment storage.
+
+### Window Aggregate Pushdown over Joins
+
+Global window aggregates — `COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`, `MIN`, and `MAX` with an empty `OVER ()` — are now pushed down over joins via the ParadeDB Join Scan.
+
+The aggregates are computed over the full set of matching join rows inside the scan, so Top-K `ORDER BY ... LIMIT` execution stays active instead of falling back to a native `WindowAgg` over all rows.
+
+Window aggregates may also appear inside target-list expressions, such as casts (`AVG(price) OVER ()::float8`), arithmetic (`score + COUNT(*) OVER ()`), and function calls (`round(AVG(price) OVER (), 2)`). Aggregate arguments must be columnar fields; `NUMERIC` columns are supported when declared with a precision and scale, and `AVG` over integer columns renders at the value's natural scale rather than Postgres' fixed 16-digit display scale.
+
+### Index Partitioning and Range Co-Partitioned Joins (Beta)
+
+You can now partition ParadeDB indexes along one or more columns using the new `partition_by` index option. By organizing rows into segments based on column values, ParadeDB can skip irrelevant data during searches and accelerate parallel joins between tables:
+
+```sql
+CREATE INDEX items_idx ON items
+USING paradedb (id, tenant_id, description, created_at)
+WITH (
+  partition_by = 'tenant_id',
+  target_segment_count = 16
+);
+```
+
+Partitioning unlocks two key execution capabilities:
+
+- Multi-dimensional segment pruning: Each segment records min and max bounds for partition columns in its metadata. Equality and range filters evaluate against these bounds to skip non-matching segments before opening posting lists or columnar storage.
+- Range co-partitioned joins: When both tables in an equi-join partition on their join keys, parallel workers can join matching partition ranges directly. This significantly reduces data transfer between workers during parallel joins, speeding up joins, sorts, and aggregations.
+
+See the [Partitioning Guide](/reference/indexing/partition-by) for data type constraints, column selection guidance, and performance tuning.
+
+### Other Changes
+
+- Added support for pushing down `SELECT DISTINCT` into the ParadeDB index via `AggregateScan` when distinct clauses reference columnar fields with deterministic collations, avoiding HashAggregate execution over all matching rows.
+
+- `ORDER BY` on PostgreSQL range columns is now pushed down into the ParadeDB index Top-K path when the range column is the leading sort key, ordering bounds according to PostgreSQL `range_cmp` semantics.
+
+- `GROUP BY DATE(timestamp_column)` and `GROUP BY timestamp_column::date` are now pushed down to the aggregate custom scan when the column is a columnar `timestamp without time zone`. Results match Postgres for the full timestamp range, including `infinity`, `-infinity` and `NULL`. `DATE(timestamptz_column)` still falls back to Postgres because the result depends on the session `TimeZone`.
+
+- Added a `paradedb.spill_to_disk` GUC. When enabled, queries that exceed `work_mem` spill to disk and complete instead of returning a `work_mem`-exceeded error. A warning is emitted when spilling occurs. Off by default.
+
+- Aggregates accept a new `visibility` parameter with three modes. `'transaction'` (the default) applies MVCC visibility checks to matching index entries, `'raw'` skips them entirely, and `'threshold'` applies them only when the estimated matching row count is below the new `paradedb.visibility_threshold` GUC, which defaults to 10000. The `solve_mvcc` parameter is deprecated and is still accepted as an alias.
+
+- Search queries with multiple filters can now use more than one existing Postgres index to find matching rows faster. ParadeDB applies this optimization automatically when it expects a performance benefit.
+
+- Reduced planning time and eliminated plan non-determinism for the join scan by moving join planning to a single pass at the final query stage. Joins now reliably support `SELECT DISTINCT` with early-termination Top-K ordering and late materialization.
+
+- A `GROUP BY` on a string column of a search index now groups on the index's term ordinals first and decodes one value per group, instead of decoding every input row. A `terms` bucket of `pdb.agg` on such a column does the same, with or without sub-aggregations.
+
+- Added a `search_mode` option to the Jieba tokenizer. Set `search_mode=false` to tokenize text without splitting compound words into smaller tokens. The default remains `true`.
+
+- Added TopK pushdown for queries that group and order by `DATE(timestamp)`, allowing DataFusion to apply the sort and limit during aggregation.
+
+- Added a `chinese_convert` option to the `chinese_compatible` tokenizer, matching the option
+  already supported by `pdb.jieba`. Set `chinese_convert=t2s` (or `s2t`, `tw2s`, `tw2sp`, `s2tw`,
+  `s2twp`) to convert between Traditional and Simplified Chinese before tokenization.
+
+- Shipped an experimental stacked IVF router with adaptive partition scanning for vector search.
+
+- Deprecated the `key_field` setting at `CREATE INDEX` time.
+
+- Enabled Block-Max WAND (BMW) and MAXSCORE dynamic pruning on queries combined with non-scoring filters, accelerating filtered full-text searches.
+
+## Performance Improvements 🚀
+
+### Faster Text Search
+
+This release includes the text search performance improvements described in [PlanetScale Released Text Search and We Have a Lot to Say (Part I)](https://www.paradedb.com/blog/opening-a-closed-tin).
+
+To benefit from all of these improvements, existing indexes must be [reindexed](/operate/index-maintenance/reindexing) after upgrading. For the BM25 scoring improvements, also set [`pnorms=true`](https://www.paradedb.com/docs/reference/indexing/faster-bm25-queries) on the tokenizer cast for each text field used in scoring when rebuilding the index.
+
+### Other Changes
+
+- Optimized range-partitioned joins to prioritize partitioning on larger tables and align asymmetric join streams, minimizing cross-worker shuffles.
+
+- Added automatic MaxScore pruning for eligible top-k OR queries and `paradedb.disjunction_pruning` to choose `auto`, `wand`, or `maxscore` at execution time.
+
+## Stability Improvements 💪
+
+- Fixed incorrect results for `ORDER BY column::text LIMIT` on numeric and range columns. These queries now sort by the cast text value instead of the underlying column value, while explicitly indexed cast expressions remain eligible for Top K.
+
+- The DataFusion aggregate scan now evaluates expressions wrapped around an aggregate, such as `COUNT(*) * 2`, `COUNT(*)::numeric`, `COALESCE(SUM(x), 0)`, or an aggregate combined with a grouped column, instead of returning the bare aggregate value or crashing the backend on by-reference result types (#6168). Multiple aggregates in one output expression, functionally dependent output columns, and `HAVING` on filtered aggregates are pushed down as well. `EXPLAIN VERBOSE` on these plans now prints the real expressions rather than `pdb.agg_fn(...)` placeholders, and the GROUP BY and DISTINCT decline messages name the offending item by position.
+
+- `CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` no longer fail on Postgres 15 and 16 when another backend writes to the table during the build.
+
+- The join scan now returns the right rows when a `LIMIT` query sorts on a text columnar field of the nullable side of an outer join. Those rows used to sort as if they carried the first document's value.
+
+- Fixed range-partitioned scans omitting rows whose partition key is NULL, which dropped preserved rows from range-partitioned `LEFT JOIN`s.
+
+- Fixed a backend abort when the join scan planned a query with `ORDER BY` and parallel paths. The planner could free the join path the scan inspected before the scan ran, and debug builds aborted on the stale pointer (#6364).
+
+- Fixed a `segment ... should exist` error from a parallel search scan running on an index that a concurrent merge changed. The scan's leader resolved its own set of segments instead of the set it had published for its workers, so a segment the merge retired in between was still handed out as work (#6384).
+
+- Fixed `pdb.agg()` over a join rejecting a field indexed through a tokenizer cast, such as `(name::pdb.literal)`, as an expression index. On a single table, a `pdb.agg()` with such a field and a NUMERIC metric no longer fails on the NUMERIC field (#6411).
+
+- Fixed backend hangs when terminated while loading tokenizer settings, and prevented deadlocks when triggers or row-level security policies re-enter tokenizer lookups.
+
+- A prepared statement whose `LIMIT` is a parameter no longer gets rows out of `ORDER BY` order from the join scan. Once Postgres switched the statement to a generic plan, the join scan could return the first rows in join order instead of the sorted ones.
+
+- Fixed a backend crash (`signal 11`, or a `tupdesc reference ... is not owned by resource owner Portal` error) in a search query that has `pdb.score()` or `pdb.snippet()` together with a subquery expression, such as `id IN (SELECT ...)`, in its `SELECT` list or `ORDER BY`. The scan initialized the subquery again for each row and left freed state behind (#6582). The same applies to an aggregate with such a subquery expression in the same `SELECT` list entry, as in `count(*) IN (SELECT ...)`.
+
+- Fixed regex tokenizers with different patterns in one index sharing a single analyzer. The registered tokenizer name left out the pattern, so every `pdb.regex_pattern` field with the same filters was indexed and searched with the pattern of whichever field registered last (#6519). Existing indexes keep their current behavior; `REINDEX` an index that has more than one regex field to index each field with its own pattern.
+
+- Fixed `PgList does not contain pointers` when a prepared statement runs a `GROUP BY` aggregate on Aggregate Scan more than one time. The error came on the second run of a cached plan, which a driver that prepares its statements reaches when it sends the same query two times (#6136).
+
+- Fixed wrong results from Aggregate Scan for an aggregate with its own `ORDER BY`, such as `COUNT(id ORDER BY kind)`. On Postgres 16 and later, the scan grouped on the sort column and returned one row for each of its values (#6607).
+
+## Breaking Changes 🚨
+
+### Vector storage
+
+Vector storage uses per-segment metadata and a block-major layout. After upgrading to 0.26, every index containing a vector field, quantized or not, must be rebuilt with `REINDEX`.
+
+Vector searches fail with a rebuild-required error until `REINDEX` completes. Writes continue: merges skip segments with unsupported vector storage. `REINDEX CONCURRENTLY` can rebuild the index while writes proceed.
+
+## Other Changes 🛠️
+
+- Streamlined Docker image builds and removed extraneous bundled extensions in official container images to conform with Docker Official Images guidelines.
+
+- Updated user-facing error messages, notices, and planner diagnostics to refer to "ParadeDB index" rather than legacy "BM25 index" terminology.

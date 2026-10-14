@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.17.0"
 noindex: true
 ---
 
+See GitHub release: [v0.17.0](https://github.com/paradedb/paradedb/releases/tag/v0.17.0)
+
 ## Pushdown for `COUNT`
 
 We're making rapid progress on our [roadmap](/project/roadmap#deeper-analytics-improvements) to fully push down aggregates to the BM25 index. The first aggregate we've pushed down
@@ -64,5 +66,3 @@ can get lost, preventing dead space in the index from being reclaimed by future 
 
 To solve this, we implemented our own, write-ahead logged free space map that lives alongside the BM25 index. This FSM is also more optimized than the Postgres
 FSM for bulk writes, which has improved disk write patterns.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.17.0).

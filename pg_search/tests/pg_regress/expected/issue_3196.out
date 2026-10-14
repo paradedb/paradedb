@@ -13,13 +13,13 @@ CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (m
 INSERT INTO mock_items (rating, metadata) VALUES (null, null), (null, null);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
@@ -64,13 +64,13 @@ SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();

@@ -46,6 +46,8 @@ DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
 USING paradedb (id, (title::pdb.simple), (category::pdb.literal), price, in_stock, created_at, valid_period, quantity_range, (tags::pdb.literal));
 
+SELECT * FROM paradedb.schema('records_no_fast_idx') ORDER BY name;
+
 
 -- 'Test 1: ORDER BY title with LIMIT should use NormalScanExecState'
 

@@ -1,0 +1,65 @@
+-- Test Chinese Traditional/Simplified conversion with the chinese_compatible tokenizer
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Test 1: Basic T2S (Traditional to Simplified) tokenization
+SELECT '繁體中文測試'::pdb.chinese_compatible('chinese_convert=t2s')::text[];
+
+-- Test 2: Basic S2T (Simplified to Traditional) tokenization
+SELECT '简体中文测试'::pdb.chinese_compatible('chinese_convert=s2t')::text[];
+
+-- Index Traditional and Simplified documents with T2S
+CREATE TABLE test_chinese_compatible_convert (
+    id SERIAL PRIMARY KEY,
+    title TEXT
+);
+
+-- Insert mixed Traditional and Simplified Chinese
+INSERT INTO test_chinese_compatible_convert (title) VALUES
+    ('繁體標題'),
+    ('简体标题');
+
+-- Create index with T2S conversion
+CREATE INDEX test_chinese_compatible_bm25 ON test_chinese_compatible_convert
+USING paradedb (id, (title::pdb.chinese_compatible('chinese_convert=t2s')));
+
+-- Both query forms match both documents
+SELECT id, title FROM test_chinese_compatible_convert
+WHERE title ||| '標題'
+ORDER BY id;
+
+SELECT id, title FROM test_chinese_compatible_convert
+WHERE title ||| '标题'
+ORDER BY id;
+
+-- The index stores Simplified text unchanged; only the search tokenizer converts the query.
+DROP TABLE IF EXISTS test_chinese_search_tokenizer;
+CREATE TABLE test_chinese_search_tokenizer (
+    id SERIAL PRIMARY KEY,
+    title TEXT
+);
+
+-- Simplified-only content.
+INSERT INTO test_chinese_search_tokenizer (title) VALUES ('简体标题');
+
+CREATE INDEX test_chinese_search_tokenizer_bm25 ON test_chinese_search_tokenizer
+USING paradedb (id, (title::pdb.chinese_compatible))
+WITH (search_tokenizer = 'chinese_compatible(chinese_convert=t2s)');
+
+-- Sanity check: the Simplified query term matches the Simplified-only index directly.
+SELECT id, title FROM test_chinese_search_tokenizer
+WHERE title ||| '标题'
+ORDER BY id;
+
+-- Traditional input matches only after query-time conversion.
+SELECT id, title FROM test_chinese_search_tokenizer
+WHERE title ||| '標題'
+ORDER BY id;
+
+DROP TABLE test_chinese_search_tokenizer;
+
+-- Reject invalid conversion modes
+SELECT '繁體中文測試'::pdb.chinese_compatible('chinese_convert=t2st')::text[];
+
+-- Cleanup
+DROP INDEX test_chinese_compatible_bm25;
+DROP TABLE test_chinese_compatible_convert;

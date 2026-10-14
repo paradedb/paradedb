@@ -136,5 +136,27 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
     // In 0.20.0 we changed the default tokenizer from `simple` to `unicode_words`
     tokenizers.push(SearchTokenizer::Simple(SearchTokenizerFilters::default()));
 
-    Ok(tokenizers)
+    Ok(with_regex_legacy_names(tokenizers))
+}
+
+/// Regex tokenizers used to be named without their pattern, so every regex tokenizer with the
+/// same filters registered under one name, and indexes built back then still reference it.
+/// Each regex tokenizer is followed by its old-name twin, in the same order as before, so the
+/// last one still owns the shared name, exactly as when those indexes were built.
+fn with_regex_legacy_names(tokenizers: Vec<SearchTokenizer>) -> Vec<SearchTokenizer> {
+    let mut out = Vec::with_capacity(tokenizers.len());
+    for tokenizer in tokenizers {
+        let legacy = match &tokenizer {
+            SearchTokenizer::RegexTokenizer { pattern, filters } => {
+                Some(SearchTokenizer::RegexTokenizerDeprecated {
+                    pattern: pattern.clone(),
+                    filters: filters.clone(),
+                })
+            }
+            _ => None,
+        };
+        out.push(tokenizer);
+        out.extend(legacy);
+    }
+    out
 }

@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.20.0"
 noindex: true
 ---
 
+See GitHub release: [v0.20.0](https://github.com/paradedb/paradedb/releases/tag/v0.20.0)
+
 <Note>
   `0.20.0` promotes the v2 API to default. The v2 API should be used for all new
   indexes. The original API is now referred to as the legacy API and will be
@@ -22,7 +24,7 @@ A massive thank you to our external contributors for this release:
 - [**matthew p robertson**](https://github.com/mpr1255) - Added trim token filter ([#3545](https://github.com/paradedb/paradedb/pull/3545))
 - [**Daniil Tatarinov**](https://github.com/idkwhttsay) - Implemented JSON key sorting and GROUP BY NULL handling ([#3479](https://github.com/paradedb/paradedb/pull/3479), [#3454](https://github.com/paradedb/paradedb/pull/3454))
 
-## New Features 🎉
+## New Features ✨
 
 ### Search Aggregation and Faceting
 
@@ -96,5 +98,3 @@ The second improvement is [default background merging](https://github.com/parade
 **Reduced Memory Copying**: Eliminated unnecessary Postgres buffer copies during query processing, reducing CPU overhead and improving throughput for complex queries.
 
 **Numeric Data Type Support**: ParadeDB now supports pushing down `numeric` data types in aggregate queries, enabling efficient calculations on decimal fields like prices and financial data.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.0).

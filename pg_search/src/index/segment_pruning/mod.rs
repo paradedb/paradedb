@@ -29,4 +29,6 @@ mod snapshot;
 
 pub(crate) use snapshot::SegmentStatsSnapshot;
 #[cfg(any(test, feature = "pg_test"))]
-pub(crate) use snapshot::test_support::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
+pub(crate) use snapshot::test_support::{
+    EMPIRICAL_READS, InjectedStatsFailure, STATS_OPENS, inject_stats_failure,
+};

@@ -4,7 +4,9 @@ description: "ParadeDB release notes for 0.24.1"
 noindex: true
 ---
 
-## New Features 🎉
+See GitHub release: [v0.24.1](https://github.com/paradedb/paradedb/releases/tag/v0.24.1)
+
+## New Features ✨
 
 - Enabled the join and aggregate scans by default to expand support for various query shapes, and improve performance.
 - Significantly improved support for indexing Postgres date/time types, improving alignment with Postgres's semantics.
@@ -20,5 +22,3 @@ noindex: true
 - Fix correctness when visibility causes Top-K underflow with a shared threshold.
 - Solve correlated variables in heap filters, avoiding a crash on particular complex filters.
 - Expanded support for various join shapes in the join custom scan.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.24.1).

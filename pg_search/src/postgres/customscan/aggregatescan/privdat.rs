@@ -17,8 +17,12 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    GroupingTransform, JoinAggregateTargetList,
+};
+use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DATE_UDF_NAME;
 use crate::postgres::customscan::joinscan::build::{RelNode, RelationAlias};
+use datafusion::common::Column;
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -33,8 +37,9 @@ use pgrx::prelude::*;
 pub enum FilterExpr {
     /// Reference to an aggregate result by index (HAVING context).
     AggRef(usize),
-    /// Reference to a GROUP BY column by field name (HAVING context).
-    GroupRef(String),
+    /// Reference to a GROUP BY column by its index in
+    /// `JoinAggregateTargetList.group_columns` (HAVING context).
+    GroupRef(usize),
     /// Reference to a pre-aggregate table column (FILTER context).
     /// Execution identity is `plan_position`, resolved against the
     /// `RelNode` tree at construction; rti/attno are kept for diagnostics
@@ -107,27 +112,39 @@ pub enum TopKSortTarget {
 }
 
 impl TopKSortTarget {
-    /// Resolve the DataFusion column name for the sort target.
+    /// Resolve the DataFusion column reference for the sort target.
     ///
-    /// Aggregate targets use the `agg_{idx}` alias assigned during aggregate
-    /// expression building. Group column targets resolve to `{table_alias}.{field}`
-    /// via the join plan's source metadata.
-    pub fn resolve_sort_col_name(
+    /// Aggregate and row value targets use the names the plan gives them. Group
+    /// targets use either the qualified source column or the unqualified UDF
+    /// output name, without parsing SQL identifiers.
+    pub fn resolve_sort_column(
         &self,
         targetlist: &JoinAggregateTargetList,
         plan: &RelNode,
-    ) -> String {
+    ) -> Column {
         match self {
-            TopKSortTarget::Aggregate(idx) => format!("agg_{}", idx),
+            TopKSortTarget::Aggregate(idx) => {
+                Column::new_unqualified(targetlist.aggregate_name(*idx))
+            }
             TopKSortTarget::GroupColumn(idx) => {
                 let gc = &targetlist.group_columns[*idx];
+                if gc.row_value {
+                    return Column::new_unqualified(targetlist.row_value_name(*idx));
+                }
                 let source = plan.source_at_plan_position(gc.plan_position);
                 let alias = if let Some(src) = source {
                     RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position)
                 } else {
                     format!("unknown_plan_position_{}", gc.plan_position)
                 };
-                format!("{}.{}", alias, gc.field_name)
+
+                match gc.transform {
+                    GroupingTransform::Identity => Column::new(Some(alias), &gc.field_name),
+                    GroupingTransform::TimestampToDate => Column::new_unqualified(format!(
+                        "{TIMESTAMP_TO_DATE_UDF_NAME}({alias}.{})",
+                        gc.field_name
+                    )),
+                }
             }
         }
     }

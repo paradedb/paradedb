@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint Docker
-        uses: paradedb/actions/lint-docker@v13
+        uses: paradedb/actions/lint-docker@v14
         with:
           exclude: docker/Dockerfile.template
 

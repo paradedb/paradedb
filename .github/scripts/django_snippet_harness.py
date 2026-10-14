@@ -108,3 +108,18 @@ class ArrayDemo(models.Model):
         app_label = "docs_snippets"
         managed = False
         db_table = "array_demo"
+
+
+class MockItemGeo(models.Model):
+    """Read-only geometric-filter fixture; the filter references location in SQL."""
+
+    id = models.BigIntegerField(primary_key=True)
+    description = models.TextField()
+    objects = ParadeDBManager()
+
+    class Meta:
+        """Bind the model to the page-local geometric fixture."""
+
+        app_label = "docs_snippets"
+        managed = False
+        db_table = "mock_items_geo"

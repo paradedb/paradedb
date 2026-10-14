@@ -81,6 +81,7 @@ WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
+
 -- =============================================================================
 -- TEST 2: SELECT paradedb.score() WITHOUT ORDER BY score
 -- =============================================================================

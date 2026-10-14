@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_custom_scan_without_operator TO on;
 
 
 CREATE TABLE issue_5751_series (
@@ -476,6 +477,7 @@ SELECT issue_5751_result(
   false
 ) AS partitionwise_matches_postgres;
 RESET enable_partitionwise_join;
+RESET paradedb.enable_custom_scan_without_operator;
 
 DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
 DROP TABLE issue_5751_js_left, issue_5751_js_right;

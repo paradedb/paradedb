@@ -79,6 +79,21 @@ use super::SearchQueryInput;
 use super::estimate_tree::QueryWithEstimates;
 use tantivy::query::Query as TantivyQuery;
 
+/// Recursively unwraps any nested `Box<dyn TantivyQuery>` instances.
+///
+/// Because `Box<dyn TantivyQuery>` implements `TantivyQuery`, accidentally wrapping
+/// an already boxed trait object in `Box::new(query)` creates `Box<Box<dyn TantivyQuery>>`.
+/// This hides the inner query's concrete type from downcasting (e.g. `query.downcast_ref::<BooleanQuery>()`),
+/// which silently breaks optimizations such as Block-Max WAND disjunction pruning.
+///
+/// This helper peels off any layers of nested boxes until a concrete query is reached.
+pub fn unbox_query(mut query: Box<dyn TantivyQuery>) -> Box<dyn TantivyQuery> {
+    while query.is::<Box<dyn TantivyQuery>>() {
+        query = *query.downcast::<Box<dyn TantivyQuery>>().unwrap();
+    }
+    query
+}
+
 /// Build different output types from Tantivy queries.
 ///
 /// The trait uses closures for all parameters to enable lazy evaluation:
@@ -175,8 +190,9 @@ impl QueryBuilder for QueryOnlyBuilder {
     where
         F: FnOnce() -> String,
     {
-        // Normal query execution - ignore label_fn and query_input
-        tantivy_query
+        // Normal query execution - ignore label_fn and query_input.
+        // Defensively unbox any accidental nested boxes.
+        unbox_query(tantivy_query)
     }
 
     fn build_with_children<F, C>(
@@ -191,9 +207,8 @@ impl QueryBuilder for QueryOnlyBuilder {
         C: FnOnce(&Self) -> Vec<Self::Output>,
     {
         // Normal query execution - ignore all closures and query_input.
-        // children_fn is never called, so nested build calls inside it
-        // (which may pass Some(...) placeholders) are never executed.
-        tantivy_query
+        // Defensively unbox any accidental nested boxes.
+        unbox_query(tantivy_query)
     }
 
     fn extract_query(output: &Self::Output) -> &dyn TantivyQuery {
@@ -238,7 +253,7 @@ impl QueryBuilder for QueryTreeBuilder {
     {
         // query_input is always Some for QueryTreeBuilder
         let tree = QueryWithEstimates::new(query_input.unwrap(), label_fn());
-        (tantivy_query, tree)
+        (unbox_query(tantivy_query), tree)
     }
 
     fn build_with_children<F, C>(
@@ -256,7 +271,7 @@ impl QueryBuilder for QueryTreeBuilder {
         let child_trees: Vec<_> = children.into_iter().map(|(_, tree)| tree).collect();
         // query_input is always Some for QueryTreeBuilder
         let tree = QueryWithEstimates::with_children(query_input.unwrap(), label_fn(), child_trees);
-        (tantivy_query, tree)
+        (unbox_query(tantivy_query), tree)
     }
 
     fn extract_query(output: &Self::Output) -> &dyn TantivyQuery {
@@ -284,6 +299,22 @@ impl QueryBuilder for QueryTreeBuilder {
 mod tests {
     use super::*;
     use tantivy::query::AllQuery;
+
+    #[pgrx::pg_test]
+    fn test_unbox_query() {
+        let leaf = AllQuery;
+        let single_boxed: Box<dyn TantivyQuery> = Box::new(leaf);
+        assert!(!single_boxed.is::<Box<dyn TantivyQuery>>());
+        assert!(single_boxed.is::<AllQuery>());
+
+        let double_boxed: Box<dyn TantivyQuery> = Box::new(single_boxed);
+        assert!(double_boxed.is::<Box<dyn TantivyQuery>>());
+        assert!(!double_boxed.is::<AllQuery>());
+
+        let unboxed = unbox_query(double_boxed);
+        assert!(!unboxed.is::<Box<dyn TantivyQuery>>());
+        assert!(unboxed.is::<AllQuery>());
+    }
 
     #[pgrx::pg_test]
     fn test_query_only_builder() {

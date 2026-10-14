@@ -142,7 +142,7 @@ FROM explain_analyze_lines(
 ) AS line;
 
 SELECT bool_or(
-    line ~ 'spill_count=\{?0?:?\s*[1-9]'
+    line ~ 'spill_count=(\d*[1-9]|\{[^}]*\d:\s*\d*[1-9])'
 ) AS something_spilled
 FROM mpp_spill_explain_output;
 

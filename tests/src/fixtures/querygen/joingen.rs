@@ -108,6 +108,15 @@ impl JoinExpr {
         self.unnests.iter().map(|u| u.alias.as_str()).collect()
     }
 
+    /// The array columns the join unnests itself, as `table.column`, each with
+    /// the alias its elements go by.
+    pub fn unnested_fields(&self) -> Vec<(String, String)> {
+        self.unnests
+            .iter()
+            .map(|u| (format!("{}.{}", u.table, u.array_col), u.alias.clone()))
+            .collect()
+    }
+
     pub fn has_only_inner(&self) -> bool {
         self.steps
             .iter()

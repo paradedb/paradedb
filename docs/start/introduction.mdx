@@ -1,61 +1,54 @@
 ---
 title: Welcome to ParadeDB
 sidebarTitle: Introduction
-description: Search belongs with your application data
+description: Just use Postgres
 canonical: https://www.paradedb.com/docs/start/introduction
 ---
 
 import { Architecture } from "/snippets/architecture.jsx";
 
-When queries get too slow, developers usually reach for systems like Elasticsearch. ParadeDB makes text and vector search, filters, facets, and joins fast in Postgres.
+When Postgres queries get too slow, developers usually reach for systems like Elasticsearch. ParadeDB makes text and vector search, filters, facets, and joins fast in Postgres, so you can keep scaling with it.
 
-ParadeDB accelerates these queries inside Postgres with a custom index. The index ships as **pg_search**, a standard Postgres extension. This means ParadeDB is vanilla Postgres with an extension installed, not a Postgres fork or sidecar process.
+ParadeDB accelerates these queries with a custom index, delivered through the `pg_search` Postgres extension. It runs inside standard Postgres, with no fork or sidecar process.
 
 <Architecture />
 
-ParadeDB Cloud is coming soon: a fully managed platform for running ParadeDB with better developer experience, higher performance, and more scalability than self-managing the extension. The [waitlist is open now](https://www.paradedb.com/cloud) for early access.
-
 ## Who is ParadeDB for?
 
-You're likely a good fit for ParadeDB if any of the following sound like you:
+You're likely a good fit for ParadeDB if:
 
-1. You're **combining transactional workloads with search**: semantic search, full-text search, vector retrieval, lexical ranking, or hybrid search need to run against your source of truth data.
-2. You've **outgrown Postgres full-text search or pgvector** and are frustrated with performance bottlenecks, missing features, or a clunky developer experience.
-3. You're **evaluating a search engine like Elasticsearch or a vector store like Pinecone**, but don't want to run and continuously sync additional systems with your database.
+- **You're outgrowing Postgres full-text search or pgvector.** Your queries are getting slower, index builds are taking too long, or you're spending too much time working around feature limits and tuning performance.
+- **You're building an application that needs both transactions and search.** You want user-facing search, RAG, or live dashboards without managing multiple databases and the pipelines that keep them in sync.
+- **You're already syncing Postgres with an external search engine like Elasticsearch.** You're spending too much time on reindexing, data pipelines, and denormalization, and want to keep Postgres JOINs and transactional guarantees.
 
-## Why ParadeDB?
+## Why Use ParadeDB?
 
-For teams that already use Postgres, ParadeDB is the shortest path from transactional data to production-grade search.
+Keep scaling with Postgres as your queries and workloads grow more demanding.
 
 ### No Second System
 
-External search engines and vector stores make you own sync jobs, duplicated schemas, freshness checks, and cross-system failures. ParadeDB keeps search in Postgres, so index updates happen with your writes and queries run against your source of truth data.
+With external search engines and vector stores, you have to manage sync jobs, duplicated schemas, denormalization, freshness checks, and failures across systems. ParadeDB keeps these workloads in Postgres, so index updates happen with your writes and queries run directly against your application data.
 
 ### Postgres-Native Developer Experience
 
 Create indexes and query them with SQL. Full-text search, vector retrieval, hybrid search, filters, joins, facets, and aggregations compose with the schema and tools you already use.
 
-### Built For Real Search Workloads
+### Built for Demanding Queries
 
-A ParadeDB index serves lexical search, vector retrieval, ranking, filtering, and aggregations from one place. ParadeDB can be fast because these workloads push down into a single wide index, instead of being stitched together across scans, indexes, or systems. You get dedicated-search-engine capabilities without giving up Postgres transactions and ACID guarantees.
-
-For deeper evaluation, compare ParadeDB with [Postgres full-text search, pgvector, search engines, and vector stores](/start/alternatives).
+ParadeDB indexes serve lexical search, vector retrieval, ranking, filtering, and aggregations from a single wide index. Queries run faster because these operations execute together on dense data structures, rather than combining results from separate scans, indexes, or systems. You get the capabilities and performance of a standalone search engine without giving up Postgres transactions and ACID guarantees.
 
 ## Who Uses ParadeDB?
 
 ParadeDB powers core search and analytics workloads at organizations ranging from Fortune 500 companies to fast-growing startups.
 
-- **Alibaba Cloud**, the cloud computing arm of Alibaba Group and the largest Asia-Pacific cloud provider. [Case study](https://www.paradedb.com/customers/case-study-alibaba).
-- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study](https://www.paradedb.com/customers/case-study-bilt).
-- **Modern Treasury**, a financial technology company that automates the full cycle of money movement. [Case study](https://www.paradedb.com/customers/case-study-modern-treasury).
-- **Cofactr**, a full-service electronics purchasing platform for hardware teams. [Case study](https://www.paradedb.com/customers/case-study-cofactr).
-- **TCDI**<sup>1</sup>, a giant in the legal software and litigation management space.
+- **Alibaba Cloud** ([case study](https://www.paradedb.com/customers/alibaba)), the cloud computing arm of Alibaba Group and the largest Asia-Pacific cloud provider.
+- **Bilt Rewards** ([case study](https://www.paradedb.com/customers/bilt)), a rent payments technology company that processed over $36B in payments in 2024.
+- **Modern Treasury** ([case study](https://www.paradedb.com/customers/moderntreasury)), a financial technology company that automates the full cycle of money movement.
+- **Cofactr** ([case study](https://www.paradedb.com/customers/cofactr)), a full-service electronics purchasing platform for hardware teams.
 
-_1. Case study coming soon._
+See all our [case studies](https://paradedb.com/customers).
 
 ## Next Steps
-
-These pages cover the core workflow.
 
 <CardGroup cols={2}>
   <Card title="Getting Started" icon="forward-fast" href="/start/install">
@@ -72,6 +65,6 @@ These pages cover the core workflow.
     Indexing, query types, tokenizers, vectors, and aggregates.
   </Card>
   <Card title="Deploy" icon="server" href="/operate/deploy/overview">
-    Deploy ParadeDB as a Postgres extension or standalone database.
+    Deploy ParadeDB in our cloud or on your own infrastructure.
   </Card>
 </CardGroup>

@@ -23,4 +23,4 @@ jobs:
 
     steps:
       - name: Validate PR Title Format
-        uses: paradedb/actions/lint-pr-title@v13
+        uses: paradedb/actions/lint-pr-title@v14

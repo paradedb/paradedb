@@ -4,7 +4,9 @@ description: "ParadeDB release notes for 0.25.5"
 noindex: true
 ---
 
-## New Features 🎉
+See GitHub release: [v0.25.5](https://github.com/paradedb/paradedb/releases/tag/v0.25.5)
+
+## New Features ✨
 
 - Predicates that cannot be answered by the ParadeDB index can now be evaluated by intersecting
   with a bitmap scan over another PostgreSQL index (btree, GIN, or GiST), rather than checking
@@ -17,5 +19,3 @@ noindex: true
 
 - MPP search readers are now initialized only in the processes that execute them, avoiding
   redundant index opens on the leader and opening fast fields lazily per segment.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.5).

@@ -95,6 +95,8 @@ impl<'a> PoisonOnUnwind<'a> {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this guard exists to observe a
+// panic, so its body has to run while unwinding.
 impl Drop for PoisonOnUnwind<'_> {
     fn drop(&mut self) {
         if !self.panicking_before && std::thread::panicking() {
@@ -350,6 +352,9 @@ impl SpillWriter for BufFileSpillWriter {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
+// close while unwinding, after the owner released the file, and outside a transaction, and the
+// poison flag covers a panic that unwound through the writer earlier.
 impl Drop for BufFileSpillFile {
     fn drop(&mut self) {
         if !self.poisoned.load(Ordering::Relaxed) && self.release_guard.may_close() {

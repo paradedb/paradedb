@@ -115,6 +115,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
         NonNull::new(context.as_ptr()),
         None,
         query.needs_tokenizer(),
+        None,
     )?;
 
     let tantivy_query = query.into_tantivy_query(
@@ -134,7 +135,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
     )?;
 
     Ok(Box::new(QueryWithContext {
-        query: Box::new(tantivy_query),
+        query: tantivy_query,
         _context: Arc::new(context),
     }))
 }

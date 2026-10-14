@@ -16,87 +16,26 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{Column, DataFusionError, JoinType, Result};
-use datafusion::logical_expr::{Expr, LogicalPlan, TableScan};
+use datafusion::common::{Column, DataFusionError, Result};
+use datafusion::logical_expr::{Expr, Join, JoinType, LogicalPlan, TableScan};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrder};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
-
-use pgrx::pg_sys;
 
 use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
+use crate::scan::info::RowEstimate;
 use crate::scan::range_partitioning::RangeSplitPoints;
 use crate::scan::table_provider::PgSearchTableProvider;
-
-/// Estimated row count of a table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct TableRowCount(u64);
-
-/// Priority of an equi-join edge between two tables, based on their estimated row counts.
-///
-/// Edges involving larger tables are prioritized so that co-partitioning avoids
-/// expensive network shuffles or broadcasts on the largest data volumes.
-///
-/// - Primary criterion: `min(left_rows, right_rows)` (the size of the side that would
-///   otherwise have to be broadcast or shuffled across tasks).
-/// - Secondary criterion: `max(left_rows, right_rows)` (tie-breaker favoring the larger partner).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct EdgePriority {
-    min_rows: TableRowCount,
-    max_rows: TableRowCount,
-}
-
-impl EdgePriority {
-    fn new(left_rows: u64, right_rows: u64) -> Self {
-        let (min, max) = if left_rows < right_rows {
-            (left_rows, right_rows)
-        } else {
-            (right_rows, left_rows)
-        };
-        Self {
-            min_rows: TableRowCount(min),
-            max_rows: TableRowCount(max),
-        }
-    }
-}
-
-/// A candidate equi-join edge between two `PgSearchTableProvider` leaf scans.
-struct JoinEdge {
-    priority: EdgePriority,
-    l_rti: pg_sys::Index,
-    l_field: FieldName,
-    r_rti: pg_sys::Index,
-    r_field: FieldName,
-}
-
-/// An asymmetric candidate where a table participates in an equi-join on one of its declared
-/// partition keys, but its join partner does not share that partition key.
-///
-/// In distributed execution, DataFusion (via PR #24600) can adapt an unpartitioned input to match
-/// a range-partitioned reference child. Stamping the LARGER table allows the large table to remain
-/// local (0 shuffles) while the smaller partner is shuffled (1 shuffle total).
-///
-/// Conversely, stamping a SMALLER table when joining a larger unpartitioned table is counter-productive:
-/// DataFusion would force the large table to repartition and shuffle across the network to match the
-/// small table's split points.
-struct AsymmetricCandidate {
-    anchor_rti: pg_sys::Index,
-    anchor_field: FieldName,
-    anchor_rows: u64,
-    partner_rti: pg_sys::Index,
-    partner_rows: u64,
-}
 
 /// Optimizer rule that coordinates range partitioning across joins in MPP execution.
 ///
@@ -107,46 +46,37 @@ struct AsymmetricCandidate {
 /// range split points on their join keys, the join can execute task-locally in `mode=Partitioned`
 /// with zero network transfer.
 ///
-/// # The Multi-Key Challenge
-/// Tables in ParadeDB can declare multiple partition keys in their index configuration
-/// (e.g., a bridge table like `posts` with `partition_by = 'user_id,topic_id'`). Because each
-/// index segment is physically range-partitioned along one dimension, a table scan can only
-/// declare one `Partitioning::Range` layout at runtime.
+/// # Tree-Oriented Bottom-Up Strategy
+/// In relational query planning, joins execute bottom-up according to the join tree chosen by
+/// the query planner. A base table's disk segments can only physically co-partition with whatever
+/// table it joins *first* at the leaf level.
 ///
-/// If partition keys were assigned purely on a first-come-first-served basis during a bottom-up
-/// join tree traversal, a small dimension join (e.g., `posts JOIN topics` where `topics` has 10 rows)
-/// encountered early in the plan could claim `posts`'s partition key on `topic_id`. This would
-/// lock `posts` out of co-partitioning with a large table (e.g., `users` with millions of rows)
-/// on `user_id`, forcing the query to broadcast or shuffle the massive tables while saving almost
-/// nothing on the tiny dimension table.
+/// This rule traverses joins bottom-up (post-order), evaluating candidate join edges in execution order:
 ///
-/// # High-Level Strategy
-/// To guarantee that partitioning is preserved for the largest tables regardless of join tree
-/// shape or query order (without modifying the join tree structure itself):
+/// 1. When neither table is assigned:
+///    - If one side is broadcast-eligible and its partner has another non-broadcast co-partition
+///      candidate downstream, committing is deferred so the partner can co-partition downstream
+///      while the smaller side broadcasts (`CollectLeft`), achieving 0 network shuffles across
+///      symmetric and asymmetric pairs.
+///    - Symmetrically partitioned pairs: both tables commit to shared split points
+///      (0-shuffle task-local co-partitioning).
+///    - Asymmetric pairs: stamp the partitioned table only if strictly larger than its partner
+///      (`rows > partner_rows`) and the unpartitioned partner is not broadcast-eligible.
+///      If smaller, or if the unpartitioned partner is broadcast, it is not stamped to avoid
+///      unnecessary network shuffles or premature key commitments.
 ///
-/// 1. **Collection**: Traverses the `LogicalPlan` to identify candidate equi-join edges `(T1.k1 = T2.k2)`:
-///    - Symmetrically partitioned pairs (both tables declare matching keys in `partition_by`).
-///    - Asymmetric pairs where only one table has a declared partition key.
-/// 2. **Prioritization**: Ranks candidate join edges by data volume:
-///    - Primary key: `min(T1.rows, T2.rows)`, representing the data volume saved from network
-///      broadcast/shuffle.
-///    - Secondary key: `max(T1.rows, T2.rows)`, tie-breaking in favor of the larger partner.
-/// 3. **Greedy Assignment**: In descending priority order, commits table scans to partition keys
-///    and split points:
-///    - When an edge `(T1, T2)` is selected, both tables adopt shared split points derived from
-///      the larger of the two tables (minimizing segment skew on the heavier side).
-///    - If a table joins multiple peers on the same key (e.g., `T1 JOIN T2 ON x JOIN T3 ON x`),
-///      subsequent tables adopt the already-established split points.
-///    - A table committed to a key on a higher-priority edge cannot be overwritten by a lower-priority
-///      edge on a different key.
-/// 4. **Asymmetric Anchor Stamping**: For joins that cannot be co-partitioned, unassigned tables
-///    that participate on a declared partition key are stamped if they are strictly larger
-///    than their join partner (`anchor_rows > partner_rows`), OR if the partner is already committed
-///    to a different partition key (guaranteeing that the partner stream must be repartitioned anyway).
-///    This designates the anchor table as the range anchor, allowing DataFusion (via PR #24600 / #24766)
-///    to keep the anchor table local (0 shuffles) while shuffling only the partner (1 shuffle total).
-/// 5. **Rewriting**: Directly applies the assigned split points to the leaf `TableScan`s in a single
-///    pass, leaving the join tree order and node hierarchy intact.
+/// 2. When one table is already assigned and the other is unassigned:
+///    - If the assigned table is partitioned on this join key: the unassigned table adopts the
+///      existing split points (0-shuffle co-partitioning).
+///    - If the assigned table was committed to a different key: the incoming stream must repartition
+///      across the network anyway. If the unassigned table is not being broadcast, and either the
+///      partner table declared this key in `partition_by` or the unassigned table is strictly larger,
+///      the unassigned table is stamped with native split points so it stays task-local (0 shuffles)
+///      while the stream range-adapts (1 shuffle total). Broadcast tables are not partitioned because
+///      they are replicated to all worker tasks and no stream range-adapts to match them.
+///
+/// 3. When both tables are already assigned:
+///    - Neither table can change; preserved as-is.
 #[derive(Debug, Default)]
 pub struct RangePartitioningRule;
 
@@ -289,6 +219,361 @@ fn plan_has_mpp_provider(plan: &LogicalPlan) -> bool {
     has_mpp
 }
 
+/// Returns whether the provider's row estimate is below the threshold for broadcast join
+/// (`PartitionMode::CollectLeft`), approximating DataFusion's `JoinSelection` broadcast threshold.
+fn is_broadcast_eligible(provider: &PgSearchTableProvider) -> bool {
+    let threshold_rows = crate::gucs::hash_join_single_partition_threshold_rows();
+    if threshold_rows <= 0 {
+        return false;
+    }
+    match provider.scan_info.estimate {
+        RowEstimate::Known(n) => n < threshold_rows as u64,
+        RowEstimate::Unknown => false,
+    }
+}
+
+/// Returns whether `join_type` allows broadcasting the left side (build side of `HashJoinExec`).
+///
+/// Matches `datafusion_distributed::distributed_planner::insert_broadcast::is_left_broadcast_safe`,
+/// where broadcasting the build side is safe only for join types that do not emit unmatched
+/// build-side rows across tasks.
+///
+/// TODO: Reuse directly if exported by `datafusion-distributed`.
+fn is_left_broadcast_safe(join_type: JoinType) -> bool {
+    matches!(
+        join_type,
+        JoinType::Inner
+            | JoinType::Right
+            | JoinType::RightSemi
+            | JoinType::RightAnti
+            | JoinType::RightMark
+    )
+}
+
+/// Returns whether `join_type` allows broadcasting the right side (by swapping into the build side).
+///
+/// Swapped mirror of `is_left_broadcast_safe` (safe when the right side becomes the build side).
+fn is_right_broadcast_safe(join_type: JoinType) -> bool {
+    matches!(
+        join_type,
+        JoinType::Inner
+            | JoinType::Left
+            | JoinType::LeftSemi
+            | JoinType::LeftAnti
+            | JoinType::LeftMark
+    )
+}
+
+/// Represents one side of an equi-join condition.
+struct JoinSide<'a> {
+    source_idx: usize,
+    prov: &'a PgSearchTableProvider,
+    field: Option<FieldName>,
+}
+
+/// An equi-join condition between two table providers in the join tree.
+struct JoinEdge<'a> {
+    join_idx: usize,
+    join_type: JoinType,
+    left: JoinSide<'a>,
+    right: JoinSide<'a>,
+}
+
+impl<'a> JoinEdge<'a> {
+    fn left_is_broadcast_eligible(&self) -> bool {
+        is_left_broadcast_safe(self.join_type) && is_broadcast_eligible(self.left.prov)
+    }
+
+    fn right_is_broadcast_eligible(&self) -> bool {
+        is_right_broadcast_safe(self.join_type) && is_broadcast_eligible(self.right.prov)
+    }
+}
+
+/// Collects all equi-join edges from the bottom-up join list.
+fn collect_join_edges<'a>(joins: &[&'a Join]) -> Vec<JoinEdge<'a>> {
+    let mut edges = Vec::new();
+    for (join_idx, join) in joins.iter().enumerate() {
+        for (l_expr, r_expr) in &join.on {
+            let (Some(l_col), Some(r_col)) = (unwrap_column(l_expr), unwrap_column(r_expr)) else {
+                continue;
+            };
+            let (Some((l_prov, l_field)), Some((r_prov, r_field))) = (
+                resolve_column_to_provider(&join.left, l_col),
+                resolve_column_to_provider(&join.right, r_col),
+            ) else {
+                continue;
+            };
+            let (Some(l_idx), Some(r_idx)) = (l_prov.source_idx(), r_prov.source_idx()) else {
+                continue;
+            };
+            if l_idx == r_idx {
+                continue;
+            }
+            edges.push(JoinEdge {
+                join_idx,
+                join_type: join.join_type,
+                left: JoinSide {
+                    source_idx: l_idx,
+                    prov: l_prov,
+                    field: l_field,
+                },
+                right: JoinSide {
+                    source_idx: r_idx,
+                    prov: r_prov,
+                    field: r_field,
+                },
+            });
+        }
+    }
+    edges
+}
+
+/// Returns whether the table identified by `source_idx` participates in another join edge (outside `current_join_idx`)
+/// with a partner table that:
+/// 1. Joins on columns declared in both tables' `partition_by` with matching Arrow types;
+/// 2. Has persisted split points on at least one side;
+/// 3. Is NOT broadcast-eligible for that join (`!edge.partner_is_broadcast_eligible()`).
+fn has_non_broadcast_copartition_candidate(
+    source_idx: usize,
+    edges: &[JoinEdge<'_>],
+    current_join_idx: usize,
+    cache: &mut SplitPointsCache,
+) -> Result<bool> {
+    for edge in edges {
+        if edge.join_idx == current_join_idx {
+            continue;
+        }
+
+        let (my_side, partner_side, partner_is_broadcast) = if edge.left.source_idx == source_idx {
+            (&edge.left, &edge.right, edge.right_is_broadcast_eligible())
+        } else if edge.right.source_idx == source_idx {
+            (&edge.right, &edge.left, edge.left_is_broadcast_eligible())
+        } else {
+            continue;
+        };
+
+        let (Some(my_field), Some(partner_field)) = (&my_side.field, &partner_side.field) else {
+            continue;
+        };
+
+        if partner_is_broadcast {
+            continue;
+        }
+
+        let (Some(my_type), Some(partner_type)) = (
+            named_field_arrow_type(my_side.prov, my_field),
+            named_field_arrow_type(partner_side.prov, partner_field),
+        ) else {
+            continue;
+        };
+        if my_type != partner_type {
+            continue;
+        }
+
+        if cached_side_split_points(my_side.prov, my_field, cache)?.is_none()
+            && cached_side_split_points(partner_side.prov, partner_field, cache)?.is_none()
+        {
+            continue;
+        }
+
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Handles the case where one side of a join is already assigned split points, and the other is unassigned.
+fn handle_one_assigned(
+    edge: &JoinEdge<'_>,
+    assigned_side: &JoinSide<'_>,
+    assigned_pts: &RangeSplitPoints,
+    unassigned_side: &JoinSide<'_>,
+    assigned: &mut HashMap<usize, RangeSplitPoints>,
+    cache: &mut SplitPointsCache,
+) -> Result<()> {
+    let Some(unassigned_field) = &unassigned_side.field else {
+        return Ok(());
+    };
+    let unassigned_idx = unassigned_side.source_idx;
+
+    if let Some(assigned_field) = &assigned_side.field
+        && assigned_pts.partition_by == *assigned_field
+        && let (Some(a_type), Some(u_type)) = (
+            named_field_arrow_type(assigned_side.prov, assigned_field),
+            named_field_arrow_type(unassigned_side.prov, unassigned_field),
+        )
+        && a_type == u_type
+    {
+        // Adopt split points from already partitioned partner (0 shuffles)
+        assigned.insert(
+            unassigned_idx,
+            RangeSplitPoints {
+                partition_by: unassigned_field.clone(),
+                points: assigned_pts.points.clone(),
+            },
+        );
+    } else {
+        // Partner is committed to a different partition key (or cannot match this join key).
+        // Stamping the unassigned table allows it to act as a range anchor (with the partner
+        // stream range-adapting to it in 1 shuffle), provided:
+        // 1. The unassigned table is not being broadcast (a broadcast table is replicated to
+        //    workers; no stream re-partitions to match it, so partitioning it is wasteful).
+        // 2. Either the partner declared this key (naturally partition-aligned dimension), OR
+        //    the unassigned table is strictly larger than its partner (avoiding apache/datafusion#25302
+        //    where DataFusion forces a massive table to adapt to a tiny table's split points).
+        let unassigned_is_broadcast = if edge.left.source_idx == unassigned_idx {
+            edge.left_is_broadcast_eligible()
+        } else {
+            edge.right_is_broadcast_eligible()
+        };
+        let partner_declared_key = assigned_side.field.is_some();
+        let u_rows = unassigned_side
+            .prov
+            .scan_info
+            .estimate
+            .as_planner_estimate();
+        let a_rows = assigned_side.prov.scan_info.estimate.as_planner_estimate();
+
+        if !unassigned_is_broadcast
+            && (partner_declared_key || u_rows > a_rows)
+            && let Some(points) =
+                cached_side_split_points(unassigned_side.prov, unassigned_field, cache)?
+        {
+            assigned.insert(
+                unassigned_idx,
+                RangeSplitPoints {
+                    partition_by: unassigned_field.clone(),
+                    points,
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Processes a candidate join edge bottom-up, assigning split points to unassigned tables.
+fn process_join_edge(
+    edge: &JoinEdge<'_>,
+    edges: &[JoinEdge<'_>],
+    assigned: &mut HashMap<usize, RangeSplitPoints>,
+    cache: &mut SplitPointsCache,
+) -> Result<()> {
+    let l_idx = edge.left.source_idx;
+    let r_idx = edge.right.source_idx;
+
+    match (assigned.get(&l_idx), assigned.get(&r_idx)) {
+        (None, None) => {
+            let l_rows = edge.left.prov.scan_info.estimate.as_planner_estimate();
+            let r_rows = edge.right.prov.scan_info.estimate.as_planner_estimate();
+
+            // If one side is broadcast-eligible and its partner has a non-broadcast co-partition
+            // candidate downstream, defer committing so the partner can co-partition downstream
+            // while the smaller side broadcasts (CollectLeft) for 0 network shuffles.
+            let l_defer = edge.left_is_broadcast_eligible()
+                && has_non_broadcast_copartition_candidate(r_idx, edges, edge.join_idx, cache)?;
+            let r_defer = edge.right_is_broadcast_eligible()
+                && has_non_broadcast_copartition_candidate(l_idx, edges, edge.join_idx, cache)?;
+
+            if l_defer || r_defer {
+                return Ok(());
+            }
+
+            match (&edge.left.field, &edge.right.field) {
+                (Some(l_field), Some(r_field)) => {
+                    if let Some(points) = compute_shared_points(
+                        edge.left.prov,
+                        l_field,
+                        edge.right.prov,
+                        r_field,
+                        cache,
+                    )? {
+                        assigned.insert(
+                            l_idx,
+                            RangeSplitPoints {
+                                partition_by: l_field.clone(),
+                                points: points.clone(),
+                            },
+                        );
+                        assigned.insert(
+                            r_idx,
+                            RangeSplitPoints {
+                                partition_by: r_field.clone(),
+                                points,
+                            },
+                        );
+                    }
+                }
+                // TODO(upstream DataFusion / PR #24600): In DataFusion's `enforce_distribution_relationships`,
+                // when `satisfied_children.len() == 1`, that single satisfied child is chosen as the reference
+                // partitioning regardless of size (`PlanSize` tie-breaking only runs when `satisfied_children.len() > 1`).
+                // Consequently, if a tiny dimension table (e.g. 10 rows) is range-partitioned while its large join
+                // partner (e.g. 10M rows) is unpartitioned on that key, DataFusion treats the tiny table as the reference
+                // and forces the massive partner to be repartitioned and shuffled across the network to match the tiny table's
+                // split points. Until upstream DataFusion considers the size of unsatisfied children before adapting them
+                // to a satisfied reference child, we must never range-partition the smaller side of an asymmetric join.
+                // See DataFusion issue #25302: https://github.com/apache/datafusion/issues/25302
+                (Some(l_field), None) => {
+                    // Asymmetric join: stamp partitioned table if strictly larger than its partner
+                    // and the unpartitioned partner is not broadcast-eligible (which would make stamping
+                    // pointless and prematurely commit the partitioned table to this join key).
+                    if !edge.right_is_broadcast_eligible()
+                        && l_rows > r_rows
+                        && let Some(points) =
+                            cached_side_split_points(edge.left.prov, l_field, cache)?
+                    {
+                        assigned.insert(
+                            l_idx,
+                            RangeSplitPoints {
+                                partition_by: l_field.clone(),
+                                points,
+                            },
+                        );
+                    }
+                }
+                (None, Some(r_field)) => {
+                    // Asymmetric join: stamp partitioned table if strictly larger than its partner
+                    // and the unpartitioned partner is not broadcast-eligible (which would make stamping
+                    // pointless and prematurely commit the partitioned table to this join key).
+                    if !edge.left_is_broadcast_eligible()
+                        && r_rows > l_rows
+                        && let Some(points) =
+                            cached_side_split_points(edge.right.prov, r_field, cache)?
+                    {
+                        assigned.insert(
+                            r_idx,
+                            RangeSplitPoints {
+                                partition_by: r_field.clone(),
+                                points,
+                            },
+                        );
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+        (Some(l_pts), None) => {
+            let l_pts = l_pts.clone();
+            handle_one_assigned(edge, &edge.left, &l_pts, &edge.right, assigned, cache)?;
+        }
+        (None, Some(r_pts)) => {
+            let r_pts = r_pts.clone();
+            handle_one_assigned(edge, &edge.right, &r_pts, &edge.left, assigned, cache)?;
+        }
+        (Some(_), Some(_)) => {}
+    }
+    Ok(())
+}
+
+/// Collects all `LogicalPlan::Join` nodes in post-order (bottom-up), ensuring that lower joins
+/// in the join tree are processed before the joins above them.
+fn collect_joins_bottom_up<'a>(plan: &'a LogicalPlan, joins: &mut Vec<&'a Join>) {
+    for input in plan.inputs() {
+        collect_joins_bottom_up(input, joins);
+    }
+    if let LogicalPlan::Join(join) = plan {
+        joins.push(join);
+    }
+}
+
 impl OptimizerRule for RangePartitioningRule {
     fn name(&self) -> &str {
         "RangePartitioningRule"
@@ -310,192 +595,15 @@ impl OptimizerRule for RangePartitioningRule {
             return Ok(Transformed::no(plan));
         }
 
-        let mut join_edges: Vec<JoinEdge> = Vec::new();
-        let mut asymmetric_candidates: Vec<AsymmetricCandidate> = Vec::new();
-        let mut providers: HashMap<pg_sys::Index, PgSearchTableProvider> = HashMap::new();
+        let mut joins = Vec::new();
+        collect_joins_bottom_up(&plan, &mut joins);
 
-        plan.apply(|node| {
-            if let LogicalPlan::Join(join) = node {
-                for (l_expr, r_expr) in &join.on {
-                    if let (Some(l_col), Some(r_col)) =
-                        (unwrap_column(l_expr), unwrap_column(r_expr))
-                    {
-                        let l_res = resolve_column_to_provider(&join.left, l_col);
-                        let r_res = resolve_column_to_provider(&join.right, r_col);
-                        if let (Some((l_prov, l_field_opt)), Some((r_prov, r_field_opt))) =
-                            (l_res, r_res)
-                        {
-                            if l_prov.source_idx().is_none() || r_prov.source_idx().is_none() {
-                                return Ok(TreeNodeRecursion::Continue);
-                            }
-                            let l_rti = l_prov.scan_info.heap_rti;
-                            let r_rti = r_prov.scan_info.heap_rti;
-                            providers.entry(l_rti).or_insert_with(|| l_prov.clone());
-                            providers.entry(r_rti).or_insert_with(|| r_prov.clone());
-                            let l_rows = l_prov.scan_info.estimate.as_planner_estimate();
-                            let r_rows = r_prov.scan_info.estimate.as_planner_estimate();
+        let edges = collect_join_edges(&joins);
+        let mut assigned: HashMap<usize, RangeSplitPoints> = HashMap::new();
+        let mut split_points_cache: SplitPointsCache = HashMap::new();
 
-                            match (l_field_opt, r_field_opt) {
-                                (Some(l_field), Some(r_field)) => {
-                                    if let (Some(l_type), Some(r_type)) = (
-                                        named_field_arrow_type(l_prov, &l_field),
-                                        named_field_arrow_type(r_prov, &r_field),
-                                    ) && l_type == r_type
-                                        && l_rti != r_rti
-                                    {
-                                        join_edges.push(JoinEdge {
-                                            priority: EdgePriority::new(l_rows, r_rows),
-                                            l_rti,
-                                            l_field: l_field.clone(),
-                                            r_rti,
-                                            r_field: r_field.clone(),
-                                        });
-                                    }
-
-                                    asymmetric_candidates.push(AsymmetricCandidate {
-                                        anchor_rti: l_rti,
-                                        anchor_field: l_field,
-                                        anchor_rows: l_rows,
-                                        partner_rti: r_rti,
-                                        partner_rows: r_rows,
-                                    });
-                                    asymmetric_candidates.push(AsymmetricCandidate {
-                                        anchor_rti: r_rti,
-                                        anchor_field: r_field,
-                                        anchor_rows: r_rows,
-                                        partner_rti: l_rti,
-                                        partner_rows: l_rows,
-                                    });
-                                }
-                                (Some(l_field), None) => {
-                                    asymmetric_candidates.push(AsymmetricCandidate {
-                                        anchor_rti: l_rti,
-                                        anchor_field: l_field,
-                                        anchor_rows: l_rows,
-                                        partner_rti: r_rti,
-                                        partner_rows: r_rows,
-                                    });
-                                }
-                                (None, Some(r_field)) => {
-                                    asymmetric_candidates.push(AsymmetricCandidate {
-                                        anchor_rti: r_rti,
-                                        anchor_field: r_field,
-                                        anchor_rows: r_rows,
-                                        partner_rti: l_rti,
-                                        partner_rows: l_rows,
-                                    });
-                                }
-                                (None, None) => {}
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-
-        if join_edges.is_empty() && asymmetric_candidates.is_empty() {
-            return Ok(Transformed::no(plan));
-        }
-
-        // Sort candidate edges in descending order of data volume
-        join_edges.sort_by_key(|b| std::cmp::Reverse(b.priority));
-
-        let mut assigned: HashMap<pg_sys::Index, RangeSplitPoints> = HashMap::new();
-
-        for edge in join_edges {
-            let l_assigned = assigned.get(&edge.l_rti);
-            let r_assigned = assigned.get(&edge.r_rti);
-
-            match (l_assigned, r_assigned) {
-                (None, None) => {
-                    let l_prov = &providers[&edge.l_rti];
-                    let r_prov = &providers[&edge.r_rti];
-                    if let Some(points) =
-                        compute_shared_points(l_prov, &edge.l_field, r_prov, &edge.r_field)?
-                    {
-                        assigned.insert(
-                            edge.l_rti,
-                            RangeSplitPoints {
-                                partition_by: edge.l_field,
-                                points: points.clone(),
-                            },
-                        );
-                        assigned.insert(
-                            edge.r_rti,
-                            RangeSplitPoints {
-                                partition_by: edge.r_field,
-                                points,
-                            },
-                        );
-                    }
-                }
-                (Some(l_pts), None) => {
-                    if l_pts.partition_by == edge.l_field {
-                        assigned.insert(
-                            edge.r_rti,
-                            RangeSplitPoints {
-                                partition_by: edge.r_field,
-                                points: l_pts.points.clone(),
-                            },
-                        );
-                    }
-                }
-                (None, Some(r_pts)) => {
-                    if r_pts.partition_by == edge.r_field {
-                        assigned.insert(
-                            edge.l_rti,
-                            RangeSplitPoints {
-                                partition_by: edge.l_field,
-                                points: r_pts.points.clone(),
-                            },
-                        );
-                    }
-                }
-                (Some(_), Some(_)) => {}
-            }
-        }
-
-        // Tier 2: Asymmetric anchor stamping.
-        //
-        // TODO(upstream DataFusion / PR #24600): In DataFusion's `enforce_distribution_relationships`,
-        // when `satisfied_children.len() == 1`, that single satisfied child is chosen as the reference
-        // partitioning regardless of size (`PlanSize` tie-breaking only runs when `satisfied_children.len() > 1`).
-        // Consequently, if a tiny dimension table (e.g. 10 rows) is range-partitioned while its large join
-        // partner (e.g. 10M rows) is unpartitioned on that key, DataFusion treats the tiny table as the reference
-        // and forces the massive partner to be repartitioned and shuffled across the network to match the tiny table's
-        // split points. Until upstream DataFusion considers the size of unsatisfied children before adapting them
-        // to a satisfied reference child, we must never range-partition the smaller side of an asymmetric join.
-        // See DataFusion issue #25302: https://github.com/apache/datafusion/issues/25302
-        //
-        // For joins that cannot be co-partitioned, we range-partition an anchor table if:
-        // 1. The anchor is strictly larger than its partner (anchor_rows > partner_rows), OR
-        // 2. The partner is already committed to a DIFFERENT partition key in `assigned`. In this
-        //    case, the partner's stream cannot be partition-aligned on this join key anyway and
-        //    will inevitably be repartitioned/shuffled across the network. Stamping the anchor
-        //    allows the anchor to stay local in its native range partitions (0 shuffles) while the
-        //    partner's stream adapts to it (1 shuffle total), avoiding a 2-sided hash shuffle.
-        asymmetric_candidates.sort_by_key(|c| {
-            (
-                std::cmp::Reverse(c.anchor_rows),
-                std::cmp::Reverse(c.partner_rows),
-            )
-        });
-        for cand in asymmetric_candidates {
-            let partner_committed_elsewhere = assigned
-                .get(&cand.partner_rti)
-                .is_some_and(|pts| pts.partition_by != cand.anchor_field);
-
-            if (cand.anchor_rows > cand.partner_rows || partner_committed_elsewhere)
-                && let Entry::Vacant(e) = assigned.entry(cand.anchor_rti)
-                && let Some(prov) = providers.get(&cand.anchor_rti)
-                && let Some(points) = side_split_points(prov, &cand.anchor_field)?
-            {
-                e.insert(RangeSplitPoints {
-                    partition_by: cand.anchor_field,
-                    points,
-                });
-            }
+        for edge in &edges {
+            process_join_edge(edge, &edges, &mut assigned, &mut split_points_cache)?;
         }
 
         if assigned.is_empty() {
@@ -508,7 +616,10 @@ impl OptimizerRule for RangePartitioningRule {
                 let Some(provider) = pg_search_provider_from_scan(&scan) else {
                     return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
                 };
-                if let Some(points) = assigned.get(&provider.scan_info.heap_rti) {
+                let Some(source_idx) = provider.source_idx() else {
+                    return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+                };
+                if let Some(points) = assigned.get(&source_idx) {
                     apply_split_points_to_scan(scan, points)
                 } else {
                     Ok(Transformed::no(LogicalPlan::TableScan(scan)))
@@ -525,9 +636,27 @@ fn named_field_arrow_type(
     field: &FieldName,
 ) -> Option<arrow_schema::DataType> {
     provider.fields.iter().find_map(|f| match f {
-        WhichFastField::Named(name, sft) if name == field.as_ref() => Some(sft.arrow_data_type()),
+        WhichFastField::Named { name, .. } if name == field.as_ref() => Some(f.arrow_data_type()),
         _ => None,
     })
+}
+
+/// Cache of persisted split points keyed by index OID and partition field name, scoped to a single rule run.
+type SplitPointsCache = HashMap<(pgrx::pg_sys::Oid, FieldName), Option<Vec<PdbOwnedValue>>>;
+
+/// Retrieves split points for a table provider and field, caching the result to avoid redundant index opens.
+fn cached_side_split_points(
+    provider: &PgSearchTableProvider,
+    partition_by: &FieldName,
+    cache: &mut SplitPointsCache,
+) -> Result<Option<Vec<PdbOwnedValue>>> {
+    let key = (provider.scan_info.indexrelid, partition_by.clone());
+    if let Some(pts) = cache.get(&key) {
+        return Ok(pts.clone());
+    }
+    let pts = side_split_points(provider, partition_by)?;
+    cache.insert(key, pts.clone());
+    Ok(pts)
 }
 
 /// Computes shared split points for two tables joining on matching types.
@@ -537,6 +666,7 @@ fn compute_shared_points(
     l_field: &FieldName,
     r_provider: &PgSearchTableProvider,
     r_field: &FieldName,
+    cache: &mut SplitPointsCache,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
     let (Some(l_type), Some(r_type)) = (
         named_field_arrow_type(l_provider, l_field),
@@ -549,8 +679,8 @@ fn compute_shared_points(
     }
 
     let points = match (
-        side_split_points(l_provider, l_field)?,
-        side_split_points(r_provider, r_field)?,
+        cached_side_split_points(l_provider, l_field, cache)?,
+        cached_side_split_points(r_provider, r_field, cache)?,
     ) {
         (Some(l_points), Some(r_points)) => {
             let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
@@ -574,7 +704,7 @@ fn side_split_points(
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 
-/// Physical optimizer rule that converts a `CollectLeft` inner hash join to
+/// Physical optimizer rule that converts a `CollectLeft` hash join to
 /// `Partitioned` mode when both inputs declare compatible `Partitioning::Range`
 /// layouts on the join keys.
 ///
@@ -583,6 +713,11 @@ fn side_split_points(
 /// both sides are range partitioned with identical split points, build-side
 /// partition `i` can only ever match probe-side partition `i`, so `Partitioned`
 /// mode joins each pair task-locally and the broadcast disappears.
+///
+/// That holds for every join type: whether a row matches (inner, semi, mark) or
+/// has no match (outer, anti) is decided within its own partition. A null-aware
+/// anti join (`NOT IN`) is the exception: one NULL key anywhere on the build side
+/// must empty every task's result, and no task can see the other partitions.
 ///
 /// A separate rule because `JoinSelection` picks `CollectLeft` from the build
 /// side's row and byte statistics alone. It never consults `output_partitioning`,
@@ -627,7 +762,7 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
             let Some(join) = node.downcast_ref::<HashJoinExec>() else {
                 return Ok(Transformed::no(node));
             };
-            if join.join_type() != &JoinType::Inner {
+            if join.null_aware {
                 return Ok(Transformed::no(node));
             }
 

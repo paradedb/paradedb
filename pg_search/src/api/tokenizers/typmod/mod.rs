@@ -21,12 +21,14 @@ mod validation;
 use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::spi::{OwnedPreparedStatement, Query};
 use pgrx::{
-    Array, PgOid, PgXactCallbackEvent, Spi, extension_sql, pg_extern, pg_sys,
+    Array, PgLogLevel, PgOid, PgSqlErrorCode, PgSubXactCallbackEvent, PgXactCallbackEvent, Spi,
+    extension_sql, function_name, pg_extern, pg_sys, register_subxact_callback,
     register_xact_callback,
 };
-use std::collections::hash_map::Entry;
+use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::ops::Index;
@@ -34,6 +36,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use tantivy::tokenizer::Language;
 use thiserror::Error;
+use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::SearchTokenizerFilters;
 pub use validation::{TypmodSchema, ValidationError};
 
@@ -42,12 +45,12 @@ use tokenizers::SearchNormalizer;
 
 #[pg_extern(immutable, parallel_safe)]
 fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
-    save_typmod(typmod_parts.iter()).expect("should not fail to save typmod")
+    save_typmod(typmod_parts.iter()).unwrap_or_else(|e| e.report())
 }
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn generic_typmod_out(typmod: i32) -> CString {
-    let parsed = load_typmod(typmod).expect("should not fail to load typmod");
+    let parsed = load_typmod(typmod).unwrap_or_else(|e| e.report());
 
     // make sure the typmods are string-quoted literals
     let mut parts = Vec::with_capacity(parsed.len());
@@ -60,6 +63,14 @@ pub fn generic_typmod_out(typmod: i32) -> CString {
 }
 
 pub type Typmod = i32;
+
+/// Read the conversion option shared by direct casts and search-tokenizer expressions.
+pub(super) fn parse_chinese_convert(parsed: &ParsedTypmod) -> Option<ConvertMode> {
+    parsed
+        .get("chinese_convert")
+        .and_then(|p| p.as_str())
+        .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")))
+}
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -100,6 +111,23 @@ pub enum Error {
 impl From<ValidationError> for Error {
     fn from(err: ValidationError) -> Self {
         Error::Validation(err)
+    }
+}
+
+impl Error {
+    /// Raises this error as a Postgres `ERROR`, worded for the user who hit it.
+    pub(crate) fn report(self) -> ! {
+        let Error::TypmodNotFound(id) = self else {
+            pgrx::error!("{self}");
+        };
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INTERNAL_ERROR,
+            "stored tokenizer options could not be found",
+            function_name!(),
+        )
+        .set_detail(format!("paradedb._typmod_cache has no entry with id {id}."))
+        .report(PgLogLevel::ERROR);
+        unreachable!("an ERROR report does not return")
     }
 }
 
@@ -490,6 +518,10 @@ impl ParsedTypmod {
     }
 }
 
+/// A prepared statement kept for the life of the backend.
+///
+/// It has no lock around it: the SQL it runs can call back into the same function, and a lock
+/// held while the statement executes would make that inner call wait on itself forever.
 #[repr(transparent)]
 struct StmtHolder(OwnedPreparedStatement);
 
@@ -497,56 +529,134 @@ struct StmtHolder(OwnedPreparedStatement);
 unsafe impl Send for StmtHolder {}
 unsafe impl Sync for StmtHolder {}
 
-pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
-    static CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
+static LOAD_CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
+static SAVE_CACHE: OnceLock<Mutex<crate::api::HashMap<Vec<String>, i32>>> = OnceLock::new();
 
-    if typmod == -1 {
-        return Ok(ParsedTypmod::new());
-    }
+/// A cache entry added in the current transaction.
+enum AddedEntry {
+    Load(i32),
+    Save(Vec<String>),
+}
 
-    let cache = CACHE.get_or_init(Default::default);
-    let mut locked = cache.lock();
+/// Postgres's `TopSubTransactionId`, which `pg_sys` does not export: the id of the top-level
+/// transaction and the smallest one handed out, since `InvalidSubTransactionId` is `0`.
+const TOP_SUBTRANSACTION_ID: pg_sys::SubTransactionId = 1;
 
-    match locked.entry(typmod) {
-        Entry::Occupied(e) => Ok(e.get().clone()),
-        Entry::Vacant(e) => {
-            let parsed_typmod = ParsedTypmod::try_from(
-                Spi::connect(|client| {
-                    static STMT: OnceLock<Mutex<StmtHolder>> = OnceLock::new();
+thread_local! {
+    static XACT_CALLBACKS_REGISTERED: Cell<bool> = const { Cell::new(false) };
+    /// The entries added in the current transaction, each with the subtransaction it was added
+    /// in, so that an abort removes those entries and keeps everything cached before.
+    static ADDED: RefCell<Vec<(pg_sys::SubTransactionId, AddedEntry)>> =
+        const { RefCell::new(Vec::new()) };
+}
 
-                    let prepared = STMT.get_or_init(|| {
-                        Mutex::new(StmtHolder(
-                            client
-                                .prepare(
-                                    "SELECT typmod FROM paradedb._typmod_cache WHERE id = $1",
-                                    &[PgOid::BuiltIn(BuiltinOid::INT4OID)],
-                                )
-                                .expect("failed to prepare statement")
-                                .keep(),
-                        ))
-                    });
+/// Records `entry` so that aborting the (sub)transaction it is added in removes it again.
+fn remember_added(entry: AddedEntry) {
+    ensure_xact_callbacks_registered();
+    let subid = unsafe { pg_sys::GetCurrentSubTransactionId() };
+    ADDED.with_borrow_mut(|added| added.push((subid, entry)));
+}
 
-                    let datum = unsafe { [DatumWithOid::new(typmod, pg_sys::INT4OID)] };
-                    (&prepared.lock().0)
-                        .execute(client, None, &datum)?
-                        .first()
-                        .get::<Vec<String>>(1)
-                })?
-                .ok_or_else(|| Error::TypmodNotFound(typmod))?,
-            )?;
-
-            e.insert(parsed_typmod.clone());
-            register_xact_callback(PgXactCallbackEvent::Abort, move || {
-                CACHE.get_or_init(Default::default).lock().remove(&typmod);
-            });
-            Ok(parsed_typmod)
+/// Removes the entries added in subtransaction `subid` or later from the caches.
+///
+/// Subtransaction ids only grow within a transaction, so these are the entries of `subid` and
+/// of the subtransactions started inside it, released or not. Entries of a savepoint released
+/// before `subid` started have a smaller id and stay. [`TOP_SUBTRANSACTION_ID`] removes every
+/// entry of the transaction.
+fn forget_added(subid: pg_sys::SubTransactionId) {
+    let removed: Vec<_> = ADDED.with_borrow_mut(|added| {
+        added
+            .extract_if(.., |(entry_subid, _)| *entry_subid >= subid)
+            .collect()
+    });
+    for (_, entry) in removed {
+        match entry {
+            AddedEntry::Load(typmod) => {
+                LOAD_CACHE
+                    .get_or_init(Default::default)
+                    .lock()
+                    .remove(&typmod);
+            }
+            AddedEntry::Save(key) => {
+                SAVE_CACHE.get_or_init(Default::default).lock().remove(&key);
+            }
         }
     }
 }
 
-pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result<i32> {
-    static CACHE: OnceLock<Mutex<crate::api::HashMap<Vec<String>, i32>>> = OnceLock::new();
+fn ensure_xact_callbacks_registered() {
+    if XACT_CALLBACKS_REGISTERED.get() {
+        return;
+    }
 
+    // pgrx removes these callbacks at the end of the top-level transaction, so they are
+    // registered again when the next transaction adds its first entry.
+    register_xact_callback(PgXactCallbackEvent::Commit, || {
+        ADDED.with_borrow_mut(Vec::clear);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    register_xact_callback(PgXactCallbackEvent::Abort, || {
+        forget_added(TOP_SUBTRANSACTION_ID);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    // A prepared transaction's rows stay invisible until it is committed, maybe by another
+    // backend, and a `ROLLBACK PREPARED` fires neither Commit nor Abort here. pgrx keeps the
+    // callbacks above across a Prepare, so the next transaction registers them a second time,
+    // which is harmless: they are idempotent.
+    register_xact_callback(PgXactCallbackEvent::Prepare, || {
+        forget_added(TOP_SUBTRANSACTION_ID);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    register_subxact_callback(PgSubXactCallbackEvent::AbortSub, |subid, _| {
+        forget_added(subid)
+    });
+    XACT_CALLBACKS_REGISTERED.set(true);
+}
+
+pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
+    if typmod == -1 {
+        return Ok(ParsedTypmod::new());
+    }
+
+    // Don't hold the cache across SPI: a FATAL exits without unwinding, so the guard would
+    // never drop, and an abort callback would block on it forever during exit.
+    let cache = LOAD_CACHE.get_or_init(Default::default);
+    if let Some(parsed_typmod) = cache.lock().get(&typmod) {
+        return Ok(parsed_typmod.clone());
+    }
+
+    let parsed_typmod = ParsedTypmod::try_from(
+        Spi::connect(|client| {
+            static STMT: OnceLock<StmtHolder> = OnceLock::new();
+
+            let prepared = STMT.get_or_init(|| {
+                StmtHolder(
+                    client
+                        .prepare(
+                            "SELECT typmod FROM paradedb._typmod_cache WHERE id = $1",
+                            &[PgOid::BuiltIn(BuiltinOid::INT4OID)],
+                        )
+                        .expect("failed to prepare statement")
+                        .keep(),
+                )
+            });
+
+            let datum = unsafe { [DatumWithOid::new(typmod, pg_sys::INT4OID)] };
+            let rows = (&prepared.0).execute(client, None, &datum)?;
+            if rows.is_empty() {
+                return Ok(None);
+            }
+            rows.first().get::<Vec<String>>(1)
+        })?
+        .ok_or_else(|| Error::TypmodNotFound(typmod))?,
+    )?;
+
+    remember_added(AddedEntry::Load(typmod));
+    cache.lock().insert(typmod, parsed_typmod.clone());
+    Ok(parsed_typmod)
+}
+
+pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result<i32> {
     let as_text = typmod
         .map(|e| {
             e.ok_or(Error::EmptyProperty)
@@ -554,56 +664,44 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let cache = CACHE.get_or_init(Default::default);
-    let mut locked = cache.lock();
-
-    match locked.entry(as_text.clone()) {
-        Entry::Occupied(e) => Ok(*e.get()),
-        Entry::Vacant(e) => {
-            let datum = unsafe { [DatumWithOid::new(e.key().clone(), pg_sys::TEXTARRAYOID)] };
-
-            let id = Spi::connect(|client| {
-                static STMT: OnceLock<Mutex<StmtHolder>> = OnceLock::new();
-
-                let prepared = STMT.get_or_init(|| {
-                    Mutex::new(StmtHolder(
-                        client
-                            .prepare(
-                                "SELECT id FROM paradedb._typmod_cache WHERE typmod = $1",
-                                &[PgOid::BuiltIn(BuiltinOid::TEXTARRAYOID)],
-                            )
-                            .expect("failed to prepare statement")
-                            .keep(),
-                    ))
-                });
-
-                let datum = unsafe { [DatumWithOid::new(as_text.clone(), pg_sys::TEXTARRAYOID)] };
-                (&prepared.lock().0)
-                    .execute(client, None, &datum)?
-                    .first()
-                    .get::<i32>(1)
-            })
-            .ok()
-            .flatten();
-
-            let id = match id {
-                Some(id) => id,
-                None => {
-                    let id =
-                        Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
-                            .ok_or(Error::NullTypmodEntry)?;
-
-                    register_xact_callback(PgXactCallbackEvent::Abort, move || {
-                        CACHE.get_or_init(Default::default).lock().remove(&as_text);
-                    });
-
-                    id
-                }
-            };
-            e.insert(id);
-            Ok(id)
-        }
+    // Not held across SPI, for the same reason as in `load_typmod`.
+    let cache = SAVE_CACHE.get_or_init(Default::default);
+    if let Some(id) = cache.lock().get(&as_text) {
+        return Ok(*id);
     }
+
+    let datum = unsafe { [DatumWithOid::new(as_text.clone(), pg_sys::TEXTARRAYOID)] };
+
+    let id = Spi::connect(|client| {
+        static STMT: OnceLock<StmtHolder> = OnceLock::new();
+
+        let prepared = STMT.get_or_init(|| {
+            StmtHolder(
+                client
+                    .prepare(
+                        "SELECT id FROM paradedb._typmod_cache WHERE typmod = $1",
+                        &[PgOid::BuiltIn(BuiltinOid::TEXTARRAYOID)],
+                    )
+                    .expect("failed to prepare statement")
+                    .keep(),
+            )
+        });
+
+        let rows = (&prepared.0).execute(client, None, &datum)?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        rows.first().get::<i32>(1)
+    })?;
+
+    let id = match id {
+        Some(id) => id,
+        None => Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
+            .ok_or(Error::NullTypmodEntry)?,
+    };
+    remember_added(AddedEntry::Save(as_text.clone()));
+    cache.lock().insert(as_text, id);
+    Ok(id)
 }
 
 extension_sql!(

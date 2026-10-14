@@ -103,7 +103,7 @@ SELECT count(*) FROM emptied WHERE color IS NOT NULL AND NOT (name @@@ 'carol');
    Index: emptied_idx
    Tantivy Query: {"boolean":{"must":[{"exists":{"field":"color"}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"carol","lenient":null,"conjunction_mode":null}}]}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM emptied WHERE color IS NOT NULL AND NOT (name @@@ 'carol');

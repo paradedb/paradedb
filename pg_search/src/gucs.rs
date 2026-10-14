@@ -694,7 +694,7 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.max_scan_levels",
-        c"Maximum quantized vector layers scored before exact rerank",
+        c"Maximum quantized vector layers scored before exact scoring",
         c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
         &VECTOR_MAX_SCAN_LEVELS,
         0,
@@ -706,7 +706,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_stats",
         c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
-        c"Adds the Segment Info block with per-segment probe, layer, rerank, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
         &VECTOR_STATS,
         GucContext::Userset,
         GucFlags::default(),

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792004939887,
+  "lastUpdate": 1792006778549,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13712,6 +13712,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10edade3e8db5f909f28275aa9a794d1976eff86",
+          "message": "fix: keep range filter score on fully covered segments (#6775)\n\n## What\n\nPins Tantivy to a commit that keeps the score of a range filter on\nsegments the range fully covers. Fixes #6674.\n\n## Why\n\nA range filter adds 1.0 to the score of every row it matches. On a\nsegment where every row is inside the range, Tantivy dropped the range\nfrom the query and its 1.0 with it. Rows that match equally got\ndifferent scores depending on their segment, and those segments also\nlost the Block-WAND Top K path. See paradedb/tantivy#312 for the cause.\n\n## How\n\nThe pin moves from `1ce0e17a` to `0547da93`, the squash commit of\nparadedb/tantivy#312 on Tantivy `main`. #312 keeps a MUST or SHOULD\n`AllScorer` when scoring is enabled, so the range's 1.0 stays in the sum\non every segment; a MUST_NOT `AllScorer` is still dropped because it\nnever contributes to the score.\n\nScore changes in existing tests: rows on segments that a filter fully\ncovers now get the 1.0 they were missing. This applies to range filters\nand to `pdb.all()`, which also scores 1.0 per row:\n\n- `deprecated_score`, `score_join_predicates`: J.K. Rowling scores\n`2.540445` instead of `1.5404451`. That matches the score the same row\nalready gets earlier in `deprecated_score`.\n- `snippet_join_predicates`: `author_score` is 1.0 higher (`a.id @@@\npdb.all() AND a.age > 50`).\n\n## Tests\n\n- New `issue_6674`: the reproduction from #6674, with and without\n`partition_by`, and through Top K with its `EXPLAIN (COSTS OFF)`. It\nfails without the fix (two scores, `0.000` and `1.000`) and passes with\nit (one score).\n- `issue_6674` also covers the range under an OR, `description |||\n'item' AND (description ||| 'zzz' OR x >= 4500)`, which Tantivy flattens\ninto a SHOULD clause; it scores `1.000` on every row with the fix.\n- `cargo pgrx regress pg18` on `issue_6674`, `deprecated_score`,\n`score_join_predicates` and `snippet_join_predicates` against\n`0547da93`: all pass.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-15T00:26:57+05:30",
+          "tree_id": "9ff17bf7286de0ae218ee3835c318a02515f170b",
+          "url": "https://github.com/paradedb/paradedb/commit/10edade3e8db5f909f28275aa9a794d1976eff86"
+        },
+        "date": 1792006768776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.316,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.7,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.825,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.52,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.423,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.191,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.473,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 6.916,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.054,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.87,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.18,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.006,
             "unit": "ms"
           }
         ]

@@ -198,15 +198,10 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations;
-<<<<<<< HEAD
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
-=======
-use crate::postgres::serializable::predicate_lock_read;
 use crate::scan::codec::{
     deserialize_logical_plan_for_explain, deserialize_logical_plan_with_runtime,
     serialize_logical_plan,
 };
->>>>>>> 2e2bc0a (fix: Evaluate STABLE search predicates at execution time (#6798))
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;

@@ -792,9 +792,8 @@ enum WindowShape {
     Distinct,
     /// A target list of window aggregates alone: every row is one group.
     DistinctWindowsOnly,
-    /// The Top-K aggregate needs k at planning time. With a parameterized
-    /// LIMIT it is not known, so the JoinScan computes the window aggregates
-    /// in a DataFusion window node instead.
+    /// A parameterized LIMIT under a generic plan: the Top-K aggregate's k is
+    /// bound at execution, so the window aggregates are still computed in it.
     ParameterizedLimit,
 }
 
@@ -886,10 +885,7 @@ fn global_window_aggregates_query_shapes(
             .execute(&mut conn);
 
             let plan = explain(&mut conn, "EXECUTE wj_page(3)");
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
-            assert!(!plan.contains("topk_as_agg("), "{plan}");
+            assert_windows_in_topk_agg(&plan);
 
             let rows = "EXECUTE wj_page(3)".fetch_result::<(i32, i64)>(&mut conn)?;
             assert_eq!(rows, vec![(999, 1000), (997, 1000), (995, 1000)]);

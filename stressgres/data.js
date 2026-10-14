@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791881386446,
+  "lastUpdate": 1791964604303,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -403212,6 +403212,88 @@ window.BENCHMARK_DATA = {
             "value": 620.4915844706557,
             "unit": "median tps",
             "extra": "avg tps: 625.7241518072242, max tps: 685.9727634629972, count: 55234"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791964597587,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 557.7674854847589,
+            "unit": "median tps",
+            "extra": "avg tps: 556.7731866059056, max tps: 621.4691028216306, count: 55245"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 518.4376348404868,
+            "unit": "median tps",
+            "extra": "avg tps: 517.0294994194247, max tps: 565.5066137883505, count: 55245"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 199.9838856001765,
+            "unit": "median tps",
+            "extra": "avg tps: 199.91665120352647, max tps: 213.764307930433, count: 55245"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 569.3030377769259,
+            "unit": "median tps",
+            "extra": "avg tps: 567.332416009642, max tps: 627.4671803805619, count: 55245"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 404.7679334329531,
+            "unit": "median tps",
+            "extra": "avg tps: 403.91163778248034, max tps: 431.6129896260239, count: 55245"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.688683850250186,
+            "unit": "median tps",
+            "extra": "avg tps: 14.683374634731985, max tps: 16.23966152842732, count: 55245"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 679.2978103092805,
+            "unit": "median tps",
+            "extra": "avg tps: 675.7358482170391, max tps: 738.6722547510129, count: 55245"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 688.8595386724455,
+            "unit": "median tps",
+            "extra": "avg tps: 685.6726408096321, max tps: 760.7599500996017, count: 55245"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 315.55063243008505,
+            "unit": "median tps",
+            "extra": "avg tps: 315.1016173055509, max tps: 332.2055151753022, count: 55245"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 599.516309558455,
+            "unit": "median tps",
+            "extra": "avg tps: 597.2415784192941, max tps: 648.6231905255428, count: 55245"
           }
         ]
       }

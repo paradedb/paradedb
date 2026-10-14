@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791964671493,
+  "lastUpdate": 1791964686400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -357934,6 +357934,64 @@ window.BENCHMARK_DATA = {
             "value": 150,
             "unit": "median segment_count",
             "extra": "avg segment_count: 169.05200444309804, max segment_count: 303.0, count: 59418"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791964647284,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.076923,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.389365633017402, max cpu: 33.6, count: 59427"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 55,
+            "unit": "median mem",
+            "extra": "avg mem: 54.70016193712454, max mem: 55.00390625, count: 59427"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.07048275766302, max cpu: 43.79118, count: 59427"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 115.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 115.23826304226193, max mem: 115.859375, count: 59427"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 32360,
+            "unit": "median block_count",
+            "extra": "avg block_count: 30665.03138304138, max block_count: 34950.0, count: 59427"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 150,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 169.84756087300386, max segment_count: 304.0, count: 59427"
           }
         ]
       }

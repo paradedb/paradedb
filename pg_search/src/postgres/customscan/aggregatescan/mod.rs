@@ -1306,11 +1306,10 @@ impl AggregateScan {
                 explainer,
             )
         } else {
-            // Building the physical plan calls PgSearchTableProvider::scan() which opens each index
-            // reader and converts the query to a Tantivy query. HeapFilter predicates (e.g. from
-            // ILIKE) require an ExprContext to evaluate Postgres expressions at that point. During
-            // EXPLAIN-only mode begin_custom_scan skips allocating one on the planstate, so create a
-            // temporary standalone context for this rebuild — the same pattern JoinScan uses.
+            // Rebuild the physical shape without executor state. Providers with runtime
+            // expressions open an unfiltered metadata reader and keep those expressions
+            // on the display plan; they must not evaluate functions or prepared parameters.
+            // Other heap filters still need a context to initialize their expression states.
             let expr_context = ExprContextGuard::new();
 
             let custom_exprs = df_state.custom_exprs;

@@ -258,7 +258,7 @@ impl Qual {
     }
 
     /// True if, as a top-level AND branch, [`optimize_quals_with_heap_expr`] merges this qual
-    /// into the `indexed_query` of each sibling heap filter.
+    /// into the `indexed_query` of the innermost sibling heap filter.
     pub fn is_indexed_conjunct(&self) -> bool {
         matches!(
             self,
@@ -1960,8 +1960,13 @@ unsafe fn create_bool_expr(
     Some(boolexpr.cast())
 }
 
-/// Optimize qual tree by converting ExternalVar and ExternalExpr to HeapExpr where possible
-/// This is the second pass optimization mentioned in the implementation plan
+/// Folds the indexed conjuncts of each AND branch into the `indexed_query` of its innermost
+/// heap filter, and nests any further heap filters around it.
+///
+/// A heap filter left beside the indexed clauses is evaluated on its own. Tantivy's `count` fills
+/// a block bitset from every clause of an intersection, so a heap filter over `All` runs its
+/// expression against every document in the segment. Wrapped around the indexed query, it only
+/// runs against the documents the index matched.
 pub unsafe fn optimize_quals_with_heap_expr(qual: &mut Qual) {
     match qual {
         Qual::And(quals) => {
@@ -2012,36 +2017,52 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
         }
     }
 
-    // If we have HeapExpr with All query and indexed predicates, optimize
-    if !heap_expr_indices.is_empty() && !indexed_qual_indices.is_empty() {
-        // First, collect the indexed queries before mutating quals
-        let indexed_queries: Vec<SearchQueryInput> = indexed_qual_indices
+    let Some(&outermost) = heap_expr_indices.last() else {
+        return;
+    };
+    if indexed_qual_indices.is_empty() && heap_expr_indices.len() < 2 {
+        return;
+    }
+
+    // The innermost heap filter wraps the indexed conjuncts and each later one wraps the heap
+    // filter before it, so the index is read once and every filter only sees the rows the
+    // filters before it accepted. The clauses arrive ordered by security level and then by
+    // cost, so the cheapest filter is the one that runs on every index match.
+    let mut wrapped = if indexed_qual_indices.is_empty() {
+        SearchQueryInput::All
+    } else {
+        SearchQueryInput::Boolean {
+            must: indexed_qual_indices
+                .iter()
+                .map(|&i| SearchQueryInput::from(&quals[i]))
+                .collect(),
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        }
+    };
+    for &heap_idx in &heap_expr_indices {
+        if let Qual::HeapExpr {
+            search_query_input, ..
+        } = &mut quals[heap_idx]
+        {
+            **search_query_input = std::mem::replace(&mut wrapped, SearchQueryInput::Uninitialized);
+        }
+        if heap_idx != outermost {
+            wrapped = SearchQueryInput::from(&quals[heap_idx]);
+        }
+    }
+
+    let mut folded: Vec<usize> = indexed_qual_indices;
+    folded.extend(
+        heap_expr_indices
             .iter()
-            .map(|&i| SearchQueryInput::from(&quals[i]))
-            .collect();
-
-        // Now update the HeapExpr search_query_input
-        for &heap_idx in &heap_expr_indices {
-            if let Qual::HeapExpr {
-                search_query_input, ..
-            } = &mut quals[heap_idx]
-                && matches!(**search_query_input, SearchQueryInput::All)
-                && !indexed_queries.is_empty()
-            {
-                **search_query_input = SearchQueryInput::Boolean {
-                    must: indexed_queries.clone(),
-                    should: vec![],
-                    must_not: vec![],
-                    minimum_should_match: None,
-                };
-            }
-        }
-
-        // Remove the indexed quals that were merged into HeapExpr
-        // We need to do this in reverse order to maintain indices
-        for &idx in indexed_qual_indices.iter().rev() {
-            quals.remove(idx);
-        }
+            .copied()
+            .filter(|&i| i != outermost),
+    );
+    folded.sort_unstable();
+    for idx in folded.into_iter().rev() {
+        quals.remove(idx);
     }
 }
 

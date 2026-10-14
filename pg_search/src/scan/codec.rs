@@ -49,6 +49,8 @@ struct PgSearchExtensionCodec {
     /// decoded provider builds its reader from its source's manifest, so packed addresses
     /// stay comparable across the leader and its workers.
     source_manifests: Vec<SearchIndexManifest>,
+    /// Build a display plan without resolving executor-time expressions.
+    explain_only: bool,
 }
 
 // SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
@@ -237,6 +239,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
+        provider.set_explain_only(self.explain_only);
         Ok(Arc::new(provider))
     }
 
@@ -324,6 +327,21 @@ pub fn deserialize_logical_plan_with_runtime(
         expr_context,
         planstate,
         source_manifests,
+        explain_only: false,
+    };
+    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+}
+
+/// Deserializes a logical plan for plain EXPLAIN without solving runtime expressions.
+pub fn deserialize_logical_plan_for_explain(
+    bytes: &[u8],
+    ctx: &TaskContext,
+    expr_context: *mut ExprContext,
+) -> Result<LogicalPlan> {
+    let codec = PgSearchExtensionCodec {
+        expr_context: Some(expr_context),
+        explain_only: true,
+        ..Default::default()
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

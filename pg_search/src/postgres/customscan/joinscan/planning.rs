@@ -51,6 +51,7 @@ use crate::postgres::customscan::pullup::{
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+    optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
@@ -188,7 +189,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
             // Extract search-capable predicates all at once. This is required
             // for score filters, which must wrap the rest of the search query.
             // Fail the JoinScan if any search predicate cannot be extracted.
-            let qual = extract_quals(
+            let mut qual = extract_quals(
                 &context,
                 rti,
                 classified.search_ri.as_ptr().cast(),
@@ -198,6 +199,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
                 &mut state,
                 true,
             )?;
+            optimize_quals_with_heap_expr(&mut qual);
             let query = SearchQueryInput::from(&qual);
             side_info = side_info.with_query(query);
             if state.uses_our_operator {

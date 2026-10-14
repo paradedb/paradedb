@@ -64,6 +64,7 @@
 //! cannot free another's query.
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::nodecast;
 use crate::query::tid_bitmap_stream::BitmapCell;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgMemoryContexts, pg_sys};
@@ -200,6 +201,41 @@ impl SearchQueryInput {
             _ => {}
         });
         nodes
+    }
+
+    /// A planning-only copy with each `PostgresExpression` folded through
+    /// `estimate_expression_value`, which also reduces STABLE functions and bound Params, as
+    /// the core selectivity estimators do. `None` when any expression stays non-constant
+    /// (unbound Param, correlated Var) or the query carries heap filters, which need an
+    /// `ExprContext` the estimation reader does not have.
+    ///
+    /// # Safety
+    /// `root` must point to a valid `PlannerInfo` for the duration of the call.
+    pub unsafe fn fold_for_estimation(
+        &self,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> Option<SearchQueryInput> {
+        if root.is_null() || self.has_heap_filters() {
+            return None;
+        }
+        let sqi_typoid = searchqueryinput_typoid();
+        let mut folded = self.clone();
+        let mut all_folded = true;
+        folded.visit(&mut |sqi| {
+            let SearchQueryInput::PostgresExpression { expr } = sqi else {
+                return;
+            };
+            let estimated = unsafe { pg_sys::estimate_expression_value(root, expr.node()) };
+            let Some(c) = (unsafe { nodecast!(Const, T_Const, estimated) }) else {
+                all_folded = false;
+                return;
+            };
+            assert_eq!(unsafe { (*c).consttype }, sqi_typoid);
+            let value = unsafe { SearchQueryInput::from_datum((*c).constvalue, (*c).constisnull) };
+            // NULL matches nothing at execution too (see `solve_postgres_expressions`).
+            *sqi = value.unwrap_or(SearchQueryInput::Empty);
+        });
+        all_folded.then_some(folded)
     }
 
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {

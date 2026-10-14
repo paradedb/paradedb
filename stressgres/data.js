@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791965759172,
+  "lastUpdate": 1791965772154,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -448888,6 +448888,94 @@ window.BENCHMARK_DATA = {
             "value": 56.171875,
             "unit": "median mem",
             "extra": "avg mem: 55.09336146781189, max mem: 66.171875, count: 58795"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791965764732,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 77.734375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 72.30776969287281, max partition_index_size:MB: 89.171875, count: 58803"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.08372943687362, max cpu: 33.15244, count: 58803"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 56.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.89486904367124, max mem: 64.46875, count: 58803"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.517885,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.83200488489804, max cpu: 37.888504, count: 58803"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 64.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.651124637029575, max mem: 82.1328125, count: 58803"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.519089,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.45337053621208, max cpu: 32.74854, count: 58803"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 62.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.41395960080693, max mem: 80.8203125, count: 58803"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.517885,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.853838591410746, max cpu: 37.888504, count: 58803"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 64.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.43994858893254, max mem: 76.43359375, count: 58803"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.021646981295053, max cpu: 33.333336, count: 58803"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 56.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.992108714691426, max mem: 66.0546875, count: 58803"
           }
         ]
       }

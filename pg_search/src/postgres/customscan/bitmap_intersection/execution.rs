@@ -42,12 +42,12 @@ struct PublishArgs {
 /// cursor source the HeapFilter scorers stream from.
 pub struct BitmapExec {
     child: *mut pg_sys::PlanState,
+    /// The child ran since its last `ExecReScan`, so `rescan` has to run before it
+    /// can build again.
     consumed: bool,
     /// The completed TIDBitmap, retained across the scan so cursors can iterate
     /// it; freed on rescan/shutdown.
     tbm: *mut pg_sys::TIDBitmap,
-    /// The DSA area the bitmap was built in (null = private).
-    built_in: *mut pg_sys::dsa_area,
     /// This scan's own DSA area, when a shared build was published.
     area: *mut pg_sys::dsa_area,
     owns_area: bool,
@@ -74,7 +74,6 @@ impl BitmapExec {
             child: unsafe { pg_sys::ExecInitNode(child_plan, estate, eflags) },
             consumed: false,
             tbm: std::ptr::null_mut(),
-            built_in: std::ptr::null_mut(),
             area: std::ptr::null_mut(),
             owns_area: false,
             table: 0,
@@ -152,7 +151,6 @@ impl BitmapExec {
         if !self.tbm.is_null() {
             unsafe { pg_sys::tbm_free(self.tbm) };
             self.tbm = std::ptr::null_mut();
-            self.built_in = std::ptr::null_mut();
         }
     }
 
@@ -164,28 +162,11 @@ impl BitmapExec {
         self.table = 0;
     }
 
-    /// Build (or rebuild) the bitmap in `area` (null = private).
-    unsafe fn ensure_built(&mut self, area: *mut pg_sys::dsa_area) {
-        unsafe {
-            if self.consumed {
-                if self.built_in == area {
-                    return;
-                }
-                // Built in the wrong place (e.g. a private estimate-time build that
-                // must now be shared): run the child again into the right area.
-                pg_sys::ExecReScan(self.child);
-                self.free_tbm();
-            }
-            self.consumed = true;
-            self.run_child(area);
-        }
-    }
-
     /// Serial path: build privately and hand out private-iterator cursors.
     pub(crate) unsafe fn private_source(&mut self) -> Option<Arc<BitmapCursorSource>> {
         unsafe {
             if self.source.is_none() {
-                self.ensure_built(std::ptr::null_mut());
+                self.run_child(std::ptr::null_mut());
                 if self.tbm.is_null() {
                     return None;
                 }
@@ -216,7 +197,7 @@ impl BitmapExec {
             if self.consumed {
                 self.rescan();
             }
-            self.ensure_built(self.area);
+            self.run_child(self.area);
             if self.tbm.is_null() {
                 return None;
             }
@@ -271,11 +252,13 @@ impl BitmapExec {
         }
     }
 
-    /// Run the planned child once, pre-seeding its first leaf with a TIDBitmap this
-    /// node creates and owns — the parent-node contract documented in
-    /// `MultiExecBitmapIndexScan`. A `BitmapAnd` child keeps its first leaf's bitmap
-    /// as the intersection accumulator, so the seed lands there.
+    /// Run the planned child into `area` (null = private), pre-seeding its first leaf
+    /// with a TIDBitmap this node creates and owns, the parent-node contract
+    /// documented in `MultiExecBitmapIndexScan`. A `BitmapAnd` child keeps its first
+    /// leaf's bitmap as the intersection accumulator, so the seed lands there. Once
+    /// per rescan: the child only runs again after `rescan`.
     unsafe fn run_child(&mut self, area: *mut pg_sys::dsa_area) {
+        self.consumed = true;
         unsafe {
             let work_mem_bytes = (*std::ptr::addr_of!(pg_sys::work_mem)) as i64 * 1024;
             let tbm = pg_sys::tbm_create(work_mem_bytes as _, area);
@@ -296,7 +279,6 @@ impl BitmapExec {
                 "child must fill the pre-seeded bitmap"
             );
             self.tbm = result.cast();
-            self.built_in = area;
         }
     }
 }

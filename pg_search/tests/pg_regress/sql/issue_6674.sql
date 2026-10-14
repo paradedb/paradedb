@@ -18,7 +18,22 @@ FROM issue_6674
 WHERE x >= 4500 AND description ||| 'item'
 GROUP BY 1 ORDER BY 1;
 
+-- The range under an OR is flattened into a SHOULD clause and still scores 1.0.
+SELECT round(pdb.score(id)::numeric, 3) AS score, count(*) AS row_count
+FROM issue_6674
+WHERE description ||| 'item' AND (description ||| 'zzz' OR x >= 4500)
+GROUP BY 1 ORDER BY 1;
+
 -- The same through Top K, which takes the Block-WAND path on every segment.
+EXPLAIN (COSTS OFF)
+SELECT count(DISTINCT round(score::numeric, 3)) AS distinct_scores
+FROM (
+    SELECT pdb.score(id) AS score
+    FROM issue_6674
+    WHERE x >= 4500 AND description ||| 'item'
+    ORDER BY pdb.score(id) DESC
+    LIMIT 600
+) top;
 SELECT count(DISTINCT round(score::numeric, 3)) AS distinct_scores
 FROM (
     SELECT pdb.score(id) AS score

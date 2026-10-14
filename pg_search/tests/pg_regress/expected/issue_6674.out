@@ -20,7 +20,43 @@ GROUP BY 1 ORDER BY 1;
  1.000 |      3501
 (1 row)
 
+-- The range under an OR is flattened into a SHOULD clause and still scores 1.0.
+SELECT round(pdb.score(id)::numeric, 3) AS score, count(*) AS row_count
+FROM issue_6674
+WHERE description ||| 'item' AND (description ||| 'zzz' OR x >= 4500)
+GROUP BY 1 ORDER BY 1;
+ score | row_count 
+-------+-----------
+ 1.000 |      3501
+(1 row)
+
 -- The same through Top K, which takes the Block-WAND path on every segment.
+EXPLAIN (COSTS OFF)
+SELECT count(DISTINCT round(score::numeric, 3)) AS distinct_scores
+FROM (
+    SELECT pdb.score(id) AS score
+    FROM issue_6674
+    WHERE x >= 4500 AND description ||| 'item'
+    ORDER BY pdb.score(id) DESC
+    LIMIT 600
+) top;
+                                                                                                                                                         QUERY PLAN                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Sort
+         Sort Key: (round((top.score)::numeric, 3))
+         ->  Subquery Scan on top
+               ->  Limit
+                     ->  Custom Scan (ParadeDB Base Scan) on issue_6674
+                           Table: issue_6674
+                           Index: issue_6674_idx
+                           Exec Method: TopKScanExecState
+                           Scores: true
+                              TopK Order By: pdb.score() desc
+                              TopK Limit: 600
+                           Tantivy Query: {"boolean":{"must":[{"range":{"field":"x","lower_bound":{"included":4500},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(13 rows)
+
 SELECT count(DISTINCT round(score::numeric, 3)) AS distinct_scores
 FROM (
     SELECT pdb.score(id) AS score

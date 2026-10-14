@@ -42,6 +42,12 @@ use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
 
+#[cfg(feature = "dst")]
+#[test]
+fn antithesis_sdk_initializes() {
+    ensure_dst_init();
+}
+
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
 /// draws its randomness from the Antithesis SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791965727290,
+  "lastUpdate": 1791965745428,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -370784,6 +370784,124 @@ window.BENCHMARK_DATA = {
             "value": 24.517218727725147,
             "unit": "median tps",
             "extra": "avg tps: 35.960054041828954, max tps: 1301.8155119129137, count: 57413"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791965727814,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 444.15732692315896,
+            "unit": "median tps",
+            "extra": "avg tps: 449.71196390084407, max tps: 498.7487236804993, count: 57390"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 383.64996482388847,
+            "unit": "median tps",
+            "extra": "avg tps: 384.4091641649375, max tps: 430.69014448416794, count: 57390"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3708.883859443471,
+            "unit": "median tps",
+            "extra": "avg tps: 3707.876630588185, max tps: 4058.9475752575713, count: 57390"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 441.45977833897973,
+            "unit": "median tps",
+            "extra": "avg tps: 447.10880792148555, max tps: 493.9293206822994, count: 57390"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3637.6964940991825,
+            "unit": "median tps",
+            "extra": "avg tps: 3642.466126046955, max tps: 3756.9521362240625, count: 57390"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3656.7552215347428,
+            "unit": "median tps",
+            "extra": "avg tps: 3656.0056776426627, max tps: 3714.8462244358525, count: 57390"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 182.4562272203753,
+            "unit": "median tps",
+            "extra": "avg tps: 183.59859498838364, max tps: 195.51336732855586, count: 57390"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 348.0525885771507,
+            "unit": "median tps",
+            "extra": "avg tps: 350.419880362425, max tps: 375.84679349250905, count: 57390"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 505.6905800439476,
+            "unit": "median tps",
+            "extra": "avg tps: 511.8496247795468, max tps: 564.184264927932, count: 57390"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 588.8453715899117,
+            "unit": "median tps",
+            "extra": "avg tps: 596.2931963670931, max tps: 652.361137905366, count: 57390"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1488.7137312331145,
+            "unit": "median tps",
+            "extra": "avg tps: 1484.8184802435899, max tps: 1497.9931438007409, count: 57390"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 376.88895162566496,
+            "unit": "median tps",
+            "extra": "avg tps: 389.8726946616323, max tps: 507.1927006224854, count: 57390"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 537.5960710389245,
+            "unit": "median tps",
+            "extra": "avg tps: 544.6968123418366, max tps: 597.4297172693391, count: 57390"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2569.699472239192,
+            "unit": "median tps",
+            "extra": "avg tps: 2561.5006443479847, max tps: 2584.552477566076, count: 57390"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2000.4326760367217,
+            "unit": "median tps",
+            "extra": "avg tps: 2006.1485360140696, max tps: 2245.4394702098193, count: 57390"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.182373901008294,
+            "unit": "median tps",
+            "extra": "avg tps: 33.72030344769066, max tps: 1309.7799962540294, count: 57390"
           }
         ]
       }

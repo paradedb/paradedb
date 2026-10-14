@@ -33,7 +33,7 @@ use crate::api::{SortDirection, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
-use crate::postgres::customscan::joinscan::build::RelationAlias;
+use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
@@ -278,6 +278,17 @@ pub struct ExtractedDataFusionTarget {
 impl ExtractedDataFusionTarget {
     pub fn targetlist(&self) -> &JoinAggregateTargetList {
         &self.runtime
+    }
+
+    pub fn filter_predicates(&self) -> Vec<JoinLevelSearchPredicate> {
+        self.runtime
+            .aggregates
+            .iter()
+            .filter_map(|agg| match &agg.filter {
+                Some(FilterExpr::SearchTag { predicate, .. }) => Some((**predicate).clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The runtime metadata and the raw `TargetEntry`s it describes, both
@@ -910,6 +921,7 @@ unsafe fn extract_raw_aggregate_entry(
             FilterExpr::from_pg_node(
                 (*aggref).aggfilter as *mut pg_sys::Node,
                 &FilterExprBuildContext::Filter {
+                    root: context.root,
                     sources: context.sources,
                     plan: context.plan,
                     outer_root_id: context.outer_root_id,

@@ -21,7 +21,9 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     GroupingTransform, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DATE_UDF_NAME;
-use crate::postgres::customscan::joinscan::build::{RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelSearchPredicate, RelNode, RelationAlias,
+};
 use datafusion::common::Column;
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
@@ -64,6 +66,10 @@ pub enum FilterExpr {
     Not(Box<FilterExpr>),
     IsNull(Box<FilterExpr>),
     IsNotNull(Box<FilterExpr>),
+    SearchTag {
+        plan_position: usize,
+        predicate: Box<JoinLevelSearchPredicate>,
+    },
 }
 
 impl FilterExpr {
@@ -76,7 +82,8 @@ impl FilterExpr {
             | FilterExpr::LitInt(_)
             | FilterExpr::LitFloat(_)
             | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_) => false,
+            | FilterExpr::LitString(_)
+            | FilterExpr::SearchTag { .. } => false,
             FilterExpr::BinOp { left, right, .. } => {
                 left.any_agg_ref(pred) || right.any_agg_ref(pred)
             }

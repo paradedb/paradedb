@@ -1102,6 +1102,22 @@ impl FilterExpr {
                 let plan = ctx.plan?;
                 Some(make_plan_position_col(plan, *plan_position, field_name))
             }
+            FilterExpr::SearchTag {
+                plan_position,
+                predicate,
+            } => {
+                // Same lookup as `translate_join_level_expr`: the scan emits one
+                // boolean column per tagged query, matched by query equality.
+                let source = ctx.plan?.source_at_plan_position(*plan_position)?;
+                let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode
+                else {
+                    return None;
+                };
+                let tagged = local_queries
+                    .iter()
+                    .find(|tq| (*tq.query) == predicate.query)?;
+                Some(col(&tagged.tag_name))
+            }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
             FilterExpr::LitBool(v) => Some(lit(*v)),

@@ -1680,6 +1680,13 @@ impl AggregateScan {
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
         let targetlist = extracted_target.targetlist();
 
+        let mut predicates = plan.search_predicates();
+        predicates.extend(extracted_target.filter_predicates());
+        crate::postgres::customscan::joinscan::build::assign_tagged_queries(
+            plan.sources_mut(),
+            &predicates,
+        );
+
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
         unsafe {

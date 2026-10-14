@@ -112,6 +112,13 @@ impl LimitOffset {
         Some(limit.saturating_add(offset))
     }
 
+    pub fn fetch_display(&self) -> String {
+        match &self.offset {
+            None | Some(ParameterizedValue::Static(0)) => self.limit.to_string(),
+            Some(off) => format!("{} + {off}", self.limit),
+        }
+    }
+
     /// Returns `LIMIT` only when statically known.
     pub fn static_limit(&self) -> Option<usize> {
         let limit = *self.limit.static_value()?;
@@ -166,5 +173,52 @@ impl LimitOffset {
             o.resolve_mut(estate);
         }
         Some(self)
+    }
+
+    #[cfg(test)]
+    pub fn from_k(k: i64) -> Self {
+        Self {
+            limit: ParameterizedValue::Static(k),
+            offset: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn limit_offset(
+        limit: ParameterizedValue<i64>,
+        offset: Option<ParameterizedValue<i64>>,
+    ) -> LimitOffset {
+        LimitOffset { limit, offset }
+    }
+
+    #[test]
+    fn fetch_display_reads_as_written() {
+        use ParameterizedValue::{Param, Static};
+
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, None).fetch_display(),
+            "$1"
+        );
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, Some(Static(10))).fetch_display(),
+            "$1 + 10"
+        );
+        assert_eq!(
+            limit_offset(Static(5), Some(Param { param_id: 2 })).fetch_display(),
+            "5 + $2"
+        );
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, Some(Param { param_id: 2 })).fetch_display(),
+            "$1 + $2"
+        );
+        // A static zero OFFSET is left out, as the EXPLAIN header leaves it out.
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, Some(Static(0))).fetch_display(),
+            "$1"
+        );
     }
 }

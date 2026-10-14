@@ -46,11 +46,23 @@ USING paradedb (author_id, name, bio);
 CREATE INDEX issue_6699_articles_idx ON issue_6699_articles
 USING paradedb (id, author_id, (category::pdb.literal), body, created_at);
 
+-- Postgres's rendering of the FILTER expression embeds the index OID, which
+-- changes on every database creation; mask it so the plan is stable.
+CREATE FUNCTION issue_6699_explain(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
+    END LOOP;
+END;
+$$;
+
 -- The query from the issue: a filtered COUNT that is projected and used for
 -- ranking. The FILTER's search predicate also appears in WHERE, so its tag can
 -- be reused. The plan should be a ParadeDB Aggregate Scan whose DataFusion
 -- aggregate filter references a tag column rather than a native Aggregate.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT issue_6699_explain($$
 SELECT
     a.author_id,
     COUNT(*) FILTER (
@@ -70,7 +82,8 @@ ORDER BY
     ) DESC,
     MAX(a.created_at) DESC NULLS LAST,
     a.author_id
-LIMIT 15 OFFSET 0;
+LIMIT 15 OFFSET 0
+$$);
 
 SELECT
     a.author_id,
@@ -95,7 +108,7 @@ LIMIT 15 OFFSET 0;
 
 -- FILTER search predicates that do not appear in WHERE, on both sides of the
 -- join and with each search operator, each need their own tag column.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT issue_6699_explain($$
 SELECT a.author_id,
        COUNT(*) FILTER (WHERE a.body ||| 'search') AS search_count,
        COUNT(*) FILTER (WHERE a.body &&& 'database query') AS planning_count,
@@ -104,7 +117,8 @@ SELECT a.author_id,
 FROM issue_6699_articles a
 JOIN issue_6699_authors u ON a.author_id = u.author_id
 WHERE a.id @@@ pdb.all()
-GROUP BY a.author_id;
+GROUP BY a.author_id
+$$);
 
 SELECT a.author_id,
        COUNT(*) FILTER (WHERE a.body ||| 'search') AS search_count,
@@ -117,5 +131,6 @@ WHERE a.id @@@ pdb.all()
 GROUP BY a.author_id
 ORDER BY a.author_id;
 
+DROP FUNCTION issue_6699_explain(text);
 DROP TABLE issue_6699_articles;
 DROP TABLE issue_6699_authors;

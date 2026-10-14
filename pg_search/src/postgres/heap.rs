@@ -1667,13 +1667,14 @@ impl<'a> HeapDocFetcher<'a> {
                     break;
                 }
 
-                let (mut htsv_result, hot_updated) = {
+                let (mut htsv_result, hot_updated, has_external) = {
                     let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
                     (
                         pg_sys::HeapTupleSatisfiesVacuum(tuple, self.oldest_xmin, buffer),
                         u32::from((*(*tuple).t_data).t_infomask2) & pg_sys::HEAP_HOT_UPDATED != 0,
+                        u32::from((*(*tuple).t_data).t_infomask) & pg_sys::HEAP_HASEXTERNAL != 0,
                     )
                 };
 
@@ -1734,9 +1735,7 @@ impl<'a> HeapDocFetcher<'a> {
 
                 if !self.root_ctids
                     && htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
-                    && pg_sys::HeapTupleHasExternal(
-                        (*self.fetch_state.buffer_heap_slot()).base.tuple,
-                    )
+                    && has_external
                 {
                     // A TOAST-only VACUUM may already have reclaimed this version under a
                     // newer cutoff. Keep the mutable input until VACUUM can remove the ctid;

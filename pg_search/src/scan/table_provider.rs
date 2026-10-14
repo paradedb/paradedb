@@ -799,7 +799,7 @@ impl PgSearchTableProvider {
                 SearchIndexReader::from_manifest(
                     manifest,
                     &index_rel,
-                    reader_query.clone(),
+                    reader_query,
                     self.scan_info.score_needed,
                     expr_ctx,
                     needs_tokenizer,

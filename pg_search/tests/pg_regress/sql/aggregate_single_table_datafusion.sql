@@ -264,6 +264,38 @@ WHERE description @@@ 'laptop'
 GROUP BY id
 ORDER BY id;
 
+-- Test 2.13: search predicates inside FILTER are evaluated during the scan as
+-- tagged queries, alongside the WHERE query, and read by the DataFusion
+-- aggregate filter.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE rating >= 5 AND description ||| 'laptop') AS top_laptops,
+       COUNT(*) FILTER (WHERE description ||| 'gaming') AS gaming
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee'
+GROUP BY category;
+
+SELECT category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE rating >= 5 AND description ||| 'laptop') AS top_laptops,
+       COUNT(*) FILTER (WHERE description ||| 'gaming') AS gaming
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee'
+GROUP BY category
+ORDER BY category;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE rating >= 5 AND description ||| 'laptop') AS top_laptops,
+       COUNT(*) FILTER (WHERE description ||| 'gaming') AS gaming
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee'
+GROUP BY category
+ORDER BY category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- =====================================================================
 -- SECTION 3: Parity — DataFusion fallback vs Postgres native
 -- =====================================================================

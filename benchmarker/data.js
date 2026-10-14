@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791999583848,
+  "lastUpdate": 1792001307724,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10672,6 +10672,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 161.69,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d951b1ac1187e1709ad5a0afb42e84668ca322c4",
+          "message": "chore: bump rustls to 0.23.46 for the cargo-audit failure (#6815)\n\n# Ticket(s) Closed\n\n- None.\n\n## What\n\nBumps rustls from 0.23.45 to 0.23.46 in `Cargo.lock`.\n\n## Why\n\nRustSec published four advisories against rustls 0.23.45 today\n(RUSTSEC-2026-0346, 0347, 0348 and 0349), so the `cargo audit` step of\nthe lint job fails on every PR since 14:16 UTC. All four name 0.23.46 as\nthe fix. Same situation as #6330, one version later.\n\n## How\n\n`cargo update -p rustls`. Only rustls moves; no other crate re-resolves.\nrustls is transitive (lindera-dictionary → ureq, used at build time to\ndownload dictionaries), so no pg_search code changes. The `cargoHash` in\n`nix/pg_search.nix` is left for the bot to update.\n\n## Tests\n\n- `cargo audit` (cargo-audit 0.22.2, installed as in the lint workflow):\nexits 1 on `main`, exits 0 on this branch with the 7 allowed warnings\nfrom `.cargo/audit.toml`.\n- Pre-commit: fmt, clippy, rustdoc, machete and taplo all pass.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-14T22:11:28+05:30",
+          "tree_id": "aa51ace83bc22ccbbeddcdb10fefb296f4dc313c",
+          "url": "https://github.com/paradedb/paradedb/commit/d951b1ac1187e1709ad5a0afb42e84668ca322c4"
+        },
+        "date": 1792001298718,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.335,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.448,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 347.28,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 183.181,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.317,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.945,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 211.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.551,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.463,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 192.268,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.158,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.717,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 186.647,
             "unit": "ms"
           }
         ]

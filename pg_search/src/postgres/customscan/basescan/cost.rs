@@ -44,6 +44,8 @@
 //! Blind spots: `fraction` is exact for sorted scans, approximate for unsorted; a write-heavy
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
+pub(super) mod ann;
+
 use super::*;
 use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};

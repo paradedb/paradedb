@@ -48,6 +48,7 @@ pub(crate) enum WorkerDecisionReason {
     /// Costable scan with an effective LIMIT (top-K / unsorted LIMIT): pg_search costed the Gather on
     /// `k` and forced the winner, because PostgreSQL over-costs a bounded Gather (see module docs).
     CostModelLimited,
+    AnnCostModel,
     /// Use the segment-based worker budget when cost estimates are unavailable.
     PerSegment,
     /// A bare document count without MVCC filtering uses the serial count fast path.
@@ -63,6 +64,7 @@ impl std::fmt::Display for WorkerDecisionReason {
             Self::BlockWandPrunable => "Prunable top-K",
             Self::CostModel => "Cost model",
             Self::CostModelLimited => "Cost model (LIMIT)",
+            Self::AnnCostModel => "ANN cost model",
             Self::PerSegment => "Per-segment",
             Self::DocumentCount => "Document count",
             Self::RowHeuristic => "Row-capped",
@@ -70,6 +72,7 @@ impl std::fmt::Display for WorkerDecisionReason {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct ParallelCost {
     pub estimated_work: f64,
     pub parallel_threshold: f64,

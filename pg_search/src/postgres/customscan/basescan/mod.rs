@@ -27,6 +27,7 @@ pub(crate) mod telemetry;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
+use cost::ann::{decide_ann_parallelism, estimate_ann_work};
 use cost::{
     CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, WorkerDecisionReason,
     WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
@@ -1226,7 +1227,7 @@ impl CustomScan for BaseScan {
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = decide_scan_parallelism(ScanParallelismInputs {
+                let parallel_inputs = ScanParallelismInputs {
                     prunability,
                     query: &query,
                     drive_cost,
@@ -1241,7 +1242,12 @@ impl CustomScan for BaseScan {
                     parallel_leader_participates,
                     is_join_context,
                     has_grouping,
-                });
+                };
+                let ann_work = estimate_ann_work(&method, &bm25_index, &parallel_inputs);
+                let (policy, parallel_cost) = match &ann_work {
+                    Some(work) => decide_ann_parallelism(work, &parallel_inputs),
+                    None => (decide_scan_parallelism(parallel_inputs), None),
+                };
                 let reason = policy.reason();
 
                 // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
@@ -1250,6 +1256,7 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable
+                    | WorkerDecisionReason::AnnCostModel
                     | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
@@ -1260,13 +1267,16 @@ impl CustomScan for BaseScan {
                     (Some(cost), Some(matches)) => Some(DriveCost { cost, matches }),
                     _ => None,
                 };
-                let cost_basis = estimate_path_cost(
+                let mut cost_basis = estimate_path_cost(
                     is_sorted,
                     per_tuple_cost,
                     base_result_rows,
                     drive,
                     float_limit,
                 );
+                if let Some(work) = &ann_work {
+                    cost_basis.parallelizable_cost += work.total;
+                }
 
                 // We must force this path (not interchangeable with native paths) if we need const
                 // projections for scores/snippets, or it's a TopK, or the predicate matches all.
@@ -1293,7 +1303,11 @@ impl CustomScan for BaseScan {
                         let divisor = nworkers
                             .map_or(1.0, |n| parallel_divisor(n, parallel_leader_participates));
                         let rows = base_result_rows / divisor;
-                        let total_cost = startup_cost + cost_basis.parallelizable_cost / divisor;
+                        let skew_cost = ann_work.as_ref().map_or(0.0, |work| {
+                            (work.largest_segment - work.total / divisor).max(0.0)
+                        });
+                        let total_cost =
+                            startup_cost + cost_basis.parallelizable_cost / divisor + skew_cost;
 
                         let mut path_builder = CustomPathBuilder::<Self>::new(
                             builder.args().root,
@@ -1333,6 +1347,7 @@ impl CustomScan for BaseScan {
                         method_private.set_exec_method_type(method.clone());
                         method_private.set_use_sorted_path(is_sorted);
                         method_private.set_worker_selection_reason(reason);
+                        method_private.set_parallel_cost(parallel_cost);
                         path_builder.build(method_private)
                     };
 
@@ -1598,6 +1613,7 @@ impl CustomScan for BaseScan {
         builder.custom_state().segment_count = builder.custom_private().segment_count();
         builder.custom_state().worker_selection_reason =
             builder.custom_private().worker_selection_reason();
+        builder.custom_state().parallel_cost = builder.custom_private().parallel_cost();
         builder.custom_state().var_attname_lookup = builder
             .custom_private()
             .var_attname_lookup()
@@ -1735,6 +1751,12 @@ impl CustomScan for BaseScan {
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
             explainer.add_text("Worker Selection", reason.to_string());
+        }
+        if explainer.is_costs()
+            && let Some(cost) = state.custom_state().parallel_cost
+        {
+            explainer.add_float("Estimated Query Work", cost.estimated_work, 2, None);
+            explainer.add_float("Parallel Threshold", cost.parallel_threshold, 2, None);
         }
 
         if explainer.is_analyze() {

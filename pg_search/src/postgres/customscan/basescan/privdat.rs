@@ -22,6 +22,7 @@ use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::parallel::ParallelCost;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::AsPgCStr;
@@ -61,6 +62,8 @@ pub struct PrivateData {
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
+    #[serde(default)]
+    parallel_cost: Option<ParallelCost>,
     // `nodeToString` of the WHERE clauses evaluated in `plan.qual` instead of the scan: the leaky
     // ones, and the base clauses the join qual fallback could not push down.
     #[serde(default)]
@@ -212,6 +215,10 @@ impl PrivateData {
         self.worker_selection_reason = Some(reason);
     }
 
+    pub(super) fn set_parallel_cost(&mut self, cost: Option<ParallelCost>) {
+        self.parallel_cost = cost;
+    }
+
     pub fn set_planned_which_fast_fields(
         &mut self,
         planned_which_fast_fields: HashSet<WhichFastField>,
@@ -302,6 +309,10 @@ impl PrivateData {
 
     pub(super) fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
         self.worker_selection_reason
+    }
+
+    pub(super) fn parallel_cost(&self) -> Option<ParallelCost> {
+        self.parallel_cost
     }
 
     pub fn segment_count(&self) -> usize {

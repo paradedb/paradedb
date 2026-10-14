@@ -32,6 +32,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::parallel::ParallelCost;
 use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -94,6 +95,7 @@ pub struct BaseScanState {
     pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
     pub(super) worker_selection_reason: Option<WorkerDecisionReason>,
+    pub(super) parallel_cost: Option<ParallelCost>,
     pub quals: Option<Qual>,
 
     pub need_scores: bool,

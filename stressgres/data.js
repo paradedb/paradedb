@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791964617252,
+  "lastUpdate": 1791964629379,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -174614,6 +174614,64 @@ window.BENCHMARK_DATA = {
             "value": 11.252428292044515,
             "unit": "median tps",
             "extra": "avg tps: 12.380765968043372, max tps: 33.56242372519678, count: 59331"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "270833c2aa88d43d404b2252ffbd69ba00d17d43",
+          "message": "fix: install ICU headers for Antithesis builds (#6809)\n\n## What\n\nInstall `libicu-dev` in the Antithesis build job's Debian container.\n\n## Why\n\nEnterprise run\n[38499542027](https://github.com/paradedb/paradedb-enterprise/actions/runs/38499542027/job/115642970008)\nfails while generating pgrx bindings because PostgreSQL 18's\n`pg_locale.h` includes the missing `unicode/ucol.h` header. This applies\nthe same dependency fix as #6741 and #6755 to the Antithesis workflow's\nseparate dependency installation.\n\n## Tests\n\n- `actionlint -shellcheck=\n.github/workflows/test-pg_search-antithesis.yml`\n- `git diff --check`\n\nThe full Antithesis build has not been rerun; Enterprise needs the\nupstream fix synced first.",
+          "timestamp": "2026-10-14T03:32:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/270833c2aa88d43d404b2252ffbd69ba00d17d43"
+        },
+        "date": 1791964595212,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 162.83656609572628,
+            "unit": "median tps",
+            "extra": "avg tps: 161.32049212982423, max tps: 172.65880926217824, count: 59309"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 518.9348651765547,
+            "unit": "median tps",
+            "extra": "avg tps: 561.9592920335624, max tps: 5685.3880446692465, count: 59309"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 905.8169448473287,
+            "unit": "median tps",
+            "extra": "avg tps: 888.0663541067065, max tps: 1220.5230815878995, count: 59309"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 213.4462273027565,
+            "unit": "median tps",
+            "extra": "avg tps: 211.27416317217566, max tps: 231.14393934076992, count: 59309"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 250.3748498936245,
+            "unit": "median tps",
+            "extra": "avg tps: 332.12845085748756, max tps: 2263.3629797573044, count: 118618"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.41232782552683,
+            "unit": "median tps",
+            "extra": "avg tps: 22.413695336847507, max tps: 34.950735714734336, count: 59309"
           }
         ]
       }

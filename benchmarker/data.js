@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792002307422,
+  "lastUpdate": 1792004923919,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10870,6 +10870,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 186.314,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2832eee28a60974105c1c82afa858fcbf8d86f3a",
+          "message": "feat: support window functions with parameterized limits over join queries (#6778)\n\n# Ticket(s) Closed\n- Closes #6712 \n\n## What\nThis PR add's support for queries with window functions and\nparameterized limits in join scan. Previously, any joinscan query with\n`pdb.agg` window function and a limit not known at planning time was\ndeclined. A sql window function with a non-static limit took the\nfallback route (the non-topk-as-agg path). Now, any of those window\nfunctions over join scan can be executed, whether or not a limit is\nknown at planning time.\n\nNOTE: There must still be _some_ limit on the query for a `pdb.agg`\nwindow function to execute. (Join scan requires a top-level limit of\ncourse, but a `pdb.agg` window function still requires one when part of\na subquery as well.\n\n## How\nThe \"k\" constant argument of the `__topk_agg` agg function is now either\npassed as an integer constant \"k\", or as a parameter string (`\"$1\"` or\n`\"$1 + 5` in the case of a static offset with a parameterized limit,\netc). (This is fine at planning time, as the accumulator is not created\nuntil execution.) When constructing the accumulator, we check for the\ninteger version. If the string version is found, an error indicating it\nwas not replaced is returned.\n\nThat replacement then happens inside of `exec_custom_scan` (see\n`bind_topk_agg_fetch`) as a expression translation just before the\nruntime `LIMIT` clause is injected.\n\n## Tests\n- Unit tests\n- new regression tests\n- new integration tests",
+          "timestamp": "2026-10-14T11:42:22-06:00",
+          "tree_id": "3c89ef96b911d8dc4dd246e3728354d69bcb89c6",
+          "url": "https://github.com/paradedb/paradedb/commit/2832eee28a60974105c1c82afa858fcbf8d86f3a"
+        },
+        "date": 1792004914793,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.415,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.181,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 345.409,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.199,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.174,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.392,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.303,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.143,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.065,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.584,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.721,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.385,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 14.923,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 187.156,
             "unit": "ms"
           }
         ]

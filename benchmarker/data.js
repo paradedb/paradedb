@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792014206895,
+  "lastUpdate": 1792014220397,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -14501,6 +14501,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 377.00577904392645,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44dd9f4a37a8b65b7e72cf9d0f91352bb84155f9",
+          "message": "refactor(vector)!: remove the graph router and adopt tantivy's vector setup (#6802)\n\nMoves pg_search onto tantivy's vector setup and removes the graph\nrouter.\n- Pins tantivy to `52e6862d111c419219ed94cad7d03f08e8090897`.\n- IVF segments use tantivy's `SuperKMeansClusterer` with the index's\n`max_leaf_size` and `training_sample_ratio`, and the stacked router.\npg_search's own clusterer and the `vector_router` option are removed.\n- Quantization seeds, the fixed probe cost and the probe defaults come\nfrom tantivy.\n\n**Upgrading.** Indexes whose IVF segments were built with the graph\nrouter, the previous default, must be rebuilt: vector queries fail with\na REINDEX hint and merges skip those segments until then; text search is\nunaffected. An index created with `vector_router` set needs `ALTER INDEX\n… RESET (vector_router)` before `ALTER INDEX … SET`, pg_dump or\npg_upgrade.\n\nRegress: the 10 `vector_*` files passed with unchanged expected output\nagainst the previous PR 11; `vector_router` is deleted. This revision\npasses `cargo check`, clippy and `cargo metadata --locked`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-15T02:30:48+05:30",
+          "tree_id": "95a8c4b6056a38ff0e4949ed52275d4b3de5f2f2",
+          "url": "https://github.com/paradedb/paradedb/commit/44dd9f4a37a8b65b7e72cf9d0f91352bb84155f9"
+        },
+        "date": 1792014212644,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 532.4535304901989,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 512.6233175233544,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 143.71076424612778,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 257.86518055586447,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 376.63217956487193,
             "unit": "queries/s"
           }
         ]

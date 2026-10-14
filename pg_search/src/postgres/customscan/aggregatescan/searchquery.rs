@@ -24,6 +24,7 @@ use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+    optimize_quals_with_heap_expr,
 };
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
@@ -128,7 +129,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             );
         }
 
-        let quals = match extract_quals(
+        let mut quals = match extract_quals(
             &PlannerContext::from_planner(args.root),
             heap_rti,
             filtered_restrict_info.as_ptr().cast(),
@@ -141,6 +142,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             Some(q) => q,
             None => return Err("could not extract search query from quals".into()),
         };
+        unsafe { optimize_quals_with_heap_expr(&mut quals) };
 
         Ok(SearchQueryClause {
             query: SearchQueryInput::from(&quals),

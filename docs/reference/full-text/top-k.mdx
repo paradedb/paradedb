@@ -315,8 +315,7 @@ For example, to order by a numeric `weight` field within a JSON column:
 
 ```sql
 CREATE INDEX json_topk_idx ON mock_items
-USING paradedb (id, description, (((metadata->>'weight')::int)::pdb.alias('weight')))
-WITH (sort_by='weight');
+USING paradedb (id, description, (((metadata->>'weight')::int)::pdb.alias('weight')));
 ```
 
 You can then query and order by the exact underlying expression, which will now use the Top K optimization:

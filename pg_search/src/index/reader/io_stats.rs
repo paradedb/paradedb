@@ -216,6 +216,7 @@ impl Trace {
                     "term" => "Term Dictionary",
                     "fieldnorm" => "Field Norms",
                     "pnorm" => "Posting Norms",
+                    "bmap" => "Posting Bitmaps",
                     "ctid_map" => "CTID Map",
                     "fast" => "Columnar Fields",
                     "store" => "Document Store",
@@ -277,14 +278,6 @@ impl Trace {
                 for (name, counters) in io.stages {
                     map.insert(format!("{name}_buffer_hits"), counters.blks_hit.into());
                     map.insert(format!("{name}_buffer_reads"), counters.blks_read.into());
-                    if name == "rerank_fetch" {
-                        map.insert("rerank_buffer_hits".to_string(), counters.blks_hit.into());
-                        map.insert("rerank_buffer_reads".to_string(), counters.blks_read.into());
-                        map.insert(
-                            "rerank_blocks_fetched".to_string(),
-                            (counters.blks_hit + counters.blks_read).into(),
-                        );
-                    }
                 }
                 for (component, counters) in io.scan_init_components {
                     let component = component

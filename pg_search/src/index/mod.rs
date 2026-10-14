@@ -33,29 +33,37 @@ use crate::api::FieldName;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
-use anyhow::{Context, Result};
-use rand::{TryRng, rngs::SysRng};
+use std::sync::Arc;
+
+use anyhow::Result;
 use tantivy::columnar::CodecType;
 use tantivy::schema::FieldType;
-use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
+use tantivy::vector::VectorQuantizationConfig;
+use tantivy::vector::clustering::SuperKMeansClusterer;
 use tantivy::{Index, IndexSettings};
 
-/// Open the tantivy index behind `directory` the way every pg_search reader
-/// and writer must: with the index's IVF centroid router selected. Tantivy
-/// refuses to open an IVF segment for search, or to build one at merge time,
-/// without a configured router.
+/// Opens the tantivy index behind `directory` with the index's IVF clusterer installed.
 pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
     let indexrel = directory.indexrel().clone();
     let mut index = Index::open(directory)?;
-    crate::vector::clusterer::set_ivf_router(&mut index, indexrel.options())?;
+    set_ivf_clusterer(&mut index, indexrel.options());
     Ok(index)
+}
+
+/// Installs tantivy's SuperKMeans clusterer with the index's leaf size and training sample ratio.
+/// Tantivy doesn't persist the clusterer, so every open sets it.
+pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
+    let clusterer = SuperKMeansClusterer::default()
+        .with_max_leaf_size(options.max_leaf_size())
+        .with_training_sample_ratio(options.training_sample_ratio());
+    index.set_ivf_clusterer(Arc::new(clusterer));
 }
 
 /// Builds the Tantivy settings for a ParadeDB index.
 ///
 /// # Errors
 ///
-/// Returns an error when a quantized field is invalid or seed generation fails.
+/// Returns an error when a quantized field is invalid.
 pub fn index_settings(
     options: &BM25IndexOptions,
     schema: &tantivy::schema::Schema,
@@ -70,20 +78,10 @@ pub fn index_settings(
         let Some(bits) = field_config.quantization_layers() else {
             continue;
         };
-        let mut os_rng = SysRng;
-        let layers = bits
-            .into_iter()
-            .map(|bits| {
-                let seed = os_rng
-                    .try_next_u64()
-                    .context("failed to obtain an operating-system random quantization seed")?;
-                Ok(VectorQuantizationLayer { bits, seed })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        vector_quantization.push(VectorQuantizationConfig::materialize(
+        vector_quantization.push(VectorQuantizationConfig::with_random_seeds(
             field_name.to_string(),
             vector_options,
-            layers,
+            &bits,
         )?);
     }
 

@@ -16,10 +16,79 @@ Set `pnorms=true` on the [tokenizer](/reference/tokenizers/overview) cast for ea
 text field used in BM25 scoring. The option defaults to `false`. This example
 enables it for `description`:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, (description::pdb.unicode_words('pnorms=true')), category);
 ```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    indexing.paradedbField(
+      mockItems.description,
+      tokenizer.unicodeWords({ pnorms: true }),
+    ),
+    mockItems.category,
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={'id': {}, 'description': {'tokenizer': Tokenizer.unicode_words(options={"pnorms": True})}, 'category': {}},
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description, tokenizer=tokenizer.unicode_words(options={"pnorms": True})),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: { tokenizer: ParadeDB::Tokenizer.unicode_words(options: { pnorms: true }) },
+    category: {},
+  },
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Unicode(new() { ["pnorms"] = true }))
+    .HasField(e => e.Category);
+```
+
+</CodeGroup>
 
 Queries automatically use the setting from the index:
 

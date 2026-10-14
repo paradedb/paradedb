@@ -231,18 +231,21 @@ impl WindowAggColumn {
 }
 impl fmt::Display for WindowAggColumn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", Self::PREFIX, self.0.0)
+        write!(f, "{}{}", Self::PREFIX, self.0.0 + 1)
     }
 }
 impl TryFrom<&str> for WindowAggColumn {
     type Error = ();
 
     fn try_from(col_name: &str) -> Result<Self, Self::Error> {
+        // The name is 1-based (see `Display`).
         let index = col_name
             .strip_prefix(Self::PREFIX)
             .ok_or(())?
             .parse::<usize>()
-            .map_err(|_| ())?;
+            .map_err(|_| ())?
+            .checked_sub(1)
+            .ok_or(())?;
         Ok(Self::new(WindowAggIndex(index)))
     }
 }
@@ -280,12 +283,8 @@ impl WindowAggList {
 
     /// The index of the first entry computing the same aggregate as
     /// `index`'s entry. Identical window aggregates (e.g. `COUNT(*) OVER ()`
-    /// in several target entries) share one window column: only canonical
-    /// entries are materialized by the window step, and every reference
-    /// resolves to the canonical column name. Duplicate window expressions
-    /// in one Window node would otherwise be extracted into a projection by
-    /// DataFusion's common-subexpression elimination, where a window
-    /// expression cannot be physically planned.
+    /// in several target entries) share one window column and we only need to compute the aggregate
+    /// once
     pub fn canonical_index(&self, index: WindowAggIndex) -> WindowAggIndex {
         let Some(wa) = self.get(index) else {
             return index;

@@ -13,7 +13,11 @@ This tokenizer is the default text tokenizer. If no tokenizer is specified for a
 -- The following two configurations are equivalent
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description);
+```
 
+Or specify the tokenizer explicitly:
+
+```sql
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, (description::pdb.unicode_words));
 ```

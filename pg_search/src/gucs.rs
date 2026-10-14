@@ -56,11 +56,15 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
 static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(96.0);
 
 /// Allows visibility proofs from segment bounds and heap-block document ranges.
 static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -192,7 +196,8 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
-/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path.
+/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
+/// a window query with a LIMIT takes that path regardless.
 static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
@@ -343,7 +348,7 @@ pub fn vector_stats() -> bool {
 /// ignores the target and uses the nprobe path above
 /// `APS_MAX_DIM` (128) dimensions, where the estimate is unreliable.
 static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> =
-    GucSetting::<f64>::new(tantivy::vector::ivf::DEFAULT_ROUTER_RECALL as f64);
+    GucSetting::<f64>::new(tantivy::vector::DEFAULT_ROUTER_RECALL as f64);
 
 /// Returns the stacked IVF router's recall target.
 pub fn vector_router_recall_target() -> f32 {
@@ -398,6 +403,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_bitmap_postings",
+        c"Use optional term posting bitmaps for unscored queries",
+        c"Disable to read ordinary postings without rebuilding the index",
+        &ENABLE_BITMAP_POSTINGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -513,6 +527,17 @@ pub fn init() {
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.count_parallel_threshold_multiplier",
+        c"Parallelism threshold multiplier for fast count traversal",
+        c"Discounts traversal work for match-all or term-only counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
+        &COUNT_PARALLEL_THRESHOLD_MULTIPLIER,
+        1.0,
+        1_000_000.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -647,7 +672,7 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
-        c"Recall target for the stacked IVF router's (vector_router = 'ivf') centroid ranking in vector ORDER BY queries",
+        c"Recall target for the IVF router's centroid ranking in vector ORDER BY queries",
         c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
         &VECTOR_ROUTER_RECALL_TARGET,
         0.000001,
@@ -659,7 +684,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
         c"Recall target for each segment's cluster scan in vector ORDER BY queries",
-        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with the stacked IVF router, and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
@@ -669,7 +694,7 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.max_scan_levels",
-        c"Maximum quantized vector layers scored before exact rerank",
+        c"Maximum quantized vector layers scored before exact scoring",
         c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
         &VECTOR_MAX_SCAN_LEVELS,
         0,
@@ -681,7 +706,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_stats",
         c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
-        c"Adds the Segment Info block with per-segment probe, layer, rerank, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
         &VECTOR_STATS,
         GucContext::Userset,
         GucFlags::default(),
@@ -976,6 +1001,10 @@ pub fn enable_visibility_map_shortcuts() -> bool {
     ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
 }
 
+pub fn enable_bitmap_postings() -> bool {
+    ENABLE_BITMAP_POSTINGS.get()
+}
+
 pub fn enable_bitmap_intersection() -> bool {
     ENABLE_BITMAP_INTERSECTION.get()
 }
@@ -1116,6 +1145,10 @@ impl WorkMem {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn count_parallel_threshold_multiplier() -> f64 {
+    COUNT_PARALLEL_THRESHOLD_MULTIPLIER.get()
 }
 
 pub fn expensive_query_cost_factor() -> f64 {

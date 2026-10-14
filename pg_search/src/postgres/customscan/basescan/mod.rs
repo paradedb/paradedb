@@ -28,9 +28,9 @@ use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
-    CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
-    costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
-    topk_can_prune_for_method,
+    CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, WorkerDecisionReason,
+    WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
+    parallel_divisor, topk_can_prune_for_method,
 };
 
 use std::ffi::CStr;
@@ -92,6 +92,7 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
@@ -131,6 +132,12 @@ impl BaseScan {
         let wrapper_start = std::time::Instant::now();
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
+        // The read starts here, not at node init: a node that is initialized and never executed
+        // (`LIMIT 0`, an unreached inner side) reads nothing and owes SSI nothing.
+        predicate_lock_read(state.custom_state().heaprel(), unsafe {
+            (*state.csstate.ss.ps.state).es_snapshot
+        });
+
         let planstate = state.planstate();
         let runtime_context = state.custom_state().runtime_context;
         state
@@ -1094,22 +1101,23 @@ impl CustomScan for BaseScan {
             // instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
 
+            let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
+
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
-            } else if quals.contains_external_var() {
-                // if the query has external vars (references to other relations which decide whether the rows in this
-                // relation are visible) then we end up returning *everything* from _this_ relation
-                FULL_RELATION_SELECTIVITY
-            } else if quals.contains_exprs() {
-                // if the query has expressions then it's parameterized and we have to guess something
-                PARAMETERIZED_SELECTIVITY
             } else {
-                // Ask the index. This is the one branch that opens, so reuse that same
-                // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone(), None);
-                precomputed_query_cost = cost;
-                sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                match estimation_query.resolve(&query) {
+                    Ok(indexable) => {
+                        // Ask the index. This is the one branch that opens, so reuse that same
+                        // open's cost for the TopK worker decision instead of opening twice.
+                        let (sel, cost) =
+                            estimate_selectivity_and_cost(&bm25_index, indexable.clone(), None);
+                        precomputed_query_cost = cost;
+                        sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                    }
+                    Err(guess) => guess,
+                }
             };
 
             // Use planning_estimate for costing so parameterized limits still
@@ -1193,6 +1201,7 @@ impl CustomScan for BaseScan {
             let drive_cost = match row_estimate {
                 RowEstimate::Known(_) => costable_drive_cost(
                     &query,
+                    &estimation_query,
                     &bm25_index,
                     &quals,
                     builder.args().root,

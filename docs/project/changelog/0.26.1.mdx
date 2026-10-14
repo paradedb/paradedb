@@ -1,0 +1,37 @@
+---
+title: "0.26.1"
+description: "ParadeDB release notes for 0.26.1"
+noindex: true
+---
+
+See GitHub release: [v0.26.1](https://github.com/paradedb/paradedb/releases/tag/v0.26.1)
+
+## New Features ✨
+
+- Join Scan now runs the faceted form `pdb.agg(...) OVER ()` (i.e. `pdb.agg(...)` as a window function) over a join. The document covers every row the join produces, while `ORDER BY ... LIMIT` still picks the rows returned, so a page of search results across tables carries its facets in the same query. The document can also feed other target list expressions, such as `pdb.agg(...) OVER () ->> 'value'`. The spec follows the same rules as `pdb.agg()` over joins; see [Limitations](/reference/aggregates/limitations) for the shapes this path turns down (#6359).
+
+- Aggregate Scan now reports workers requested and launched, the worker selection method, and estimated parallel costs in `EXPLAIN ANALYZE`.
+
+## Performance Improvements 🚀
+
+- Range-partitioned joins (`paradedb.enable_range_partitioned_join`) no longer walk every document of a segment that crosses the first partition's edge to find the rows with a NULL join key. Selective queries on that partition now cost the same as on the others.
+
+- Join Scan now lazily fetches row `ctid`s during visibility checks and projection. For blocks marked all-visible in PostgreSQL's visibility map, index fast-field `ctid` lookups are avoided entirely, reading significantly fewer buffers in queries that filter or sort before projecting rows (#6665).
+
+- A join of three or more range-partitioned tables now keeps its first join task-local when the two tables share a `partition_by` key. This removes one network shuffle of the larger table.
+
+- Small aggregations avoid parallel worker startup when serial execution is cheaper. Worker estimates account for query traversal, aggregation work, and heap visibility checks.
+
+- Queries made up of term, match, phrase, and match-all clauses use index statistics to estimate matches, reducing planning time. Boolean combinations and score wrappers around these queries use the same path.
+
+## Stability Improvements 💪
+
+- Retrying index creation after a rolled-back subtransaction, such as a PL/pgSQL `EXCEPTION` block or a `ROLLBACK TO SAVEPOINT`, now persists its tokenizer settings correctly, so the committed index remains usable from new connections.
+
+- Aggregate Scan now runs a `GROUP BY` query that filters a grouping key to one value, or that selects a column the primary key decides. These queries fell back to Postgres, and `pdb.agg()` failed (#6606). This also fixes wrong rows for `GROUP BY date(ts)` under a window function (#6633), and an error on a `GROUP BY` key that is a cast (#6632).
+
+- Aggregate Scan now runs a `GROUP BY` query with a `HAVING` condition that has no aggregate, such as a condition on a grouping key, and a grouped subquery with a condition of the outer query on a grouping key. Postgres moves such a condition to `WHERE`, and the scan declined the query with `HAVING clause is not supported`. A `pdb.agg()` query with such a condition failed with the same message (#6636).
+
+- A search query whose heap filter compares a column to a parameter (`lib = $2` in a generic plan, or a nested-loop parameter from a `LATERAL` join) no longer crashes the backend or fails with `unrecognized node type` when the scan returns `paradedb.score()` or `paradedb.snippet()`, when an aggregate has a `FILTER` clause, or when `EXPLAIN ANALYZE` prints a wrapped aggregate (#6492).
+
+- A `date` of `infinity` or `-infinity` no longer fails index builds, inserts or searches. Infinite `date`, `timestamp` and `timestamptz` constants in a search, and a `daterange` with an infinite bound, now work too (#6722).

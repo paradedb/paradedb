@@ -17,7 +17,9 @@
 
 use crate::api::version::{Version, parse_version_component};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{SegmentMetaEntry, block_number_is_valid};
+use crate::postgres::storage::block::{
+    SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
+};
 use crate::postgres::storage::buffer::{
     Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer,
 };
@@ -391,6 +393,44 @@ impl MetaPage {
             self.data.segment_metas_start
         };
         LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    pub(crate) unsafe fn freeze_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
+        let mut metas = self.segment_metas();
+        if !metas
+            .list(None)
+            .iter()
+            .any(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
+        {
+            return Vec::new();
+        }
+
+        let mut frozen = metas.atomically();
+        let mut entries = frozen
+            .list(None)
+            .into_iter()
+            .filter(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
+            .collect::<Vec<_>>();
+        for entry in &mut entries {
+            frozen
+                .update_item(
+                    |candidate| candidate.segment_id() == entry.segment_id(),
+                    |candidate| {
+                        let SegmentMetaEntryContent::Mutable(content) = &mut candidate.content
+                        else {
+                            unreachable!();
+                        };
+                        content.frozen = true;
+                    },
+                )
+                .expect("mutable segment should exist while freezing");
+            let SegmentMetaEntryContent::Mutable(content) = &mut entry.content else {
+                unreachable!();
+            };
+            content.frozen = true;
+        }
+        frozen.commit();
+        entries
     }
 
     // Note that this value is read when not under a share lock, so there's no guarantee that it hasn't

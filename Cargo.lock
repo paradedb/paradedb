@@ -147,22 +147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "antithesis_sdk"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8ed6751597568a284314fd9e2db420665898600109dedc7d8d9b588f00ae9c4"
-dependencies = [
- "libc",
- "libloading",
- "linkme",
- "once_cell",
- "rand 0.8.7",
- "rustc_version_runtime",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2724,7 +2708,7 @@ name = "dst"
 version = "0.26.1"
 dependencies = [
  "antithesis-instrumentation",
- "antithesis_sdk 0.3.0",
+ "antithesis_sdk",
  "serde_json",
 ]
 
@@ -5672,7 +5656,7 @@ name = "proptest"
 version = "1.11.0"
 source = "git+https://github.com/antithesishq/proptest?rev=6061eb48d67ff76f882e709677308816d5791ce7#6061eb48d67ff76f882e709677308816d5791ce7"
 dependencies = [
- "antithesis_sdk 0.2.9",
+ "antithesis_sdk",
  "bit-set",
  "bit-vec",
  "bitflags 2.13.1",

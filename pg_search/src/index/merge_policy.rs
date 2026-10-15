@@ -67,8 +67,7 @@ impl LayeredMergePolicy {
         &mut self,
         metadata: &MetaPage,
         merge_lock: &MergeLock,
-        merger: &SearchIndexMerger,
-        include: impl Fn(&SegmentMetaEntry) -> bool,
+        entries: HashMap<SegmentId, SegmentMetaEntry>,
     ) {
         let mut non_mergeable_segments = metadata.vacuum_list().read_list();
         // `list_segment_ids` borrows the `MergeList`, so it needs a binding that outlives the
@@ -81,12 +80,11 @@ impl LayeredMergePolicy {
         }
 
         // tell the MergePolicy which segments it's initially allowed to consider for merging
-        self.mergeable_segments = merger
-            .all_entries()
+        self.mergeable_segments = entries
             .into_iter()
-            .filter(|(segment_id, entry)| {
+            .filter(|(segment_id, _)| {
                 // skip segments that are already being vacuumed or merged
-                !non_mergeable_segments.contains(segment_id) && include(entry)
+                !non_mergeable_segments.contains(segment_id)
             })
             .collect();
     }

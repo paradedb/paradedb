@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792029016398,
+  "lastUpdate": 1792029028280,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -14896,6 +14896,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 374.07393716952333,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b46c3ca72d0caf3757819224f987c3908da675a",
+          "message": "fix: search predicates above an Append opened the partitioned parent index (#6325)\n\n# Ticket(s) Closed\n\n- Closes #4643\n- Closes #6728\n- Closes #6729\n\nSource change is 516 added and 186 removed lines across eight files\nunder pg_search/src. The other 919 lines are the issue_4643 regress\ntest, its expected output and the changelog fragment.\n\n## What\n\nA search predicate that stays above a partitioned table's Append (a join\nlevel OR, a NOT arm) kept the parent partitioned index, which has no\nstorage, and failed with `58P01 could not open file \"pg_tblspc/0/...\"`.\nSo did a window function in a search query with `ORDER BY ... LIMIT`\nover a partitioned table.\n\n## Why\n\n`rel_get_bm25_index` returns the parent index for a partitioned heap,\nand clauses above the Append carried its oid into the planning estimate,\nthe negation's NULL guard, the Top K check and the heap filter, each of\nwhich opened its storage.\n\n## How\n\nPlanning estimates from the first leaf that is free and holds rows, the\nnegation reads its schema from a free leaf, and the Top K check declines\na partitioned table, so the window function runs natively. At execution\nthe rewrite ships the row's `tableoid` in the trailing record and the\nheap filter caches key on (query, tableoid); a derived relation's row\nhas none and matches against a free leaf.\n\n## Tests\n\n`issue_4643.sql` covers the reported shape with its plan and an\nunpartitioned control, the issue's own schema and `ORDER BY ... LIMIT`\nquery, a NOT arm and a derived relation checked against the custom scan\noff, a window function, every search operator, a generic plan, LEFT\nJOIN, pruning, multi level partitions, and two leakage cases.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-14T18:07:58-07:00",
+          "tree_id": "5deabf2bf8817d383d440a533f4db79aded29746",
+          "url": "https://github.com/paradedb/paradedb/commit/1b46c3ca72d0caf3757819224f987c3908da675a"
+        },
+        "date": 1792029019716,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 531.9502405546905,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 511.63148856572593,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 146.85254086979288,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 261.57200534910174,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 376.35597408319694,
             "unit": "queries/s"
           }
         ]

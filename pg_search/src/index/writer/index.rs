@@ -623,21 +623,28 @@ impl Mergeable for SearchIndexMerger {
             "segment was already merged by this merger instance"
         );
 
-        if !self.directory.prepare_mutable_segments(segment_ids)? {
-            pgrx::debug1!(
-                "deferring mutable merge until VACUUM removes recently dead TOAST tuples"
-            );
-            return Ok(None);
-        }
-
-        let mut writer: IndexWriter = self.index.writer_with_options(
-            IndexWriterOptions::builder()
-                .memory_budget_per_thread(15 * 1024 * 1024)
-                .num_merge_threads(0)
-                .num_worker_threads(0)
-                .build(),
-        )?;
-        let new_segment = writer.merge_foreground(segment_ids, true)?;
+        let new_segment = if self.directory.prepare_mutable_segments(segment_ids)? {
+            let mut writer: IndexWriter = self.index.writer_with_options(
+                IndexWriterOptions::builder()
+                    .memory_budget_per_thread(15 * 1024 * 1024)
+                    .num_merge_threads(0)
+                    .num_worker_threads(0)
+                    .build(),
+            )?;
+            writer.merge_foreground(segment_ids, true)?
+        } else {
+            // VACUUM must remove dead CTIDs before the heap can reuse their slots.
+            if !self
+                .directory
+                .compact_vacuum_mutable_segments(segment_ids)?
+            {
+                pgrx::debug1!(
+                    "deferring mutable merge until VACUUM removes recently dead TOAST tuples"
+                );
+                return Ok(None);
+            }
+            None
+        };
 
         if let Some(new_segment) = new_segment.as_ref() {
             // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.

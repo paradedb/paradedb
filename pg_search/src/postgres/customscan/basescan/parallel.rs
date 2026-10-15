@@ -28,7 +28,7 @@ use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 
-use pgrx::pg_sys::{self, Size, shm_toc};
+use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,7 +118,6 @@ impl ParallelQueryCapable for BaseScan {
         let args = state.custom_state().parallel_scan_args();
         ParallelScanState::size_of(
             &args.all_nsegments(),
-            &args.query,
             args.with_aggregates,
             args.with_segment_info,
         )
@@ -138,6 +137,7 @@ impl ParallelQueryCapable for BaseScan {
             state
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
+            leader_publish_query(state, &mut *pscan_state);
 
             if !(*pcxt).seg.is_null()
                 && let Some(trace) = state.custom_state().io_trace.clone()
@@ -158,7 +158,8 @@ impl ParallelQueryCapable for BaseScan {
             // table before any worker launches. Workers only wait and attach. The
             // context's worker count is the most that can attach, not how many launch.
             let planned_workers = (*pcxt).nworkers as u32;
-            leader_publish_bitmap(state, pscan_state, planned_workers + 1);
+            (*pscan_state).bitmap_slots = planned_workers + 1;
+            leader_publish_bitmap(state, pscan_state);
         }
     }
 
@@ -182,19 +183,15 @@ impl ParallelQueryCapable for BaseScan {
         // leader's pins on those segments held that long.
         pscan_state.bitmap_reset();
         pscan_state.reset();
-        // Republish for the relaunched workers. The scan's rescan callback ran
-        // first (freeing the previous table and build when params changed), so
-        // this rebuilds with the new params or republishes the still-valid one.
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            let handle = unsafe { bitmap_exec.republish() };
-            pscan_state.publish_bitmap_handle(handle);
-            if handle.is_some()
-                && let Some(cell) = state.custom_state().bitmap_cell.clone()
-                && let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source()
-            {
-                cell.fill(source);
-            }
-        }
+        // The leader's own ReScan runs only after the relaunched workers launch (see above),
+        // too late to change what they read, so this callback solves the query for the
+        // round's parameters, publishes it, and rebuilds the bitmap. The leader's results
+        // from the last round point into the solved query and the bitmap, so they drop
+        // first; its reader stays, holding the segment pins, until that ReScan replaces it.
+        state.custom_state_mut().reset_exec_results();
+        BaseScan::prepare_query(state);
+        unsafe { leader_publish_query(state, pscan_state) };
+        unsafe { leader_publish_bitmap(state, pscan_state) };
     }
 
     fn initialize_worker_custom_scan(
@@ -210,15 +207,31 @@ impl ParallelQueryCapable for BaseScan {
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Worker)
         };
-        let pscan_state = unsafe { &*pscan_state };
-        match pscan_state
-            .query()
-            .expect("should be able to deserialize the query from the ParallelScanState")
-        {
-            Some(query) => state.custom_state_mut().set_base_search_query_input(query),
-            None => panic!("no query in ParallelScanState"),
-        }
+        let query = unsafe { (*pscan_state).query(query_area(state)) }
+            .expect("should be able to read the query from the ParallelScanState");
+        state.custom_state_mut().set_base_search_query_input(query);
     }
+}
+
+/// The parallel query's DSA area. Postgres installs it on the EState around the DSM
+/// callbacks in the leader and for the whole run in a worker (`execParallel.c`).
+fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+    let area = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
+    assert!(
+        !area.is_null(),
+        "es_query_dsa is only set inside the parallel DSM callbacks"
+    );
+    area
+}
+
+/// Leader-only: hand the coming round's workers the solved query.
+unsafe fn leader_publish_query(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    pscan_state: &mut ParallelScanState,
+) {
+    let query = serde_json::to_vec(state.custom_state().search_query_input())
+        .expect("should be able to serialize query");
+    unsafe { pscan_state.publish_query(query_area(state), &query) };
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,
@@ -227,7 +240,6 @@ impl ParallelQueryCapable for BaseScan {
 unsafe fn leader_publish_bitmap(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: *mut ParallelScanState,
-    slots: u32,
 ) {
     if state.custom_state().bitmap_exec.is_none() {
         return;
@@ -260,7 +272,7 @@ unsafe fn leader_publish_bitmap(
             .bitmap_exec
             .as_mut()
             .unwrap()
-            .shared_source(consumers, &segments, slots)
+            .shared_source(consumers, &segments, pscan_state.bitmap_slots)
     };
     pscan_state.publish_bitmap_handle(handle);
     if let Some(cell) = state.custom_state().bitmap_cell.clone()

@@ -123,7 +123,11 @@ jobs:
         id: schema_diff
         run: |
           status=0
-          "$RUNNER_TEMP/schemabot" diff ~/old.sql ~/this.sql > ~/diff.sql || status=$?
+          "$RUNNER_TEMP/schemabot" diff --manual ~/manual.sql ~/old.sql ~/this.sql > ~/diff.sql || status=$?
+          if [[ "$status" != 0 && "$status" != 2 ]]; then
+            echo "SchemaBot failed to generate the schema diff."
+            exit "$status"
+          fi
           echo "Suggested schema changes:"
           cat ~/diff.sql
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -139,8 +143,9 @@ jobs:
         id: check_schema_diff
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          DIFF_STATUS: ${{ steps.schema_diff.outputs.status }}
         run: |
-          if test -s ~/diff.sql; then
+          if test -s ~/diff.sql || [[ "$DIFF_STATUS" == 2 ]]; then
             echo "=========================================="
             echo "SCHEMA DIFFERENCE DETECTED"
             echo "=========================================="
@@ -171,7 +176,7 @@ jobs:
             echo
 
             echo "Checking migration statements against the expected PostgreSQL parse trees..."
-            if ! "$RUNNER_TEMP/schemabot" check ~/diff.sql "${MATCHING_FILES[@]}"; then
+            if ! "$RUNNER_TEMP/schemabot" check --manual ~/manual.sql ~/diff.sql "${MATCHING_FILES[@]}"; then
               echo "Update the migration fragments to include the changes shown above."
               echo "If the suggested diff is incorrect, update schemabot in this repository."
               exit 1
@@ -180,9 +185,3 @@ jobs:
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Require Manual Migration Review
-        if: steps.schema_diff.outputs.status != '0'
-        run: |
-          echo "SchemaBot found changes requiring a manual migration; see diagnostics above."
-          exit 1

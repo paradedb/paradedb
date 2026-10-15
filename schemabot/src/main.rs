@@ -19,33 +19,58 @@ mod migration;
 mod schema;
 mod sql;
 
+use std::io::Write;
+
 fn main() {
-    if let Err(error) = run() {
-        eprintln!("SchemaBot: {error}");
-        std::process::exit(1);
+    match run() {
+        Ok(code) => std::process::exit(code),
+        Err(error) => {
+            eprintln!("SchemaBot: {error}");
+            std::process::exit(1);
+        }
     }
 }
 
-fn run() -> Result<(), String> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+fn run() -> Result<i32, String> {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let manual_path = if args.get(1).is_some_and(|arg| arg == "--manual") {
+        if args.len() < 3 {
+            return Err("--manual requires a path".into());
+        }
+        let path = args.remove(2);
+        args.remove(1);
+        Some(path)
+    } else {
+        None
+    };
     match args.as_slice() {
         [command, before, after] if command == "diff" => {
             let before = sql::read(before)?;
             let after = sql::read(after)?;
             let diff = schema::diff(&before, &after)?;
-            use std::io::Write;
+            if let Some(path) = manual_path {
+                std::fs::write(path, &diff.manual_sql).map_err(|error| error.to_string())?;
+            }
             let mut stdout = std::io::stdout().lock();
             stdout.write_all(diff.sql.as_bytes()).map_err(|error| error.to_string())?;
             stdout.flush().map_err(|error| error.to_string())?;
-            if diff.manual.is_empty() { Ok(()) } else { Err(diff.manual.join("\n")) }
+            if diff.manual.is_empty() { Ok(0) } else {
+                eprintln!("SchemaBot: {}", diff.manual.join("\n"));
+                Ok(2)
+            }
         }
         [command, expected, fragments @ ..] if command == "check" && !fragments.is_empty() => {
             let expected = std::fs::read_to_string(expected).map_err(|e| e.to_string())?;
             let fragments = fragments.iter().map(|path| {
                 std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
             }).collect::<Result<Vec<_>, _>>()?;
-            migration::check(&expected, &fragments)
+            migration::check(&expected, &fragments)?;
+            if let Some(path) = manual_path {
+                let manual = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+                migration::check_manual(&manual, &fragments)?;
+            }
+            Ok(0)
         }
-        _ => Err("usage: schemabot diff <base.sql> <head.sql> | schemabot check <diff.sql> <fragment.sql>...".into()),
+        _ => Err("usage: schemabot diff [--manual manual.sql] <base.sql> <head.sql> | schemabot check [--manual manual.sql] <diff.sql> <fragment.sql>...".into()),
     }
 }

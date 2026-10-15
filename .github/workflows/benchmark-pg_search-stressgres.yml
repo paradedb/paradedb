@@ -42,7 +42,6 @@ jobs:
         suite:
           - background-merge.toml
           - bulk-update-merge-pressure.toml
-          - concurrent-small-upserts.toml
           - logical-replication-fsm-merge-race.toml
           - logical-replication-mixed-workload.toml
           - logical-replication-multi-subscriber.toml

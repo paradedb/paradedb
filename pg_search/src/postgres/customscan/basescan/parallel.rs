@@ -158,7 +158,8 @@ impl ParallelQueryCapable for BaseScan {
             // table before any worker launches. Workers only wait and attach. The
             // context's worker count is the most that can attach, not how many launch.
             let planned_workers = (*pcxt).nworkers as u32;
-            leader_publish_bitmap(state, pscan_state, planned_workers + 1);
+            (*pscan_state).bitmap_slots = planned_workers + 1;
+            leader_publish_bitmap(state, pscan_state);
         }
     }
 
@@ -190,16 +191,7 @@ impl ParallelQueryCapable for BaseScan {
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
         unsafe { leader_publish_query(state, pscan_state) };
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            let handle = unsafe { bitmap_exec.republish() };
-            pscan_state.publish_bitmap_handle(handle);
-            if handle.is_some()
-                && let Some(cell) = state.custom_state().bitmap_cell.clone()
-                && let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source()
-            {
-                cell.fill(source);
-            }
-        }
+        unsafe { leader_publish_bitmap(state, pscan_state) };
     }
 
     fn initialize_worker_custom_scan(
@@ -248,7 +240,6 @@ unsafe fn leader_publish_query(
 unsafe fn leader_publish_bitmap(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: *mut ParallelScanState,
-    slots: u32,
 ) {
     if state.custom_state().bitmap_exec.is_none() {
         return;
@@ -281,7 +272,7 @@ unsafe fn leader_publish_bitmap(
             .bitmap_exec
             .as_mut()
             .unwrap()
-            .shared_source(consumers, &segments, slots)
+            .shared_source(consumers, &segments, pscan_state.bitmap_slots)
     };
     pscan_state.publish_bitmap_handle(handle);
     if let Some(cell) = state.custom_state().bitmap_cell.clone()

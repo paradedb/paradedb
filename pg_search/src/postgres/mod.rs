@@ -701,6 +701,8 @@ pub struct ParallelScanState {
     /// when the build produced nothing. Valid once `bitmap_build_state` is `Done`.
     bitmap_area_handle: pg_sys::dsa_handle,
     bitmap_table: pg_sys::dsa_pointer,
+    /// Participant capacity fixed by the parallel context, retained across bitmap rebuilds.
+    pub bitmap_slots: u32,
     /// Condition variable for waiting on the bitmap build.
     bitmap_cv: ConditionVariable,
 

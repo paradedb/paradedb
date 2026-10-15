@@ -28,15 +28,6 @@ use std::ffi::CStr;
 use std::sync::Arc;
 use tantivy::index::SegmentId;
 
-/// What a shared publish was shaped by, kept so a rescan can republish the same.
-#[derive(Clone)]
-struct PublishArgs {
-    consumers: u32,
-    segments: Vec<SegmentId>,
-    /// Participant slots: the owner plus the most workers that can attach.
-    slots: u32,
-}
-
 /// Owns the initialized child `BitmapIndexScan`/`BitmapAnd` planned from the
 /// harvested path; builds its TIDBitmap on first execution and hands out the
 /// cursor source the HeapFilter scorers stream from.
@@ -54,7 +45,6 @@ pub struct BitmapExec {
     /// The published claim table, when shared.
     table: pg_sys::dsa_pointer,
     source: Option<Arc<BitmapCursorSource>>,
-    publish_args: Option<PublishArgs>,
 }
 
 impl BitmapExec {
@@ -78,7 +68,6 @@ impl BitmapExec {
             owns_area: false,
             table: 0,
             source: None,
-            publish_args: None,
         })
     }
 
@@ -202,11 +191,6 @@ impl BitmapExec {
                 return None;
             }
             self.table = publish_shared_table(self.tbm, self.area, consumers, segments, slots);
-            self.publish_args = Some(PublishArgs {
-                consumers,
-                segments: segments.to_vec(),
-                slots,
-            });
             self.source = Some(Arc::new(BitmapCursorSource::shared(
                 self.area, self.table, 0,
             )));
@@ -214,18 +198,6 @@ impl BitmapExec {
                 area: pg_sys::dsa_get_handle(self.area),
                 table: self.table,
             })
-        }
-    }
-
-    /// Publish again for a new round of workers, with the same consumers/segments.
-    pub unsafe fn republish(&mut self) -> Option<SharedBitmapHandle> {
-        unsafe {
-            let PublishArgs {
-                consumers,
-                segments,
-                slots,
-            } = self.publish_args.clone()?;
-            self.shared_source(consumers, &segments, slots)
         }
     }
 

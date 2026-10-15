@@ -1201,22 +1201,6 @@ impl CustomScan for BaseScan {
             // any), so the cost computation opens the index at most once per query.
             let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
 
-            // Cost the query once (memoized) for costable scans; `None` marks the scan uncostable, so
-            // pg_search forces the worker decision (and an effective-LIMIT scan uses the magnitude in
-            // `cost_test_limited`). Skip the open entirely for un-ANALYZEd tables -- the row heuristic
-            // decides those without a cost.
-            let drive_cost = match row_estimate {
-                RowEstimate::Known(_) => costable_drive_cost(
-                    &query,
-                    &estimation_query,
-                    &bm25_index,
-                    &quals,
-                    builder.args().root,
-                    &mut cost_memo,
-                ),
-                RowEstimate::Unknown => None,
-            };
-
             // For each execution method variant, decide a `WorkerPathPolicy` and emit the path(s) it
             // calls for: one serial path, one partial (parallel) path, or -- for a costable no-LIMIT
             // scan -- both, so PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
@@ -1226,6 +1210,32 @@ impl CustomScan for BaseScan {
                     ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
                     // requires heap access to return fields
                     _ => pg_sys::cpu_tuple_cost,
+                };
+
+                let drive_cost = match (&method, row_estimate) {
+                    // Posting costs omit vector work; preserve the fallback for runtime filters.
+                    (
+                        ExecMethodType::TopK {
+                            orderby_info: Some(orderby),
+                            ..
+                        },
+                        _,
+                    ) if matches!(estimation_query, EstimationQuery::Folded(_))
+                        && orderby
+                            .first()
+                            .is_some_and(|order| order.is_vector_distance()) =>
+                    {
+                        None
+                    }
+                    (_, RowEstimate::Known(_)) => costable_drive_cost(
+                        &query,
+                        &estimation_query,
+                        &bm25_index,
+                        &quals,
+                        builder.args().root,
+                        &mut cost_memo,
+                    ),
+                    (_, RowEstimate::Unknown) => None,
                 };
 
                 let is_sorted = method.declares_sorted_output();

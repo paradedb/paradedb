@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792051077455,
+  "lastUpdate": 1792051093965,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -358666,6 +358666,64 @@ window.BENCHMARK_DATA = {
             "value": 150,
             "unit": "median segment_count",
             "extra": "avg segment_count: 169.84756087300386, max segment_count: 304.0, count: 59427"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792051068443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.39373046044889, max cpu: 33.75188, count: 59430"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.14437606480313, max mem: 50.453125, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.989135503210203, max cpu: 43.32999, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 117.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 117.14645906949352, max mem: 117.8359375, count: 59430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 32148,
+            "unit": "median block_count",
+            "extra": "avg block_count: 30562.96580851422, max block_count: 34822.0, count: 59430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 150,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 169.27597173144878, max segment_count: 302.0, count: 59430"
           }
         ]
       }

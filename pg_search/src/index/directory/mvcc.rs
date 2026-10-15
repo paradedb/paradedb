@@ -25,8 +25,8 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    CTID_MAP_EXT, FileEntry, MVCCEntry, MutableSegmentEntry, STATS_EXT, SegmentFileDetails,
+    SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
     bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
@@ -560,6 +560,66 @@ impl MVCCDirectory {
             {
                 return Ok(false);
             }
+        }
+        Ok(true)
+    }
+
+    /// Publish VACUUM's filtered CTIDs without reading historical TOAST values.
+    pub fn compact_vacuum_mutable_segments(
+        &self,
+        segment_ids: &[SegmentId],
+    ) -> anyhow::Result<bool> {
+        let MvccSatisfies::VacuumMerge { live_ctids } = &*self.mvcc_style else {
+            return Ok(false);
+        };
+        let entries = self.all_entries();
+        if segment_ids
+            .iter()
+            .all(|id| live_ctids[id].len() == entries[id].num_docs())
+        {
+            return Ok(false);
+        }
+
+        let mut replacements = Vec::new();
+        for id in segment_ids {
+            assert!(entries[id].is_mutable());
+            let ctids = &live_ctids[id];
+            if ctids.is_empty() {
+                continue;
+            }
+            let (mut content, mut items) = SegmentMetaEntryMutable::create(&self.indexrel);
+            content.frozen = true;
+            for chunk in ctids.chunks(1024) {
+                crate::postgres::utils::vacuum_delay_point();
+                let additions = chunk
+                    .iter()
+                    .copied()
+                    .map(MutableSegmentEntry::Add)
+                    .collect::<Vec<_>>();
+                unsafe { items.add_items(&additions, None) };
+            }
+            replacements.push(SegmentMetaEntry::new_mutable(
+                SegmentId::generate_random(),
+                ctids.len().try_into()?,
+                pg_sys::InvalidTransactionId,
+                content,
+            ));
+        }
+
+        let mut metas = MetaPage::open(&self.indexrel).segment_metas();
+        unsafe {
+            let mut updated = metas.atomically();
+            for id in segment_ids {
+                updated.update_item(
+                    |entry| entry.segment_id() == *id,
+                    |entry| {
+                        assert_eq!(entry.xmax(), pg_sys::InvalidTransactionId);
+                        entry.set_xmax(pg_sys::FrozenTransactionId);
+                    },
+                )?;
+            }
+            updated.add_items(&replacements, None);
+            updated.commit();
         }
         Ok(true)
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792084529226,
+  "lastUpdate": 1792084542537,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -17805,6 +17805,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 35.89057361183671,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc821915918682d099c9aee6055c0e3177e10d71",
+          "message": "feat: cover indexable disjunctions with BitmapOr (#6418)\n\n# Ticket(s) Closed\n\n- Closes #6090\n\nThe first three commits are the cost model change this needs:\n`Candidate` holds a\n`Path` rather than an `IndexPath`, which is what lets it hold a\n`BitmapOrPath` at all.\nThey were #6258, now closed in favour of this one. By file, the source\nchange is execution.rs +63/-8, mod.rs +5/-1, planning.rs +376/-79; the\nrest is the bitmap_intersection regress, its golden and the changelog\nfragment.\n\n## What\n\nA heap filter under OR was never covered: one arm's bitmap cannot reject\nrows, since a row absent from it may still satisfy another arm. A\ndisjunction whose arms are all indexable is now covered whole with\n`create_bitmap_or_path`, because the union of the arms' bitmaps is a\nnecessary condition of the query.\n\nBoth collectors gather such an OR as one `Coverable`,\n`disjunction_candidate` builds a `BitmapOr` over the cheapest index\nanswering each arm, and it is scored through the same\n`cost_bitmap_tree_node` path every other candidate uses.\n\n## Why\n\nFollow-up to #6088 and #6089. The disjunction was the last shape in the\nticket's scope still falling back to a heap filter, and it is a common\none: a location predicate OR a category predicate, each with its own\nindex.\n\n## How\n\nEvery arm is marked lossy, on purpose. Exact membership proves an\nAND-position clause, but membership in a union proves only the\ndisjunction, not which arm a row satisfied, and each arm is still its\nown HeapFilter node. So no arm may skip its own predicate. What the\nbitmap buys is the miss: a row in no arm's bitmap is rejected with no\nheap access.\n\n`MultiExecBitmapOr` allocates its own bitmap rather than honouring a\nseeded one, so `BitmapExec` drives a `BitmapOr` child itself instead of\npre-seeding its first leaf. That is also why a `BitmapOr` under a\n`BitmapAnd` is declined: an AND's first leaf is the accumulator, and an\nOR there would accumulate into a bitmap this node does not own.\n\nOn #6258's open design question, this ended up between the options\nrather than on one. The OR node is rebuilt with `make_orclause` as in\noption 1, then matched against `baserestrictinfo` as in option 3 instead\nof being trusted on its own. Option 1's stated risk was that the\nreconstruction might not compare equal to the original clause;\nvalidating it against the planner's own OR restriction turns that risk\ninto a decline, so a match that ever fails costs coverage rather than\ncorrectness. `heap_exprs` is kept rather than skipped, which is where it\ndiffers from option 3 as written.\n\nSide effect worth flagging: `A AND (B OR C)` where the OR is not\ncoverable used to disqualify covering `A` as well. `A` is now covered on\nits own.\n\n## Tests\n\nFour parity pairs, each asserting `count` and `sum(id)` with the\nintersection on and off so the rows match and not just the cardinality:\ntwo arms on one index, arms on different indexes (GiST unioned with\nbtree), asymmetric arms, and a non-coverable OR beside a covered AND\nclause. EXPLAIN shows `BitmapOr` over one `Bitmap Index Scan` per arm,\nthrough the Base Scan and the Aggregate Scan both. Parallel verified\nseparately at three workers, same rows as serial.\n\nThe `TODO BitmapOr` shape flips to supported. The rejected section used\n`(location <@ circle OR specialty LIKE ...)`, whose arms are both\nindexable, so it is a supported case now; two real refusals replace it,\nan arm no index answers and an arm that is a ParadeDB predicate.\n\nTwo gaps stated rather than hidden. A `BitmapAnd` carrying a `BitmapOr`\nis declined, and the cost gate never selects that combination on these\nfixtures anyway. Marking the arms exact also leaves results unchanged\nhere, since every arm's index qual is exact on this corpus and \"in the\nunion implies some arm true\" makes both treatments agree; they diverge\nonly for an arm whose derived qual over-approximates. The goldens do\nlock in that arms stay in `always_filters` with `uses_tid_bitmap`.\n\n`cargo pgrx regress pg18` 365/365.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-15T08:48:33-07:00",
+          "tree_id": "14bc5b936b4acebfc428de1161c5eea0813c6594",
+          "url": "https://github.com/paradedb/paradedb/commit/bc821915918682d099c9aee6055c0e3177e10d71"
+        },
+        "date": 1792084532625,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.34209648095627,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 29.875818900323747,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.29805422952578,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.581572398349913,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.15454215573043,
             "unit": "queries/s"
           }
         ]

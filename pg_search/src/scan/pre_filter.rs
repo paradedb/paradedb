@@ -58,7 +58,7 @@
 //!                                      into a Tantivy Query and modifies the SearchIndexReader.
 //!                                      Rewrites pushed-down DataFusion exprs to lit(true).
 //!        │
-//!        │  when snapshot_generation() advances
+//!        │  on first batch or when DynamicFilterTracker::changed() fires
 //!        ▼
 //! build_filters()                    ← calls DynamicFilterPhysicalExpr::current()
 //!   → collect_filters()                to get the latest expression for remaining filters,
@@ -100,7 +100,7 @@ use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, Tr
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{
-    BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
+    BinaryExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
 };
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
@@ -151,10 +151,11 @@ impl PreFilter {
     ) -> Result<BooleanArray, String> {
         // 1. Rewrite the expression for the current segment (cached per segment_ord).
         // String literal comparisons and `InList`s are rewritten to segment-local ordinal
-        // comparisons/sets. Caching by `segment_ord` is safe because `PgSearchScanPlan`
-        // rebuilds `PreFilter`s whenever any `DynamicFilterPhysicalExpr`'s
-        // `snapshot_generation()` advances, so `self.expr` is static for the lifetime of
-        // this `PreFilter`.
+        // comparisons/sets. Caching by `segment_ord` is safe because `build_filters` unwraps
+        // top-level `DynamicFilterPhysicalExpr::current()`, `is_supported` rejects nested
+        // `DynamicFilterPhysicalExpr`s, and `PgSearchScanPlan` rebuilds `PreFilter`s whenever
+        // `DynamicFilterTracker::changed()` reports an update — so `self.expr` is static for the
+        // lifetime of this `PreFilter`.
         let rewritten_expr = {
             let mut cache = self.cached_segment_expr.lock();
             if let Some((cached_ord, cached_expr)) = cache.as_ref()
@@ -166,20 +167,7 @@ impl PreFilter {
                     .expr
                     .clone()
                     .transform_down(|node| {
-                        if let Some(dyn_filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
-                            let current_expr = dyn_filter.current().map_err(|e| {
-                                datafusion::error::DataFusionError::Execution(format!(
-                                    "DynamicFilter error: {}",
-                                    e
-                                ))
-                            })?;
-                            return Ok(Transformed::yes(current_expr));
-                        } else if let Some(cast) = node.downcast_ref::<CastExpr>() {
-                            if cast.cast_type() == &cast.expr().data_type(schema)? {
-                                return Ok(Transformed::yes(Arc::clone(cast.expr())));
-                            }
-                            return Ok(Transformed::no(node));
-                        } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
+                        if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
                             if let Some(rewritten) =
                                 try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
                             {
@@ -201,9 +189,11 @@ impl PreFilter {
                                     TreeNodeRecursion::Jump,
                                 ));
                             }
-                            // Skip `InListExpr::map_children`, which calls `children()` and
-                            // allocates/clones a `Vec` of every literal in `in_list.list()`.
-                            return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                            if in_list.expr().is::<Column>() {
+                                // Skip `InListExpr::map_children`, which calls `children()` and
+                                // allocates/clones a `Vec` of every literal in `in_list.list()`.
+                                return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                            }
                         } else if node.is::<HashTableLookupExpr>() {
                             return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
                         }
@@ -218,8 +208,10 @@ impl PreFilter {
 
         // 2. Build a RecordBatch from memoized_columns preserving original schema column indices.
         // Non-required columns are filled with zero-buffer `NullArray` placeholders so we don't
-        // need a bottom-up `transform()` pass to remap `Column` indices (which would otherwise
-        // call `InListExpr::with_new_children` and clone the entire list).
+        // need to remap `Column` indices. Even inside the per-segment cache, remapping `col` in a
+        // numeric `InListExpr` would have to go through `InListExpr::with_new_children` (since
+        // `InListExpr::new` is private in DataFusion), allocating and cloning the entire literal
+        // list twice per segment.
         let null_array: ArrayRef = Arc::new(NullArray::new(num_rows));
         let mut fields: Vec<Field> = schema
             .fields()
@@ -454,6 +446,27 @@ fn is_string_like_field(field: &Field) -> bool {
                 | DataType::Dictionary(_, _)
         )
 }
+/// Validates that a physical `Column`'s index is within `schema`.
+///
+/// Physical `Column` indices are remapped to the scan schema during `FilterPushdown`; an
+/// out-of-bounds index indicates a plan remapping bug rather than an unsupported predicate, so we
+/// surface it as an internal error rather than silently leaving pre-filter performance on the
+/// table in release/benchmark builds.
+fn check_column_index(col: &Column, schema: &Schema) -> datafusion::error::Result<usize> {
+    let idx = col.index();
+    if idx < schema.fields().len() {
+        Ok(idx)
+    } else {
+        Err(datafusion::common::internal_datafusion_err!(
+            "pre_filter: column '{}' has physical index {} which is out of bounds \
+             for schema with {} fields",
+            col.name(),
+            idx,
+            schema.fields().len()
+        ))
+    }
+}
+
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
 ///
 /// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly halts *all*
@@ -467,21 +480,7 @@ fn is_supported(
     let mut supported = true;
     expr.apply(|node| {
         if let Some(col) = node.downcast_ref::<Column>() {
-            // Physical `Column` indices are remapped to the scan schema during `FilterPushdown`;
-            // an out-of-bounds index indicates a plan remapping bug rather than an unsupported
-            // predicate, so surface it as an internal error.
-            let idx = col.index();
-            if idx < schema.fields().len() {
-                required_columns.push(idx);
-            } else {
-                return Err(datafusion::error::DataFusionError::Internal(format!(
-                    "pre_filter: column '{}' has physical index {} which is out of bounds \
-                     for schema with {} fields",
-                    col.name(),
-                    idx,
-                    schema.fields().len()
-                )));
-            }
+            required_columns.push(check_column_index(col, schema)?);
         } else if node.is::<Literal>() {
             // Allowed
         } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
@@ -503,13 +502,14 @@ fn is_supported(
         } else if node.is::<IsNullExpr>() || node.is::<NotExpr>() {
             // Allowed
         } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
-            if !is_supported(in_list.expr(), schema, required_columns)? {
+            if !is_supported(in_list.expr(), schema, required_columns)?
+                || !in_list.list().iter().all(|e| e.is::<Literal>())
+            {
                 supported = false;
                 return Ok(TreeNodeRecursion::Stop);
             }
-            // Join-pushed `InListExpr`s only hold literals in `list()`. Skip visiting
-            // `InListExpr::children()`, which allocates a `Vec` of `1 + list.len()` refs
-            // and would invoke this closure on every literal.
+            // All items in `in_list.list()` are verified `Literal`s. Skip visiting
+            // `InListExpr::children()`, which allocates a `Vec` of `1 + list.len()` refs.
             return Ok(TreeNodeRecursion::Jump);
         } else if node.is::<HashTableLookupExpr>() {
             // We only support HashTableLookupExpr for non-string columns.
@@ -519,22 +519,12 @@ fn is_supported(
             // We manually inspect the subtree to check the data types of the columns it uses
             node.apply(|sub_node| {
                 if let Some(col) = sub_node.downcast_ref::<Column>() {
-                    let idx = col.index();
-                    if idx < schema.fields().len() {
-                        if is_string_like_field(schema.field(idx)) {
-                            is_numeric = false;
-                            return Ok(TreeNodeRecursion::Stop);
-                        }
-                        lookup_columns.push(idx);
-                    } else {
-                        return Err(datafusion::error::DataFusionError::Internal(format!(
-                            "pre_filter: column '{}' has physical index {} which is out of bounds \
-                             for schema with {} fields",
-                            col.name(),
-                            idx,
-                            schema.fields().len()
-                        )));
+                    let idx = check_column_index(col, schema)?;
+                    if is_string_like_field(schema.field(idx)) {
+                        is_numeric = false;
+                        return Ok(TreeNodeRecursion::Stop);
                     }
+                    lookup_columns.push(idx);
                 }
                 Ok(TreeNodeRecursion::Continue)
             })?;
@@ -621,16 +611,7 @@ fn try_rewrite_in_list(
         Some(col) => col,
         None => return Ok(None),
     };
-    let ff_index = col.index();
-    if ff_index >= schema.fields().len() {
-        return Err(datafusion::error::DataFusionError::Internal(format!(
-            "pre_filter: column '{}' has physical index {} which is out of bounds \
-             for schema with {} fields",
-            col.name(),
-            ff_index,
-            schema.fields().len()
-        )));
-    }
+    let ff_index = check_column_index(col, schema)?;
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let dict = match ff_type {
@@ -706,16 +687,7 @@ fn rewrite_col_op_lit(
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
-    let ff_index = col.index();
-    if ff_index >= schema.fields().len() {
-        return Err(datafusion::error::DataFusionError::Internal(format!(
-            "pre_filter: column '{}' has physical index {} which is out of bounds \
-             for schema with {} fields",
-            col.name(),
-            ff_index,
-            schema.fields().len()
-        )));
-    }
+    let ff_index = check_column_index(col, schema)?;
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let bytes = match extract_bytes_from_scalar(lit.value()) {

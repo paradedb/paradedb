@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792051047449,
+  "lastUpdate": 1792051063361,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -351806,6 +351806,40 @@ window.BENCHMARK_DATA = {
             "value": 11.178768297848125,
             "unit": "median tps",
             "extra": "avg tps: 9.70421935815356, max tps: 13.353983662902662, count: 59427"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792050990041,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 10.052998755371032,
+            "unit": "median tps",
+            "extra": "avg tps: 9.153316165459731, max tps: 10.755305723956903, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 11.161587377417073,
+            "unit": "median tps",
+            "extra": "avg tps: 9.643902609856392, max tps: 13.199763369563781, count: 59430"
           }
         ]
       }

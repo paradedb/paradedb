@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792045665000,
+  "lastUpdate": 1792045679178,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16177,6 +16177,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.19249656186553,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a032e9c6ef0b08e938ae089861043a3abaee6986",
+          "message": "fix: release a bitmap intersection stream when its cursor drops (#6449)\n\n# Ticket(s) Closed\n\n- Closes #6403\n\n## What\n\nA Top K search over a bitmap intersection no longer raises `bitmap\nintersection stream (consumer N, segment X) claimed twice` when it has\nto query again, serial or parallel.\n\n## Why\n\nEvery search builds a fresh `HeapFilterWeight::scorer` per segment and\nthe stream claim in `tid_bitmap_stream.rs` was take-once, so any second\nsearch in one execution tripped it: Top K querying again with a larger\nchunk after its first batch lost rows to visibility (the reporter's\ncase, reproduced on main with dead rows and no nested loop), and\nunordered Top K running its standalone window aggregate search, which\nfails with no dead rows at all. The claim code is the same on `0.25.x`,\nwhere the reporter is.\n\n## How\n\n`BitmapCursor` releases its `(consumer, segment)` stream on drop, so the\nnext scorer for the same segment is a new pass over the same bitmap. A\nclaim while the previous cursor is still open still errors.\n\nA private stream opens a fresh iterator on each pass. A shared iteration\nstate cannot rewind, and only the bitmap's creating backend can mint\none, so the leader mints one state per participant slot at DSM init (the\ncontext's worker count plus itself), and each participant drains its\nstate once into a process-local page cache. Every cursor of that\nparticipant is a position into the cache, so a second pass replays the\npages the first one pulled before pulling more, and the pass count is\nunbounded. Workers take slot `ParallelWorkerNumber + 1`; the aggregate\nworkers do the same.\n\nThe unordered Top K's window aggregate search collects over the\nparticipant's own segments and merges through the same rendezvous as the\nordered path, so it no longer claims streams another participant holds.\n\n## Tests\n\n`issue_6403.sql`: serial, the issue's nested loop with a rescan per\nouter row, worker parallel over three segments (plan asserted), the\nparallel window aggregate, and the unbounded retry with\n`topk_retry_scale_factor = 1` over thinned rows, each with parity\nagainst the bitmap off. Fails on main with the error above.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-14T22:02:08-07:00",
+          "tree_id": "60e45914fd96fc10e7b3857956ea73edf241aabb",
+          "url": "https://github.com/paradedb/paradedb/commit/a032e9c6ef0b08e938ae089861043a3abaee6986"
+        },
+        "date": 1792045671493,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.419193840754986,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.04577728532151,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.613807547221857,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.405879937856305,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.34263574751414,
             "unit": "queries/s"
           }
         ]

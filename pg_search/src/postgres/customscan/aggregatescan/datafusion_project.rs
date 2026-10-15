@@ -23,7 +23,9 @@
 //! - The aggregate result schema directly maps to the SQL output
 //! - Type conversion is limited to aggregate-relevant types
 
-use super::join_targetlist::{AggKind, JoinAggregateTargetList};
+use super::join_targetlist::{
+    AggKind, JoinAggregateTargetList, SupportedWindowAggType, WindowAggKind,
+};
 use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::types_arrow::decimal_bytes_to_anynumeric;
 use crate::schema::SearchFieldType;
@@ -31,10 +33,29 @@ use arrow_array::cast::AsArray;
 use arrow_array::{Array, RecordBatch};
 use pgrx::{AnyNumeric, IntoDatum, JsonB, pg_sys};
 
+fn write_slot_datum(
+    datums: &mut [pg_sys::Datum],
+    isnull: &mut [bool],
+    pg_idx: usize,
+    datum: Option<pg_sys::Datum>,
+) {
+    match datum {
+        Some(datum) => {
+            datums[pg_idx] = datum;
+            isnull[pg_idx] = false;
+        }
+        None => {
+            datums[pg_idx] = pg_sys::Datum::null();
+            isnull[pg_idx] = true;
+        }
+    }
+}
+
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///
-/// The DataFusion output schema is: `[group_col_0, ..., group_col_N, agg_0, ..., agg_M]`.
-/// The raw Postgres tuple has the same layout: `[groups..., aggregates..., resjunk...]`.
+/// The DataFusion output schema is:
+/// `[group_col_0, ..., group_col_N, agg_0, ..., agg_M, row_val_0, ..., window_agg_0, ...]`.
+/// The raw Postgres tuple has layout: `[groups..., aggregates..., window_aggregates..., resjunk...]`.
 /// `pdb.agg()` entries have no column of their own; their assembled documents come
 /// in `pdb_agg_json`, one per entry in target-list order.
 ///
@@ -55,10 +76,12 @@ pub unsafe fn project_aggregate_row_to_slot(
 ) {
     let tupdesc = (*slot).tts_tupleDescriptor;
     let natts = (*tupdesc).natts as usize;
-    let raw_columns = targetlist.group_columns.len() + targetlist.aggregates.len();
+    let raw_columns = targetlist.group_columns.len()
+        + targetlist.aggregates.len()
+        + targetlist.window_aggregates.len();
     assert!(
         natts >= raw_columns,
-        "aggregate raw tuple must contain every group and aggregate column"
+        "aggregate raw tuple must contain every group, aggregate, and window aggregate column"
     );
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
@@ -79,29 +102,14 @@ pub unsafe fn project_aggregate_row_to_slot(
             }
         };
 
-        if col.is_null(row_idx) {
-            isnull[pg_idx] = true;
-            datums[pg_idx] = pg_sys::Datum::null();
-        } else {
-            match crate::postgres::types_arrow::arrow_array_to_datum(
-                col.as_ref(),
-                row_idx,
-                pgrx::PgOid::from(expected_type),
-                gc.numeric_scale,
-            ) {
-                Ok(Some(datum)) => {
-                    datums[pg_idx] = datum;
-                    isnull[pg_idx] = false;
-                }
-                Ok(None) => {
-                    isnull[pg_idx] = true;
-                    datums[pg_idx] = pg_sys::Datum::null();
-                }
-                Err(e) => {
-                    panic!("BUG: Aggregate projection failed: {}", e);
-                }
-            }
-        }
+        let datum = crate::postgres::types_arrow::arrow_array_to_datum(
+            col.as_ref(),
+            row_idx,
+            pgrx::PgOid::from(expected_type),
+            gc.numeric_scale,
+        )
+        .unwrap_or_else(|e| panic!("BUG: Aggregate projection failed: {e}"));
+        write_slot_datum(datums, isnull, pg_idx, datum);
     }
 
     // Aggregate columns follow the deduplicated GROUP BY columns in the
@@ -115,46 +123,58 @@ pub unsafe fn project_aggregate_row_to_slot(
             let document = pdb_agg_json
                 .next()
                 .expect("one assembled document per pdb.agg entry");
-            datums[pg_idx] = JsonB(document).into_datum().expect("jsonb datum");
-            isnull[pg_idx] = false;
+            write_slot_datum(datums, isnull, pg_idx, JsonB(document).into_datum());
             continue;
         }
 
         let col = batch.column(df_col_idx);
-
-        if col.is_null(row_idx) {
-            // COUNT returns 0 for NULL, other aggregates return NULL
-            match agg.agg_kind {
-                AggKind::CountStar | AggKind::Count => {
-                    datums[pg_idx] = 0i64.into_datum().unwrap_or(pg_sys::Datum::null());
-                    isnull[pg_idx] = false;
-                }
-                _ => {
-                    isnull[pg_idx] = true;
-                    datums[pg_idx] = pg_sys::Datum::null();
-                }
-            }
-        } else {
-            let datum = datafusion_agg_to_datum(
-                matches!(agg.agg_kind, AggKind::Avg),
-                agg.numeric.as_ref(),
-                agg.result_type_oid,
-                col,
-                row_idx,
-            )
-            .unwrap_or_else(|e| panic!("BUG: Aggregate projection failed: {e}"));
-            match datum {
-                Some(datum) => {
-                    datums[pg_idx] = datum;
-                    isnull[pg_idx] = false;
-                }
-                None => {
-                    isnull[pg_idx] = true;
-                    datums[pg_idx] = pg_sys::Datum::null();
-                }
-            }
-        }
+        let datum = datafusion_agg_to_datum(
+            matches!(agg.agg_kind, AggKind::Avg),
+            agg.numeric.as_ref(),
+            agg.result_type_oid,
+            col.as_ref(),
+            row_idx,
+        )
+        .unwrap_or_else(|e| panic!("BUG: Aggregate projection failed: {e}"));
+        write_slot_datum(datums, isnull, pg_idx, datum);
         df_col_idx += 1;
+    }
+
+    // Row-value group columns sit between standard SQL aggregates and window
+    // aggregates in the RecordBatch.
+    if !targetlist.window_aggregates.is_empty() {
+        let num_row_values = targetlist
+            .group_columns
+            .iter()
+            .filter(|gc| gc.row_value)
+            .count();
+        df_col_idx += num_row_values;
+        let win_base = targetlist.group_columns.len() + targetlist.aggregates.len();
+        for (offset, win) in targetlist.window_aggregates.iter().enumerate() {
+            let pg_idx = win_base + offset;
+            let col = batch.column(df_col_idx);
+            let datum = match &win.kind {
+                WindowAggKind::CombinePdbAgg(_) => {
+                    crate::postgres::customscan::datafusion::pdb_agg_udaf::json_document_to_datum(
+                        col.as_ref(),
+                        row_idx,
+                    )
+                    .unwrap_or_else(|e| {
+                        panic!("BUG: Window pdb.combine_agg projection failed: {e}")
+                    })
+                }
+                WindowAggKind::SqlAgg { op, numeric, .. } => datafusion_agg_to_datum(
+                    matches!(op, SupportedWindowAggType::Avg),
+                    numeric.as_ref(),
+                    win.result_type_oid,
+                    col.as_ref(),
+                    row_idx,
+                )
+                .unwrap_or_else(|e| panic!("BUG: Window aggregate projection failed: {e}")),
+            };
+            write_slot_datum(datums, isnull, pg_idx, datum);
+            df_col_idx += 1;
+        }
     }
 
     // Positions past the raw columns are resjunk predicate Vars appended by

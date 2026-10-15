@@ -1,0 +1,33 @@
+name: Test HN Preparation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/test-hn-preparation.yml"
+      - "benchmarks/datasets/hn/**"
+      - "benchmarks/scripts/*hn.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test HN Preparation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Preparation Dependencies
+        run: python -m pip install duckdb==1.4.3 pyarrow==21.0.0 tiktoken==0.12.0
+
+      - name: Test Dataset Preparation
+        run: python -m unittest discover -s benchmarks/scripts -p 'test_prepare_hn.py'

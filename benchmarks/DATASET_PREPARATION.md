@@ -12,6 +12,9 @@ This document walks through the full process of preparing a new non-synthetic da
 
 Unless otherwise noted, run commands from the `benchmarks/` directory.
 
+For HN's embedding input profile and held-out query selection, see
+[HN vector dataset preparation](datasets/hn/README.md).
+
 ## Step 1: Load Source Data into S3
 
 Upload your source data as partitioned parquet files to S3. Each table should be in its own subdirectory under a `source/parquet/` path (filename doesn't matter):

@@ -552,6 +552,13 @@ unsafe fn merge_index(
             if merge_result.is_err() {
                 break;
             }
+            for segment_id in &candidate.0 {
+                crate::postgres::storage::mutable_cache::invalidate_segment(
+                    pg_sys::MyDatabaseId,
+                    indexrel.oid(),
+                    segment_id.uuid_bytes(),
+                );
+            }
             if gc_after_merge {
                 garbage_collect_index(indexrel, current_xid, next_xid);
                 need_gc = false;

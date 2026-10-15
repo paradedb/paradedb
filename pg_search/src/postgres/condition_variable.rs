@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::pg_sys;
-use std::ptr::addr_of_mut;
+use std::cell::UnsafeCell;
 
 /// A thin wrapper around PostgreSQL's `ConditionVariable`.
 ///
@@ -24,7 +24,10 @@ use std::ptr::addr_of_mut;
 /// avoiding busy-waiting when coordinating between parallel workers.
 #[derive(Debug)]
 #[repr(transparent)]
-pub(crate) struct ConditionVariable(pg_sys::ConditionVariable);
+pub(crate) struct ConditionVariable(UnsafeCell<pg_sys::ConditionVariable>);
+
+unsafe impl Send for ConditionVariable {}
+unsafe impl Sync for ConditionVariable {}
 
 impl Default for ConditionVariable {
     fn default() -> Self {
@@ -35,38 +38,38 @@ impl Default for ConditionVariable {
 impl ConditionVariable {
     /// Creates a new, initialized condition variable.
     pub fn new() -> Self {
-        let mut cv = Self(pg_sys::ConditionVariable::default());
+        let cv = Self(UnsafeCell::new(pg_sys::ConditionVariable::default()));
         cv.init();
         cv
     }
 
     /// Initializes the condition variable.
-    pub fn init(&mut self) {
+    pub fn init(&self) {
         unsafe {
-            pg_sys::ConditionVariableInit(addr_of_mut!(self.0));
+            pg_sys::ConditionVariableInit(self.0.get());
         }
     }
 
     /// Wakes up all processes waiting on this condition variable.
-    pub fn broadcast(&mut self) {
+    pub fn broadcast(&self) {
         unsafe {
-            pg_sys::ConditionVariableBroadcast(addr_of_mut!(self.0));
+            pg_sys::ConditionVariableBroadcast(self.0.get());
         }
     }
 
     /// Prepares the current process to sleep on this condition variable.
     /// Must be called before `sleep()`.
-    pub fn prepare_to_sleep(&mut self) {
+    pub fn prepare_to_sleep(&self) {
         unsafe {
-            pg_sys::ConditionVariablePrepareToSleep(addr_of_mut!(self.0));
+            pg_sys::ConditionVariablePrepareToSleep(self.0.get());
         }
     }
 
     /// Sleeps on the condition variable until signaled or interrupted.
     /// `prepare_to_sleep()` must be called first.
-    pub fn sleep(&mut self) {
+    pub fn sleep(&self) {
         unsafe {
-            pg_sys::ConditionVariableSleep(addr_of_mut!(self.0), pg_sys::PG_WAIT_EXTENSION);
+            pg_sys::ConditionVariableSleep(self.0.get(), pg_sys::PG_WAIT_EXTENSION);
         }
     }
 

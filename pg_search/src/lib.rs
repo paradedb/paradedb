@@ -151,6 +151,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // was loaded via plain CREATE EXTENSION (no preload), skip
     if pg_sys::process_shared_preload_libraries_in_progress {
         postgres::storage::custom_rmgr::register();
+        postgres::storage::mutable_cache::init();
     }
 
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]

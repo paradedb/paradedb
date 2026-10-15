@@ -118,6 +118,18 @@ pub trait FreeSpaceManager {
     );
 }
 
+fn recycling_horizon() -> pg_sys::FullTransactionId {
+    unsafe {
+        let xid = pg_sys::GetCurrentFullTransactionIdIfAny();
+        if xid.value == 0 {
+            // VACUUM needs a reuse horizon without assigning an XID in parallel mode.
+            pg_sys::ReadNextFullTransactionId()
+        } else {
+            xid
+        }
+    }
+}
+
 /// The [`v1`] is our version of Postgres' "free space map".  We need to track free space
 /// as whole blocks and we'd prefer to not have to mark pages as deleted when giving them to the FSM.
 ///
@@ -245,9 +257,7 @@ pub mod v1 {
         /// responsibility to ensure the block is properly used, or else it will be lost forever as
         /// dead space in the underlying relation.
         fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-            let xid_horizon = unsafe {
-                pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
-            };
+            let xid_horizon = pg_sys::TransactionId::from(super::recycling_horizon().value as u32);
             let mut blockno = self.start_blockno;
             loop {
                 if blockno == pg_sys::InvalidBlockNumber {
@@ -335,9 +345,7 @@ pub mod v1 {
             bman: &mut BufferManager,
             n: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            let xid_horizon = unsafe {
-                pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
-            };
+            let xid_horizon = pg_sys::TransactionId::from(super::recycling_horizon().value as u32);
             let mut blocks = Vec::with_capacity(n);
             let mut blockno = self.start_blockno;
             loop {
@@ -607,7 +615,7 @@ pub mod v1 {
 /// Draining is the process of asking the FSM for free blocks.  The caller asks for `n` blocks and
 /// the FSM returns an iterator of blocks that can be reused by the current transaction.  "Current
 /// transaction" here literally means the result of `pg_sys::GetCurrentFullTransactionId()`, but
-/// _could_ be a different, further-in-the-past, transaction.
+/// uses `pg_sys::ReadNextFullTransactionId()` when no transaction ID has been assigned.
 ///
 /// The drain process takes a shared lock on the root page and finds the entry that is less-than-or-equal-to
 /// the current transaction id.  A transaction can only reuse blocks related to the same or older
@@ -769,11 +777,7 @@ pub mod v2 {
             bman: &mut BufferManager,
             many: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            let current_xid = unsafe {
-                pg_sys::GetCurrentFullTransactionIdIfAny()
-                    .value
-                    .max(pg_sys::FirstNormalTransactionId.into_inner() as u64)
-            };
+            let current_xid = super::recycling_horizon().value;
 
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);

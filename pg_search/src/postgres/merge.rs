@@ -764,8 +764,8 @@ const SLOT_BITS: u32 = 8; // slot is u8
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum MergeSlotVariant {
-    Small = 0,
-    Large = 1,
+    SmallImmutable = 0,
+    LargeImmutable = 1,
     Mutable = 2,
 }
 
@@ -774,8 +774,8 @@ impl TryFrom<u8> for MergeSlotVariant {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(match value {
-            0 => MergeSlotVariant::Small,
-            1 => MergeSlotVariant::Large,
+            0 => MergeSlotVariant::SmallImmutable,
+            1 => MergeSlotVariant::LargeImmutable,
             2 => MergeSlotVariant::Mutable,
             _ => anyhow::bail!("invalid merge slot variant: {value}"),
         })
@@ -795,9 +795,9 @@ impl MergeSlot {
 
     fn for_layer_size(index_oid: pg_sys::Oid, largest_layer_size: u64) -> Self {
         if largest_layer_size >= LARGE_MERGE_THRESHOLD {
-            MergeSlot::new(index_oid, MergeSlotVariant::Large)
+            MergeSlot::new(index_oid, MergeSlotVariant::LargeImmutable)
         } else {
-            MergeSlot::new(index_oid, MergeSlotVariant::Small)
+            MergeSlot::new(index_oid, MergeSlotVariant::SmallImmutable)
         }
     }
 
@@ -1089,17 +1089,21 @@ mod tests {
 
     #[pg_test]
     fn test_background_merge_args() {
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), MergeSlotVariant::Large);
+        let args =
+            BackgroundMergeArgs::new(pg_sys::Oid::from(100), MergeSlotVariant::LargeImmutable);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), MergeSlotVariant::Small);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), MergeSlotVariant::SmallImmutable);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), MergeSlotVariant::Large);
+        let args = BackgroundMergeArgs::new(
+            pg_sys::Oid::from(u32::MAX),
+            MergeSlotVariant::LargeImmutable,
+        );
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
@@ -1113,8 +1117,8 @@ mod tests {
 
         let small_slot = MergeSlot::for_layer_size(index_oid, small_layer);
         let large_slot = MergeSlot::for_layer_size(index_oid, large_layer);
-        assert_eq!(small_slot.variant(), MergeSlotVariant::Small);
-        assert_eq!(large_slot.variant(), MergeSlotVariant::Large);
+        assert_eq!(small_slot.variant(), MergeSlotVariant::SmallImmutable);
+        assert_eq!(large_slot.variant(), MergeSlotVariant::LargeImmutable);
         assert!(small_slot.is_available());
         assert!(large_slot.is_available());
 

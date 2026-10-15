@@ -339,13 +339,10 @@ pub unsafe fn do_merge(
             let combined_layers = layer_sizes.combined();
             let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
             let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+            let mut entries = merger.all_entries();
+            entries.retain(|_, entry| !entry.is_mutable());
 
-            background_merge_policy.set_mergeable_segment_entries(
-                &metadata,
-                &merge_lock,
-                &merger,
-                |entry| !entry.is_mutable(),
-            );
+            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, entries);
             let (merge_candidates, largest_layer_size, skipped) =
                 background_merge_policy.simulate_supported(&merger)?;
             warn_unsupported_vector_merge(index, skipped);
@@ -618,13 +615,13 @@ unsafe fn merge_index(
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger, |entry| {
-        match background_slot {
-            Some(MergeSlotVariant::Mutable) => entry.is_mutable(),
-            Some(_) => !entry.is_mutable(),
-            None => true,
-        }
+    let mut entries = merger.all_entries();
+    entries.retain(|_, entry| match background_slot {
+        Some(MergeSlotVariant::Mutable) => entry.is_mutable(),
+        Some(_) => !entry.is_mutable(),
+        None => true,
     });
+    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, entries);
     let (merge_candidates, _, skipped) = merge_policy
         .simulate_supported(&merger)
         .expect("should be able to validate merge candidates");

@@ -243,15 +243,6 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
-<ParamField body="quantization" default="[1,1]">
-  Quantization layer widths shared by all vector fields in the index. Use a
-  quoted array of one to three widths, each between `1` and `4`, such as
-  `quantization = '[1,4]'`. Set `quantization = 0` to disable quantization. By
-  default, fields with fewer than 64 dimensions remain unquantized; an explicit
-  layer schedule requires every vector field to have at least 64 dimensions.
-  Changes require `REINDEX`. See [Quantization
-  settings](/reference/vector/tuning#quantization-settings).
-</ParamField>
 <ParamField body="training_sample_ratio" default={0.32}>
   The fraction of indexed vectors sampled to train the clustering at build time.
   Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The
@@ -274,3 +265,10 @@ modelBuilder.Entity<MockItem>()
   obsolete index options. The new defaults sample 32% of vectors and use a
   maximum training leaf size of 100.
 </Note>
+
+<ParamField body="quantization" default="[1,1]">
+  A developer setting that we generally do not recommend tuning. ParadeDB uses
+  two quantization layers by default, each receiving 1 bit per dimension. Each
+  layer can use up to 4 bits; set `quantization = 0` to disable quantization
+  entirely. In our testing, the default `'[1,1]'` delivers the best performance.
+</ParamField>

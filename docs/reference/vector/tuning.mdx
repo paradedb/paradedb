@@ -28,34 +28,3 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
   `max_leaf_size`, set at build time. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
-
-## Quantization settings
-
-The index-wide `quantization` option controls the filtering layers for every vector
-field. It defaults to `'[1,1]'`: two 1-bit layers. Specify one to three layers,
-each with one to four bits per dimension, or use `0` to disable quantization:
-
-```sql
-CREATE INDEX search_idx ON items
-USING paradedb (id, title_embedding vector_cosine_ops, body_embedding vector_cosine_ops)
-WITH (quantization = '[1,4]');
-
-ALTER INDEX search_idx SET (quantization = 0);
-REINDEX INDEX search_idx;
-```
-
-Quantization settings take effect only during `CREATE INDEX` and `REINDEX`.
-Changing `quantization` with `ALTER INDEX ... SET` does not affect new or existing
-segments until `REINDEX` rebuilds the index. `ALTER INDEX ... RESET (quantization)`
-restores the default on the next rebuild.
-
-By default, fields with fewer than 64 dimensions remain unquantized. Explicitly
-enabling quantization requires every indexed vector field to have at least 64
-dimensions.
-
-<Warning>
-  `vector_fields` is no longer accepted. Recreate indexes that explicitly store
-  that option using `quantization` instead. `REINDEX` alone does not remove
-  obsolete index options. An index can no longer assign different quantization
-  schedules to individual fields.
-</Warning>

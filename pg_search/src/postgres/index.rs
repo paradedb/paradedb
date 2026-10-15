@@ -54,17 +54,6 @@ impl IndexKind {
     }
 }
 
-#[allow(improper_ctypes)]
-#[rustfmt::skip]
-unsafe extern "C-unwind" {
-    /// Core partition catalog walkers (`catalog/pg_inherits.h` and `catalog/partition.h`)
-    /// that pgrx does not bind. Both can raise an `ERROR`, so every call runs inside
-    /// `pg_guard_ffi_boundary`: the error then unwinds through the Rust frames above it
-    /// instead of longjmp'ing over their `Drop`s.
-    fn find_all_inheritors(parent_rel_id: pg_sys::Oid, lockmode: pg_sys::LOCKMODE, numparents: *mut *mut pg_sys::List) -> *mut pg_sys::List;
-    fn get_partition_ancestors(relid: pg_sys::Oid) -> *mut pg_sys::List;
-}
-
 /// Whether `index_oid` names a partitioned index, which has no storage of its own.
 pub fn is_partitioned_index(index_oid: pg_sys::Oid) -> bool {
     (unsafe { pg_sys::get_rel_relkind(index_oid) as u8 }) == pg_sys::RELKIND_PARTITIONED_INDEX
@@ -77,13 +66,11 @@ pub fn is_partitioned_index(index_oid: pg_sys::Oid) -> bool {
 pub fn leaf_partition_index_oids(parent: &PgSearchRelation) -> Vec<pg_sys::Oid> {
     let parent_oid = parent.oid();
     let inheritors = unsafe {
-        PgList::<pg_sys::Oid>::from_pg(pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
-            find_all_inheritors(
-                parent_oid,
-                pg_sys::NoLock as pg_sys::LOCKMODE,
-                std::ptr::null_mut(),
-            )
-        }))
+        PgList::<pg_sys::Oid>::from_pg(pg_sys::find_all_inheritors(
+            parent_oid,
+            pg_sys::NoLock as pg_sys::LOCKMODE,
+            std::ptr::null_mut(),
+        ))
     };
     inheritors
         .iter_oid()
@@ -151,11 +138,8 @@ pub fn partition_member_index(
             if !unsafe { pg_sys::get_index_isvalid(index.oid()) } {
                 return false;
             }
-            let index_oid = index.oid();
             let ancestors = unsafe {
-                PgList::<pg_sys::Oid>::from_pg(pg_sys::submodules::ffi::pg_guard_ffi_boundary(
-                    || get_partition_ancestors(index_oid),
-                ))
+                PgList::<pg_sys::Oid>::from_pg(pg_sys::get_partition_ancestors(index.oid()))
             };
             ancestors
                 .iter_oid()

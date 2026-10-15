@@ -62,10 +62,12 @@ impl Clone for HeapFieldFilter {
 
 crate::impl_safe_drop!(HeapFieldFilter, |self| {
     unsafe {
-        if let Some(context) = self.scratch_context.take() {
-            if crate::postgres::utils::IsTransactionState() {
-                pg_sys::MemoryContextDelete(context);
-            }
+        if let Some(context) = self
+            .scratch_context
+            .take()
+            .filter(|_| crate::postgres::utils::IsTransactionState())
+        {
+            pg_sys::MemoryContextDelete(context);
         }
     }
 });

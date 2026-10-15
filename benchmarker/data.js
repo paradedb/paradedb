@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792046577623,
+  "lastUpdate": 1792046591268,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15785,6 +15785,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 375.60840243842614,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-14T23:00:38-07:00",
+          "tree_id": "af72d15eb9f69c1c69b053a3f994f54083f3060f",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792046582316,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 530.2190868223854,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 509.7109721616938,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 142.19237825307104,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 255.99887274834035,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 374.8757996908636,
             "unit": "queries/s"
           }
         ]

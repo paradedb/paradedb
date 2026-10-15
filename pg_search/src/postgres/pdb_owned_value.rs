@@ -411,6 +411,9 @@ impl PdbOwnedValue {
                 Some(ScalarValue::Float32(Some(*v as f32)))
             }
             (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
+            (DataType::BinaryView, PdbOwnedValue::Bytes(v)) => {
+                Some(ScalarValue::BinaryView(Some(v.clone())))
+            }
             (DataType::Utf8View, PdbOwnedValue::Str(v)) => {
                 Some(ScalarValue::Utf8View(Some(v.clone())))
             }

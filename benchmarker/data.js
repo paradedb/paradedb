@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792045321577,
+  "lastUpdate": 1792045333669,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15390,6 +15390,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 378.12529924008925,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "115358213+DeviousCardi@users.noreply.github.com",
+            "name": "DeviousCardi",
+            "username": "DeviousCardi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f146c311e1e6c5683953e189b7c5592ec651b72",
+          "message": "fix: decline JoinScan pushdown for cross-scale NUMERIC join keys (#6100) (#6352)\n\n## Summary\nFixes #6100.\n\nNUMERIC fast fields with precision <= 18 are represented internally as\n`Numeric64`, a scaled `Int64` (e.g. `numeric(10,2)` value `1.10` is\nstored as raw integer `110`). `validate_and_build_clause` only confirmed\nboth sides of a join key resolved to an indexed columnar fast field — it\nnever compared their scale. JoinScan would build a DataFusion\n`HashJoinExec` comparing the two sides' *raw, unscaled* Int64 values, so\n`numeric(10,2)` vs `numeric(10,3)` (both logically equal) compared `110`\nagainst `1100` and always returned false, silently dropping valid join\nmatches.\n\n**Fix**: `numeric_pushdown_safe()` now allows JoinScan pushdown only\nwhen:\n1. Both sides are `Numeric64` with equal scale (the core #6100 fix), or\n2. Both sides are `NumericBytes` (precision > 18) with\n`numeric_bytes_layouts_differ` (existing check) confirming compatible\nbyte layout — this restores a previously-working case that an earlier,\nover-conservative version of this fix had accidentally declined.\n\nAnything else (mismatched types, unresolvable scale) declines the\npushdown, falling back to Postgres's native join executor, which is\nalways correct regardless of scale.\n\n**Known, documented, out-of-scope gap**: `AggregateScan`'s own join-key\npushdown has the identical unscaled-Int64 comparison bug — not fixed\nhere since it's a separate code path and this issue is scoped to\nJoinScan. The new test file explicitly disables\n`paradedb.enable_aggregate_custom_scan` for this reason.\n\n## Test plan\n- [x] 6 regression scenarios in `joinscan_numeric_scale_mismatch.sql`:\ncross-scale Numeric64 (the original bug), same-scale sanity control,\nunbounded NUMERIC (unresolvable scale), Numeric64-vs-NumericBytes type\nmismatch, and same-scale-compatible-layout NumericBytes-vs-NumericBytes\n(confirms pushdown is restored, not just always declined).\n- [x] `cargo pgrx regress pg16 joinscan_numeric_scale_mismatch` passes\n(2/2, no diffs).\n- [x] Verified via `EXPLAIN (COSTS OFF)` that the\nNumericBytes-vs-NumericBytes case genuinely re-engages `Custom Scan\n(ParadeDB Join Scan)`, not just falling back everywhere.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-10-14T22:39:21-07:00",
+          "tree_id": "d0b86d7526ca5351a127bd9c731b666f95585fab",
+          "url": "https://github.com/paradedb/paradedb/commit/4f146c311e1e6c5683953e189b7c5592ec651b72"
+        },
+        "date": 1792045325808,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 533.8632380325306,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 511.8835787799015,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 149.9207312331169,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 265.1557408104104,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 378.45040902780454,
             "unit": "queries/s"
           }
         ]

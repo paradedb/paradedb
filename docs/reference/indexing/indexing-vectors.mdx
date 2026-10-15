@@ -245,14 +245,14 @@ modelBuilder.Entity<MockItem>()
 
 <ParamField body="training_sample_ratio" default={0.32}>
   The fraction of indexed vectors sampled to train the clustering at build time.
-  Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The
-  default samples 32% of the vectors. Larger samples can improve centroid
+  Must be between `0.000001` and `1.0`. A value of `1.0` trains on every vector.
+  The default samples 32% of the vectors. Larger samples can improve centroid
   quality at the cost of a slower, more memory-intensive build.
 </ParamField>
 <ParamField body="max_leaf_size" default={200}>
   The maximum number of sampled training vectors in a leaf of the hierarchical
   clustering tree. Must be an integer between `1` and `2147483647`. Smaller
-  values generally produce more centroids and smaller clusters; the actual
+  values generally produce more centroids and smaller clusters. The actual
   centroid count depends on the clustering result. This setting is independent
   of `training_sample_ratio` and does not cap the number of indexed vectors
   assigned to a cluster.
@@ -261,7 +261,7 @@ modelBuilder.Entity<MockItem>()
 <Note>
   These options replace `centroid_ratio` and `training_samples_per_centroid`.
   The old names are no longer accepted. Recreate indexes that explicitly store
-  either old option using the new options; `REINDEX` alone does not remove
+  either old option using the new options. `REINDEX` alone does not remove
   obsolete index options. The new defaults sample 32% of vectors and use a
   maximum training leaf size of 100.
 </Note>
@@ -269,6 +269,6 @@ modelBuilder.Entity<MockItem>()
 <ParamField body="quantization" default="[1,1]">
   A developer setting that we generally do not recommend tuning. ParadeDB uses
   two quantization layers by default, each receiving 1 bit per dimension. Each
-  layer can use up to 4 bits; set `quantization = 0` to disable quantization
+  layer can use up to 4 bits. Set `quantization = 0` to disable quantization
   entirely. In our testing, the default `'[1,1]'` delivers the best performance.
 </ParamField>

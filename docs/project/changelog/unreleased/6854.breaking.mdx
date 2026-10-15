@@ -2,4 +2,4 @@
 header: breaking
 ---
 
-- Replaced the `vector_fields` JSON index option with `quantization`, which applies to every vector field. It defaults to `'[1,1]'`; use `quantization = 0` to disable quantization or an array such as `'[1,4]'` to choose layer widths. Recreate indexes that explicitly store `vector_fields` using the new option.
+Replaced the `vector_fields` JSON index option with `quantization`, which applies to every vector field. It defaults to `'[1,1]'`. Use `quantization = 0` to disable quantization or an array such as `'[1,4]'` to choose layer widths. Recreate indexes that explicitly store `vector_fields` using the new option.

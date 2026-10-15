@@ -491,8 +491,9 @@ impl Scanner {
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
+        let before = ids.len();
+        self.pre_filter_rows_scanned += before;
         if let Some(pre_filters) = pre_filters {
-            let before = ids.len();
             for pre_filter in pre_filters.filters {
                 if ids.is_empty() {
                     break;
@@ -518,7 +519,6 @@ impl Scanner {
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
                 compact_with_mask(&mut ids, &mut memoized_columns, &mask);
             }
-            self.pre_filter_rows_scanned += before;
             self.pre_filter_rows_pruned += before - ids.len();
         }
 

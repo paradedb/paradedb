@@ -1343,10 +1343,33 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             let mut pushdown_metric_recorded = false;
             let mut score_pushdown_metric_recorded = false;
+            // Rebuild `PreFilter`s only on the first batch or when a dynamic filter publishes a
+            // new expression (`snapshot_generation()` advances). Reusing `pre_filters` across
+            // batches while generations are unchanged avoids re-walking the filter AST on every
+            // batch and preserves each `PreFilter`'s per-segment rewritten expression cache.
+            let mut last_filter_generations: Option<Vec<u64>> = None;
+            let mut pre_filters: Vec<PreFilter> = Vec::new();
+            let mut score_threshold: Option<Score> = None;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) =
-                    build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                if !dynamic_filters.is_empty() {
+                    let generations_unchanged =
+                        last_filter_generations.as_ref().is_some_and(|gens| {
+                            gens.iter()
+                                .copied()
+                                .eq(dynamic_filters.iter().map(|df| df.snapshot_generation()))
+                        });
+                    if !generations_unchanged {
+                        (pre_filters, score_threshold) =
+                            build_filters(&dynamic_filters, &schema, score_column_schema_idx)?;
+                        last_filter_generations = Some(
+                            dynamic_filters
+                                .iter()
+                                .map(|df| df.snapshot_generation())
+                                .collect(),
+                        );
+                    }
+                }
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -1530,8 +1553,9 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// The threshold-containing expression may be top-level, so we need to allow for
 /// the rest of the expression to be applied.
 ///
-/// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
-/// from Top K) are picked up immediately.
+/// This is re-invoked whenever any dynamic filter's `snapshot_generation()` advances so that
+/// tightening thresholds (e.g. from Top K) are picked up on the next batch while keeping
+/// per-segment expression caches intact across batches when the filter has not changed.
 ///
 /// Only filter predicates that can be lowered to fast-field or term-ordinal
 /// comparisons are retained. Anything else (unsupported types, non-comparison
@@ -1541,20 +1565,19 @@ fn build_filters(
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
     score_col_schema_idx: Option<usize>,
-) -> (Vec<PreFilter>, Option<Score>) {
+) -> datafusion::error::Result<(Vec<PreFilter>, Option<Score>)> {
     let mut filters = Vec::new();
     let mut score_threshold = None;
     for df in dynamic_filters {
         if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
-            if let Ok(current_expr) = dynamic.current() {
-                collect_filters(
-                    &current_expr,
-                    schema,
-                    &mut filters,
-                    score_col_schema_idx,
-                    &mut score_threshold,
-                );
-            }
+            let current_expr = dynamic.current()?;
+            collect_filters(
+                &current_expr,
+                schema,
+                &mut filters,
+                score_col_schema_idx,
+                &mut score_threshold,
+            )?;
         } else {
             collect_filters(
                 df,
@@ -1562,10 +1585,10 @@ fn build_filters(
                 &mut filters,
                 score_col_schema_idx,
                 &mut score_threshold,
-            );
+            )?;
         }
     }
-    (filters, score_threshold)
+    Ok((filters, score_threshold))
 }
 
 /// A wrapper that unsafely implements Send for a Stream.

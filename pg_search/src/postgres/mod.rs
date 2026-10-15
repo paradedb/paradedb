@@ -17,7 +17,6 @@
 
 use std::alloc::Layout;
 use std::collections::BTreeMap;
-use std::io::Write;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -238,7 +237,6 @@ struct AggregatesPayloadHeader {
 #[derive(Debug)]
 #[repr(C)]
 struct ParallelScanPayloadLayout {
-    query: Range<usize>,
     /// One `u32` per source: its segment count, in ascending source-index order.
     all_counts: Range<usize>,
     /// Concatenated 16-byte segment UUIDs for all sources, in ascending source-index order.
@@ -275,7 +273,6 @@ struct ParallelScanPayloadLayout {
 impl ParallelScanPayloadLayout {
     fn new(
         all_nsegments: &[usize],
-        serialized_query: &[u8],
         with_aggregates: bool,
         with_segment_info: bool,
     ) -> Result<Self, std::alloc::LayoutError> {
@@ -286,13 +283,9 @@ impl ParallelScanPayloadLayout {
             .copied()
             .expect("primary source empty");
 
-        // Query.
-        let layout = Layout::from_size_align(serialized_query.len(), 1)?;
-        let query_range = 0..(layout.size());
-
         // Per-source segment counts: [u32; n_sources].
         let all_counts_layout = Layout::array::<u32>(n_sources)?;
-        let (layout, all_counts_offset) = layout.extend(all_counts_layout)?;
+        let (layout, all_counts_offset) = Layout::new::<()>().extend(all_counts_layout)?;
         let all_counts_range = all_counts_offset..(all_counts_offset + all_counts_layout.size());
 
         // All segment IDs concatenated: [[u8; 16]; total_segs].
@@ -358,7 +351,6 @@ impl ParallelScanPayloadLayout {
         };
 
         Ok(Self {
-            query: query_range,
             all_counts: all_counts_range,
             all_ids: all_ids_range,
             remaining_by_source: remaining_range,
@@ -391,25 +383,14 @@ impl ParallelScanPayload {
     fn init(
         &mut self,
         all_sources: &[SegmentView],
-        query: &[u8],
         with_aggregates: bool,
         with_segment_info: bool,
     ) {
         let all_nsegments: Vec<usize> = all_sources.iter().map(|s| s.len()).collect();
         // Compute and assign the execution-time layout from actual segment counts.
-        self.layout = ParallelScanPayloadLayout::new(
-            &all_nsegments,
-            query,
-            with_aggregates,
-            with_segment_info,
-        )
-        .expect("could not layout `ParallelScanPayload` for initialization");
-
-        // Query.
-        let query_range = self.layout.query.clone();
-        let _ = (&mut self.data_mut()[query_range])
-            .write(query)
-            .expect("failed to write query bytes");
+        self.layout =
+            ParallelScanPayloadLayout::new(&all_nsegments, with_aggregates, with_segment_info)
+                .expect("could not layout `ParallelScanPayload` for initialization");
 
         // Per-source segment counts.
         let counts_range = self.layout.all_counts.clone();
@@ -480,15 +461,6 @@ impl ParallelScanPayload {
             let data_ptr = std::ptr::addr_of_mut!(self.data);
             std::slice::from_raw_parts_mut(data_ptr.cast(), self.layout.total.size())
         }
-    }
-
-    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
-        let query_range = self.layout.query.clone();
-        if query_range.is_empty() {
-            return Ok(None);
-        }
-        let query_data = &self.data()[query_range];
-        Ok(Some(serde_json::from_slice(query_data)?))
     }
 
     fn all_counts(&self) -> &[u32] {
@@ -656,7 +628,6 @@ pub struct ParallelScanArgs {
     /// this is a single element. Workers replay each view, so all participants agree on the
     /// per-source segment ordinals and mutable-segment contents.
     all_sources: Vec<SegmentView>,
-    query: Vec<u8>,
     with_aggregates: bool,
     /// Whether to allocate the per-segment EXPLAIN telemetry slots
     /// ([`SEGMENT_INFO_BYTES_PER_SEGMENT`] bytes each). Only basescan's Top-K workers publish them;
@@ -731,6 +702,11 @@ pub struct ParallelScanState {
     /// Condition variable for waiting on the bitmap build.
     bitmap_cv: ConditionVariable,
 
+    /// The leader's solved query for the current round of workers, in the parallel query's
+    /// DSA area (`EState.es_query_dsa`); 0 until published. See [`Self::publish_query`].
+    query: pg_sys::dsa_pointer,
+    query_len: usize,
+
     /// Set by a worker that spills a DataFusion operator to disk. The leader reads it
     /// once, after joining the workers, and folds it into its own sticky flag.
     spilled: AtomicU32,
@@ -752,34 +728,22 @@ enum BitmapBuildState {
 impl ParallelScanState {
     pub fn payload_capacity_of(
         all_nsegments: &[usize],
-        serialized_query: &[u8],
         with_aggregates: bool,
         with_segment_info: bool,
     ) -> usize {
-        ParallelScanPayloadLayout::new(
-            all_nsegments,
-            serialized_query,
-            with_aggregates,
-            with_segment_info,
-        )
-        .expect("could not compute DSM payload capacity")
-        .total
-        .size()
+        ParallelScanPayloadLayout::new(all_nsegments, with_aggregates, with_segment_info)
+            .expect("could not compute DSM payload capacity")
+            .total
+            .size()
     }
 
     pub fn size_of(
         all_nsegments: &[usize],
-        serialized_query: &[u8],
         with_aggregates: bool,
         with_segment_info: bool,
     ) -> usize {
         std::mem::size_of::<Self>()
-            + Self::payload_capacity_of(
-                all_nsegments,
-                serialized_query,
-                with_aggregates,
-                with_segment_info,
-            )
+            + Self::payload_capacity_of(all_nsegments, with_aggregates, with_segment_info)
     }
 
     pub fn source_count(&self) -> usize {
@@ -797,11 +761,12 @@ impl ParallelScanState {
         self.bitmap_build_state = BitmapBuildState::NotBuilt;
         self.bitmap_area_handle = 0;
         self.bitmap_table = 0;
+        self.query = 0;
+        self.query_len = 0;
         self.spilled.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
-            &args.query,
             args.with_aggregates,
             args.with_segment_info,
         );
@@ -852,12 +817,11 @@ impl ParallelScanState {
     fn populate(
         &mut self,
         all_sources: &[SegmentView],
-        query: &[u8],
         with_aggregates: bool,
         with_segment_info: bool,
     ) {
         self.payload
-            .init(all_sources, query, with_aggregates, with_segment_info);
+            .init(all_sources, with_aggregates, with_segment_info);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.shared_threshold.reset();
         let primary_count = all_sources.first().expect("primary source empty").len();
@@ -1252,8 +1216,35 @@ impl ParallelScanState {
         self.payload.primary_docs(i).max_doc()
     }
 
-    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
-        self.payload.query()
+    /// Leader, before a round's workers launch: publish the solved query for them in the
+    /// parallel query's DSA area, freeing the previous round's. The fixed DSM was sized once,
+    /// at estimate time, and a query re-solved for a rescan can be longer than the first;
+    /// `execParallel.c` ships its per-round `PARAM_EXEC` values the same way.
+    pub unsafe fn publish_query(&mut self, area: *mut pg_sys::dsa_area, query: &[u8]) {
+        unsafe {
+            if self.query != 0 {
+                pg_sys::dsa_free(area, self.query);
+            }
+            self.query = pg_sys::dsa_allocate_extended(area, query.len(), 0);
+            std::ptr::copy_nonoverlapping(
+                query.as_ptr(),
+                pg_sys::dsa_get_address(area, self.query).cast::<u8>(),
+                query.len(),
+            );
+        }
+        self.query_len = query.len();
+    }
+
+    /// Worker: the query the leader published for this round.
+    pub unsafe fn query(&self, area: *mut pg_sys::dsa_area) -> anyhow::Result<SearchQueryInput> {
+        anyhow::ensure!(self.query != 0, "no query was published for this scan");
+        let query = unsafe {
+            std::slice::from_raw_parts(
+                pg_sys::dsa_get_address(area, self.query).cast::<u8>(),
+                self.query_len,
+            )
+        };
+        Ok(serde_json::from_slice(query)?)
     }
 
     /// Reset the bitmap-build coordination for a parallel rescan, freeing the previous
@@ -1344,11 +1335,10 @@ pub(crate) mod test_support {
     pub(crate) fn parallel_state_for_view(view: SegmentView) -> *mut ParallelScanState {
         let args = ParallelScanArgs {
             all_sources: vec![view],
-            query: Vec::new(),
             with_aggregates: false,
             with_segment_info: false,
         };
-        let size = ParallelScanState::size_of(&args.all_nsegments(), &args.query, false, false);
+        let size = ParallelScanState::size_of(&args.all_nsegments(), false, false);
         unsafe {
             let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
             (*state).create_and_populate(args);
@@ -1416,24 +1406,19 @@ mod segment_info_tests {
             "candidates_scored",
             "layer0_eligible",
             "clusters_skipped_empty",
-            "eligible_charged",
-            "rerank_rows",
-            "rerank_reads",
-            "rerank_bytes_read",
-            "rerank_storage_blocks",
+            "exact_rows",
             "scan_init_ns",
             "query_prep_ns",
             "routing_ns",
             "exact_scan_ns",
             "result_assembly_ns",
-            "rerank_fetch_ns",
-            "rerank_score_ns",
+            "exact_fetch_ns",
+            "exact_score_ns",
             "vectors_visited",
             "pruned_filter",
             "pruned_dead",
             "postings_row",
             "postings_skipped",
-            "exact_rows_read",
             "routing_visited_count",
             "routing_graph_count",
             "routing_graph_visited_count",
@@ -1449,12 +1434,28 @@ mod segment_info_tests {
             "buffer_hits",
             "buffer_reads",
             "blocks_fetched",
-            "rerank_buffer_hits",
-            "rerank_buffer_reads",
-            "rerank_blocks_fetched",
+            "exact_reads",
+            "exact_bytes_read",
+            "exact_storage_blocks",
+            "located_matches",
+            "located_absent",
+            "located_clusters",
+            "centroid_reads",
+            "locate_ns",
+            "locate_reads",
+            "locate_bytes_read",
+            "locate_storage_blocks",
+            "centroid_ns",
+            "centroid_bytes_read",
+            "centroid_storage_blocks",
+            "located_cap",
         ] {
             insert_counter(&mut fields, name);
         }
+        fields.insert(
+            "access_path".to_string(),
+            Value::String("Located".to_string()),
+        );
         fields.insert("work_charged".to_string(), Value::from(f64::MAX));
         fields.insert(
             "termination".to_string(),
@@ -1466,9 +1467,11 @@ mod segment_info_tests {
             "query_prep".to_string(),
             "routing".to_string(),
             "exact_scan".to_string(),
+            "exact_fetch".to_string(),
+            "exact_score".to_string(),
+            "locate".to_string(),
+            "centroid".to_string(),
             "result_assembly".to_string(),
-            "rerank_fetch".to_string(),
-            "rerank_score".to_string(),
         ];
         for layer in 0..3 {
             insert_counter(&mut fields, format!("layer{layer}_scan_ns"));
@@ -1482,6 +1485,14 @@ mod segment_info_tests {
                 insert_counter(&mut fields, format!("layer{layer}_{suffix}"));
             }
             insert_counter(&mut fields, format!("layer{layer}_survivors"));
+            for plan in [
+                "sparse_clusters",
+                "full_clusters",
+                "exact_clusters",
+                "exact_rows",
+            ] {
+                insert_counter(&mut fields, format!("layer{layer}_{plan}"));
+            }
             insert_counter(&mut fields, format!("boundary{layer}_ns"));
             stages.push(format!("layer{layer}_scan"));
             stages.push(format!("boundary{layer}"));

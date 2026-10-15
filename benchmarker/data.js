@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792029360149,
+  "lastUpdate": 1792031609486,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -11266,6 +11266,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 187.76,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b46c3ca72d0caf3757819224f987c3908da675a",
+          "message": "fix: search predicates above an Append opened the partitioned parent index (#6325)\n\n# Ticket(s) Closed\n\n- Closes #4643\n- Closes #6728\n- Closes #6729\n\nSource change is 516 added and 186 removed lines across eight files\nunder pg_search/src. The other 919 lines are the issue_4643 regress\ntest, its expected output and the changelog fragment.\n\n## What\n\nA search predicate that stays above a partitioned table's Append (a join\nlevel OR, a NOT arm) kept the parent partitioned index, which has no\nstorage, and failed with `58P01 could not open file \"pg_tblspc/0/...\"`.\nSo did a window function in a search query with `ORDER BY ... LIMIT`\nover a partitioned table.\n\n## Why\n\n`rel_get_bm25_index` returns the parent index for a partitioned heap,\nand clauses above the Append carried its oid into the planning estimate,\nthe negation's NULL guard, the Top K check and the heap filter, each of\nwhich opened its storage.\n\n## How\n\nPlanning estimates from the first leaf that is free and holds rows, the\nnegation reads its schema from a free leaf, and the Top K check declines\na partitioned table, so the window function runs natively. At execution\nthe rewrite ships the row's `tableoid` in the trailing record and the\nheap filter caches key on (query, tableoid); a derived relation's row\nhas none and matches against a free leaf.\n\n## Tests\n\n`issue_4643.sql` covers the reported shape with its plan and an\nunpartitioned control, the issue's own schema and `ORDER BY ... LIMIT`\nquery, a NOT arm and a derived relation checked against the custom scan\noff, a window function, every search operator, a generic plan, LEFT\nJOIN, pruning, multi level partitions, and two leakage cases.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-14T18:07:58-07:00",
+          "tree_id": "5deabf2bf8817d383d440a533f4db79aded29746",
+          "url": "https://github.com/paradedb/paradedb/commit/1b46c3ca72d0caf3757819224f987c3908da675a"
+        },
+        "date": 1792031601151,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.534,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.701,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 347.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.173,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.975,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.175,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.253,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.157,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.682,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.099,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.183,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.449,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.052,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 169.326,
             "unit": "ms"
           }
         ]

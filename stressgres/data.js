@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792052077521,
+  "lastUpdate": 1792052092192,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -467600,6 +467600,106 @@ window.BENCHMARK_DATA = {
             "value": 53.81640625,
             "unit": "median mem",
             "extra": "avg mem: 54.77554571970273, max mem: 73.81640625, count: 59238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792052084021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.636601383208983, max cpu: 4.797601, count: 59240"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 22.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.021907442184336, max mem: 22.0390625, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.624660012271986, max cpu: 9.2441025, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.392291222674714, max mem: 21.41015625, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.407154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.153941351456337, max cpu: 33.549675, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.191765751603647, max mem: 22.1953125, count: 59240"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.926485482782, max document_count: 10002.0, count: 59240"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.927937204591, max document_count: 10002.0, count: 59240"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.621404449289862, max cpu: 33.0546, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 45.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.805063618332206, max mem: 59.5234375, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.631733,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.495033649489297, max cpu: 33.119766, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 45.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.598934353371874, max mem: 59.10546875, count: 59240"
           }
         ]
       }

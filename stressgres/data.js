@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792051093965,
+  "lastUpdate": 1792052077521,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -456172,6 +456172,58 @@ window.BENCHMARK_DATA = {
             "value": 24.06700852045986,
             "unit": "median tps",
             "extra": "avg tps: 40.627710510548056, max tps: 576.4695994602753, count: 59238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792052069329,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3940.0250210267127,
+            "unit": "median tps",
+            "extra": "avg tps: 3935.274556379164, max tps: 4398.580822334234, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4549.675626492407,
+            "unit": "median tps",
+            "extra": "avg tps: 4587.255106627648, max tps: 6256.3867281182875, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.32949492796415,
+            "unit": "median tps",
+            "extra": "avg tps: 169.51951961278075, max tps: 3160.0810895959594, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.091293683335298,
+            "unit": "median tps",
+            "extra": "avg tps: 39.23895991247378, max tps: 590.157411146734, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.11696156500941,
+            "unit": "median tps",
+            "extra": "avg tps: 39.25650266091855, max tps: 569.6507515823412, count: 59240"
           }
         ]
       }

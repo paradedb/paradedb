@@ -349,7 +349,7 @@ impl BaseScan {
         if quals.is_some()
             && !state.uses_our_operator
             && !allow_without_operator
-            && search_operator_relations::applies_to(root, rti)
+            && search_operator_relations::applies_to_scan(root, rti)
         {
             state.uses_our_operator = true;
             if !join_clauses_contain_search_predicate(builder.args().rel) {
@@ -886,7 +886,10 @@ impl CustomScan for BaseScan {
             // every row as it does for `pdb.all()`.
             let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
-                && search_operator_relations::applies_to(builder.args().root, builder.args().rti);
+                && search_operator_relations::applies_to_scan(
+                    builder.args().root,
+                    builder.args().rti,
+                );
 
             if matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs

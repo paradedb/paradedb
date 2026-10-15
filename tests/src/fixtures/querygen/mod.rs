@@ -387,11 +387,13 @@ CREATE TABLE {tname} (
 -- hand the replay other rows.
 ALTER TABLE {tname} SET (autovacuum_enabled = off);
 {index_before_data}
+SET paradedb.global_mutable_segment_rows = 0;
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
 {bulk_insert_sql}
 
+RESET paradedb.global_mutable_segment_rows;
 {index_after_data}
 
 {b_tree_indexes}
@@ -781,11 +783,14 @@ impl PgGucs {
             "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
-        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
+        // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
+        // (and MPP distributed execution) to be used on the small property-test tables.
         if *parallel_workers {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO 0;").unwrap();
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO DEFAULT;").unwrap();
         }
         writeln!(
             gucs,
@@ -1000,15 +1005,19 @@ pub fn compare_plan_retrying(
         ))
     };
 
+    // Use TEXT format rather than `FORMAT JSON` into `serde_json::Value`: `explain_physical_plan`
+    // emits each physical-plan line under the key `"  "`, so `serde_json::Map` overwrites all
+    // lines except the last one (hiding `DistributedExec` on the first line).
     let outcome = retry_transient(pool, "qgen plan check", |conn| {
-        sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
-            format!("EXPLAIN (FORMAT JSON) {bm25_query}")
-                .fetch_one_result::<(serde_json::Value,)>(conn)
-        }))
+        sql_attempt(
+            gucs.set()
+                .execute_result(conn)
+                .and_then(|()| format!("EXPLAIN {bm25_query}").fetch_result::<(String,)>(conn)),
+        )
     });
 
-    let plan = match outcome {
-        Ok(Ok(plan)) => plan,
+    let plan_rows = match outcome {
+        Ok(Ok(rows)) => rows,
         Ok(Err(e)) => return fail(format!("{e}: EXPLAIN failed for '{bm25_query}'")),
         Err(RetryError::TimedOutUnderPause(e)) => {
             return fail(format!(
@@ -1018,14 +1027,18 @@ pub fn compare_plan_retrying(
         Err(RetryError::GraceExpired(reason)) => return fail(reason),
     };
 
-    let plan_str = format!("{:#?}", plan.0);
+    let plan_str = plan_rows
+        .into_iter()
+        .map(|(line,)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
     if !expected_any
         .iter()
         .any(|expected| plan_str.contains(expected))
     {
         let expected_desc = expected_any.join(" or ");
         return fail(format!(
-            "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {bm25_query}"
+            "Query should use {expected_desc} but got plan:\n{plan_str}\nQuery: {bm25_query}"
         ));
     }
 
@@ -1034,9 +1047,18 @@ pub fn compare_plan_retrying(
         .find(|forbidden| plan_str.contains(**forbidden))
     {
         return fail(format!(
-            "Query should not use {forbidden} but got plan: {plan_str}\nQuery: {bm25_query}"
+            "Query should not use {forbidden} but got plan:\n{plan_str}\nQuery: {bm25_query}"
         ));
     }
+
+    crate::fixtures::ensure_dst_init();
+    dst::observe!(|| {
+        dst::assert_sometimes!(
+            plan_str.contains("DistributedExec"),
+            "qgen: custom scan produces a distributed MPP plan",
+            &serde_json::json!({})
+        );
+    });
 
     CaseOutcome::Match
 }

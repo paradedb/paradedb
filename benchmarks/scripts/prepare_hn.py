@@ -159,30 +159,15 @@ def profile_batch(rows, destination, max_tokens):
 
 def profile_csv(source, work, max_tokens, workers):
     """Stream CSV batches through workers with bounded pending work."""
-    csv.field_size_limit(2**31 - 1)
     pending = deque()
     completed = 0
     started = time.monotonic()
-    with (
-        source.open(newline="", encoding="utf-8") as stream,
-        ProcessPoolExecutor(
-            max_workers=workers, mp_context=multiprocessing.get_context("spawn")
-        ) as pool,
-    ):
-        reader = csv.DictReader(stream, strict=True)
-        if not reader.fieldnames or not {"id", "text"}.issubset(reader.fieldnames):
-            raise ValueError("Source CSV must contain id and text columns")
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        reader = read_rows(source)
         for shard in itertools.count():
-            rows = []
-            for row in itertools.islice(reader, 10000):
-                if None in row or any(value is None for value in row.values()):
-                    raise ValueError(
-                        f"Malformed CSV record ending on line {reader.line_num}"
-                    )
-                hn_id = int(row["id"])
-                if not 0 < hn_id <= 2**63 - 1:
-                    raise ValueError(f"Invalid HN id: {hn_id}")
-                rows.append((hn_id, row["text"]))
+            rows = list(itertools.islice(reader, 10000))
             if not rows:
                 break
             pending.append(
@@ -202,6 +187,26 @@ def profile_csv(source, work, max_tokens, workers):
             completed += future.result()
     if not completed:
         raise ValueError("Source CSV has no rows")
+
+
+def read_rows(source):
+    """Stream validated HN IDs and original text for each preparation stage."""
+    csv.field_size_limit(2**31 - 1)
+    with Path(source).open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream, strict=True)
+        if not reader.fieldnames or not {"id", "text"}.issubset(reader.fieldnames):
+            raise ValueError("Source CSV must contain id and text columns")
+        if len(set(reader.fieldnames)) != len(reader.fieldnames):
+            raise ValueError("Source CSV contains duplicate column names")
+        for row in reader:
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(
+                    f"Malformed CSV record ending on line {reader.line_num}"
+                )
+            hn_id = int(row["id"])
+            if not 0 < hn_id <= 2**63 - 1:
+                raise ValueError(f"Invalid HN id: {hn_id}")
+            yield hn_id, row["text"]
 
 
 def summarize(work, config, memory_limit):

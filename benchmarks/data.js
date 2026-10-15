@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792081568067,
+  "lastUpdate": 1792082459673,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'stackoverflow (bm25)' (100k rows)": [
@@ -341214,6 +341214,231 @@ window.BENCHMARK_DATA = {
             "range": "95% CI [14.699, 15.275]",
             "unit": "ms",
             "extra": "cold_query_ms=14.065; n=100; p50=13.930; p95=14.539; p99=14.791; query=sql-extra:sha256:7752ed8baa4a4cce67106187852a2d92e8f23dc1e9e4f76024ca7d0009a22e98"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "5bcaf21c99350604615c836f953d495aa07da322",
+          "message": "fix: preserve vector parallelism for runtime filters (#6835)\n\n## What\n\nRestore the pre-#6798 worker selection for vector searches with runtime\nfilters such as `text @@@ current_setting('cohere.titles_10pct')`. With\neight Cohere segments and `max_parallel_workers_per_gather = 7`, the\nfiltered searches again plan and launch seven workers.\n\n## Why\n\n#6798 made folded STABLE predicates eligible for posting-traversal\ncosting. That estimate omits vector routing and distance scoring, so the\nCohere 1% and 10% filters started choosing serial scans instead of their\nprevious per-segment policy.\n\n## How\n\nChoose drive-cost eligibility per execution method. A vector TopK with a\nfolded runtime predicate uses the existing per-segment fallback; other\nmethods retain their existing cost estimates. The memoized cost is\nopened only when a method needs it. Runtime evaluation of STABLE\nexpressions is preserved.\n\nThis PR is based directly on main and contains no ANN cost-model or f16\nstorage changes.\n\n## Tests\n\n- Workspace Clippy, cargo check, cargo doc, and all commit hooks pass.\n- Release build for PostgreSQL 18; `cargo fmt --all -- --check`; `git\ndiff --check`.\n- Existing `stable_cached_plan`, `stable_plan_estimate`,\n`vector_filtered_scan`, and `parallel_topk_leader_segment_view`\nregression tests pass.\n- Local Cohere 1M, 1024 dimensions, eight segments: compare the fix with\na control build carrying the pre-#6798 costability guard on the same\nmain revision and the exact same index.\n- All 300 held-out query plans use seven workers in both builds. All 36\ncombinations of plain/prepared queries, probe settings 0.001/0.05, and\nworker caps 7/2/0 match in workers planned and launched.\n- All 300 top-10 result lists match the control exactly.\n\n| Cohere 1M case | Pre-merge policy control | Fix |\n| --- | ---: | ---: |\n| 10% filter | 7 | 7 |\n| 1% filter | 7 | 7 |\n| Unfiltered | 7 | 7 |\n\nParallel startup overhead is still material on the local Mac. The Cohere\nbenchmark label requests latency validation on CI hardware.\n\nLocal warmed-query p50 (100 queries per case):\n\n| Case | Pre-merge policy control | Fix |\n| --- | ---: | ---: |\n| 10pct | 19.25 ms | 18.09 ms |\n| 1pct | 16.38 ms | 15.75 ms |\n| unfiltered | 15.89 ms | 15.12 ms |\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-10-15T16:06:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/5bcaf21c99350604615c836f953d495aa07da322"
+        },
+        "date": 1792082447389,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 7.366693697566666,
+            "range": "",
+            "unit": "min",
+            "extra": "segments=8"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 85946,
+            "range": "",
+            "unit": "MB",
+            "extra": "segments=8"
+          },
+          {
+            "name": "knn_top10_10pct@r90 - p50",
+            "value": 15.3203975,
+            "range": "95% CI [15.137, 15.419]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[15.127,14.670,15.077,15.396,14.855,14.779,14.558,15.137,14.766,14.993,14.623,14.850,14.698,14.817,15.332,15.839,14.895,14.885,15.441,15.436,15.508,15.394,15.625,15.323,15.314,15.167,15.849,14.732,15.761,15.945,14.904,15.277,15.416,15.536,14.990,14.976,14.867,14.710,15.045,14.961,15.023,14.427,15.858,14.761,14.690,15.182,15.320,15.731,15.753,15.182,15.261,15.497,15.917,16.066,16.153,16.116,14.792,15.379,14.574,13.989,15.472,14.978,15.198,14.695,15.640,15.439,15.419,15.482,15.823,15.231,14.514,14.829,14.728,15.321,15.340,15.331,15.699,15.597,15.659,15.670,15.520,15.578,16.000,15.566,16.003,15.608,15.580,14.438,14.474,15.717,15.846,15.672,15.599,15.435,15.878,15.876,15.189,14.454,14.215,14.584]; cold_query_ms=15.072; n=100; p50=15.320; p95=15.948; p99=16.117; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r90 - p95",
+            "value": 15.947762850000002,
+            "range": "95% CI [15.849, 16.153]",
+            "unit": "ms",
+            "extra": "cold_query_ms=15.072; n=100; p50=15.320; p95=15.948; p99=16.117; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r90 - p99",
+            "value": 16.11664245,
+            "range": "95% CI [16.003, 16.153]",
+            "unit": "ms",
+            "extra": "cold_query_ms=15.072; n=100; p50=15.320; p95=15.948; p99=16.117; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r95 - p50",
+            "value": 15.1528085,
+            "range": "95% CI [15.014, 15.299]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[15.040,14.431,15.094,15.081,14.697,14.768,14.383,14.892,14.639,14.396,14.682,14.797,14.512,14.744,15.120,15.537,15.078,15.029,15.431,15.574,15.243,15.299,15.516,15.161,15.463,15.144,15.871,14.313,15.701,15.812,14.979,15.302,15.447,15.390,14.526,14.960,14.983,14.749,14.940,15.119,14.608,14.577,15.344,14.798,14.599,15.167,15.268,15.721,16.257,15.014,15.308,15.760,15.626,16.264,16.086,15.879,14.814,15.211,14.711,13.976,14.394,14.668,14.890,14.526,15.280,15.905,15.008,15.315,15.227,15.118,14.458,14.887,14.660,15.311,15.013,15.444,15.548,15.440,15.689,15.649,15.432,15.641,15.851,15.515,15.777,15.527,15.261,14.094,14.300,15.686,15.737,15.501,15.473,15.076,15.718,15.815,15.210,14.192,14.040,14.278]; cold_query_ms=14.974; n=100; p50=15.153; p95=15.871; p99=16.257; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r95 - p95",
+            "value": 15.8713715,
+            "range": "95% CI [15.760, 16.264]",
+            "unit": "ms",
+            "extra": "cold_query_ms=14.974; n=100; p50=15.153; p95=15.871; p99=16.257; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r95 - p99",
+            "value": 16.25723928,
+            "range": "95% CI [15.905, 16.264]",
+            "unit": "ms",
+            "extra": "cold_query_ms=14.974; n=100; p50=15.153; p95=15.871; p99=16.257; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r99 - p50",
+            "value": 15.166548,
+            "range": "95% CI [14.995, 15.264]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[14.881,14.482,14.958,15.048,14.765,14.999,14.485,15.040,14.529,14.312,14.608,14.833,14.470,14.667,14.995,15.573,14.945,14.908,15.257,15.165,15.260,15.214,15.355,15.177,15.394,15.139,15.772,14.434,16.293,15.828,15.028,15.046,15.438,15.278,14.580,14.849,14.835,14.663,14.941,14.855,14.565,14.509,15.603,14.714,14.737,15.264,15.117,16.103,15.543,14.934,15.302,15.534,15.652,16.091,16.001,16.116,15.190,15.316,14.565,13.859,14.516,14.652,14.981,14.563,15.385,15.645,15.205,15.288,15.168,14.999,14.352,14.816,14.730,15.268,15.197,15.275,15.347,15.483,15.555,15.524,15.699,15.474,15.826,15.605,15.784,15.457,15.365,14.580,14.582,15.807,15.729,15.607,15.712,15.230,15.693,15.690,15.007,14.413,14.159,14.367]; cold_query_ms=15.191; n=100; p50=15.167; p95=15.837; p99=16.117; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r99 - p95",
+            "value": 15.837051599999999,
+            "range": "95% CI [15.729, 16.293]",
+            "unit": "ms",
+            "extra": "cold_query_ms=15.191; n=100; p50=15.167; p95=15.837; p99=16.117; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_10pct@r99 - p99",
+            "value": 16.117448930000002,
+            "range": "95% CI [16.091, 16.293]",
+            "unit": "ms",
+            "extra": "cold_query_ms=15.191; n=100; p50=15.167; p95=15.837; p99=16.117; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_10pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r90 - p50",
+            "value": 18.663537499999997,
+            "range": "95% CI [18.346, 18.804]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[19.231,18.737,18.806,19.202,18.578,19.403,19.723,18.844,18.804,18.812,18.658,18.705,18.835,19.054,18.965,17.939,18.427,18.042,18.346,16.771,17.192,18.232,17.147,16.896,18.016,18.176,18.971,18.109,19.317,19.246,18.694,19.152,19.015,18.743,18.692,18.675,17.946,17.473,18.072,19.912,19.355,19.256,18.109,18.051,17.385,17.741,17.618,17.592,19.168,18.669,18.005,18.428,19.244,19.305,19.105,19.184,16.086,16.770,16.698,16.890,17.657,19.587,18.246,18.726,18.848,17.547,18.347,18.684,18.458,18.628,18.869,17.281,17.136,18.497,17.416,16.280,16.643,16.281,16.617,15.989,17.136,17.862,17.274,15.874,19.403,19.747,19.274,19.303,19.263,18.945,19.988,19.731,19.637,19.176,19.088,20.887,19.515,18.622,18.992,18.453]; cold_query_ms=19.253; n=100; p50=18.664; p95=19.724; p99=19.997; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r90 - p95",
+            "value": 19.7237453,
+            "range": "95% CI [19.403, 20.887]",
+            "unit": "ms",
+            "extra": "cold_query_ms=19.253; n=100; p50=18.664; p95=19.724; p99=19.997; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r90 - p99",
+            "value": 19.996605890000005,
+            "range": "95% CI [19.747, 20.887]",
+            "unit": "ms",
+            "extra": "cold_query_ms=19.253; n=100; p50=18.664; p95=19.724; p99=19.997; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r95 - p50",
+            "value": 18.711368999999998,
+            "range": "95% CI [18.430, 18.901]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[19.452,19.345,19.043,18.768,18.718,18.846,19.143,19.042,18.872,19.030,19.103,18.901,19.029,19.313,19.019,18.764,18.430,18.100,18.538,17.034,17.562,18.479,17.533,16.870,18.177,18.276,18.944,18.395,19.238,19.359,18.496,19.328,19.018,18.804,18.875,19.117,18.198,17.471,18.100,19.913,18.994,19.183,18.251,18.061,17.475,17.681,17.543,17.670,19.089,18.883,18.251,18.418,19.354,19.397,19.104,19.370,16.187,17.067,16.571,17.173,18.119,20.770,18.472,18.958,18.851,17.598,18.336,18.550,18.550,18.681,19.039,17.326,17.155,18.407,17.488,16.362,17.463,16.419,16.663,16.026,17.148,17.918,17.287,15.870,19.371,19.723,19.571,18.565,19.223,19.148,19.190,19.693,19.672,19.048,19.041,19.904,19.108,18.704,19.262,18.454]; cold_query_ms=19.485; n=100; p50=18.711; p95=19.673; p99=19.922; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r95 - p95",
+            "value": 19.672618149999998,
+            "range": "95% CI [19.370, 20.770]",
+            "unit": "ms",
+            "extra": "cold_query_ms=19.485; n=100; p50=18.711; p95=19.673; p99=19.922; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r95 - p99",
+            "value": 19.921638130000005,
+            "range": "95% CI [19.723, 20.770]",
+            "unit": "ms",
+            "extra": "cold_query_ms=19.485; n=100; p50=18.711; p95=19.673; p99=19.922; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r99 - p50",
+            "value": 18.631276,
+            "range": "95% CI [18.344, 18.877]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[19.350,18.687,18.988,18.636,18.496,18.890,19.172,18.877,18.901,19.025,18.827,18.804,18.970,19.293,19.014,17.999,18.541,18.207,18.905,16.792,17.380,18.295,17.257,17.134,17.884,18.828,19.220,18.344,19.329,19.103,18.626,19.112,19.040,19.378,18.789,18.578,17.864,17.379,18.219,20.024,19.401,19.150,18.104,18.246,17.444,17.660,17.579,17.544,19.418,18.912,17.998,18.371,19.213,19.496,19.052,19.326,16.186,17.055,16.916,17.638,17.789,19.672,18.294,18.199,18.877,17.662,18.391,18.742,18.470,18.614,18.739,18.058,17.234,17.778,17.495,16.427,16.838,16.555,16.620,16.096,17.473,18.079,17.680,15.806,19.480,19.744,19.329,18.434,19.145,19.138,20.141,19.737,19.627,19.004,19.050,20.073,19.041,18.736,19.234,18.527]; cold_query_ms=19.516; n=100; p50=18.631; p95=19.676; p99=20.074; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r99 - p95",
+            "value": 19.67551055,
+            "range": "95% CI [19.401, 20.141]",
+            "unit": "ms",
+            "extra": "cold_query_ms=19.516; n=100; p50=18.631; p95=19.676; p99=20.074; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_1pct@r99 - p99",
+            "value": 20.07387289,
+            "range": "95% CI [19.744, 20.141]",
+            "unit": "ms",
+            "extra": "cold_query_ms=19.516; n=100; p50=18.631; p95=19.676; p99=20.074; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE text @@@ current_setting('cohere.titles_1pct') ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 - p50",
+            "value": 12.842878500000001,
+            "range": "95% CI [12.754, 12.895]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[12.844,12.640,12.743,13.206,12.975,12.702,12.900,12.931,12.654,12.923,12.574,12.816,12.781,12.707,12.895,12.896,13.038,13.136,12.980,12.514,12.707,12.811,12.676,12.726,13.294,13.300,13.638,13.946,13.105,13.266,12.543,12.441,12.546,12.923,12.531,12.783,12.763,13.635,12.907,12.524,12.869,12.722,12.525,12.866,13.007,12.765,12.568,12.959,12.883,12.862,12.972,12.595,13.109,13.109,13.893,13.399,12.560,12.950,12.608,12.546,12.928,12.836,12.622,12.679,13.102,12.925,12.892,12.732,12.641,12.744,12.359,12.754,12.472,12.490,12.705,12.841,12.766,12.645,12.678,12.628,13.567,12.887,12.868,12.548,13.043,13.207,12.764,12.717,12.747,12.897,12.717,12.980,12.693,12.895,12.880,13.087,13.014,13.332,13.020,12.981]; cold_query_ms=13.107; n=100; p50=12.843; p95=13.407; p99=13.893; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 - p95",
+            "value": 13.407003349999998,
+            "range": "95% CI [13.207, 13.946]",
+            "unit": "ms",
+            "extra": "cold_query_ms=13.107; n=100; p50=12.843; p95=13.407; p99=13.893; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 - p99",
+            "value": 13.89339946,
+            "range": "95% CI [13.635, 13.946]",
+            "unit": "ms",
+            "extra": "cold_query_ms=13.107; n=100; p50=12.843; p95=13.407; p99=13.893; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 - p50",
+            "value": 12.717113999999999,
+            "range": "95% CI [12.653, 12.762]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[12.685,12.667,12.739,13.008,12.738,12.516,12.639,13.778,12.637,12.754,12.456,13.737,13.033,12.531,12.759,12.916,12.788,13.010,13.048,12.466,12.573,12.906,12.382,12.695,13.282,13.194,13.252,12.943,12.977,12.942,12.380,12.514,12.439,12.558,12.446,13.067,12.605,12.415,12.837,13.183,12.648,12.532,12.688,12.586,12.812,12.698,12.315,13.480,12.799,12.678,12.804,12.565,12.797,13.134,13.101,12.845,13.007,12.754,12.553,12.621,12.524,12.754,12.463,12.650,12.759,12.896,12.729,12.762,12.653,12.671,12.221,12.653,12.502,12.397,12.553,12.827,12.574,12.561,12.480,12.525,12.627,12.634,12.838,12.597,12.817,13.327,12.600,13.558,13.572,12.690,12.703,12.795,12.604,12.705,12.788,13.021,12.944,12.946,13.893,12.759]; cold_query_ms=12.997; n=100; p50=12.717; p95=13.484; p99=13.779; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 - p95",
+            "value": 13.483534849999998,
+            "range": "95% CI [13.183, 13.893]",
+            "unit": "ms",
+            "extra": "cold_query_ms=12.997; n=100; p50=12.717; p95=13.484; p99=13.779; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 - p99",
+            "value": 13.77949685,
+            "range": "95% CI [13.572, 13.893]",
+            "unit": "ms",
+            "extra": "cold_query_ms=12.997; n=100; p50=12.717; p95=13.484; p99=13.779; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 - p50",
+            "value": 12.709444999999999,
+            "range": "95% CI [12.663, 12.752]",
+            "unit": "ms",
+            "extra": "samples_fnv=da1a6efeb21baab7; samples=[12.741,12.684,12.700,13.047,12.736,12.834,12.654,12.768,12.434,12.876,12.555,12.522,12.805,12.505,12.816,12.740,13.150,12.946,12.962,12.450,12.455,12.898,12.373,12.491,13.116,13.280,13.214,12.701,13.183,13.065,12.680,12.332,12.633,12.964,12.532,12.641,12.347,12.406,12.583,12.339,12.776,12.460,12.522,12.800,12.821,12.644,12.381,13.160,12.701,12.511,12.744,12.663,12.710,13.127,12.947,13.069,12.571,12.823,12.564,12.341,12.608,12.737,12.286,12.556,12.687,13.233,12.671,12.713,12.594,12.755,12.573,12.827,12.378,12.424,12.591,12.712,12.758,12.548,12.592,12.677,12.727,12.892,12.709,12.588,12.940,12.941,12.652,12.828,12.764,12.757,12.632,12.700,12.433,12.769,12.752,12.916,12.790,13.133,12.867,13.232]; cold_query_ms=12.832; n=100; p50=12.709; p95=13.161; p99=13.233; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 - p95",
+            "value": 13.16080245,
+            "range": "95% CI [13.069, 13.280]",
+            "unit": "ms",
+            "extra": "cold_query_ms=12.832; n=100; p50=12.709; p95=13.161; p99=13.233; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 - p99",
+            "value": 13.23314433,
+            "range": "95% CI [13.214, 13.280]",
+            "unit": "ms",
+            "extra": "cold_query_ms=12.832; n=100; p50=12.709; p95=13.161; p99=13.233; query=SET paradedb.vector_cluster_max_probe=0.001; SELECT _id, title FROM cohere_wiki WHERE _id @@@ paradedb.all() ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024) LIMIT 10"
           }
         ]
       }

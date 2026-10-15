@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792088599223,
+  "lastUpdate": 1792090043690,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -12256,6 +12256,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 182.408,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d467e79f22c468c9eb6f5ebb815a98508501af7",
+          "message": "feat: Support for combining `GROUP BY` with `pdb.agg` in window functions (#6806)\n\n# Ticket(s) Closed\n\n- Closes #6804\n\n## What\n\nAdds `pdb.combine_agg(jsonb) -> jsonb` to combine `pdb.agg(...)` across\nall groups in `GROUP BY` queries via `pdb.combine_agg(pdb.agg(...)) OVER\n()`, along with pushdown of standard SQL `OVER ()` window aggregates\n(`COUNT(*)`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` over group keys or\nper-group aggregates) and `ORDER BY` + `LIMIT` + `OFFSET`.\n\n```sql\nSELECT\n  category,\n  COUNT(*) AS group_rows,\n  COUNT(*) OVER () AS total_groups,\n  pdb.combine_agg(pdb.agg('{\"terms\": {\"field\": \"category\", \"order\": {\"_key\": \"asc\"}}}')) OVER () AS facets\nFROM mock_items\nWHERE description @@@ 'shoes'\nGROUP BY category\nORDER BY category\nLIMIT 1;\n```\n\n## Why\n\nIn PostgreSQL, window functions in a `GROUP BY` query execute after\ngrouping and must reference group keys or aggregate expressions, so a\nbare `pdb.agg(...) OVER ()` is rejected by PostgreSQL's parser (`column\n... must appear in the GROUP BY clause or be used in an aggregate\nfunction`) unless wrapped in an outer aggregate. Previously, users who\nneeded both paginated `GROUP BY` rows and global facet buckets had to\nrun two separate queries or wrap the `GROUP BY` in a CTE.\n\n## How\n\n- `CombineAggStub` in `pg_search/src/api/aggregate.rs` registers\n`pdb.combine_agg(jsonb) -> jsonb` in the SQL catalog;\n`validate_combine_agg_recursively` in\n`pg_search/src/postgres/customscan/hook.rs` validates its usage at the\nstart of planning.\n- When `pdb.combine_agg(pdb.agg(...)) OVER ()` is present,\n`AggregateScan` plans at `UPPERREL_FINAL` so a single custom scan\nsubsumes PostgreSQL's `Agg`, `WindowAgg`, `Sort`, and `Limit` nodes (see\nthe comments in `AggregateScan::create_custom_path` and\n`AggregateScan::plan_custom_path` in\n`pg_search/src/postgres/customscan/aggregatescan/mod.rs`).\n- `extract_raw_window_entry` in\n`pg_search/src/postgres/customscan/aggregatescan/join_targetlist.rs`\nlowers `pdb.combine_agg(pdb.agg(...)) OVER ()` and standard `OVER ()`\nwindow aggregates into `WindowAggEntry` items on\n`JoinAggregateTargetList`.\n- Execution uses a two-stage DataFusion plan documented in the\nmodule-level comments of\n`pg_search/src/postgres/customscan/datafusion/pdb_agg_udaf.rs`\n(`pdb_precombine_agg` and `pdb_combine_agg`) and\n`pg_search/src/postgres/customscan/aggregatescan/datafusion_exec.rs`\n(`build_join_aggregate_plan`).\n\n## Tests\n\n- Expanded `generated_pdb_agg_join` and `generated_pdb_agg_single_table`\nin `tests/tests/qgen.rs` (via `PdbAggExpr` in\n`tests/src/fixtures/querygen/pdbagggen.rs`) to generate\n`pdb.combine_agg(pdb.agg(...)) OVER ()` alongside SQL `OVER ()` window\naggregates and `ORDER BY ... LIMIT`.\n- Added syntax, execution, and error-case coverage in\n`pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.",
+          "timestamp": "2026-10-15T10:19:49-07:00",
+          "tree_id": "ffd2fbf78041f546faf12059e53b9ccd6c9cc819",
+          "url": "https://github.com/paradedb/paradedb/commit/0d467e79f22c468c9eb6f5ebb815a98508501af7"
+        },
+        "date": 1792090033595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.34,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.445,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 350.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.654,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 108.043,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 192.708,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.641,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.332,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.186,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.784,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.515,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.449,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.489,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 80.631,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 173.239,
             "unit": "ms"
           }
         ]

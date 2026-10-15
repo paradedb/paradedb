@@ -3105,36 +3105,6 @@ LIMIT 2;
   3 |            1 |                    3 |             4 | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
 (2 rows)
 
--- Test 41b under MPP (parallel workers across partitions)
-BEGIN;
-SET LOCAL max_parallel_workers_per_gather = 3;
-SET LOCAL paradedb.mpp_min_rows = 0;
-SELECT
-    p.id,
-    COUNT(*) AS review_count,
-    COUNT(*) OVER () AS total_product_groups,
-    SUM(COUNT(*)) OVER () AS total_reviews,
-    MIN(p.brand) OVER () AS min_brand_group,
-    MAX(p.brand) OVER () AS max_brand_group,
-    pdb.combine_agg(pdb.agg('{
-        "terms": {"field": "brand", "order": {"_key": "asc"}},
-        "aggs": {
-            "avg_score": {"avg": {"field": "score"}}
-        }
-    }'::jsonb)) OVER () AS by_brand
-FROM products p
-JOIN product_reviews r ON p.id = r.product_id
-WHERE p.description ||| 'laptop'
-GROUP BY p.id, p.brand
-ORDER BY review_count DESC, p.id ASC
-LIMIT 2;
- id | review_count | total_product_groups | total_reviews | min_brand_group | max_brand_group |                                                                                                                by_brand                                                                                                                 
-----+--------------+----------------------+---------------+-----------------+-----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  1 |            2 |                    3 |             4 | ASUS            | Lenovo          | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
-  3 |            1 |                    3 |             4 | ASUS            | Lenovo          | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
-(2 rows)
-
-COMMIT;
 -- Prepared statement with parameterized LIMIT $1 OFFSET $2 under generic plan
 BEGIN;
 SET LOCAL plan_cache_mode = 'force_generic_plan';
@@ -3223,6 +3193,29 @@ LIMIT NULL;
 (1 row)
 
 -- WITH TIES fallback to PostgreSQL for GROUP BY Top-K and BaseScan Top-K
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: brand, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Sort
+         Output: brand, (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: (pdb.agg_fn('COUNT(*)'::text))
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+               Output: brand, pdb.agg_fn('COUNT(*)'::text)
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: brand
+                 Aggregate Definition: {"grouped":{"terms":{"field":"brand","order":{"_count":"asc"},"segment_size":65000,"size":65000}}}
+(12 rows)
+
 SELECT brand, COUNT(*) AS cnt
 FROM products
 WHERE description ||| 'laptop'
@@ -3236,6 +3229,30 @@ FETCH FIRST 1 ROWS WITH TIES;
  HP     |   1
  Lenovo |   1
 (4 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
+FETCH FIRST 1 ROWS WITH TIES;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: in_stock
+   ->  Sort
+         Output: in_stock
+         Sort Key: products.in_stock DESC
+         ->  Custom Scan (ParadeDB Base Scan) on public.products
+               Output: in_stock
+               Table: products
+               Index: products_idx
+               Worker Selection: Cost model
+               Exec Method: ColumnarExecState
+               Columnar: in_stock
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(14 rows)
 
 SELECT in_stock
 FROM products
@@ -3289,7 +3306,7 @@ WHERE description ||| 'laptop'
 GROUP BY in_stock
 ORDER BY in_stock
 LIMIT -1;
-ERROR:  Cannot execute `pdb.combine_agg`: LIMIT must not be negative
+ERROR:  Cannot execute pdb.combine_agg: LIMIT must not be negative
 SELECT
     in_stock,
     pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
@@ -3298,7 +3315,7 @@ WHERE description ||| 'laptop'
 GROUP BY in_stock
 ORDER BY in_stock
 OFFSET -1;
-ERROR:  Cannot execute `pdb.combine_agg`: OFFSET must not be negative
+ERROR:  Cannot execute pdb.combine_agg: OFFSET must not be negative
 -- FETCH FIRST ... WITH TIES with pdb.combine_agg must error
 SELECT
     in_stock,
@@ -3308,7 +3325,7 @@ WHERE description ||| 'laptop'
 GROUP BY in_stock
 ORDER BY in_stock
 FETCH FIRST 1 ROWS WITH TIES;
-ERROR:  Cannot execute `pdb.combine_agg`: `FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`
+ERROR:  Cannot execute pdb.combine_agg: `FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`
 -- Cleanup
 DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;

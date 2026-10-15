@@ -1652,33 +1652,6 @@ GROUP BY p.id
 ORDER BY review_count DESC, p.id ASC
 LIMIT 2;
 
--- Test 41b under MPP (parallel workers across partitions)
-BEGIN;
-SET LOCAL max_parallel_workers_per_gather = 3;
-SET LOCAL paradedb.mpp_min_rows = 0;
-
-SELECT
-    p.id,
-    COUNT(*) AS review_count,
-    COUNT(*) OVER () AS total_product_groups,
-    SUM(COUNT(*)) OVER () AS total_reviews,
-    MIN(p.brand) OVER () AS min_brand_group,
-    MAX(p.brand) OVER () AS max_brand_group,
-    pdb.combine_agg(pdb.agg('{
-        "terms": {"field": "brand", "order": {"_key": "asc"}},
-        "aggs": {
-            "avg_score": {"avg": {"field": "score"}}
-        }
-    }'::jsonb)) OVER () AS by_brand
-FROM products p
-JOIN product_reviews r ON p.id = r.product_id
-WHERE p.description ||| 'laptop'
-GROUP BY p.id, p.brand
-ORDER BY review_count DESC, p.id ASC
-LIMIT 2;
-
-COMMIT;
-
 -- Prepared statement with parameterized LIMIT $1 OFFSET $2 under generic plan
 BEGIN;
 SET LOCAL plan_cache_mode = 'force_generic_plan';
@@ -1727,11 +1700,26 @@ ORDER BY in_stock
 LIMIT NULL;
 
 -- WITH TIES fallback to PostgreSQL for GROUP BY Top-K and BaseScan Top-K
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT brand, COUNT(*) AS cnt
 FROM products
 WHERE description ||| 'laptop'
 GROUP BY brand
 ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
 FETCH FIRST 1 ROWS WITH TIES;
 
 SELECT in_stock

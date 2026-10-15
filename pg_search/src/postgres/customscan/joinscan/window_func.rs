@@ -15,20 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{MvccVisibility, is_agg_funcoid};
-use crate::schema::SearchFieldType;
-use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
-use pgrx::{PgList, pg_sys};
-use serde::{Deserialize, Serialize};
-use std::fmt;
-
+use crate::api::window_aggregate::{PlaceholderId, make_window_agg_placeholder};
+use crate::api::{MvccVisibility, is_agg_funcoid, is_combine_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::datafusion_build::ResolutionSource;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+    numeric_avg_func_with_args, numeric_sum_func_with_args,
+};
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, lower_pdb_agg_call, unwrap_to_var,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggRequest;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
+use crate::postgres::deparse::deparse_planner_expr;
+use crate::postgres::utils::strip_relabel;
+use crate::schema::SearchFieldType;
+use datafusion::common::DataFusionError;
+use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
+use datafusion::functions_aggregate::{average, count, min_max, sum};
+use datafusion::logical_expr::{AggregateUDF, Expr, lit};
+use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
+use pgrx::{PgList, pg_sys};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::sync::Arc;
 
 use super::build::JoinSource;
 
@@ -55,24 +66,13 @@ impl SupportedWindowAggType {
     }
 
     /// Lower a SQL window aggregate to its DataFusion
-    /// [`AggregateUDF`](datafusion::logical_expr::AggregateUDF) and call
+    /// [`AggregateUDF`] and call
     /// arguments, routing `NUMERIC` `SUM` and `AVG` to the decimal accumulators.
     pub fn udaf_with_args(
         self,
-        input: Option<datafusion::logical_expr::Expr>,
+        input: Option<Expr>,
         numeric: Option<&SearchFieldType>,
-    ) -> datafusion::common::Result<(
-        std::sync::Arc<datafusion::logical_expr::AggregateUDF>,
-        Vec<datafusion::logical_expr::Expr>,
-    )> {
-        use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-            numeric_avg_func_with_args, numeric_sum_func_with_args,
-        };
-        use datafusion::common::DataFusionError;
-        use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
-        use datafusion::functions_aggregate::{average, count, min_max, sum};
-        use datafusion::logical_expr::lit;
-
+    ) -> datafusion::common::Result<(Arc<AggregateUDF>, Vec<Expr>)> {
         let require_input = || {
             input.ok_or_else(|| {
                 DataFusionError::Internal(format!("{self} OVER () must have an input expression"))
@@ -470,12 +470,8 @@ fn extract_column_info(
             if matches!(
                 agg_type,
                 SupportedWindowAggType::Min | SupportedWindowAggType::Max
-            ) && !unsafe {
-                crate::postgres::customscan::collation_semantics::collation_supports(
-                    wf.inputcollid,
-                    crate::postgres::customscan::collation_semantics::CollationOperation::Ordering,
-                )
-            } {
+            ) && !unsafe { collation_supports(wf.inputcollid, CollationOperation::Ordering) }
+            {
                 return Err(format!(
                     "{agg_type} OVER () uses a collation whose ordering cannot be pushed down"
                 ));
@@ -533,7 +529,7 @@ pub unsafe fn rewrite_window_funcs_to_sentinels(
 /// Rewrites embedded `WindowFunc` nodes into `paradedb.window_agg('<description>')`
 /// placeholder `FuncExpr`s whose node-level `funcresulttype` is the aggregate's
 /// `wintype` and whose argument `Const.consttypmod` encodes the `WindowFunc`'s
-/// deduplicated [`PlaceholderId`](crate::api::window_aggregate::PlaceholderId).
+/// deduplicated [`PlaceholderId`].
 ///
 /// PG18's EXPLAIN requires a `WindowAgg` plan node to deparse a `WindowFunc`
 /// (commit 8b1b342544b6 removed the `OVER (?)` fallback), but the scan
@@ -562,20 +558,17 @@ impl PlaceholderRewriter {
         placeholder_mutator(expr, std::ptr::from_mut(self).cast())
     }
 
-    unsafe fn placeholder_id(
-        &mut self,
-        wf: *mut pg_sys::WindowFunc,
-    ) -> crate::api::window_aggregate::PlaceholderId {
+    unsafe fn placeholder_id(&mut self, wf: *mut pg_sys::WindowFunc) -> PlaceholderId {
         if let Some(idx) = self
             .seen
             .iter()
             .position(|known| pg_sys::equal((*known).cast(), wf.cast()))
         {
-            crate::api::window_aggregate::PlaceholderId(idx)
+            PlaceholderId(idx)
         } else {
             let idx = self.seen.len();
             self.seen.push(wf);
-            crate::api::window_aggregate::PlaceholderId(idx)
+            PlaceholderId(idx)
         }
     }
 }
@@ -597,10 +590,10 @@ unsafe extern "C-unwind" fn placeholder_mutator(
         // this rewrite exists to avoid (deparse_planner_expr catches it and
         // returns None on PG18; on older versions it renders `OVER (?)`),
         // so fall back to a description built from the node itself.
-        let description = crate::postgres::deparse::deparse_planner_expr(ctx.root, node)
+        let description = deparse_planner_expr(ctx.root, node)
             .unwrap_or_else(|| describe_window_func(&*wf, ctx.root));
 
-        match crate::api::window_aggregate::make_window_agg_placeholder(
+        match make_window_agg_placeholder(
             &description,
             Some(placeholder_id),
             (*wf).wintype,
@@ -631,7 +624,7 @@ unsafe extern "C-unwind" fn placeholder_mutator(
 /// placeholder, e.g. `count(*) OVER ()` or `sum(price) OVER ()`.
 ///
 /// This string is strictly cosmetic for `EXPLAIN VERBOSE`; `setrefs.c`
-/// identity is carried by [`crate::api::window_aggregate::PlaceholderId`] in
+/// identity is carried by [`PlaceholderId`] in
 /// the placeholder argument's `Const.consttypmod`.
 unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::PlannerInfo) -> String {
     let func_name = {
@@ -647,22 +640,22 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
     let filter_suffix = if wf.aggfilter.is_null() {
         String::new()
     } else {
-        let filter_str = crate::postgres::deparse::deparse_planner_expr(root, wf.aggfilter.cast())
-            .unwrap_or_else(|| "...".to_string());
+        let filter_str =
+            deparse_planner_expr(root, wf.aggfilter.cast()).unwrap_or_else(|| "...".to_string());
         format!(" FILTER (WHERE {filter_str})")
     };
     if wf.winstar {
         return format!("{func_name}(*){filter_suffix} OVER ()");
     }
     let args = PgList::<pg_sys::Node>::from_pg(wf.args);
-    if crate::api::is_combine_agg_funcoid(wf.winfnoid.to_u32()) {
+    if is_combine_agg_funcoid(wf.winfnoid.to_u32()) {
         let spec = args
             .get_ptr(0)
-            .and_then(|arg| nodecast!(Aggref, T_Aggref, crate::postgres::utils::strip_relabel(arg)))
+            .and_then(|arg| nodecast!(Aggref, T_Aggref, strip_relabel(arg)))
             .and_then(|aggref| {
                 let agg_args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                 let first_te = agg_args.get_ptr(0)?;
-                crate::api::pdb_agg_spec((*aggref).aggfnoid.to_u32(), (*first_te).expr.cast(), None)
+                pdb_agg_spec((*aggref).aggfnoid.to_u32(), (*first_te).expr.cast(), None)
             })
             .map(|(spec, _)| spec.to_string())
             .unwrap_or_else(|| "...".to_string());
@@ -671,7 +664,7 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
     if is_agg_funcoid(wf.winfnoid.to_u32()) {
         let spec = args
             .get_ptr(0)
-            .and_then(|spec| crate::api::pdb_agg_spec(wf.winfnoid.to_u32(), spec, None))
+            .and_then(|spec| pdb_agg_spec(wf.winfnoid.to_u32(), spec, None))
             .map(|(spec, _)| spec.to_string())
             .unwrap_or_else(|| "...".to_string());
         return format!("pdb.{func_name}('{spec}'){filter_suffix} OVER ()");
@@ -684,7 +677,7 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
             {
                 return Some(col_name);
             }
-            crate::postgres::deparse::deparse_planner_expr(root, arg)
+            deparse_planner_expr(root, arg)
         })
         .unwrap_or_else(|| "...".to_string());
     format!("{func_name}({arg_name}){filter_suffix} OVER ()")

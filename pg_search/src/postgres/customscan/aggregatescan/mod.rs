@@ -220,7 +220,7 @@ unsafe fn validate_and_detect_combine_agg(parse: *mut pg_sys::Query) -> bool {
                         || !(*parse).setOperations.is_null()
                     {
                         pgrx::error!(
-                            "Cannot execute `pdb.combine_agg`: `SELECT DISTINCT`, `FOR UPDATE`, or set operations are not supported"
+                            "Cannot execute pdb.combine_agg: `SELECT DISTINCT`, `FOR UPDATE`, or set operations are not supported"
                         );
                     }
                     found_combine_agg = true;
@@ -368,7 +368,7 @@ impl RequiredPdbFunc {
     fn as_str(self) -> &'static str {
         match self {
             Self::Agg => "pdb.agg",
-            Self::CombineAgg => "`pdb.combine_agg`",
+            Self::CombineAgg => "pdb.combine_agg",
         }
     }
 }
@@ -625,7 +625,7 @@ impl CustomScan for AggregateScan {
         let Some(input_rel) = (unsafe { builder.args().scan_join_rel() }) else {
             if has_combine_agg {
                 pgrx::error!(
-                    "Cannot execute `pdb.combine_agg`: query cannot be pushed down to ParadeDB Aggregate Scan"
+                    "Cannot execute pdb.combine_agg: query cannot be pushed down to ParadeDB Aggregate Scan"
                 );
             }
             return Vec::new();
@@ -646,7 +646,7 @@ impl CustomScan for AggregateScan {
             };
             if paths.is_empty() {
                 pgrx::error!(
-                    "Cannot execute `pdb.combine_agg`: table must have a ParadeDB index and query must be supported by ParadeDB Aggregate Scan"
+                    "Cannot execute pdb.combine_agg: table must have a ParadeDB index and query must be supported by ParadeDB Aggregate Scan"
                 );
             }
             return paths;

@@ -154,9 +154,11 @@ impl ParallelQueryCapable for BaseScan {
             }
 
             // The leader owns the bitmap build: build in this scan's own DSA area,
-            // prepare per-(consumer, segment) iterator states, and publish the claim
-            // table before any worker launches. Workers only wait and attach.
-            leader_publish_bitmap(state, pscan_state);
+            // mint one iteration state per participant slot, and publish the claim
+            // table before any worker launches. Workers only wait and attach. The
+            // context's worker count is the most that can attach, not how many launch.
+            let planned_workers = (*pcxt).nworkers as u32;
+            leader_publish_bitmap(state, pscan_state, planned_workers + 1);
         }
     }
 
@@ -225,6 +227,7 @@ impl ParallelQueryCapable for BaseScan {
 unsafe fn leader_publish_bitmap(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: *mut ParallelScanState,
+    slots: u32,
 ) {
     if state.custom_state().bitmap_exec.is_none() {
         return;
@@ -257,7 +260,7 @@ unsafe fn leader_publish_bitmap(
             .bitmap_exec
             .as_mut()
             .unwrap()
-            .shared_source(consumers, &segments)
+            .shared_source(consumers, &segments, slots)
     };
     pscan_state.publish_bitmap_handle(handle);
     if let Some(cell) = state.custom_state().bitmap_cell.clone()

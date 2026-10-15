@@ -232,7 +232,6 @@ unsafe fn collect_heap_filter_nodes(sqi: &SearchQueryInput, out: &mut Vec<Covera
     }
 }
 
-
 impl BitmapPlanner {
     /// Collect every coverable reachable through top-level AND structure: each
     /// `Qual::HeapExpr`, and each OR whose arms are all HeapExprs, taken whole.
@@ -1202,20 +1201,6 @@ impl IndexClause {
 
     fn into_pg(self) -> *mut pg_sys::IndexClause {
         self.0
-    }
-}
-
-/// An index path's estimated selectivity, clamped to a usable fraction.
-unsafe fn selectivity(ipath: *mut pg_sys::IndexPath) -> f64 {
-    unsafe { (*ipath).indexselectivity.clamp(0.0, 1.0) }
-}
-
-unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    unsafe {
-        while (*node).type_ == pg_sys::NodeTag::T_RelabelType {
-            node = (*node.cast::<pg_sys::RelabelType>()).arg.cast();
-        }
-        node
     }
 }
 

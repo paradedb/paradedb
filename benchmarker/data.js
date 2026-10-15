@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792045887185,
+  "lastUpdate": 1792045898146,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15637,6 +15637,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 378.45040902780454,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "444ea427b8a1c709b2a1ffae4e4eb6fb85e8cc65",
+          "message": "fix: parallel bitmap intersection crash when its Gather is rescanned (#6751)\n\n# Ticket(s) Closed\n\n- Closes #6734\n- Closes #6790\n\n## What\n\nA parallel Base Scan with a bitmap intersection no longer crashes a\nworker, fails with `bitmap cursor source was never initialized`, or\nreturns wrong rows when its `Gather` or `Gather Merge` is rescanned, and\nthe workers of every round now solve against that round's parameters.\n\n## Why\n\nOn every round, a correlated subquery's first included, Postgres sets up\nthe DSM and launches the workers before the leader's deferred ReScan,\nand `rescan_custom_scan` freed the claim table and bitmap they had just\nattached. The republish before it read freed memory too: freeing the old\nclaim table frees the bitmap's shared page arrays, which\n`tbm_free_shared_area` refcounts by iteration state only. The query had\nthe same hole: `reinitialize_dsm_custom_scan` reset counters only, so\nrelaunched workers deserialized the first round's solved constants, and\nthe fixed DSM, sized at estimate time, could not have taken a longer\nquery anyway.\n\n## How\n\n`shared_source` rebuilds a bitmap left from an earlier round before it\npublishes, `rescan_custom_scan` frees and rebuilds the bitmap only for a\nserial scan, and `reinitialize_dsm_custom_scan` drops the leader's\nresults, solves the query again and publishes it before that rebuild.\nThe query travels in the parallel query's DSA area\n(`ParallelScanState::publish_query`, freeing the previous round's\nchunk), as `execParallel.c` ships its `PARAM_EXEC` values, so the DSM\npayload no longer carries it.\n\n## Tests\n\n`issue_6734.sql` runs the issue's query, a query whose bitmap follows an\ninitPlan of the outer row, a plain `Gather` under a `Limit`, and the two\n#6790 shapes (a heap filter and a search query reading an initPlan, with\nonly the workers answering), each against a serial run. Without the\nReScan change the first three fail with the error above, without the\nrebuild the first two return ids 673, 677 and 681, and without the\nreinit solve the #6790 shapes return the first round's rows for every\nouter row.\n\n`generated_subquery` in `tests/tests/qgen.rs` now draws `inner.col =\n(SELECT outer.col)`, which forces an InitPlan, and `rating`, which has\nno index and runs as a heap filter, with its `OFFSET` and `LIMIT`\nbounded by the inner table's size so the `EXISTS` can be true. The\nsubquery's scan then goes under its own `Gather`, rescanned per outer\nrow: the run fails 154 of 512 cases on this PR's base and 136 to 154\nwith only the reinit solve removed, with and without\n`PARADEDB_FORCE_PARALLEL`, and passes 512 of 512 here. The bitmap\nintersection's cost gate never fires on ten row tables, so the crash\nstays pinned by the regress file. The InitPlan form turns the Aggregate\nScan off for now: once Postgres pulls the `EXISTS` up into a semi join,\nthe DataFusion aggregate cannot evaluate the `SubPlan` in its join\nfilter (#6814).\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-14T22:49:14-07:00",
+          "tree_id": "57cba7b878a503e0cd95294bd7b788c7df80668d",
+          "url": "https://github.com/paradedb/paradedb/commit/444ea427b8a1c709b2a1ffae4e4eb6fb85e8cc65"
+        },
+        "date": 1792045889948,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 534.061858754574,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 510.6593824091628,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 144.06189199484885,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 258.235986081424,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 375.60840243842614,
             "unit": "queries/s"
           }
         ]

@@ -1199,9 +1199,8 @@ async fn build_source_df(
     // the Const/expression nodes retained by the first source. Generic plans
     // that parameterize predicates on both join inputs then dereference stale
     // nodes during reader construction and abort the backend.
-    let source_query = scan_info.mode.query().clone();
     let needs_runtime_context =
-        source_query.has_postgres_expressions() || source_query.has_parameters();
+        scan_info.mode.has_postgres_expressions() || scan_info.mode.has_parameters();
     // Only the EXPLAIN-only rebuild has no planstate. It preserves runtime
     // expressions without solving them, so the fallback context is never reset.
     let source_expr_context = if needs_runtime_context {

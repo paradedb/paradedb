@@ -280,14 +280,14 @@ impl ExtractedDataFusionTarget {
         &self.runtime
     }
 
-    pub fn filter_predicates(&self) -> Vec<JoinLevelSearchPredicate> {
+    pub fn filter_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
         let mut found = Vec::new();
         for agg in &self.runtime.aggregates {
             if let Some(filter) = &agg.filter {
                 filter.collect_search_predicates(&mut found);
             }
         }
-        found.into_iter().cloned().collect()
+        found.into_iter().map(|(pos, p)| (pos, p.clone())).collect()
     }
 
     /// The runtime metadata and the raw `TargetEntry`s it describes, both

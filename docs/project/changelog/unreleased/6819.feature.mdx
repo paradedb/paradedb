@@ -2,4 +2,4 @@
 header: features
 ---
 
-Search operators (`|||`, `&&&`, `@@@`) inside a per-aggregate `FILTER (WHERE ...)` clause, such as `COUNT(*) FILTER (WHERE a.body ||| 'database')`, are now pushed down for aggregates over joins and other aggregates that run on the DataFusion backend. Each predicate is evaluated once by the index during the scan instead of row by row in Postgres, and the filtered aggregate can be selected, used in `HAVING`, or used to rank groups in `ORDER BY`. A `FILTER` search predicate that references more than one table or a generic prepared-statement parameter still falls back to native Postgres execution (#6819).
+Search operators (`|||`, `&&&`, `@@@`) inside aggregate `FILTER (WHERE ...)` clauses are now pushed down for aggregates over joins and other DataFusion-backed aggregates (#6819).

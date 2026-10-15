@@ -296,6 +296,31 @@ GROUP BY category
 ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- Test 2.14: search predicates in FILTER with prepared parameters and runtime
+-- expressions under both custom and generic plans.
+PREPARE df_filter_search_param(text) AS
+SELECT category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE description ||| $1) AS matched
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee'
+GROUP BY category
+ORDER BY category;
+
+SET plan_cache_mode = force_custom_plan;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE df_filter_search_param('laptop');
+EXECUTE df_filter_search_param('laptop');
+
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE df_filter_search_param('laptop');
+EXECUTE df_filter_search_param('laptop');
+EXECUTE df_filter_search_param('shoes');
+
+RESET plan_cache_mode;
+DEALLOCATE df_filter_search_param;
+
 -- =====================================================================
 -- SECTION 3: Parity — DataFusion fallback vs Postgres native
 -- =====================================================================

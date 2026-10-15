@@ -336,12 +336,6 @@ impl JoinKeyPair {
 /// A join-level search predicate - a search query that applies to a specific relation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JoinLevelSearchPredicate {
-    /// The RTI of the relation this predicate applies to (used for column resolution).
-    pub rti: pg_sys::Index,
-    /// The OID of the ParadeDB index to use.
-    pub indexrelid: pg_sys::Oid,
-    /// The OID of the heap relation for visibility checks.
-    pub heaprelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
 }
@@ -1089,8 +1083,8 @@ impl RelNode {
         .unwrap_or(false)
     }
 
-    /// Recursively collects all search predicates in this tree.
-    pub fn search_predicates(&self) -> Vec<JoinLevelSearchPredicate> {
+    /// Recursively collects all `(plan_position, predicate)` pairs in this tree.
+    pub fn search_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
         let mut predicates = Vec::new();
         let _ = self.apply(|node| {
             if let Self::Filter(f) = node {
@@ -1103,7 +1097,10 @@ impl RelNode {
             }
             Ok(TreeNodeRecursion::Continue)
         });
-        predicates.into_iter().map(|(_, p)| p.clone()).collect()
+        predicates
+            .into_iter()
+            .map(|(pos, p)| (pos, p.clone()))
+            .collect()
     }
 
     /// Recursively collects all multi-table predicates in this tree.
@@ -2091,7 +2088,7 @@ impl JoinCSClause {
 /// Configures `ScanMode::Tagged` on each join source that participates in `predicates`.
 pub fn assign_tagged_queries<'a>(
     sources: impl IntoIterator<Item = &'a mut JoinSource>,
-    predicates: &[JoinLevelSearchPredicate],
+    predicates: &[(usize, JoinLevelSearchPredicate)],
 ) {
     if predicates.is_empty() {
         return;
@@ -2102,15 +2099,20 @@ pub fn assign_tagged_queries<'a>(
         let local_queries: Vec<crate::scan::TaggedQuery> = predicates
             .iter()
             .enumerate()
-            .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
+            .filter(|(_, (plan_pos, _))| *plan_pos == source.plan_position)
             .enumerate()
-            .map(|(local_idx, (global_idx, p))| crate::scan::TaggedQuery {
-                tag_name: format!("__{alias}_tag_{local_idx}"),
-                tag_idx: crate::scan::TagIndex(local_idx),
-                predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
-                query: Box::new(p.query.clone()),
-            })
+            .map(
+                |(local_idx, (global_idx, (_, p)))| crate::scan::TaggedQuery {
+                    tag_name: format!("__{alias}_tag_{local_idx}"),
+                    tag_idx: crate::scan::TagIndex(local_idx),
+                    predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
+                    query: Box::new(p.query.clone()),
+                },
+            )
             .collect();
+        if !local_queries.is_empty() {
+            source.scan_info.has_search_predicate = true;
+        }
         let base_query = source.scan_info.mode.query().clone();
         source.scan_info.mode = crate::scan::ScanMode::tagged(base_query, local_queries);
     }

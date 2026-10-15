@@ -1697,12 +1697,6 @@ impl FilterExpr {
         plan: &RelNode,
         node: *mut pg_sys::Node,
     ) -> Option<Self> {
-        // Same contract as apply_search_filter_or_decline: the DataFusion
-        // aggregate executor can't bind PARAM_EXTERN in scan queries.
-        if node.contains_extern_param() {
-            return None;
-        }
-
         // Must reference exactly one relation (the lhs Var, ctid and row args all share it).
         let rtis = node.collect_rtis();
         if rtis.len() != 1 {
@@ -1715,6 +1709,11 @@ impl FilterExpr {
             .into_iter()
             .find(|s| s.contains_rti(rti))?;
         let pred = unsafe { extract_single_table_predicate(root, rti, &source.scan_info, node) }?;
+        // Tagged queries compile via `SearchIndexReader::compile_match_weight`,
+        // which does not thread an `ExprContext` for per-row heap filter evaluation.
+        if pred.query.has_heap_filters() {
+            return None;
+        }
 
         Some(Self::SearchTag {
             plan_position: source.plan_position,

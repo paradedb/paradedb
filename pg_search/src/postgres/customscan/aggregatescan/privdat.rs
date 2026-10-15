@@ -96,10 +96,16 @@ impl FilterExpr {
         }
     }
 
-    /// Collects every FILTER search predicate in this tree.
-    pub fn collect_search_predicates<'a>(&'a self, out: &mut Vec<&'a JoinLevelSearchPredicate>) {
+    /// Collects every FILTER `(plan_position, predicate)` pair in this tree.
+    pub fn collect_search_predicates<'a>(
+        &'a self,
+        out: &mut Vec<(usize, &'a JoinLevelSearchPredicate)>,
+    ) {
         match self {
-            FilterExpr::SearchTag { predicate, .. } => out.push(predicate),
+            FilterExpr::SearchTag {
+                plan_position,
+                predicate,
+            } => out.push((*plan_position, predicate)),
             FilterExpr::BinOp { left, right, .. } => {
                 left.collect_search_predicates(out);
                 right.collect_search_predicates(out);

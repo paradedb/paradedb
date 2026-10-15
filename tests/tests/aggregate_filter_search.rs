@@ -245,7 +245,6 @@ fn filter_search_operator_variants(#[case] predicate: &str, mut conn: PgConnecti
                    COUNT(*) FILTER (WHERE {predicate}) AS filtered
             FROM articles a
             JOIN authors u ON a.author_id = u.author_id
-            WHERE a.id @@@ pdb.all()
             GROUP BY a.author_id
             ORDER BY a.author_id
             "#
@@ -269,7 +268,6 @@ fn multiple_distinct_search_filters(mut conn: PgConnection) {
                SUM(a.views) FILTER (WHERE a.body ||| 'database') AS db_views
         FROM articles a
         JOIN authors u ON a.author_id = u.author_id
-        WHERE a.id @@@ pdb.all()
         GROUP BY a.author_id
         ORDER BY a.author_id
         "#,
@@ -447,8 +445,8 @@ fn single_table_datafusion_search_filter(mut conn: PgConnection) {
     assert_eq!(rows, vec![(1, 3, 2), (2, 1, 1), (3, 2, 0), (4, 1, 1)]);
 }
 
-/// A search FILTER whose query string is a bound parameter. The plan may or
-/// may not push down a generic-plan Param, but results must stay correct.
+/// A search FILTER whose query string is a bound parameter must push down to
+/// the DataFusion aggregate scan in both custom and generic prepared-plan modes.
 #[rstest]
 fn search_filter_with_bound_parameter(mut conn: PgConnection) {
     setup_articles(&mut conn);
@@ -473,8 +471,9 @@ fn search_filter_with_bound_parameter(mut conn: PgConnection) {
         format!("SET plan_cache_mode TO {mode}").execute(&mut conn);
         for term in ["database", "search"] {
             "SET paradedb.enable_aggregate_custom_scan TO on".execute(&mut conn);
-            let pushed_down =
-                format!("EXECUTE filtered_by_term('{term}')").fetch::<(i32, i64)>(&mut conn);
+            let exec_sql = format!("EXECUTE filtered_by_term('{term}')");
+            assert_uses_datafusion_aggregate_scan(&mut conn, &exec_sql);
+            let pushed_down = exec_sql.fetch::<(i32, i64)>(&mut conn);
 
             "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
             let native = query(&format!("'{term}'")).fetch::<(i32, i64)>(&mut conn);

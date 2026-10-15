@@ -951,8 +951,8 @@ LATERAL (
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: "*VALUES*".column1, account_id, (count(*))
    Sort Key: "*VALUES*".column1
@@ -969,7 +969,7 @@ ORDER BY 1;
                  : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
                  :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
                  :     CooperativeExec
-                 :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(account_id = $1)"}]}}]}}
+                 :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(account_id = $1)"}]}}]}}
 (17 rows)
 
 SELECT outer_values.account_id AS outer_account_id, grouped.*

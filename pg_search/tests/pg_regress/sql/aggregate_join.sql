@@ -1179,7 +1179,6 @@ SELECT p.category,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.id @@@ pdb.all()
 GROUP BY p.category;
 
 SELECT p.category,
@@ -1190,7 +1189,6 @@ SELECT p.category,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.id @@@ pdb.all()
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -1204,7 +1202,6 @@ SELECT p.category,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.id @@@ pdb.all()
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;

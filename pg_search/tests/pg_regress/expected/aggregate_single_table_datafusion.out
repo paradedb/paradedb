@@ -583,6 +583,84 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (5 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 2.14: search predicates in FILTER with prepared parameters and runtime
+-- expressions under both custom and generic plans.
+PREPARE df_filter_search_param(text) AS
+SELECT category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE description ||| $1) AS matched
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee'
+GROUP BY category
+ORDER BY category;
+SET plan_cache_mode = force_custom_plan;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE df_filter_search_param('laptop');
+                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(1) FILTER (WHERE df_fallback_products_0.__df_fallback_products_0_tag_0) as agg_1]
+           :   CooperativeExec
+           :     PgSearchScan: table=df_fallback_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR robot OR coffee","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+EXECUTE df_filter_search_param('laptop');
+  category   | total | matched 
+-------------+-------+---------
+ Clothing    |     1 |       0
+ Electronics |     2 |       2
+ Kitchen     |     1 |       0
+ Sports      |     1 |       0
+ Toys        |     1 |       0
+(5 rows)
+
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE df_filter_search_param('laptop');
+                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(1) FILTER (WHERE df_fallback_products_0.__df_fallback_products_0_tag_0) as agg_1]
+           :   CooperativeExec
+           :     PgSearchScan: table=df_fallback_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR robot OR coffee","lenient":null,"conjunction_mode":null}}}}, tag_0={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('df_fallback_products_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}}
+(11 rows)
+
+EXECUTE df_filter_search_param('laptop');
+  category   | total | matched 
+-------------+-------+---------
+ Clothing    |     1 |       0
+ Electronics |     2 |       2
+ Kitchen     |     1 |       0
+ Sports      |     1 |       0
+ Toys        |     1 |       0
+(5 rows)
+
+EXECUTE df_filter_search_param('shoes');
+  category   | total | matched 
+-------------+-------+---------
+ Clothing    |     1 |       0
+ Electronics |     2 |       0
+ Kitchen     |     1 |       0
+ Sports      |     1 |       1
+ Toys        |     1 |       0
+(5 rows)
+
+RESET plan_cache_mode;
+DEALLOCATE df_filter_search_param;
 -- =====================================================================
 -- SECTION 3: Parity — DataFusion fallback vs Postgres native
 -- =====================================================================

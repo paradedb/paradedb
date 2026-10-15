@@ -1642,14 +1642,15 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     Ok(bounds)
 }
 
-fn get_range_query_from_bounds(
-    lower_bound: Bound<PdbOwnedValue>,
-    upper_bound: Bound<PdbOwnedValue>,
+/// The bounds must already be in the field's stored form.
+fn range_query_from_bounds(
+    search_field: &SearchField,
     field: &FieldName,
     index_created_by_version: Option<Version>,
-    search_field: &SearchField,
-    field_type: &FieldType,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<RangeQuery> {
+    let field_type = search_field.field_entry().field_type();
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
             search_field.field(),
@@ -1715,7 +1716,6 @@ fn range(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    let field_type = search_field.field_entry().field_type();
     let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
         &search_field,
         index_created_by_version,
@@ -1723,13 +1723,12 @@ fn range(
         upper_bound,
     )?;
 
-    get_range_query_from_bounds(
-        lower_bound,
-        upper_bound,
+    range_query_from_bounds(
+        &search_field,
         field,
         index_created_by_version,
-        &search_field,
-        field_type,
+        lower_bound,
+        upper_bound,
     )
 }
 
@@ -1746,15 +1745,13 @@ fn stored_range(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    let field_type = search_field.field_entry().field_type();
 
-    get_range_query_from_bounds(
-        lower_bound,
-        upper_bound,
+    range_query_from_bounds(
+        &search_field,
         field,
         index_created_by_version,
-        &search_field,
-        field_type,
+        lower_bound,
+        upper_bound,
     )
 }
 

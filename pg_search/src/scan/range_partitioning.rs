@@ -227,8 +227,10 @@ pub struct RangeSplitPoints {
     /// partition cut on them lines up with the segments. Typically there are more than the
     /// target number of partitions, so `build` can down-sample them evenly.
     ///
-    /// The default `PdbOwnedValue` serde is lossy e.g. a non-negative `I64` comes back as `U64`, so the
-    /// entries carry the exact scalar wire form the kd-tree also ships over the DSM.
+    /// The default `PdbOwnedValue` serde is lossy (a non-negative `I64` comes back as `U64`, and
+    /// `Bytes` as a base64 `Str`), so the entries carry the exact scalar wire form the kd-tree also
+    /// ships over the DSM. That wire carries scalars only, and so do the segment boxes these points
+    /// are read from, so a point is never `Null`.
     #[serde(with = "exact_points_wire")]
     pub points: Vec<PdbOwnedValue>,
 }

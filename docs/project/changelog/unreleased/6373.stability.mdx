@@ -2,4 +2,4 @@
 header: stability
 ---
 
-Parallel SQL joins between ParadeDB-indexed tables now preserve NUMERIC range boundaries when planning and dispatching scans across workers, preventing partition skew and conversion failures.
+Range-partitioned parallel joins on `NUMERIC` columns no longer skew every row into the first partition, and no longer fail for `NUMERIC` columns without a precision.

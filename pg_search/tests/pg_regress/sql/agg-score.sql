@@ -52,7 +52,8 @@ SELECT count(*) FROM mock_items WHERE description ||| 'keyboard' AND paradedb.sc
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 
-SELECT sum(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
+-- Parallel real sums can round differently depending on how workers split the rows.
+SELECT round(sum(paradedb.score(id))::numeric, 6) AS sum FROM mock_items WHERE description ||| 'keyboard';
 
 -- Test case 6: Without parallel to verify it works in non-parallel mode too
 SET debug_parallel_query = off;

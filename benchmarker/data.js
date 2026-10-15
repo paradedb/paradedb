@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792087370097,
+  "lastUpdate": 1792088581765,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -12157,6 +12157,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 207.339,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wangkhc@163.com",
+            "name": "Kaihong.Wang",
+            "username": "wangkhc"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9f9dadcde6ed29c2f9f7d37a4ec3099d202f7cc",
+          "message": "fix: merge small segments when every background layer exceeds the target segment size (#6761)\n\n# Ticket(s) Closed\n\n- Closes #6760\n\n## What\n\nMerges small segments up to the target segment size when every\nbackground layer is larger than it, instead of not merging them at all.\n\n## Why\n\n`IndexLayerSizes` drops background layers larger than the target segment\nsize, `index_byte_size / target_segment_count` less a third. When even\nthe smallest layer is larger, no layer is left. `LayeredMergePolicy`\nthen finds no candidates, so small segments pile up past\n`target_segment_count` and are never merged.\n\nThis hits small indexes on hosts with many cores, because the default\n`target_segment_count` is `available_parallelism()`. On a 224-core host\na 4.5 MB index gets a target segment size of about 14 KB, below the\nsmallest default layer of 100 KB. The index stays unmerged until it\ngrows past about `target_segment_count × 150 KB`.\n\n## How\n\nWhen the clamp leaves no background layer, use the target segment size\nas the only layer.\n\nThat layer is smaller than every configured layer, so it can't cause the\nlarge merges that the existing `NB` comment warns about when appending\nthe target size unconditionally. Indexes where at least one configured\nlayer survives the clamp are unchanged, and so are indexes with\nbackground merging disabled.\n\nThe computation moved out of `From<&PgSearchRelation>` into\n`IndexLayerSizes::new` so it can be tested without building an index.\n\n## Tests\n\nUnit tests for `IndexLayerSizes::new` cover the normal clamp, the case\nwhere it removes every layer, an index already at\n`target_segment_count`, and background merging disabled. `cargo pgrx\ntest pg17 merge` passes (33 tests).\n\n`index_sort_by_many_segments` and `index_sort_by_many_segments_parallel`\nbuild a 100+ segment index from small insert batches, and only got those\nsegments because of this bug. Now that the segments merge, the count\ndepended on whether the background merger finished first. Both indexes\nnow set `background_layer_sizes = '0'`, like other tests that need many\nsegments.\n\nEnd to end, on a 224-core host with the default `target_segment_count`\nand `mutable_segment_rows = 0`, 16 clients ran single-row inserts for 30\nseconds (`pgbench -c 16 -T 30`). Both runs used debug builds:\n\n| build | segments / rows | background merger |\n| --- | --- | --- |\n| `main` | 2255 / 2255 | never started |\n| this PR | 576 / 2108 | running throughout |",
+          "timestamp": "2026-10-15T09:57:10-07:00",
+          "tree_id": "dea2086e1630e0cb9aea1886e0af1abeafe5f5ee",
+          "url": "https://github.com/paradedb/paradedb/commit/f9f9dadcde6ed29c2f9f7d37a4ec3099d202f7cc"
+        },
+        "date": 1792088570500,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 93.643,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 343.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.164,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.388,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 184.256,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.87,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 147.205,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 209.62,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.299,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 196.632,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.468,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.831,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 182.408,
             "unit": "ms"
           }
         ]

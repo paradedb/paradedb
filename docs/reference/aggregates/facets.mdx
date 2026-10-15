@@ -135,7 +135,7 @@ SELECT
   in_stock,
   COUNT(*) AS group_rows,
   COUNT(*) OVER () AS total_groups,
-  pdb.combine_agg(pdb.agg('{"terms": {"field": "category"}}')) OVER () AS categories
+  pdb.combine_agg(pdb.agg('{"terms": {"field": "rating"}}')) OVER () AS ratings
 FROM mock_items
 WHERE description ||| 'shoes'
 GROUP BY in_stock

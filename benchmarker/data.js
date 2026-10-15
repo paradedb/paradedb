@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792080600120,
+  "lastUpdate": 1792080613346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16230,6 +16230,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 374.8757996908636,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "151375781+abelmarnk@users.noreply.github.com",
+            "name": "abelmarnk",
+            "username": "abelmarnk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "624d4be700ce40e2083827daeaa82d9e4434620b",
+          "message": "fix: prevent double-conversion of range partition bounds for NUMERIC fields (#6104) (#6373)\n\n## Ticket(s) Closed\n\n- Closes #6104\n\n## What\n\nRange-partitioned joins on NUMERIC fields were treating partition\nboundaries that were already encoded in the index’s stored\nrepresentation as ordinary user-input values.\n\nThis caused two distinct problems:\n\n- `Numeric64` boundaries were scaled a second time. For example, `1.23`,\nalready stored as `I64(123)` for a scale-2 field, could be converted to\n`12300`, skewing the executed partitions.\n- `NumericBytes` boundaries were already encoded as sortable bytes and\ncould not pass through the user-input NUMERIC conversion path correctly.\n\nSplit points also cross JSON boundaries while being dispatched to\nworkers. The default `PdbOwnedValue` serialization could change positive\n`I64` values into `U64` values and byte values into strings, so their\nexact stored representation was not guaranteed to survive transport.\n\n## Why\n\n`Query::Range` accepts logical/user-form values and converts them into\nthe representation used by the index.\n\nRange partition boundaries are different: they are sampled from the\nindex and are already in stored form. Applying the user-input conversion\nto them again changes their meaning or makes them invalid.\n\n## How\n\n- Added `Query::StoredRange` for range bounds that are already in stored\nform.\n- Refactored range-query construction so `Range` and `StoredRange` share\nfinal Tantivy query construction while only `Range` performs user-input\nconversion.\n- Updated range partition pruning to emit `StoredRange`.\n- Added exact element-wise serialization for `RangeSplitPoints::points`,\npreserving `I64` and `Bytes` values across worker transport.\n- Added `BinaryView + PdbOwnedValue::Bytes` conversion so `NumericBytes`\nsplit points can be represented in DataFusion range partitioning.\n- Added the `StoredRange` variant to base-scan predicate detection.\n- Added a stability changelog entry.\n\n## Tests\n\n- Added real-index execution coverage for `Numeric64` and `NumericBytes`\npartition bounds, asserting the exact document IDs returned from the\nmiddle partition.\n- Added a JSON round-trip test confirming that `RangeSplitPoints`\npreserves exact `I64` and `Bytes` values.\n- Added DataFusion conversion coverage for `NumericBytes`/`BinaryView`\nsplit points.\n- Added SQL regression coverage comparing serial and MPP execution\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-15T08:27:19-07:00",
+          "tree_id": "f99a6d0a6d4ac7a34c0ffd976ab15386e7e48e10",
+          "url": "https://github.com/paradedb/paradedb/commit/624d4be700ce40e2083827daeaa82d9e4434620b"
+        },
+        "date": 1792080602747,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 530.9850509389676,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 509.4800729728621,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 264.3107656052185,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 258.332662136865,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 375.68655717885616,
             "unit": "queries/s"
           }
         ]

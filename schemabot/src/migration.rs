@@ -51,6 +51,67 @@ pub fn check(expected: &str, fragments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+// Manual coverage proves only that a fragment addresses the affected object;
+// reviewers still need to check that its ALTER or DROP implements the change.
+pub fn check_manual(expected: &str, fragments: &[String]) -> Result<(), String> {
+    use pg_query::NodeEnum;
+    let mut actual = HashSet::new();
+    for fragment in fragments {
+        for statement in crate::sql::parse(fragment)? {
+            match statement.node.node {
+                Some(NodeEnum::AlterTypeStmt(node)) => {
+                    actual
+                        .insert(serde_json::to_string(&node.type_name).map_err(|e| e.to_string())?);
+                }
+                Some(NodeEnum::AlterEnumStmt(node)) => {
+                    actual
+                        .insert(serde_json::to_string(&node.type_name).map_err(|e| e.to_string())?);
+                }
+                Some(NodeEnum::DropStmt(node))
+                    if node.remove_type == pg_query::protobuf::ObjectType::ObjectType as i32 =>
+                {
+                    for object in node.objects {
+                        if let Some(NodeEnum::TypeName(name)) = object.node {
+                            actual.insert(
+                                serde_json::to_string(&name.names).map_err(|e| e.to_string())?,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut missing = Vec::new();
+    for statement in crate::sql::parse(expected)? {
+        let names = match &statement.node.node {
+            Some(NodeEnum::CreateEnumStmt(node)) => Some(&node.type_name),
+            Some(NodeEnum::DefineStmt(node))
+                if node.kind == pg_query::protobuf::ObjectType::ObjectType as i32 =>
+            {
+                Some(&node.defnames)
+            }
+            _ => None,
+        };
+        let covered = names
+            .map(|names| serde_json::to_string(names).map(|key| actual.contains(&key)))
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(false);
+        if !covered {
+            missing.push(format!("{};", statement.source));
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "manual migration required for these objects (add an ALTER TYPE or DROP TYPE targeting the same type; other object kinds require SchemaBot support):\n{}",
+            missing.join("\n")
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

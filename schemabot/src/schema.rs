@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 pub struct Diff {
     pub sql: String,
     pub manual: Vec<String>,
+    pub manual_sql: String,
 }
 
 pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Diff, String> {
@@ -52,6 +53,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
     }
 
     let mut manual = Vec::new();
+    let mut manual_sql = String::new();
     let mut drops = Vec::new();
     let mut owner_changes = Vec::new();
     let mut consumed = HashSet::new();
@@ -65,6 +67,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
             Ok(None) => continue,
             Err(error) => {
                 manual.push(error);
+                manual_sql.push_str(&format!("{};\n", statement.source));
                 continue;
             }
         };
@@ -72,16 +75,20 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
             if matches!(statement.node.node, Some(NodeEnum::CreateSchemaStmt(_))) {
                 match schema_owner(statement, replacement) {
                     Ok(sql) => owner_changes.push(sql),
-                    Err(error) => manual.push(error),
+                    Err(error) => {
+                        manual.push(error);
+                        manual_sql.push_str(&format!("{};\n", statement.source));
+                    }
                 }
                 consumed.insert(&replacement.comparison);
                 continue;
             }
             if !removal.replaceable {
                 manual.push(format!(
-                    "cannot replace this object automatically; migrate manually:\n{}",
-                    statement.source
+                    "cannot replace this object automatically; migrate manually:\nBefore:\n{}\nAfter:\n{}",
+                    statement.source, replacement.source
                 ));
+                manual_sql.push_str(&format!("{};\n", statement.source));
                 consumed.insert(&replacement.comparison);
                 continue;
             }
@@ -107,6 +114,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
     Ok(Diff {
         sql: output,
         manual,
+        manual_sql,
     })
 }
 

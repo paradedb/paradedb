@@ -66,11 +66,71 @@ BEGIN
         p_expected_text, p_query, chr(10) || full_plan;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Many concurrent writers running small upserts, the workload from
+-- https://github.com/paradedb/paradedb/issues/6796, where inserts under backpressure did not
+-- launch the background merger and immutable segments piled up for as long as the writers ran.
+-- VACUUM launches the background merger regardless of backpressure, so keep it off this table.
+DROP TABLE IF EXISTS upserts CASCADE;
+CREATE TABLE upserts (
+    id BIGINT NOT NULL PRIMARY KEY,
+    body TEXT,
+    title TEXT
+) WITH (autovacuum_enabled = false);
+
+INSERT INTO upserts (id, body, title)
+SELECT id, md5(id::text) || ' ' || md5((id * 7)::text), md5(id::text)
+FROM generate_series(1, 200000) AS id;
+
+CREATE INDEX idxupserts ON upserts USING paradedb (id, body, title) WITH (target_segment_count = 16);
+
+DROP TABLE IF EXISTS segment_sightings, segment_counts;
+CREATE UNLOGGED TABLE segment_sightings (
+    segno TEXT PRIMARY KEY,
+    num_docs NUMERIC,
+    last_seen TIMESTAMPTZ NOT NULL
+);
+CREATE UNLOGGED TABLE segment_counts (
+    sampled_at TIMESTAMPTZ PRIMARY KEY,
+    immutable_segments BIGINT NOT NULL
+);
+
+-- With no foreground layers configured, foreground merges only take mutable and empty segments,
+-- and VACUUM is off, so a non-empty immutable segment can only disappear into a background merge.
+CREATE OR REPLACE FUNCTION assert_background_merging(merge_window INTERVAL, max_growth BIGINT)
+RETURNS BIGINT LANGUAGE plpgsql AS $$
+DECLARE
+    sampled_now TIMESTAMPTZ := clock_timestamp();
+    segments_now BIGINT;
+    segments_then BIGINT;
+    merged_away BIGINT;
+BEGIN
+    INSERT INTO segment_sightings (segno, num_docs, last_seen)
+    SELECT segno, num_docs, sampled_now FROM paradedb.index_info('idxupserts') WHERE NOT mutable
+    ON CONFLICT (segno) DO UPDATE SET num_docs = EXCLUDED.num_docs, last_seen = EXCLUDED.last_seen;
+    GET DIAGNOSTICS segments_now = ROW_COUNT;
+    INSERT INTO segment_counts VALUES (sampled_now, segments_now);
+
+    SELECT immutable_segments INTO segments_then FROM segment_counts
+    WHERE sampled_at <= sampled_now - merge_window ORDER BY sampled_at DESC LIMIT 1;
+    SELECT count(*) INTO merged_away FROM segment_sightings
+    WHERE last_seen < sampled_now AND last_seen >= sampled_now - merge_window AND num_docs > 0;
+
+    DELETE FROM segment_counts WHERE sampled_at < sampled_now - 2 * merge_window;
+    DELETE FROM segment_sightings WHERE last_seen < sampled_now - 2 * merge_window;
+
+    IF segments_now - segments_then > max_growth AND merged_away = 0 THEN
+        RAISE EXCEPTION 'Assertion failed: idxupserts grew from % to % immutable segments in % and none were merged away',
+            segments_then, segments_now, merge_window;
+    END IF;
+    RETURN merged_away;
+END;
+$$;
 """
 
 [server.teardown]
 sql = """
-DROP TABLE test CASCADE;
+DROP TABLE test, upserts, segment_sightings, segment_counts CASCADE;
 DROP EXTENSION pg_search CASCADE;
 """
 [server.monitor]
@@ -115,6 +175,191 @@ sql = """
 UPDATE test
 SET severity = (severity + 1) % 5
 WHERE id < 10000;
+"""
+
+[[jobs]]
+refresh_ms = 1000
+title = "Background Merging"
+log_tps = false
+log_columns = ["merged_away"]
+sql = """
+SELECT assert_background_merging('60 seconds', 16) AS merged_away;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 1"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 1 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 2"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 12501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 3"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 25001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 4"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 37501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 5"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 50001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 6"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 62501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 7"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 75001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 8"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 87501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 9"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 100001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 10"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 112501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 11"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 125001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 12"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 137501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 13"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 150001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 14"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 162501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 15"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 175001 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
+"""
+
+[[jobs]]
+refresh_ms = 1
+title = "Upsert 16"
+log_tps = true
+sql = """
+INSERT INTO upserts (id, body, title)
+SELECT g, md5(g::text) || ' ' || md5(random()::text), md5(random()::text)
+FROM (SELECT 187501 + (random() * 12400)::int8 AS b) s, generate_series(s.b, s.b + 99) AS g
+ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, title = EXCLUDED.title;
 """
 
 #[[jobs]]

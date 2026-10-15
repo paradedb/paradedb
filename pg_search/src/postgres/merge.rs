@@ -361,6 +361,12 @@ pub unsafe fn do_merge(
             current_xid.expect("foreground merging requires a current transaction id"),
             next_xid.expect("foreground merging requires a next transaction id"),
         );
+
+        // The foreground merge only covers the foreground layers, so the background layers still
+        // need a merger.
+        if needs_background_merge {
+            try_launch_background_merger(index, largest_layer_size);
+        }
     }
 
     // merge_lock is dropped here

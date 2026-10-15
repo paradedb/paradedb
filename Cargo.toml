@@ -69,7 +69,7 @@ pgrx-tests = "=0.19.3"
 
 # Keep the Git revisions for `tantivy`, `tantivy-common`, and the crates.io
 # patches in sync.
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "81f847d0fbd6b9115b752b9ada2ef14981f5e84e", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "5faab2d3b6ff589f84a4f4f7ab265674121eac19", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -78,12 +78,12 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stemmer",
   "stopwords",
 ], default-features = false }
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "81f847d0fbd6b9115b752b9ada2ef14981f5e84e" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "5faab2d3b6ff589f84a4f4f7ab265674121eac19" }
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "81f847d0fbd6b9115b752b9ada2ef14981f5e84e" }
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "81f847d0fbd6b9115b752b9ada2ef14981f5e84e" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "5faab2d3b6ff589f84a4f4f7ab265674121eac19" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "5faab2d3b6ff589f84a4f4f7ab265674121eac19" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

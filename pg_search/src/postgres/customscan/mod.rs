@@ -318,6 +318,20 @@ impl CreateUpperPathsHookArgs {
         }
     }
 
+    /// The underlying scan/join relation (`RELOPT_BASEREL` or `RELOPT_JOINREL`).
+    ///
+    /// At `UPPERREL_GROUP_AGG` and `UPPERREL_DISTINCT`, `input_rel` is the
+    /// scan/join relation directly. At `UPPERREL_FINAL`, `input_rel` is an
+    /// upper relation (`UPPERREL_WINDOW` or `UPPERREL_ORDERED`), so the
+    /// scan/join relation is recovered via `find_final_rel`.
+    pub unsafe fn scan_join_rel(&self) -> Option<&pg_sys::RelOptInfo> {
+        if self.stage == pg_sys::UpperRelationKind::UPPERREL_FINAL {
+            joinscan::planning::find_final_rel(self.root).as_ref()
+        } else {
+            self.input_rel.as_ref()
+        }
+    }
+
     /// The pathkeys of the GROUP BY keys.
     ///
     /// On PG16 and later, `group_pathkeys` can have more entries after these:

@@ -17,6 +17,21 @@ FROM generate_series(1, 100) AS i;
 -- tags is deliberately excluded from the ParadeDB index to trigger heap filter evaluation
 CREATE INDEX issue_6739_repro_idx ON issue_6739_repro USING paradedb (id, body);
 -- Test evaluating allocating functions like jsonb_build_array in heap filter predicates
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM issue_6739_repro
+WHERE body @@@ 'document'
+  AND tags @> jsonb_build_array('tag_1');
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Base Scan) on issue_6739_repro
+         Table: issue_6739_repro
+         Index: issue_6739_repro_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"document","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(tags @> jsonb_build_array('tag_1'::text))"}]}}]}}
+(7 rows)
+
 SELECT count(*) FROM issue_6739_repro
 WHERE body @@@ 'document'
   AND tags @> jsonb_build_array('tag_1');
@@ -24,6 +39,25 @@ WHERE body @@@ 'document'
 -------
     20
 (1 row)
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM issue_6739_repro
+WHERE body @@@ 'document'
+  AND (
+    tags @> jsonb_build_array('never1')
+    OR tags @> jsonb_build_array('never2')
+    OR tags @> jsonb_build_array('never3')
+  );
+                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Base Scan) on issue_6739_repro
+         Table: issue_6739_repro
+         Index: issue_6739_repro_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"document","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"((tags @> jsonb_build_array('never1'::text)) OR (tags @> jsonb_build_array('never2'::text)) OR (tags @> jsonb_build_array('never3'::text)))"}]}}]}}
+(7 rows)
 
 SELECT count(*) FROM issue_6739_repro
 WHERE body @@@ 'document'

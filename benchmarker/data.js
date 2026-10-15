@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792106719612,
+  "lastUpdate": 1792106733091,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18989,6 +18989,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 35.808308067679874,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd90fc9bfc7a9431ed6fb0e872b9efff68e997df",
+          "message": "fix: omit latency results for unmet recall targets (#6846)\n\n## What\n\nShow **⚠️ Not reached** in the Cohere summary when a recall target is\nmissed, with no parameter or latency numbers in that cell. Unmet targets\nalso produce no latency series for publication or comparison.\n\n## Why\n\nA sweep that stopped at 86% recall still measured its best available\npoint under `@r90`, `@r95`, and `@r99`. The latency tables then\npresented those measurements as though the requested recall had been\nachieved.\n\n## How\n\nOnly reached targets carry a query into latency measurement. Keep the\nachieved recall and unmet-target status in the sweep summary, and render\nthe unmet cell as an alert. This changes reporting and publication;\nprobe settings and the plateau stopping rule are unchanged.\n\n## Tests\n\n- `cargo test -p benchmarks --bin benchmarks --locked`: 36 passed,\nincluding reached, unmet, and plateau selection cases.\n- Executed the workflow table renderer against mixed reached/unmet\nresults, stale numeric fields on unmet rows, a missing dataset size, and\nempty summaries.\n- Repository commit hooks, including workflow lint, formatting,\nworkspace Clippy, cargo check, and documentation checks.",
+          "timestamp": "2026-10-15T13:43:21-07:00",
+          "tree_id": "9285215113ab524c4406832da501a546b19e8028",
+          "url": "https://github.com/paradedb/paradedb/commit/bd90fc9bfc7a9431ed6fb0e872b9efff68e997df"
+        },
+        "date": 1792106724447,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.524375447940425,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.162996230624437,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.501193012575587,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.00543616892728,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.43894962927087,
             "unit": "queries/s"
           }
         ]

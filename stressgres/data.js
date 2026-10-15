@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791967129598,
+  "lastUpdate": 1792050982659,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -330488,6 +330488,52 @@ window.BENCHMARK_DATA = {
             "value": 24.6243444288326,
             "unit": "median tps",
             "extra": "avg tps: 39.57470419090731, max tps: 411.0451238817874, count: 59308"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792050972604,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 25.833092294440533,
+            "unit": "median tps",
+            "extra": "avg tps: 39.42727181613466, max tps: 383.8041360498134, count: 59296"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 25.365419679725026,
+            "unit": "median tps",
+            "extra": "avg tps: 39.13867275490835, max tps: 390.9086847071762, count: 59296"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 28.24406187825152,
+            "unit": "median tps",
+            "extra": "avg tps: 46.11195550350188, max tps: 539.3780233660648, count: 59296"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 25.36701729025809,
+            "unit": "median tps",
+            "extra": "avg tps: 39.1697960973196, max tps: 405.2351001409763, count: 59296"
           }
         ]
       }

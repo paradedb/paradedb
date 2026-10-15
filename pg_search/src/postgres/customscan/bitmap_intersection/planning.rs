@@ -204,9 +204,7 @@ unsafe fn collect_heap_filter_nodes(sqi: &SearchQueryInput, out: &mut Vec<Covera
                                 recheck_filters,
                                 uses_tid_bitmap: false,
                                 ..
-                            } if always_filters.len() == 1
-                                && recheck_filters.is_empty() =>
-                            {
+                            } if always_filters.len() == 1 && recheck_filters.is_empty() => {
                                 Some(always_filters[0].get_expression_node())
                             }
                             _ => None,
@@ -224,9 +222,9 @@ unsafe fn collect_heap_filter_nodes(sqi: &SearchQueryInput, out: &mut Vec<Covera
             SearchQueryInput::Boost { query, .. }
             | SearchQueryInput::ConstScore { query, .. }
             | SearchQueryInput::WithIndex { query, .. } => collect_heap_filter_nodes(query, out),
-            SearchQueryInput::ScoreFilter { query, .. } => {
-                query.as_ref().is_none_or(|q| collect_heap_filter_nodes(q, out))
-            }
+            SearchQueryInput::ScoreFilter { query, .. } => query
+                .as_ref()
+                .is_none_or(|q| collect_heap_filter_nodes(q, out)),
             other => !other.has_heap_filters(),
         }
     }

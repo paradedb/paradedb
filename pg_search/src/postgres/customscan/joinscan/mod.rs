@@ -997,7 +997,6 @@ impl JoinScan {
             .collect();
         let args = ParallelScanArgs {
             all_sources,
-            query: vec![],
             with_aggregates: false,
             with_segment_info: false,
         };

@@ -24,9 +24,9 @@
 //!
 //! Serial scans iterate the leader-local TIDBitmap privately (multiple concurrent
 //! private iterators each hold their own position). Parallel scans iterate shared
-//! state: the build owner calls `tbm_prepare_shared_iterate` for every stream and
-//! publishes a claim table in a DSA area; whichever process ends up owning a
-//! segment claims its entry and attaches. A stream has one live cursor at a time:
+//! state: the build owner calls `tbm_prepare_shared_iterate` once per participant
+//! slot and publishes a claim table in a DSA area; whichever process ends up owning
+//! a segment claims its entry there. A stream has one live cursor at a time:
 //! a claim while the previous cursor is still open means a collector broke the
 //! one-scorer-per-stream invariant, and errors. Dropping the cursor releases the
 //! stream, because one execution can legitimately build a scorer for the same
@@ -211,6 +211,13 @@ impl SharedPages {
         unsafe {
             if self.iter.is_null() {
                 let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
+                // The count comes from the parallel context and the slot from the worker
+                // number, so check that they agree before indexing past the entries.
+                assert!(
+                    slot < (*header).slots,
+                    "bitmap participant slot {slot} is past the {} minted iteration states",
+                    (*header).slots
+                );
                 let state = *SharedHeader::slot_states(header).add(slot as usize);
                 self.iter = pg_sys::tbm_attach_shared_iterate(area, state);
             }
@@ -237,14 +244,14 @@ impl SharedPages {
             let offsets = if res.lossy {
                 Vec::new()
             } else {
-                let mut offsets = vec![0; OFFSETS_CAP];
+                // Sized to the page's tuples: the cache keeps every page the participant pulls.
+                let mut buffer = [0; OFFSETS_CAP];
                 let n = pg_sys::tbm_extract_page_tuple(
                     &mut res,
-                    offsets.as_mut_ptr(),
+                    buffer.as_mut_ptr(),
                     OFFSETS_CAP as u32,
                 ) as usize;
-                offsets.truncate(n);
-                offsets
+                buffer[..n].to_vec()
             };
             Some(CachedPage {
                 block: res.blockno,
@@ -351,9 +358,7 @@ impl BitmapCursorSource {
                 claims,
                 counters,
             } => {
-                // A cursor dropping during an unwind takes this lock too, so a poisoned
-                // lock is still usable, and the error below is raised with the lock
-                // released rather than poisoning it under a live cursor.
+                // Raise after the guard drops, so an error never leaves this lock poisoned.
                 let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
                 let claimed = claims.contains(&(consumer_id, segment));
                 if !claimed {

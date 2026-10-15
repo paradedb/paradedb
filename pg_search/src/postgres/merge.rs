@@ -610,7 +610,7 @@ unsafe fn merge_index(
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
     if background_slot == Some(MergeSlotVariant::Mutable) {
-        metadata.seal_mutable_segments();
+        metadata.freeze_mutable_segments();
     }
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
         .expect("should be able to open merger");

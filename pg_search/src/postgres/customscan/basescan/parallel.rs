@@ -21,13 +21,14 @@
 use std::os::raw::c_void;
 use std::ptr::NonNull;
 
+use crate::index::reader::io_stats::Trace;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 
-use pgrx::pg_sys::{Size, dsa_area, shm_toc};
+use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,11 +69,16 @@ impl ParallelScanHandle {
     }
 
     /// Worker End: flush local telemetry into DSM.
-    pub fn publish_telemetry(&self, local: &ScanTelemetry) {
+    pub fn publish_telemetry(&self, local: &ScanTelemetry, trace: Option<&Trace>) {
         debug_assert_eq!(self.role, ParallelRole::Worker);
         let dsm = unsafe { &mut *self.dsm.as_ptr() };
         dsm.set_query_count(local.query_count());
         dsm.publish_segment_info(local.segment_info());
+        if let Some(trace) = trace {
+            let hits = trace.shared_hits();
+            let _lock = dsm.acquire_mutex();
+            dsm.worker_buffer_hits.merge(hits);
+        }
     }
 
     /// Leader Shutdown: write this process's query count into DSM, snapshot
@@ -84,6 +90,24 @@ impl ParallelScanHandle {
         let explain_data = dsm.explain_data();
         local.accumulate_segment_info(dsm.take_segment_info());
         local.set_parallel_explain(explain_data);
+    }
+
+    pub(crate) fn finalize_buffer_hits(&self, trace: &Trace) {
+        let dsm = unsafe { &mut *self.dsm.as_ptr() };
+        trace.merge_hits(std::mem::take(&mut dsm.worker_buffer_hits));
+    }
+}
+
+// LIMIT can shut down the leader scan before its workers; collect after Gather joins them.
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn collect_buffer_hits_on_detach(
+    _seg: *mut pg_sys::dsm_segment,
+    arg: pg_sys::Datum,
+) {
+    let (parallel, trace) =
+        *unsafe { Box::from_raw(arg.cast_mut_ptr::<(ParallelScanHandle, Trace)>()) };
+    if unsafe { pg_sys::IsTransactionState() } {
+        parallel.finalize_buffer_hits(&trace);
     }
 }
 
@@ -103,6 +127,7 @@ impl ParallelQueryCapable for BaseScan {
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
@@ -115,6 +140,20 @@ impl ParallelQueryCapable for BaseScan {
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
             leader_publish_query(state, &mut *pscan_state);
+
+            if !(*pcxt).seg.is_null()
+                && let Some(trace) = state.custom_state().io_trace.clone()
+            {
+                let callback = Box::new((
+                    ParallelScanHandle::new(pscan_state, ParallelRole::Leader),
+                    trace,
+                ));
+                pg_sys::on_dsm_detach(
+                    (*pcxt).seg,
+                    Some(collect_buffer_hits_on_detach),
+                    pg_sys::Datum::from(Box::into_raw(callback)),
+                );
+            }
 
             // The leader owns the bitmap build: build in this scan's own DSA area,
             // prepare per-(consumer, segment) iterator states, and publish the claim

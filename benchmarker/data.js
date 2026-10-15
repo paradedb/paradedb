@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792083034583,
+  "lastUpdate": 1792083049198,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16674,6 +16674,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 373.8946165408768,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7977b99e85f500ef02f4fe9d064951861f3a4727",
+          "message": "perf: avoid unnecessary parallel reader setup (#6824)\n\n## What\n\nAvoid unnecessary buffer accesses during parallel reader setup and\nvector ordering.",
+          "timestamp": "2026-10-15T09:07:55-07:00",
+          "tree_id": "7c1cf3b35462c0f1941911f258045b2546470d9b",
+          "url": "https://github.com/paradedb/paradedb/commit/7977b99e85f500ef02f4fe9d064951861f3a4727"
+        },
+        "date": 1792083039251,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 527.9789988182454,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 505.47490789784945,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 141.06578105785633,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 352.62663711437875,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 372.41586729918095,
             "unit": "queries/s"
           }
         ]

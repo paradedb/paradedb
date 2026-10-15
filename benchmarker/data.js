@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792085669403,
+  "lastUpdate": 1792085682984,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18101,6 +18101,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.27081970240561,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5bcaf21c99350604615c836f953d495aa07da322",
+          "message": "fix: preserve vector parallelism for runtime filters (#6835)\n\n## What\n\nRestore the pre-#6798 worker selection for vector searches with runtime\nfilters such as `text @@@ current_setting('cohere.titles_10pct')`. With\neight Cohere segments and `max_parallel_workers_per_gather = 7`, the\nfiltered searches again plan and launch seven workers.\n\n## Why\n\n#6798 made folded STABLE predicates eligible for posting-traversal\ncosting. That estimate omits vector routing and distance scoring, so the\nCohere 1% and 10% filters started choosing serial scans instead of their\nprevious per-segment policy.\n\n## How\n\nChoose drive-cost eligibility per execution method. A vector TopK with a\nfolded runtime predicate uses the existing per-segment fallback; other\nmethods retain their existing cost estimates. The memoized cost is\nopened only when a method needs it. Runtime evaluation of STABLE\nexpressions is preserved.\n\nThis PR is based directly on main and contains no ANN cost-model or f16\nstorage changes.\n\n## Tests\n\n- Workspace Clippy, cargo check, cargo doc, and all commit hooks pass.\n- Release build for PostgreSQL 18; `cargo fmt --all -- --check`; `git\ndiff --check`.\n- Existing `stable_cached_plan`, `stable_plan_estimate`,\n`vector_filtered_scan`, and `parallel_topk_leader_segment_view`\nregression tests pass.\n- Local Cohere 1M, 1024 dimensions, eight segments: compare the fix with\na control build carrying the pre-#6798 costability guard on the same\nmain revision and the exact same index.\n- All 300 held-out query plans use seven workers in both builds. All 36\ncombinations of plain/prepared queries, probe settings 0.001/0.05, and\nworker caps 7/2/0 match in workers planned and launched.\n- All 300 top-10 result lists match the control exactly.\n\n| Cohere 1M case | Pre-merge policy control | Fix |\n| --- | ---: | ---: |\n| 10% filter | 7 | 7 |\n| 1% filter | 7 | 7 |\n| Unfiltered | 7 | 7 |\n\nParallel startup overhead is still material on the local Mac. The Cohere\nbenchmark label requests latency validation on CI hardware.\n\nLocal warmed-query p50 (100 queries per case):\n\n| Case | Pre-merge policy control | Fix |\n| --- | ---: | ---: |\n| 10pct | 19.25 ms | 18.09 ms |\n| 1pct | 16.38 ms | 15.75 ms |\n| unfiltered | 15.89 ms | 15.12 ms |\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-10-15T09:06:47-07:00",
+          "tree_id": "03ff46824eee1a26eac9d0a8c4bc02b8a104f788",
+          "url": "https://github.com/paradedb/paradedb/commit/5bcaf21c99350604615c836f953d495aa07da322"
+        },
+        "date": 1792085673818,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.242693920395585,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 29.99639249894747,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.359158912116694,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.655605503435194,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.29919810839772,
             "unit": "queries/s"
           }
         ]

@@ -22,7 +22,12 @@ use std::collections::{HashMap, HashSet};
 // Changes are found by subtracting normalized statement sets. Named-object
 // matching is needed only to distinguish supported replacements from changes
 // that require an explicit, manually designed migration.
-pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<String, String> {
+pub struct Diff {
+    pub sql: String,
+    pub manual: Vec<String>,
+}
+
+pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Diff, String> {
     let old: HashSet<_> = before
         .iter()
         .map(|statement| &statement.comparison)
@@ -46,6 +51,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Str
         }
     }
 
+    let mut manual = Vec::new();
     let mut drops = Vec::new();
     let mut owner_changes = Vec::new();
     let mut consumed = HashSet::new();
@@ -54,20 +60,30 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Str
         if !seen.insert(&statement.comparison) {
             continue;
         }
-        let Some(removal) = removal(statement)? else {
-            continue;
+        let removal = match removal(statement) {
+            Ok(Some(removal)) => removal,
+            Ok(None) => continue,
+            Err(error) => {
+                manual.push(error);
+                continue;
+            }
         };
         if let Some(replacement) = replacements.get(&removal.identity) {
             if matches!(statement.node.node, Some(NodeEnum::CreateSchemaStmt(_))) {
-                owner_changes.push(schema_owner(statement, replacement)?);
+                match schema_owner(statement, replacement) {
+                    Ok(sql) => owner_changes.push(sql),
+                    Err(error) => manual.push(error),
+                }
                 consumed.insert(&replacement.comparison);
                 continue;
             }
             if !removal.replaceable {
-                return Err(format!(
-                    "SchemaBot cannot replace this object automatically; add support for its migration:\n{}",
+                manual.push(format!(
+                    "cannot replace this object automatically; migrate manually:\n{}",
                     statement.source
                 ));
+                consumed.insert(&replacement.comparison);
+                continue;
             }
         }
         drops.push((removal.order, removal.sql));
@@ -88,7 +104,10 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Str
     }
     // Check that synthesized statements are valid SQL before writing stdout.
     crate::sql::parse(&output)?;
-    Ok(output)
+    Ok(Diff {
+        sql: output,
+        manual,
+    })
 }
 
 struct Removal {
@@ -135,7 +154,7 @@ fn removal(statement: &ParsedStatement) -> Result<Option<Removal>, String> {
     use pb::ObjectType as O;
     let unsupported = || {
         format!(
-            "SchemaBot cannot remove this statement automatically:\n{}",
+            "cannot remove this statement automatically:\n{}",
             statement.source
         )
     };
@@ -258,15 +277,44 @@ fn removal(statement: &ParsedStatement) -> Result<Option<Removal>, String> {
                         ..Default::default()
                     }))
                 }
-                // Aggregate definitions contain ordered-set and variadic
-                // signatures. Require deliberate support rather than guessing.
+                O::ObjectAggregate => {
+                    let [parameters, direct] = definition.args.as_slice() else {
+                        return Err(unsupported());
+                    };
+                    if !matches!(&direct.node, Some(NodeEnum::Integer(value)) if value.ival == -1) {
+                        return Err(unsupported());
+                    }
+                    let Some(NodeEnum::List(parameters)) = &parameters.node else {
+                        return Err(unsupported());
+                    };
+                    let mut arguments = Vec::new();
+                    for parameter in &parameters.items {
+                        let Some(NodeEnum::FunctionParameter(parameter)) = &parameter.node else {
+                            return Err(unsupported());
+                        };
+                        let mut argument = parameter.arg_type.clone().ok_or_else(unsupported)?;
+                        argument.typmods.clear();
+                        argument.typemod = -1;
+                        arguments.push(wrap(NodeEnum::TypeName(argument)));
+                    }
+                    wrap(NodeEnum::ObjectWithArgs(pb::ObjectWithArgs {
+                        objname: definition.defnames.clone(),
+                        objargs: arguments,
+                        ..Default::default()
+                    }))
+                }
+                // Ordered-set aggregates require deliberate signature support.
                 _ => return Err(unsupported()),
             };
             let mut removal = drop_object(
                 kind,
                 object,
-                kind == O::ObjectOperator,
-                if kind == O::ObjectOperator { 0 } else { 3 },
+                matches!(kind, O::ObjectOperator | O::ObjectAggregate),
+                if matches!(kind, O::ObjectOperator | O::ObjectAggregate) {
+                    0
+                } else {
+                    3
+                },
             )?;
             // A shell type and its full definition are distinct installation
             // steps, even though they address the same catalog object.
@@ -300,7 +348,8 @@ fn removal(statement: &ParsedStatement) -> Result<Option<Removal>, String> {
         NodeEnum::DoStmt(_)
         | NodeEnum::InsertStmt(_)
         | NodeEnum::AlterFunctionStmt(_)
-        | NodeEnum::AlterTypeStmt(_) => return Ok(None),
+        | NodeEnum::AlterTypeStmt(_)
+        | NodeEnum::CommentStmt(_) => return Ok(None),
         _ => return Err(unsupported()),
     };
     drop_object(kind, object, replaceable, order).map(Some)
@@ -339,7 +388,7 @@ fn schema_owner(before: &ParsedStatement, after: &ParsedStatement) -> Result<Str
     let mut expected = old.clone();
     expected.authrole = new.authrole.clone();
     if comparison(&wrap(NodeEnum::CreateSchemaStmt(expected))) != after.comparison {
-        return Err("SchemaBot only supports changing a schema's owner".into());
+        return Err("only supports changing a schema's owner".into());
     }
     let role = new
         .authrole
@@ -365,7 +414,12 @@ mod tests {
     use super::*;
 
     fn suggest(before: &str, after: &str) -> Result<String, String> {
-        diff(&crate::sql::parse(before)?, &crate::sql::parse(after)?)
+        let diff = diff(&crate::sql::parse(before)?, &crate::sql::parse(after)?)?;
+        if diff.manual.is_empty() {
+            Ok(diff.sql)
+        } else {
+            Err(diff.manual.join("\n"))
+        }
     }
 
     fn covers(before: &str, after: &str, expected: &str) {
@@ -555,5 +609,75 @@ mod tests {
     fn sql_body_and_new_parser_syntax_are_preserved() {
         let head = "CREATE FUNCTION app.answer() RETURNS integer LANGUAGE SQL RETURN 9; MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE RETURNING t.id;";
         covers("", head, head);
+    }
+    #[test]
+    fn comments_are_replaced_by_the_new_comment() {
+        covers(
+            "COMMENT ON ACCESS METHOD bm25 IS 'old'",
+            "COMMENT ON ACCESS METHOD bm25 IS 'new'",
+            "COMMENT ON ACCESS METHOD bm25 IS 'new'",
+        );
+    }
+
+    #[test]
+    fn partial_diff_retains_supported_changes_and_lists_manual_removals() {
+        let before = crate::sql::parse("CREATE TYPE pdb.source_code (INPUT = pdb.decode, OUTPUT = pdb.encode, STORAGE = plain); CREATE TABLE unsupported(x int); CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$SELECT 1$$;").unwrap();
+        let after = crate::sql::parse("CREATE TYPE pdb.source_code (INPUT = pdb.decode, OUTPUT = pdb.encode, STORAGE = extended); CREATE TABLE added(x int);").unwrap();
+        let result = diff(&before, &after).unwrap();
+        assert_eq!(result.manual.len(), 2);
+        assert!(
+            result
+                .manual
+                .iter()
+                .any(|error| error.contains("pdb.source_code"))
+        );
+        assert!(
+            result
+                .manual
+                .iter()
+                .any(|error| error.contains("unsupported"))
+        );
+        assert!(!result.sql.contains("CREATE TYPE"));
+        crate::migration::check(
+            "DROP FUNCTION f(); CREATE TABLE added(x int)",
+            &[result.sql],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn plain_aggregate_removal_and_replacement() {
+        covers(
+            "CREATE AGGREGATE pdb.agg(jsonb, text) (SFUNC = pdb.trans, STYPE = internal)",
+            "",
+            "DROP AGGREGATE IF EXISTS pdb.agg(jsonb, text)",
+        );
+        covers(
+            "CREATE AGGREGATE a(int) (SFUNC = int4pl, STYPE = int)",
+            "CREATE AGGREGATE a(int) (SFUNC = int4pl, STYPE = int, INITCOND = '0')",
+            "DROP AGGREGATE a(int); CREATE AGGREGATE a(int) (SFUNC = int4pl, STYPE = int, INITCOND = '0')",
+        );
+        assert!(
+            suggest(
+                "CREATE AGGREGATE a(int ORDER BY int) (SFUNC = int4pl, STYPE = int)",
+                ""
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn pgrx_fixture_pair_has_clean_sources_and_accepts_named_drops() {
+        let before = include_str!("../tests/fixtures/base.sql");
+        let after = include_str!("../tests/fixtures/head.sql");
+        let suggested = suggest(before, after).unwrap();
+        assert!(!suggested.contains("connected objects"));
+        assert!(!suggested.contains("--"));
+        assert_eq!(crate::sql::parse(&suggested).unwrap().len(), 3);
+        crate::migration::check(
+            &suggested,
+            &[include_str!("../tests/fixtures/migration.sql").into()],
+        )
+        .unwrap();
     }
 }

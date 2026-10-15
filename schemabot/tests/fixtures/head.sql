@@ -7,4 +7,4 @@ LANGUAGE sql AS $$SELECT 'new', 1::bigint$$;
 -- creates: pdb.agg
 CREATE AGGREGATE pdb.agg(jsonb, text) (SFUNC = pdb.trans, STYPE = internal);
 /* </end connected objects> */
-COMMENT ON ACCESS METHOD bm25 IS 'new';
+COMMENT ON ACCESS METHOD paradedb IS 'new';

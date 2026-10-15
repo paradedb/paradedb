@@ -98,12 +98,16 @@ mod tests {
         assert!(check("CREATE TABLE t(x int)", &["CREATE TABLE t(x text)".into()]).is_err());
     }
     #[test]
-    fn reports_missing_sql_and_accepts_released_named_drop() {
+    fn accepts_released_named_drop() {
         check(
             "DROP FUNCTION IF EXISTS vector_info(regclass, text)",
             &[include_str!("../../pg_search/sql/pg_search--0.25.11--0.26.0.sql").into()],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn reports_missing_sql() {
         let error = check(
             "CREATE TABLE t(x int); CREATE TABLE u(x text)",
             &["CREATE TABLE t(x int)".into()],

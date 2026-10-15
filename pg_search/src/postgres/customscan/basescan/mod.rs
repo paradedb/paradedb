@@ -104,6 +104,16 @@ use tantivy::Index;
 pub struct BaseScan;
 
 impl BaseScan {
+    /// Solve the query for the coming execution: a fresh copy of the base query with its
+    /// Postgres expressions and parameters evaluated in the runtime context.
+    fn prepare_query(state: &mut CustomScanStateWrapper<Self>) {
+        let planstate = state.planstate();
+        let runtime_context = state.custom_state().runtime_context;
+        state
+            .custom_state_mut()
+            .prepare_query_for_execution(planstate, runtime_context);
+    }
+
     /// (Re-)initializes the search reader for the current execution context.
     ///
     /// This function handles three distinct execution scenarios:
@@ -123,11 +133,20 @@ impl BaseScan {
     ///    In this case, every worker executes the full scan independently using its own
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+<<<<<<< HEAD
+=======
+        let wrapper_start = std::time::Instant::now();
+        let executor_scan_init_ns =
+            std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
+        // The read starts here, not at node init: a node that is initialized and never executed
+        // (`LIMIT 0`, an unreached inner side) reads nothing and owes SSI nothing.
+        predicate_lock_read(state.custom_state().heaprel(), unsafe {
+            (*state.csstate.ss.ps.state).es_snapshot
+        });
+
+        Self::prepare_query(state);
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
         let planstate = state.planstate();
-        let runtime_context = state.custom_state().runtime_context;
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, runtime_context);
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
@@ -1656,15 +1675,35 @@ impl CustomScan for BaseScan {
         // Drop the previous execution's scorers (whose cursors point into the
         // bitmap) and the stale source cell before the bitmap is freed; only then
         // rebuild for the new params. The exec method itself is preserved and
+<<<<<<< HEAD
         // re-bound by `reset()` below. No reader means the scan never executed:
         // there are no scorers, and the exec method may not even be bound yet.
         if state.custom_state().search_reader.is_some() {
             state.custom_state_mut().reset_exec_results();
         }
+=======
+        // re-bound by `reset()` below.
+        state.custom_state_mut().reset_exec_results();
+        // A merge can retire a segment the shared work queue still hands out, and a retired
+        // segment stays readable only while something pins it. `TopKScanExecState` happens to
+        // keep a reader clone through `reset_exec_results`, but the normal and columnar methods
+        // do not, so hold the pins until this function returns, which is after the replacement
+        // reader has taken its own.
+        let _pins = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .map(SearchIndexReader::segment_pins);
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
         drop(state.custom_state_mut().search_reader.take());
-        state.custom_state_mut().bitmap_cell = None;
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            unsafe { bitmap_exec.rescan() };
+        // A parallel scan's bitmap is shared state: the DSM callbacks build it and fill
+        // the cell before the workers launch, and this ReScan runs after, while they
+        // read it. Only a serial scan rebuilds here.
+        if state.custom_state().parallel.is_none() {
+            state.custom_state_mut().bitmap_cell = None;
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                unsafe { bitmap_exec.rescan() };
+            }
         }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();

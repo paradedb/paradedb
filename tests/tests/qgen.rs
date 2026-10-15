@@ -174,10 +174,21 @@ enum SubqueryPolarity {
     Negated,
 }
 
+/// How an `EXISTS` subquery reads the outer row's column.
+#[derive(Clone, Copy, Debug)]
+enum SubqueryCorrelation {
+    /// `inner.col = outer.col`
+    Var,
+    /// `inner.col = (SELECT outer.col)`: the value arrives through an InitPlan, which a
+    /// parallel plan has to hand its workers on every rescan.
+    InitPlan,
+}
+
 #[derive(Clone, Debug)]
 struct GeneratedSubquery {
     kind: SubqueryKind,
     polarity: SubqueryPolarity,
+    correlation: SubqueryCorrelation,
     column: &'static str,
     inner_where_expr: WhereExpr,
     paging_exprs: String,
@@ -189,12 +200,18 @@ impl GeneratedSubquery {
             SubqueryKind::Exists => format!(
                 "EXISTS (\
                     SELECT 1 FROM {inner_table_name} \
-                    WHERE {inner_table_name}.{column} = {outer_table_name}.{column} \
+                    WHERE {inner_table_name}.{column} = {outer_value} \
                     AND {} {}\
                 )",
                 self.inner_where_expr.to_sql(op),
                 self.paging_exprs,
                 column = self.column,
+                outer_value = match self.correlation {
+                    SubqueryCorrelation::Var => format!("{outer_table_name}.{}", self.column),
+                    SubqueryCorrelation::InitPlan => {
+                        format!("(SELECT {outer_table_name}.{})", self.column)
+                    }
+                },
             ),
             SubqueryKind::In => format!(
                 "{outer_table_name}.{column} IN (\
@@ -635,7 +652,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"], 100),
         gucs in any::<PgGucs>(),
     )| {
         compare(
@@ -671,8 +688,13 @@ async fn generated_paging_large(database: Db) {
     let table_name = "users";
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100000)], COLUMNS);
 
+<<<<<<< HEAD
     proptest!(|(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
+=======
+    proptest!(qgen_proptest_config(), |(
+        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"], 100),
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
         gucs in any::<PgGucs>(),
     )| {
         compare(
@@ -717,18 +739,32 @@ async fn generated_subquery(database: Db) {
             vec![inner_table_name],
             COLUMNS,
         ),
-        subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        // `rating` is not indexed, so its predicate runs as a heap filter.
+        subquery_column in proptest::sample::select(&["name", "color", "age", "rating"]),
         subquery_kind in prop_oneof![Just(SubqueryKind::Exists), Just(SubqueryKind::In)],
         subquery_polarity in prop_oneof![
             Just(SubqueryPolarity::Positive),
             Just(SubqueryPolarity::Negated),
         ],
-        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
-        gucs in any::<PgGucs>(),
+        subquery_correlation in prop_oneof![
+            Just(SubqueryCorrelation::Var),
+            Just(SubqueryCorrelation::InitPlan),
+        ],
+        // Bounded by the inner table's size: an `OFFSET` past its rows makes the `EXISTS` false
+        // whatever the scan returns.
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"], tables_and_sizes[1].1),
+        mut gucs in any::<PgGucs>(),
     )| {
+        // TODO(#6814): once Postgres pulls the EXISTS up into a semi join, the InitPlan form is a
+        // SubPlan in the join filter, which the DataFusion aggregate cannot evaluate ("SubPlan
+        // found with no parent plan").
+        if matches!(subquery_correlation, SubqueryCorrelation::InitPlan) {
+            gucs.aggregate_custom_scan = false;
+        }
         let subquery = GeneratedSubquery {
             kind: subquery_kind,
             polarity: subquery_polarity,
+            correlation: subquery_correlation,
             column: subquery_column,
             inner_where_expr,
             paging_exprs,

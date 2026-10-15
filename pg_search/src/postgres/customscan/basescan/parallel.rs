@@ -27,7 +27,11 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::ParallelScanState;
 
+<<<<<<< HEAD
 use pgrx::pg_sys::{shm_toc, Size};
+=======
+use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +114,6 @@ impl ParallelQueryCapable for BaseScan {
         let args = state.custom_state().parallel_scan_args();
         ParallelScanState::size_of(
             &args.all_nsegments(),
-            &args.query,
             args.with_aggregates,
             args.with_segment_info,
         )
@@ -129,10 +132,19 @@ impl ParallelQueryCapable for BaseScan {
             state
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
+            leader_publish_query(state, &mut *pscan_state);
 
             // The leader owns the bitmap build: build in this scan's own DSA area,
+<<<<<<< HEAD
             // prepare per-(consumer, segment) iterator states, and publish the claim
             // table before any worker launches. Workers only wait and attach.
+=======
+            // mint one iteration state per participant slot, and publish the claim
+            // table before any worker launches. Workers only wait and attach. The
+            // context's worker count is the most that can attach, not how many launch.
+            let planned_workers = (*pcxt).nworkers as u32;
+            (*pscan_state).bitmap_slots = planned_workers + 1;
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
             leader_publish_bitmap(state, pscan_state);
         }
     }
@@ -143,6 +155,7 @@ impl ParallelQueryCapable for BaseScan {
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
+<<<<<<< HEAD
         unsafe {
             (*pscan_state).bitmap_reset();
             (*pscan_state).reset();
@@ -163,6 +176,24 @@ impl ParallelQueryCapable for BaseScan {
                 }
             }
         }
+=======
+        let pscan_state = unsafe { &mut *pscan_state };
+        // Only the counters are reset, never the segment payload: the DSM was sized once at
+        // estimate time, so it cannot hold a larger set. Every participant therefore keeps
+        // replaying the first published view for the life of the query, which also keeps the
+        // leader's pins on those segments held that long.
+        pscan_state.bitmap_reset();
+        pscan_state.reset();
+        // The leader's own ReScan runs only after the relaunched workers launch (see above),
+        // too late to change what they read, so this callback solves the query for the
+        // round's parameters, publishes it, and rebuilds the bitmap. The leader's results
+        // from the last round point into the solved query and the bitmap, so they drop
+        // first; its reader stays, holding the segment pins, until that ReScan replaces it.
+        state.custom_state_mut().reset_exec_results();
+        BaseScan::prepare_query(state);
+        unsafe { leader_publish_query(state, pscan_state) };
+        unsafe { leader_publish_bitmap(state, pscan_state) };
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
     }
 
     fn initialize_worker_custom_scan(
@@ -176,6 +207,7 @@ impl ParallelQueryCapable for BaseScan {
         unsafe {
             state
                 .custom_state_mut()
+<<<<<<< HEAD
                 .attach_parallel(pscan_state, ParallelRole::Worker);
             match (*pscan_state)
                 .query()
@@ -185,7 +217,35 @@ impl ParallelQueryCapable for BaseScan {
                 None => panic!("no query in ParallelScanState"),
             }
         }
+=======
+                .attach_parallel(pscan_state, ParallelRole::Worker)
+        };
+        let query = unsafe { (*pscan_state).query(query_area(state)) }
+            .expect("should be able to read the query from the ParallelScanState");
+        state.custom_state_mut().set_base_search_query_input(query);
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
     }
+}
+
+/// The parallel query's DSA area. Postgres installs it on the EState around the DSM
+/// callbacks in the leader and for the whole run in a worker (`execParallel.c`).
+fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+    let area = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
+    assert!(
+        !area.is_null(),
+        "es_query_dsa is only set inside the parallel DSM callbacks"
+    );
+    area
+}
+
+/// Leader-only: hand the coming round's workers the solved query.
+unsafe fn leader_publish_query(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    pscan_state: &mut ParallelScanState,
+) {
+    let query = serde_json::to_vec(state.custom_state().search_query_input())
+        .expect("should be able to serialize query");
+    unsafe { pscan_state.publish_query(query_area(state), &query) };
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,
@@ -225,6 +285,7 @@ unsafe fn leader_publish_bitmap(
             .bitmap_exec
             .as_mut()
             .unwrap()
+<<<<<<< HEAD
             .shared_source(consumers, &segments);
         (*pscan_state).publish_bitmap_handle(handle);
         if let Some(cell) = state.custom_state().bitmap_cell.clone() {
@@ -232,5 +293,14 @@ unsafe fn leader_publish_bitmap(
                 cell.fill(source);
             }
         }
+=======
+            .shared_source(consumers, &segments, pscan_state.bitmap_slots)
+    };
+    pscan_state.publish_bitmap_handle(handle);
+    if let Some(cell) = state.custom_state().bitmap_cell.clone()
+        && let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source()
+    {
+        cell.fill(source);
+>>>>>>> 444ea42 (fix: parallel bitmap intersection crash when its Gather is rescanned (#6751))
     }
 }

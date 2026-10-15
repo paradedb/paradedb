@@ -7,4 +7,4 @@ LANGUAGE sql AS $$SELECT 'old', 1::bigint$$;
 -- creates: pdb.agg
 CREATE AGGREGATE pdb.agg(jsonb, text) (SFUNC = pdb.trans, STYPE = internal);
 /* </end connected objects> */
-COMMENT ON ACCESS METHOD bm25 IS 'old';
+COMMENT ON ACCESS METHOD paradedb IS 'old';

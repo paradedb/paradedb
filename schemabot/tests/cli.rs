@@ -29,9 +29,11 @@ fn unsupported_removals_preserve_stdout_and_fail_with_diagnostics() {
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stdout.contains("DROP FUNCTION IF EXISTS f()"));
-    assert!(stdout.contains("CREATE TABLE added"));
-    assert!(!stdout.contains("CREATE TYPE"));
+    assert_eq!(
+        stdout,
+        "DROP FUNCTION IF EXISTS f();\nCREATE TABLE added(x int);\n"
+    );
+    assert_eq!(stderr.matches("automatically").count(), 2);
     assert!(stderr.contains("pdb.source_code"));
     assert!(stderr.contains("unsupported"));
     assert!(!stderr.contains("SchemaBot: SchemaBot"));

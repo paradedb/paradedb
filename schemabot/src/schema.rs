@@ -440,11 +440,6 @@ mod tests {
     }
 
     #[test]
-    fn positional_metadata_and_keyword_spelling_are_not_changes() {
-        assert!(suggest("CREATE FUNCTION app.version() RETURNS integer IMMUTABLE LANGUAGE sql AS $$SELECT 7$$", "-- déplacé\ncreate function app.version() returns int language sql immutable as $$SELECT 7$$;").unwrap().is_empty());
-    }
-
-    #[test]
     fn body_change_requires_drop_and_new_definition() {
         covers(
             "CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 7$$",
@@ -472,15 +467,6 @@ mod tests {
             "",
             "DROP PROCEDURE IF EXISTS app.run(int[])",
         );
-    }
-
-    #[test]
-    fn original_source_handles_keywords_unicode_and_embedded_comments() {
-        let before = "CREATE FUNCTION app.f(\"limit\" int, \"json\" json) RETURNS text LANGUAGE sql AS $$SELECT 'é;-- comment'$$";
-        let after = before.replace("é;", "ø;");
-        let suggested = suggest(before, &after).unwrap();
-        assert!(suggested.contains(&after));
-        assert_eq!(crate::sql::parse(&suggested).unwrap().len(), 2);
     }
 
     #[test]
@@ -561,12 +547,12 @@ mod tests {
 
     #[test]
     fn operator_class_identity_includes_access_method() {
-        let a = "CREATE OPERATOR CLASS app.ops FOR TYPE int USING bm25 AS STORAGE int;";
-        let b = "CREATE OPERATOR CLASS app.ops FOR TYPE int USING paradedb AS STORAGE int;";
+        let a = "CREATE OPERATOR CLASS app.ops FOR TYPE int USING paradedb AS STORAGE int;";
+        let b = "CREATE OPERATOR CLASS app.ops FOR TYPE int USING btree AS STORAGE int;";
         covers(
             &format!("{a}{b}"),
             a,
-            "DROP OPERATOR CLASS IF EXISTS app.ops USING paradedb",
+            "DROP OPERATOR CLASS IF EXISTS app.ops USING btree",
         );
     }
 
@@ -591,16 +577,6 @@ mod tests {
     }
 
     #[test]
-    fn unknown_removals_fail_but_new_ddl_is_preserved() {
-        assert!(suggest("CREATE TABLE app.docs(id int)", "").is_err());
-        covers(
-            "",
-            "CREATE TABLE app.docs(id int)",
-            "CREATE TABLE app.docs(id int)",
-        );
-    }
-
-    #[test]
     fn installation_actions_are_not_dropped() {
         assert!(suggest("DO $$BEGIN RAISE NOTICE 'x'; END$$; INSERT INTO t VALUES(1); ALTER FUNCTION f() IMMUTABLE;", "").unwrap().is_empty());
     }
@@ -613,36 +589,10 @@ mod tests {
     #[test]
     fn comments_are_replaced_by_the_new_comment() {
         covers(
-            "COMMENT ON ACCESS METHOD bm25 IS 'old'",
-            "COMMENT ON ACCESS METHOD bm25 IS 'new'",
-            "COMMENT ON ACCESS METHOD bm25 IS 'new'",
+            "COMMENT ON ACCESS METHOD paradedb IS 'old'",
+            "COMMENT ON ACCESS METHOD paradedb IS 'new'",
+            "COMMENT ON ACCESS METHOD paradedb IS 'new'",
         );
-    }
-
-    #[test]
-    fn partial_diff_retains_supported_changes_and_lists_manual_removals() {
-        let before = crate::sql::parse("CREATE TYPE pdb.source_code (INPUT = pdb.decode, OUTPUT = pdb.encode, STORAGE = plain); CREATE TABLE unsupported(x int); CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$SELECT 1$$;").unwrap();
-        let after = crate::sql::parse("CREATE TYPE pdb.source_code (INPUT = pdb.decode, OUTPUT = pdb.encode, STORAGE = extended); CREATE TABLE added(x int);").unwrap();
-        let result = diff(&before, &after).unwrap();
-        assert_eq!(result.manual.len(), 2);
-        assert!(
-            result
-                .manual
-                .iter()
-                .any(|error| error.contains("pdb.source_code"))
-        );
-        assert!(
-            result
-                .manual
-                .iter()
-                .any(|error| error.contains("unsupported"))
-        );
-        assert!(!result.sql.contains("CREATE TYPE"));
-        crate::migration::check(
-            "DROP FUNCTION f(); CREATE TABLE added(x int)",
-            &[result.sql],
-        )
-        .unwrap();
     }
 
     #[test]

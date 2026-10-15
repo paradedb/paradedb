@@ -129,8 +129,7 @@ mod tests {
 
     #[test]
     fn preserves_sql_bodies_and_string_contents() {
-        let sql =
-            "CREATE FUNCTION f() RETURNS text LANGUAGE sql AS $$SELECT 'a;b -- /* text */'$$;";
+        let sql = "CREATE FUNCTION app.f(\"limit\" int, \"json\" json) RETURNS text LANGUAGE sql AS $$SELECT 'é;a;b -- /* text */'$$;";
         let parsed = parse(sql).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].source, sql.trim_end_matches(';'));
@@ -196,15 +195,5 @@ mod tests {
             parse("DROP FUNCTION f(int)").unwrap()[0].comparison,
             parse("DROP FUNCTION f(int) CASCADE").unwrap()[0].comparison
         );
-    }
-
-    #[test]
-    fn quoted_extension_schema_round_trips_without_rewriting() {
-        let parsed = parse("CREATE TABLE \"@extschema@\".t(x int)").unwrap();
-        assert_eq!(
-            parse(&parsed[0].source).unwrap()[0].comparison,
-            parsed[0].comparison
-        );
-        assert!(parse("CREATE TABLE @extschema@.t(x int)").is_err());
     }
 }

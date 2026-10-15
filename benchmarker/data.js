@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792107162457,
+  "lastUpdate": 1792107175824,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -17959,6 +17959,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 373.0639578471202,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0be100cf7530e4a2f487ce18d736c09acc278cf",
+          "message": "feat: Support aggregate filters (e.g. `COUNT (*) FILTER (WHERE ..)` (#6819)\n\n# Ticket(s) Closed\n\n- Closes #6699 \n\n## What\nExtend's aggregate scan to support filter predicates on individual\naggregations.\n\n## How\nExtend `FilterExpr::from_pg_node` so that filter predicates get picked\nup during target list extraction. Then move tagged-query assignment to\nafter the target list extraction so that those predicates can be\nincluded.\n\n## Tests\n- Extended aggregate regression tests\n- New integration tests.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-15T15:50:06-07:00",
+          "tree_id": "0f4f6e6a4d07dc28db18a4c5eecf8eceebc535d6",
+          "url": "https://github.com/paradedb/paradedb/commit/d0be100cf7530e4a2f487ce18d736c09acc278cf"
+        },
+        "date": 1792107166142,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 527.3703242732663,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 509.06265874219514,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 141.71475234583423,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 255.28016241337878,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 374.6779772159378,
             "unit": "queries/s"
           }
         ]

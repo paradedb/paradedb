@@ -369,6 +369,13 @@ pub unsafe fn load_metas(
     loop {
         // Find all relevant segments in this list.
         segment_metas.for_each(|bman, mut entry| {
+            // Skip unrelated segments before recycling checks touch their pin-test buffers.
+            if let MvccSatisfies::ParallelWorker(view) = solve_mvcc
+                && !view.contains(&entry.segment_id())
+            {
+                return;
+            }
+
             if matches!(
                 solve_mvcc,
                 MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment

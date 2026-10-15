@@ -209,6 +209,45 @@ SELECT count(*) FROM ml_part WHERE NOT (body ||| 'red');
 SELECT count(*) FROM orders_part o JOIN ml_part m ON o.order_id = m.id
 WHERE o.customer_name ||| 'John' OR m.body ||| 'blue';
 
+\echo '=== the plan-time estimate samples the largest leaf, not the first ==='
+-- the first partition in OID order holds one row that does not match; the join over
+-- the unpartitioned copy is the reference for the row estimate
+DROP TABLE IF EXISTS skew_part CASCADE;
+DROP TABLE IF EXISTS skew_plain CASCADE;
+CREATE TABLE skew_part (id INT, body TEXT, k INT) PARTITION BY LIST (k);
+CREATE TABLE skew_p0 PARTITION OF skew_part FOR VALUES IN (0);
+CREATE TABLE skew_p1 PARTITION OF skew_part FOR VALUES IN (1);
+INSERT INTO skew_part VALUES (0, 'zeta', 0);
+INSERT INTO skew_part
+SELECT i, CASE WHEN i % 10 = 0 THEN 'alpha' ELSE 'zeta' END, 1 FROM generate_series(1, 1000) i;
+CREATE INDEX skew_part_idx ON skew_part USING bm25 (id, body);
+CREATE TABLE skew_plain AS SELECT * FROM skew_part;
+CREATE INDEX skew_plain_idx ON skew_plain USING bm25 (id, body);
+ANALYZE skew_part;
+ANALYZE skew_plain;
+
+CREATE FUNCTION plan_rows_4643(query text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) ' || query INTO plan;
+    RETURN plan -> 0 -> 'Plan' ->> 'Plan Rows';
+END;
+$$;
+
+SELECT plan_rows_4643($$
+SELECT o.id FROM skew_part o JOIN skew_plain p ON o.id = p.id
+WHERE o.body ||| 'alpha' OR p.body ||| 'zzznomatch'
+$$) AS partitioned_rows,
+plan_rows_4643($$
+SELECT o.id FROM skew_plain o JOIN skew_plain p ON o.id = p.id
+WHERE o.body ||| 'alpha' OR p.body ||| 'zzznomatch'
+$$) AS plain_rows;
+
+DROP FUNCTION plan_rows_4643(text);
+DROP TABLE skew_part CASCADE;
+DROP TABLE skew_plain CASCADE;
+
 DROP TABLE orders_part CASCADE;
 DROP TABLE orders_plain CASCADE;
 DROP TABLE products CASCADE;

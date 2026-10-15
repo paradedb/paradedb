@@ -27,6 +27,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::lookup_reltuples;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::opexpr::{
@@ -694,21 +695,35 @@ fn open_and_estimate_docs(
 ) -> Option<DocsEstimate> {
     // A partitioned index has no storage of its own (#4643). A predicate above an Append
     // covers every partition, so one leaf stands in for the tree: its match ratio is the
-    // selectivity, and its counts scale by the number of leaves. Leaves are tried in order
-    // and the first that holds rows answers, so planning usually opens one partition, skips
-    // a leaf a `REINDEX` holds instead of waiting, and does not read an empty partition as
-    // matching nothing.
+    // selectivity, and its counts scale up to the rows of every leaf. The largest leaf is
+    // tried first, since the first in OID order is often a default or near-empty partition
+    // whose rows say nothing about the rest. A leaf a `REINDEX` holds is skipped instead
+    // of waited on, and one that holds no rows yields to the next.
     if is_partitioned_index(indexrel.oid()) {
-        let leaves = leaf_partition_index_oids(indexrel);
-        let estimate = free_leaf_partition_indexes(&leaves).find_map(|leaf| {
+        let mut leaves: Vec<_> = leaf_partition_index_oids(indexrel)
+            .into_iter()
+            .map(|oid| (oid, leaf_heap_rows(oid)))
+            .collect();
+        leaves.sort_by(|a, b| b.1.unwrap_or(-1.0).total_cmp(&a.1.unwrap_or(-1.0)));
+        let ordered: Vec<pg_sys::Oid> = leaves.iter().map(|(oid, _)| *oid).collect();
+        let (sample_oid, estimate) = free_leaf_partition_indexes(&ordered).find_map(|leaf| {
             open_and_estimate_docs(&leaf, search_query_input.clone(), None)
                 .filter(|estimate| estimate.total_docs > 0)
+                .map(|estimate| (leaf.oid(), estimate))
         })?;
-        let scale = leaves.len() as u64;
+        // A leaf that has never been counted is taken to be the sample's size.
+        let sample_rows = estimate.total_docs as f64;
+        let total_rows = leaves
+            .iter()
+            .filter(|(oid, _)| *oid != sample_oid)
+            .map(|(_, rows)| rows.unwrap_or(sample_rows))
+            .sum::<f64>()
+            + sample_rows;
+        let scale = total_rows / sample_rows;
         return Some(DocsEstimate {
-            matching_docs: estimate.matching_docs.saturating_mul(leaves.len()),
-            total_docs: estimate.total_docs.saturating_mul(scale),
-            query_cost: estimate.query_cost.saturating_mul(scale),
+            matching_docs: (estimate.matching_docs as f64 * scale).ceil() as usize,
+            total_docs: total_rows.ceil() as u64,
+            query_cost: (estimate.query_cost as f64 * scale).ceil() as u64,
         });
     }
 
@@ -732,6 +747,15 @@ fn open_and_estimate_docs(
         }
     };
     Some(reader.estimate_docs(row_estimate))
+}
+
+/// The planner's row count for the partition a leaf index is attached to, `None` when
+/// that partition has never been counted.
+fn leaf_heap_rows(index_oid: pg_sys::Oid) -> Option<f64> {
+    let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, true) };
+    (heap_oid != pg_sys::InvalidOid)
+        .then(|| lookup_reltuples(heap_oid))
+        .flatten()
 }
 
 /// One index open, both planning answers: selectivity (matching/total docs) and the

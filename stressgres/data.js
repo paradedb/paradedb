@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792052108947,
+  "lastUpdate": 1792052125870,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -450224,6 +450224,94 @@ window.BENCHMARK_DATA = {
             "value": 56.0546875,
             "unit": "median mem",
             "extra": "avg mem: 54.992108714691426, max mem: 66.0546875, count: 58803"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792052117536,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 60.4765625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 61.22394959794139, max partition_index_size:MB: 99.4609375, count: 58729"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.254847534050676, max cpu: 33.15244, count: 58729"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.3183925317986, max mem: 56.92578125, count: 58729"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.93823562007841, max cpu: 42.043797, count: 58729"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.507157146064976, max mem: 97.5234375, count: 58729"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.476802,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.001361533372513, max cpu: 28.290766, count: 58729"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 42.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.05613402769501, max mem: 44.2578125, count: 58729"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.946001076428605, max cpu: 33.267326, count: 58729"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 56.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.90117804076776, max mem: 62.2890625, count: 58729"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.237243974536806, max cpu: 32.65306, count: 58729"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.17088741294761, max mem: 57.59375, count: 58729"
           }
         ]
       }

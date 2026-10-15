@@ -15,15 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use soa_derive::StructOfArray;
 use sqlx::FromRow;
 
-#[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
-pub struct IcuAmharicPostsTable {
-    pub id: i32,
-    pub author: String,
-    pub title: String,
-    pub message: String,
+fixture_table! {
+    #[derive(Debug, PartialEq, FromRow, Default)]
+    pub struct IcuAmharicPostsTable => IcuAmharicPostsTableVec {
+        pub id: i32,
+        pub author: String,
+        pub title: String,
+        pub message: String,
+    }
 }
 
 impl IcuAmharicPostsTable {

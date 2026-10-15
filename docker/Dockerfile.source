@@ -15,7 +15,7 @@ USER 0
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-server-dev-18 build-essential ca-certificates curl git \
-    pkg-config libssl-dev clang lld libopenblas-dev && \
+    pkg-config libssl-dev libicu-dev clang lld libopenblas-dev && \
     rm -rf /var/lib/apt/lists/*
 
 ENV CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup

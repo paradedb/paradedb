@@ -2239,7 +2239,7 @@ async fn execute_query_multiple_times(
         // VERBOSE because the JoinScan renderer only includes per-node `elapsed_compute`
         // timing for verbose EXPLAINs.
         let explain = format!(
-            "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) {measured_query}"
+            "EXPLAIN (ANALYZE, VERBOSE, COSTS ON, TIMING OFF, SUMMARY OFF) {measured_query}"
         );
         match sqlx::raw_sql(AssertSqlSafe(explain.as_str()))
             .fetch_all(&mut conn)

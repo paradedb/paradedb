@@ -92,7 +92,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 2.3: AND with array (multiple terms)
@@ -587,7 +587,7 @@ WHERE description @@@ paradedb.match(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.17: Match conjunction (all terms must match)

@@ -3,16 +3,19 @@
 # secret for the PostgreSQL superuser password.
 #
 # The two ConfigMaps and the Cluster are rendered from the ParadeDB Helm chart
-# (https://github.com/paradedb/charts, currently 0.18.3) with these values:
+# (https://github.com/paradedb/charts, currently 0.19.12) with these values:
 #
 #   type: paradedb
 #   mode: standalone
+#   version: { postgresql: "18", paradedb: "0.26.0" }
 #   cluster:
 #     instances: 1
 #     imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
 #     storage: { size: 256Mi }
 #     affinity: { topologyKey: topology.kubernetes.io/zone }
-#     env: [RUST_BACKTRACE=1, RUST_LIB_BACKTRACE=1]
+#     env:
+#       - { name: RUST_BACKTRACE, value: "1" }
+#       - { name: RUST_LIB_BACKTRACE, value: "1" }
 #     enableSuperuserAccess: true
 #     superuserSecret: paradedb-superuser
 #     monitoring:
@@ -30,15 +33,19 @@ metadata:
   name: paradedb-monitoring-logical-replication
   namespace: default
   labels:
-    cnpg.io/reload: ""
-    helm.sh/chart: paradedb-0.18.3
+    cnpg.io/reload: "true"
+    cnpg.io/cluster: paradedb
+    helm.sh/chart: paradedb-0.19.12
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.25.3"
+    app.kubernetes.io/version: "0.26.0"
     app.kubernetes.io/managed-by: Helm
 data:
   custom-queries: |
+    # Subscriber-side health, restricted to subscriptions owned by the scraped database.
+    # A subscription can have multiple worker rows. Receipt age measures transport activity;
+    # received_lsn and latest_end_lsn do not establish committed apply progress.
     pg_stat_subscription:
       query: |
         SELECT current_database() AS datname
@@ -57,23 +64,14 @@ data:
              , stats_reset
              , ss.pid
              , CASE
-                 WHEN received_lsn IS NOT NULL AND latest_end_lsn IS NOT NULL
-                 THEN GREATEST(0, pg_wal_lsn_diff(received_lsn, latest_end_lsn))
-                 ELSE NULL
-               END AS buffered_lag_bytes
-             , CASE
                  WHEN last_msg_receipt_time IS NOT NULL
                  THEN EXTRACT(EPOCH FROM (NOW() - last_msg_receipt_time))
                  ELSE NULL
                END AS receipt_lag_seconds
-             , CASE
-                 WHEN latest_end_time IS NOT NULL
-                 THEN EXTRACT(EPOCH FROM (NOW() - latest_end_time))
-                 ELSE NULL
-               END AS apply_lag_seconds
         FROM pg_subscription s
         LEFT JOIN pg_stat_subscription ss ON s.oid = ss.subid
-        LEFT JOIN pg_stat_subscription_stats sss ON s.oid = sss.subid;
+        LEFT JOIN pg_stat_subscription_stats sss ON s.oid = sss.subid
+        WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database());
       target_databases: ["*"]
       metrics:
         - datname:
@@ -104,7 +102,7 @@ data:
             description: Latest end LSN received
             usage: GAUGE
         - latest_end_time:
-            description: Timestamp of the latest end LSN processed
+            description: Timestamp associated with the latest reported WAL position
             usage: GAUGE
         - enabled:
             description: Subscription status (enabled/disabled)
@@ -121,15 +119,11 @@ data:
         - pid:
             description: Process ID of the subscription worker process
             usage: GAUGE
-        - buffered_lag_bytes:
-            description: Bytes buffered but not yet applied (received_lsn - latest_end_lsn)
-            usage: GAUGE
         - receipt_lag_seconds:
             description: Seconds since last message receipt
             usage: GAUGE
-        - apply_lag_seconds:
-            description: Seconds since last apply operation
-            usage: GAUGE
+
+
 ---
 # Source: paradedb/templates/monitoring-paradedb-index.yaml
 apiVersion: v1
@@ -138,41 +132,87 @@ metadata:
   name: paradedb-monitoring-paradedb-index
   namespace: default
   labels:
-    cnpg.io/reload: ""
-    helm.sh/chart: paradedb-0.18.3
+    cnpg.io/reload: "true"
+    helm.sh/chart: paradedb-0.19.12
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.25.3"
+    app.kubernetes.io/version: "0.26.0"
     app.kubernetes.io/managed-by: Helm
 data:
   custom-queries: |
+    # This query must remain catalog-only. Calling into pg_search while its SQL
+    # catalog and loaded binary disagree can cause errors.
+    paradedb_version:
+      query: |
+        SELECT current_database() AS datname
+             , e.extversion AS installed_version
+             , a.default_version AS expected_version
+             , (e.extversion = a.default_version)::int AS "match"
+        FROM pg_extension e
+        JOIN pg_available_extensions a ON a.name = e.extname
+        WHERE e.extname = 'pg_search';
+      target_databases: ["*"]
+      metrics:
+        - datname:
+            description: Name of the database
+            usage: LABEL
+        - installed_version:
+            description: Version recorded in the pg_search extension catalog
+            usage: LABEL
+        - expected_version:
+            description: Default pg_search extension version shipped in the image
+            usage: LABEL
+        - match:
+            description: Whether the pg_search extension catalog matches the image extension version
+            usage: GAUGE
+    # Materialize the catalog filter before opening index storage. pdb.indexes()
+    # inspects invalid concurrent-build leftovers before callers can filter them.
     paradedb_index:
       query: |
+        WITH valid_indexes AS MATERIALIZED (
+          SELECT n.nspname AS schemaname, t.relname AS tablename,
+                 c.relname AS indexname, c.oid AS indexrelid
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_index i ON i.indexrelid = c.oid
+          JOIN pg_class t ON t.oid = i.indrelid
+          JOIN pg_am am ON am.oid = c.relam
+          WHERE am.amname IN ('paradedb', 'bm25')
+            AND i.indisvalid AND i.indisready AND i.indislive
+        )
         SELECT current_database() as datname
-             , n.nspname AS schema
-             , c.relname AS relname
-             , pg_relation_size(c.oid) AS relation_size
-             , COUNT(info.byte_size) AS segments_count
-             , MIN(info.byte_size) AS segments_min_size
-             , MAX(info.byte_size) AS segments_max_size
-             , AVG(info.byte_size) AS segments_avg_size
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        JOIN pg_index i ON i.indexrelid = c.oid
-        JOIN pg_am am ON am.oid = c.relam
-        JOIN LATERAL paradedb.index_info(c.oid) AS info ON true
-        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-          AND am.amname = 'paradedb'
-        GROUP BY n.nspname, c.relname, c.oid;
+             , i.schemaname AS schema
+             , i.tablename
+             , i.indexname AS relname
+             , pg_relation_size(i.indexrelid) AS relation_size
+             , COALESCE(s.segments_count, 0) AS segments_count
+             , COALESCE(s.total_docs, 0) AS total_docs
+             , COALESCE(s.deleted_docs, 0) AS deleted_docs
+             , COALESCE(s.max_docs, 0) AS max_docs
+             , CASE
+                 WHEN COALESCE(s.max_docs, 0) = 0 THEN 0::double precision
+                 ELSE s.deleted_docs::double precision / s.max_docs
+               END AS deleted_ratio
+        FROM valid_indexes i
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS segments_count
+               , SUM(num_docs)::bigint AS total_docs
+               , SUM(num_deleted)::bigint AS deleted_docs
+               , SUM(max_doc)::bigint AS max_docs
+          FROM pdb.index_segments(i.indexrelid::regclass)
+        ) s ON true;
       target_databases: ["*"]
-      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.3';"
+      predicate_query: "SELECT 1 FROM pg_extension e JOIN pg_available_extensions a ON a.name = e.extname WHERE e.extname = 'pg_search' AND e.extversion = a.default_version;"
       metrics:
         - datname:
             description: Name of the database
             usage: LABEL
         - schema:
             description: Schema within the database
+            usage: LABEL
+        - tablename:
+            description: Table the index is on
             usage: LABEL
         - relname:
             description: Index name
@@ -183,47 +223,133 @@ data:
         - segments_count:
             description: Segment count
             usage: GAUGE
-        - segments_min_size:
-            description: Minimum segment size in bytes
+        - total_docs:
+            description: Total live documents across all segments
             usage: GAUGE
-        - segments_max_size:
-            description: Maximum segment size in bytes
+        - deleted_docs:
+            description: Total deleted documents across all segments
             usage: GAUGE
-        - segments_avg_size:
-            description: Average segment size in bytes
+        - max_docs:
+            description: Total allocated document slots across all segments
             usage: GAUGE
-    paradedb_index_layer:
+        - deleted_ratio:
+            description: Fraction of allocated document slots that are deleted
+            usage: GAUGE
+    # Keep health separate from pdb.indexes() and pdb.index_segments(). An invalid or
+    # incomplete index must still be observable even when ParadeDB cannot inspect it.
+    paradedb_index_health:
       query: |
-        WITH index_layer_histogram AS (
-          SELECT t.relname
-               , t.high
-               , SUM(i.count) AS count
-          FROM paradedb.index_layer_info t
-          LEFT JOIN paradedb.index_layer_info i
-          ON i.relname = t.relname AND i.high <= t.high
-          GROUP BY t.relname, t.high, t.relname
-        )
-        SELECT current_database() as datname
-             , t.relname
-             , SUM(t.byte_size)   AS segments_sum
-             , SUM(t.count)       AS segments_count
-             , ARRAY_AGG(t.high)  AS segments
-             , ARRAY_AGG(i.count) AS segments_bucket
-        FROM paradedb.index_layer_info t
-        LEFT JOIN index_layer_histogram i ON i.relname = t.relname AND i.high = t.high
-        GROUP BY datname, t.relname;
+        SELECT current_database() AS datname
+             , n.nspname AS schema
+             , t.relname AS tablename
+             , c.relname AS relname
+             , i.indisvalid::int AS is_valid
+             , i.indisready::int AS is_ready
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_index i ON i.indexrelid = c.oid
+        JOIN pg_class t ON t.oid = i.indrelid
+        JOIN pg_am am ON am.oid = c.relam
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND am.amname IN ('paradedb', 'bm25');
       target_databases: ["*"]
-      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.3';"
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search';"
       metrics:
         - datname:
             description: Name of the database
             usage: LABEL
+        - schema:
+            description: Schema within the database
+            usage: LABEL
+        - tablename:
+            description: Table the index is on
+            usage: LABEL
         - relname:
             description: Index name
             usage: LABEL
-        - segments:
-            description: Layer segments size distribution
-            usage: HISTOGRAM
+        - is_valid:
+            description: Whether the index is valid for queries
+            usage: GAUGE
+        - is_ready:
+            description: Whether the index is ready for inserts
+            usage: GAUGE
+    # Always emit a count, including zero when no ParadeDB indexes exist.
+    paradedb_invalid_indexes:
+      query: |
+        SELECT current_database() AS datname, COUNT(*) AS count
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_am am ON am.oid = c.relam
+        WHERE am.amname IN ('paradedb', 'bm25')
+          AND (NOT i.indisvalid OR NOT i.indisready)
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_stat_progress_create_index p
+            WHERE p.datname = current_database()
+              AND p.index_relid = i.indexrelid
+          );
+      target_databases: ["*"]
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search';"
+      metrics:
+        - datname:
+            description: Name of the database
+            usage: LABEL
+        - count:
+            description: Number of ParadeDB indexes that are invalid or not ready for inserts, excluding active builds
+            usage: GAUGE
+    paradedb_index_document_distribution:
+      query: |
+        WITH valid_indexes AS MATERIALIZED (
+          SELECT n.nspname AS schemaname, t.relname AS tablename,
+                 c.relname AS indexname, c.oid AS indexrelid
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_index i ON i.indexrelid = c.oid
+          JOIN pg_class t ON t.oid = i.indrelid
+          JOIN pg_am am ON am.oid = c.relam
+          WHERE am.amname IN ('paradedb', 'bm25')
+            AND i.indisvalid AND i.indisready AND i.indislive
+        ),
+        buckets(range_order, document_range, min_docs, max_docs) AS (
+          VALUES (1, '<= 100K docs', NULL::bigint, 100000::bigint)
+               , (2, '100K-1M docs', 100000::bigint, 1000000::bigint)
+               , (3, '1M-10M docs', 1000000::bigint, 10000000::bigint)
+               , (4, '> 10M docs', 10000000::bigint, NULL::bigint)
+        )
+        SELECT current_database() as datname
+             , i.schemaname AS schema
+             , i.indexname AS relname
+             , b.range_order::text
+             , b.document_range
+             , COUNT(s.segment_idx) AS segment_count
+        FROM valid_indexes i
+        CROSS JOIN buckets b
+        LEFT JOIN LATERAL pdb.index_segments(i.indexrelid::regclass) s
+          ON (b.min_docs IS NULL OR s.num_docs > b.min_docs)
+         AND (b.max_docs IS NULL OR s.num_docs <= b.max_docs)
+        GROUP BY current_database(), i.schemaname, i.indexname, b.range_order, b.document_range
+        ORDER BY i.schemaname, i.indexname, b.range_order;
+      target_databases: ["*"]
+      predicate_query: "SELECT 1 FROM pg_extension e JOIN pg_available_extensions a ON a.name = e.extname WHERE e.extname = 'pg_search' AND e.extversion = a.default_version;"
+      metrics:
+        - datname:
+            description: Name of the database
+            usage: LABEL
+        - schema:
+            description: Schema within the database
+            usage: LABEL
+        - relname:
+            description: Index name
+            usage: LABEL
+        - range_order:
+            description: Numeric display order for the document-count range
+            usage: LABEL
+        - document_range:
+            description: Number of live documents in each segment
+            usage: LABEL
+        - segment_count:
+            description: Number of segments in the document-count range
+            usage: GAUGE
+
 ---
 apiVersion: v1
 kind: Secret
@@ -242,11 +368,11 @@ metadata:
   name: paradedb
   namespace: default
   labels:
-    helm.sh/chart: paradedb-0.18.3
+    helm.sh/chart: paradedb-0.19.12
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.25.3"
+    app.kubernetes.io/version: "0.26.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   instances: 1
@@ -258,8 +384,6 @@ spec:
     size: 256Mi
   affinity:
     topologyKey: topology.kubernetes.io/zone
-  # CloudNativePG cluster-wide environment variables belong under spec.env:
-  # https://cloudnative-pg.io/docs/1.30/cloudnative-pg.v1/#clusterspec
   env:
     - name: RUST_BACKTRACE
       value: "1"
@@ -268,16 +392,17 @@ spec:
 
   primaryUpdateMethod: switchover
   primaryUpdateStrategy: unsupervised
+  stopDelay: 1800
   logLevel: info
   enableSuperuserAccess: true
   superuserSecret:
     name: paradedb-superuser
   enablePDB: true
   postgresql:
+    enableAlterSystem: true
     shared_preload_libraries:
       - pg_search
       - pg_cron
-    enableAlterSystem: true
     parameters:
       cron.database_name: postgres
 
@@ -291,6 +416,8 @@ spec:
         key: custom-queries
     tls:
       enabled: false
+
+
   bootstrap:
     initdb:
       database: paradedb

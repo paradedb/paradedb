@@ -1,0 +1,97 @@
+-- Non-immutable expressions must be evaluated on every execution of a cached plan.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET plan_cache_mode = force_generic_plan;
+
+CREATE TABLE stable_plan_docs (id int PRIMARY KEY, tenant_id int, body text);
+INSERT INTO stable_plan_docs VALUES (1, 1, 'canal'), (2, 2, 'canal');
+CREATE INDEX stable_plan_idx ON stable_plan_docs USING bm25 (id, tenant_id, body);
+
+CREATE FUNCTION stable_plan_tenant() RETURNS int LANGUAGE plpgsql STABLE AS $$
+BEGIN RETURN current_setting('app.tenant_id')::int; END
+$$;
+
+-- Base Scan and Aggregate Scan must rebuild pushed-down terms each time.
+SET app.tenant_id = '1';
+PREPARE stable_rows AS SELECT id FROM stable_plan_docs
+WHERE body ||| 'canal' AND tenant_id = stable_plan_tenant() ORDER BY id;
+PREPARE stable_count AS SELECT count(*) FROM stable_plan_docs
+WHERE body ||| 'canal' AND tenant_id > stable_plan_tenant();
+EXECUTE stable_rows;
+EXECUTE stable_count;
+EXPLAIN (COSTS OFF) EXECUTE stable_rows;
+EXPLAIN (COSTS OFF) EXECUTE stable_count;
+SET app.tenant_id = '2';
+EXECUTE stable_rows;
+EXECUTE stable_count;
+
+-- A row-independent STABLE boolean must not become a plan-time All/Not(All).
+SET app.tenant_id = '1';
+PREPARE stable_bool AS SELECT id FROM stable_plan_docs
+WHERE body ||| 'canal' AND stable_plan_tenant() = 1 ORDER BY id;
+EXECUTE stable_bool;
+SET app.tenant_id = '2';
+EXECUTE stable_bool;
+
+-- Direct search-query expressions must also remain runtime expressions.
+SET app.tenant_id = '1';
+PREPARE stable_query AS SELECT id FROM stable_plan_docs
+WHERE id @@@ paradedb.term('tenant_id', stable_plan_tenant()) ORDER BY id;
+EXECUTE stable_query;
+SET app.tenant_id = '2';
+EXECUTE stable_query;
+
+-- A pinned GROUP BY key uses the DataFusion aggregate backend. Its runtime
+-- expression must also be solved again when the cached plan is reused.
+SET app.tenant_id = '1';
+PREPARE stable_group(text) AS SELECT tenant_id, count(*) FROM stable_plan_docs
+WHERE body ||| $1 AND tenant_id = stable_plan_tenant() GROUP BY tenant_id;
+-- Plain EXPLAIN must show both runtime expressions without executor state.
+EXPLAIN (COSTS OFF) EXECUTE stable_group('canal');
+EXECUTE stable_group('canal');
+SET app.tenant_id = '2';
+EXPLAIN (COSTS OFF) EXECUTE stable_group('canal');
+EXECUTE stable_group('canal');
+
+-- RLS applies even when the policy's indexed tenant value changes within one role.
+CREATE ROLE stable_plan_app NOSUPERUSER NOBYPASSRLS;
+GRANT SELECT ON stable_plan_docs TO stable_plan_app;
+ALTER TABLE stable_plan_docs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stable_plan_docs FORCE ROW LEVEL SECURITY;
+CREATE POLICY stable_plan_owner ON stable_plan_docs USING (tenant_id = stable_plan_tenant());
+SET ROLE stable_plan_app;
+SET app.tenant_id = '1';
+PREPARE stable_rls(text) AS SELECT id, tenant_id FROM stable_plan_docs
+WHERE body ||| $1 ORDER BY id;
+EXECUTE stable_rls('canal');
+SET app.tenant_id = '2';
+EXECUTE stable_rls('canal');
+SELECT generic_plans, custom_plans FROM pg_prepared_statements WHERE name = 'stable_rls';
+RESET ROLE;
+
+-- UUID policy values follow the same runtime path, including casts of settings.
+CREATE TABLE stable_uuid_docs (id int PRIMARY KEY, tenant_id uuid, body text);
+INSERT INTO stable_uuid_docs VALUES
+    (1, '00000000-0000-0000-0000-000000000001', 'canal'),
+    (2, '00000000-0000-0000-0000-000000000002', 'canal');
+CREATE INDEX stable_uuid_idx ON stable_uuid_docs USING bm25 (id, tenant_id, body);
+GRANT SELECT ON stable_uuid_docs TO stable_plan_app;
+ALTER TABLE stable_uuid_docs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stable_uuid_docs FORCE ROW LEVEL SECURITY;
+CREATE POLICY stable_uuid_owner ON stable_uuid_docs
+USING (tenant_id = current_setting('app.tenant_uuid')::uuid);
+SET ROLE stable_plan_app;
+SET app.tenant_uuid = '00000000-0000-0000-0000-000000000001';
+PREPARE stable_uuid(text) AS SELECT id FROM stable_uuid_docs WHERE body ||| $1 ORDER BY id;
+EXECUTE stable_uuid('canal');
+SET app.tenant_uuid = '00000000-0000-0000-0000-000000000002';
+EXECUTE stable_uuid('canal');
+RESET ROLE;
+
+DEALLOCATE ALL;
+DROP TABLE stable_uuid_docs;
+DROP TABLE stable_plan_docs;
+DROP FUNCTION stable_plan_tenant();
+DROP ROLE stable_plan_app;
+RESET plan_cache_mode;
+RESET app.tenant_id;
+RESET app.tenant_uuid;

@@ -46,7 +46,8 @@ INSERT INTO items (id, name, description, tag_id) VALUES
 INSERT INTO tags (id, label, category) VALUES
 (10, 'peripherals', 'hardware accessories for computers'),
 (20, 'cables', 'connectivity and data transfer cables'),
-(30, 'stands', 'ergonomic desk accessories and stands');
+(30, 'stands', 'ergonomic desk accessories and stands'),
+(40, 'audio', 'speakers and sound systems');
 INSERT INTO reviews (id, item_id, body, rating) VALUES
 (100, 1, 'great wireless mouse very ergonomic', 5),
 (101, 1, 'decent mouse but battery drains fast', 3),

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`NUMERIC` columns declared with a scale outside -18 to 18, such as `numeric(3,20)`, can now be indexed. They used to fail with an error ending in `exceeds maximum 18 for Decimal64NoScale`, either at `CREATE INDEX` or on the first search after a row was inserted. An index created on an earlier version keeps its previous layout for such a column and still fails this way, so run `REINDEX` on any index that hit this error.

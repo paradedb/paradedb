@@ -49,6 +49,7 @@ runs:
           postgresql-${{ inputs.pg_version }}
           postgresql-server-dev-${{ inputs.pg_version }}
           postgresql-${{ inputs.pg_version }}-pgvector
+          libicu-dev
           ${{ inputs.extra_packages }}
 
     - name: Initialize pgrx-managed PostgreSQL

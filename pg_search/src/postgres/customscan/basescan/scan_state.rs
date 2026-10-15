@@ -413,6 +413,9 @@ impl BaseScanState {
 
     pub fn increment_query_count(&mut self) {
         self.telemetry.record_query();
+        if let Some(parallel_state) = self.parallel_state() {
+            unsafe { (*parallel_state).increment_query_count() };
+        }
     }
 
     /// Merge per-segment JSON info. Last-write-wins per segment id (re-queries

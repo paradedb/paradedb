@@ -116,6 +116,7 @@ fn aggregate_impl(
         std::ptr::null_mut(), // No planstate in API context
         None,                 // No bitmap intersection in API context
         None,                 // No EXPLAIN instrumentation
+        None,
     )?;
 
     if aggregate.0.is_empty() {

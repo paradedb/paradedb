@@ -45,7 +45,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::{QueryError, SearchQueryInput, pdb_query::pdb};
 use anyhow::Result;
-use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
+use decimal_bytes::{MAX_DECIMAL64_NO_SCALE_PRECISION, MAX_DECIMAL64_NO_SCALE_SCALE};
 use pgrx::{PgBuiltInOids, PgOid, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::{Field, FieldEntry, FieldType, Schema};
@@ -70,11 +70,12 @@ pub enum SearchFieldType {
     Json(pg_sys::Oid),
     Date(pg_sys::Oid),
     Range(pg_sys::Oid),
-    /// NUMERIC with precision <= 18: stored as I64 with fixed-point scaling.
-    /// The i16 is the scale (number of decimal places).
+    /// NUMERIC with precision <= 18 and a scale in -18..=18: stored as I64 with fixed-point
+    /// scaling. The i16 is the scale (number of decimal places).
     Numeric64(pg_sys::Oid, i16),
-    /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
-    /// The `Option<i16>` is the scale (number of decimal places), or None for unlimited precision.
+    /// Any other NUMERIC, including unlimited precision: stored as lexicographically sortable
+    /// bytes. The `Option<i16>` is the scale (number of decimal places), or None for unlimited
+    /// precision.
     NumericBytes(pg_sys::Oid, Option<i16>),
     /// Dense vector field (pgvector type). The usize is the number of dimensions,
     /// and `VectorMetric` is the distance metric (default L2).
@@ -273,6 +274,7 @@ fn derive_field_type_from_schema(
     // For most types, the tantivy schema matches what we computed.
     // The exceptions are:
     // - NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
+    // - NUMERIC with a scale outside -18..=18, which older indexes stored as I64.
     // - TIMESTAMP, TIMESTAMPTZ, TIME, TIMETZ, DATE, where legacy indexes used Date but new code computes I64
     match (field_entry.field_type(), computed_type) {
         // If computed type was Numeric64/NumericBytes but stored type is F64,
@@ -284,6 +286,15 @@ fn derive_field_type_from_schema(
         // legacy index - use Date.
         (FieldType::Date(_), SearchFieldType::I64(oid)) if is_datetime_type(oid) => {
             SearchFieldType::Date(oid)
+        }
+        // BACKWARDS COMPATIBILITY (#6387): an index built before NUMERIC routing bounded the
+        // scale can store an out-of-range scale such as `numeric(3,20)` as `I64`. Keep that
+        // layout until `REINDEX`, or the first value indexed as bytes breaks the index.
+        //
+        // TODO: remove this arm, and the `numeric_scale` upgrade test case, once every
+        // deployment has rebuilt its indexes on a release that includes #6387.
+        (FieldType::I64(_), SearchFieldType::NumericBytes(oid, Some(scale))) => {
+            SearchFieldType::Numeric64(oid, scale)
         }
         _ => {
             // For all other types, the computed type is correct
@@ -340,21 +351,14 @@ impl SearchFieldType {
                     Ok(SearchFieldType::F64((*builtin).into()))
                 }
                 PgBuiltInOids::NUMERICOID => {
-                    // Route NUMERIC based on precision:
-                    // - precision <= 18 with defined scale -> Numeric64 (I64 fixed-point)
-                    // - precision > 18 or unlimited -> NumericBytes (lexicographic bytes)
-                    //
-                    // The 18-digit threshold comes from decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION,
-                    // which is the maximum number of decimal digits that can be stored in an i64
-                    // without overflow (i64::MAX = 9,223,372,036,854,775,807, which has 19 digits,
-                    // but we need headroom for the scaled representation).
-                    //
-                    // Note: Numeric64 fields support aggregate pushdown (SUM, AVG, MIN, MAX),
-                    // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
+                    // `Decimal64NoScale` holds at most 18 digits and a scale in -18..=18. Postgres
+                    // allows a much wider scale, e.g. `numeric(3,20)`, so bound both with the
+                    // encoder's own constants and let the rest fall back to `NumericBytes`.
                     let (precision, scale) = extract_numeric_precision_scale(typmod);
                     if let Some(scale) = scale
                         && precision > 0
                         && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16
+                        && i32::from(scale).abs() <= MAX_DECIMAL64_NO_SCALE_SCALE
                     {
                         return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
                     }
@@ -667,6 +671,29 @@ impl SearchIndexSchema {
         lookup
     }
 
+    /// The indexed fields that draw their data from the heap column `column`: any field that
+    /// named it with the 'column' key, plus a field of that same name if one is indexed
+    /// directly. Drains `alias_lookup` so a caller walking every column visits each aliased
+    /// field once.
+    fn take_fields_sourced_from(
+        &self,
+        alias_lookup: &mut HashMap<String, Vec<SearchField>>,
+        column: impl AsRef<str>,
+    ) -> Vec<SearchField> {
+        let column = column.as_ref();
+        let mut fields = alias_lookup.remove(column).unwrap_or_default();
+        if let Some(direct) = self.search_field(column) {
+            fields.push(direct);
+        }
+        fields
+    }
+
+    /// The indexed fields that draw their data from the heap column `column`.
+    pub fn fields_sourced_from(&self, column: impl AsRef<str>) -> Vec<SearchField> {
+        let mut alias_lookup = self.alias_lookup();
+        self.take_fields_sourced_from(&mut alias_lookup, column)
+    }
+
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
@@ -684,13 +711,7 @@ impl SearchIndexSchema {
                 },
             ) in self.bm25_options.attributes().iter()
             {
-                // List any indexed fields that use this column as source data.
-                let mut search_fields = alias_lookup.remove(attname.as_ref()).unwrap_or_default();
-
-                // If there's an indexed field with the same name as a this column, add it to the list.
-                if let Some(index_field) = self.search_field(attname) {
-                    search_fields.push(index_field)
-                };
+                let search_fields = self.take_fields_sourced_from(&mut alias_lookup, attname);
 
                 for search_field in search_fields {
                     let (base_oid, is_array) = resolve_base_type(PgOid::from_untagged(

@@ -235,9 +235,12 @@ pub(crate) trait NodeExt: Copy {
 
 impl<T: pg_sys::PgNode> NodeExt for *mut T {
     fn is_complex(self) -> bool {
+        // Only immutable expressions may be evaluated while building a cached plan.
+        // STABLE functions can change between executions (for example now() or
+        // current_setting()), so they need the same runtime path as parameters.
         self.any(|node| unsafe {
             nodecast!(Var, T_Var, node).is_some() || nodecast!(Param, T_Param, node).is_some()
-        }) || unsafe { pg_sys::contain_volatile_functions(self.cast()) }
+        }) || unsafe { pg_sys::contain_mutable_functions(self.cast()) }
     }
 
     fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, mut visitor: F) -> bool {
@@ -423,7 +426,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn node_walk_complexity_detects_nested_volatile_functions() {
+    fn node_walk_complexity_detects_nested_non_immutable_functions() {
         unsafe {
             let mut func = PgBox::<pg_sys::FuncExpr>::alloc_node(pg_sys::NodeTag::T_FuncExpr);
             func.funcid = pg_sys::F_CLOCK_TIMESTAMP.into();
@@ -432,6 +435,9 @@ mod tests {
             assert!(func.is_complex());
             assert!(target.is_complex());
             (*func).funcid = pg_sys::F_NOW.into();
+            assert!(func.is_complex());
+            assert!(target.is_complex());
+            (*func).funcid = pg_sys::F_PI.into();
             assert!(!target.is_complex());
             assert!(!std::ptr::null_mut::<pg_sys::Node>().is_complex());
             let (tree, _) = expression_tree();

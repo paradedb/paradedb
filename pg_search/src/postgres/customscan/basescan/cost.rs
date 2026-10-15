@@ -45,49 +45,14 @@
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
 use super::*;
-pub(super) use crate::postgres::customscan::parallel::parallel_divisor;
 use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
-use serde::{Deserialize, Serialize};
+pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
 }
 fn parallel_tuple_cost() -> f64 {
     unsafe { pg_sys::parallel_tuple_cost }
-}
-
-/// Which branch of [`decide_scan_parallelism`] produced the policy; the EXPLAIN VERBOSE label. Names
-/// the branch, not the serial-vs-parallel outcome (the plan shape shows that).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(super) enum WorkerDecisionReason {
-    /// Prunable primarily score-DESC ordering: Block-WAND keeps serial scoring sublinear (#4664), so
-    /// workers would only add overhead.
-    BlockWandPrunable,
-    /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
-    /// costable scan with no workers to split across also lands here -- it just emits serial.)
-    CostModel,
-    /// Costable scan with an effective LIMIT (top-K / unsorted LIMIT): pg_search costed the Gather on
-    /// `k` and forced the winner, because PostgreSQL over-costs a bounded Gather (see module docs).
-    CostModelLimited,
-    /// Uncostable sorted scan: it must k-way-merge across segments, so it parallelizes one worker
-    /// per segment (the structural ceiling), or runs serial when no workers are available.
-    SortedPerSegment,
-    /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
-    /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
-    RowHeuristic,
-}
-
-impl WorkerDecisionReason {
-    /// Reader-facing label for EXPLAIN VERBOSE: each names the decision branch the paths came from.
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::BlockWandPrunable => "Prunable top-K",
-            Self::CostModel => "Cost model",
-            Self::CostModelLimited => "Cost model (LIMIT)",
-            Self::SortedPerSegment => "Per-segment",
-            Self::RowHeuristic => "Row-capped",
-        }
-    }
 }
 
 /// How `create_custom_path` should shape the paths it emits for one exec method: one serial path,
@@ -249,7 +214,57 @@ pub(super) fn topk_can_prune_for_method(
     }
 }
 
-/// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for a
+/// What the planner may ask the index about when estimating selectivity and drive cost.
+pub(super) enum EstimationQuery {
+    /// The query as written: it has no runtime expressions.
+    AsWritten,
+    /// A planning-only copy with runtime expressions folded through PostgreSQL's
+    /// `estimate_expression_value`. Execution still solves the written query.
+    Folded(Box<SearchQueryInput>),
+    Guess(f64),
+}
+
+impl EstimationQuery {
+    /// Classify the quals for both the selectivity and the drive-cost estimates.
+    ///
+    /// # Safety
+    /// `root` must point to a valid `PlannerInfo` for the duration of this call.
+    pub(super) unsafe fn decide(
+        quals: &Qual,
+        query: &SearchQueryInput,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> Self {
+        if quals.contains_external_var() {
+            // if the query has external vars (references to other relations which decide whether the rows in this
+            // relation are visible) then we end up returning *everything* from _this_ relation
+            return Self::Guess(FULL_RELATION_SELECTIVITY);
+        }
+        if !quals.contains_exprs() {
+            return Self::AsWritten;
+        }
+        if query.has_postgres_expressions()
+            && let Some(folded) = query.fold_for_estimation(root)
+        {
+            return Self::Folded(Box::new(folded));
+        }
+        // if the query has expressions then it's parameterized and we have to guess something
+        Self::Guess(PARAMETERIZED_SELECTIVITY)
+    }
+
+    /// `Ok`: the query to open the index with. `Err`: the selectivity to guess instead.
+    pub(super) fn resolve<'a>(
+        &'a self,
+        written: &'a SearchQueryInput,
+    ) -> Result<&'a SearchQueryInput, f64> {
+        match self {
+            Self::AsWritten => Ok(written),
+            Self::Folded(folded) => Ok(folded),
+            Self::Guess(selectivity) => Err(*selectivity),
+        }
+    }
+}
+
+/// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for an unfolded
 /// runtime-bound/correlated/external predicate (no resolved value to open a scorer for) or an open
 /// failure. Memoized so the index opens at most once per query.
 ///
@@ -257,17 +272,16 @@ pub(super) fn topk_can_prune_for_method(
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
 pub(super) unsafe fn costable_drive_cost(
     query: &SearchQueryInput,
+    estimation_query: &EstimationQuery,
     bm25_index: &PgSearchRelation,
     quals: &Qual,
     root: *mut pg_sys::PlannerInfo,
     cost_memo: &mut CostMemo,
 ) -> Option<u64> {
-    if quals.contains_exprs()
-        || quals.contains_external_var()
-        || quals.contains_correlated_param(root)
-    {
+    if quals.contains_correlated_param(root) {
         return None;
     }
+    let query = estimation_query.resolve(query).ok()?;
     cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone()))
 }
 
@@ -459,10 +473,10 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         (None, true) => match NonZeroUsize::new(structural_workers) {
             Some(nworkers) => WorkerPathPolicy::ParallelOnly {
                 nworkers,
-                reason: WorkerDecisionReason::SortedPerSegment,
+                reason: WorkerDecisionReason::PerSegment,
             },
             None => WorkerPathPolicy::SerialOnly {
-                reason: WorkerDecisionReason::SortedPerSegment,
+                reason: WorkerDecisionReason::PerSegment,
             },
         },
         // Uncostable unsorted: it can stop early at LIMIT, so the row heuristic's caps fit;

@@ -163,11 +163,85 @@ embedding: { metric: :ip }      # inner product
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
 recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and indexed. All are set at index build time and apply to every vector field in the index. An example:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
 WITH (training_sample_ratio=0.32, max_leaf_size=100);
 ```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 100 })
+  .on(
+    mockItems.id,
+    mockItems.description,
+    mockItems.category,
+    indexing.vectorField(mockItems.embedding, "cosine"),
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={'id': {}, 'description': {}, 'category': {}, 'embedding': {'metric': 'cosine'}},
+            name="search_idx",
+            training_sample_ratio=0.32,
+            max_leaf_size=100,
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    indexing.VectorField(MockItem.embedding, metric="cosine"),
+    postgresql_using="paradedb",
+    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 100},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {},
+    embedding: { metric: :cosine },
+  },
+  name: :search_idx,
+  index_options: { training_sample_ratio: 0.32, max_leaf_size: 100 }
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasField(e => e.Embedding, VectorMetric.Cosine)
+    .HasTrainingSampleRatio(0.32)
+    .HasMaxLeafSize(100);
+```
+
+</CodeGroup>
 
 <ParamField body="training_sample_ratio" default={0.32}>
   The fraction of indexed vectors sampled to train the clustering at build time.

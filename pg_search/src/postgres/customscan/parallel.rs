@@ -17,7 +17,7 @@
 
 use crate::api::Cardinality;
 
-use crate::index::mvcc::SegmentView;
+use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 
 use crate::postgres::ParallelScanState;
 
@@ -26,12 +26,54 @@ pub use crate::scan::info::RowEstimate;
 use crate::aggregate::AggregateRequest;
 use crate::api::operator::estimate_selectivity_and_cost;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::heap::BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use crate::query::estimate::QueryEstimate;
 use pgrx::pg_sys;
+use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 
 use tantivy::index::SegmentId;
+
+/// Why a scan selected its worker budget.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) enum WorkerDecisionReason {
+    /// Prunable primarily score-DESC ordering: Block-WAND keeps serial scoring sublinear (#4664), so
+    /// workers would only add overhead.
+    BlockWandPrunable,
+    /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
+    /// costable scan with no workers to split across also lands here -- it just emits serial.)
+    CostModel,
+    /// Costable scan with an effective LIMIT (top-K / unsorted LIMIT): pg_search costed the Gather on
+    /// `k` and forced the winner, because PostgreSQL over-costs a bounded Gather (see module docs).
+    CostModelLimited,
+    /// Use the segment-based worker budget when cost estimates are unavailable.
+    PerSegment,
+    /// A bare document count without MVCC filtering uses the serial count fast path.
+    DocumentCount,
+    /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
+    /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
+    RowHeuristic,
+}
+
+impl std::fmt::Display for WorkerDecisionReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::BlockWandPrunable => "Prunable top-K",
+            Self::CostModel => "Cost model",
+            Self::CostModelLimited => "Cost model (LIMIT)",
+            Self::PerSegment => "Per-segment",
+            Self::DocumentCount => "Document count",
+            Self::RowHeuristic => "Row-capped",
+        })
+    }
+}
+
+pub(crate) struct ParallelCost {
+    pub estimated_work: f64,
+    pub parallel_threshold: f64,
+}
 
 /// Workers plus a full share for the leader when it participates.
 pub(crate) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
@@ -39,6 +81,19 @@ pub(crate) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool
         (nworkers.get() + 1) as f64
     } else {
         nworkers.get() as f64
+    }
+}
+
+pub(crate) fn parallel_threshold(
+    nworkers: NonZeroUsize,
+    leader_participates: bool,
+    transfer_cost: f64,
+) -> f64 {
+    let divisor = parallel_divisor(nworkers, leader_participates);
+    if divisor > 1.0 {
+        (unsafe { pg_sys::parallel_setup_cost } + transfer_cost) / (1.0 - 1.0 / divisor)
+    } else {
+        f64::INFINITY
     }
 }
 
@@ -50,14 +105,11 @@ pub(crate) fn parallel_scan_is_cheaper(
     leader_participates: bool,
     transfer_cost: f64,
 ) -> bool {
-    work / parallel_divisor(nworkers, leader_participates)
-        + unsafe { pg_sys::parallel_setup_cost }
-        + transfer_cost
-        < work
+    work > parallel_threshold(nworkers, leader_participates, transfer_cost)
 }
 
-/// Use workers when dividing traversal, collector updates, and heap visibility checks
-/// saves more than parallel startup and transferring one partial result per worker.
+/// Use workers when traversal, collector updates, and heap visibility checks cost
+/// more than parallel startup and transferring one partial result per worker.
 /// Unknown estimates keep the existing worker budget.
 pub(crate) fn aggregate_nworkers(
     index: &PgSearchRelation,
@@ -65,7 +117,7 @@ pub(crate) fn aggregate_nworkers(
     query: &SearchQueryInput,
     aggregation: &AggregateRequest,
     solve_mvcc: bool,
-) -> usize {
+) -> (usize, Option<ParallelCost>) {
     unsafe {
         let nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
             .min(reader.segment_readers().len())
@@ -73,28 +125,29 @@ pub(crate) fn aggregate_nworkers(
         let Some(workers) = NonZeroUsize::new(
             clamp_to_gather_limits(nworkers).min(pg_sys::max_worker_processes as usize),
         ) else {
-            return 0;
+            return (0, None);
         };
+        let nworkers = workers.get();
         if query.has_heap_filters() || query.has_postgres_expressions() {
-            return nworkers;
+            return (nworkers, None);
         }
         let Some(updates_per_doc) = aggregation.updates_per_doc(reader) else {
-            return nworkers;
+            return (nworkers, None);
         };
         let Some(heap) = index.heap_relation() else {
-            return nworkers;
+            return (nworkers, None);
         };
         let total_rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
         let (selectivity, Some(cost)) =
             estimate_selectivity_and_cost(index, query.clone(), Some(reader))
         else {
-            return nworkers;
+            return (nworkers, None);
         };
         let rows = selectivity
             .zip(total_rows.known_rows())
             .map(|(selectivity, rows)| (selectivity * rows).ceil());
         if rows.is_none() && (updates_per_doc > 0 || solve_mvcc) {
-            return nworkers;
+            return (nworkers, None);
         }
         let rows = rows.unwrap_or(0.0);
         // The catalog visibility fraction can lag recent writes, as in PostgreSQL costing.
@@ -109,23 +162,51 @@ pub(crate) fn aggregate_nworkers(
         } else {
             0.0
         };
-        let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+        let fast_count = matches!(aggregation, AggregateRequest::Sql(clause)
+            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
+            && reader.query().is_fast_count();
+        let mut visibility_map_words = 0u64;
+        if fast_count && solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
+            let view = reader.segment_view();
+            for (segment, entry) in reader.segment_readers().iter().zip(view.entries()) {
+                if !matches!(entry.docs, SegmentViewDocs::Immutable { .. })
+                    || segment.num_docs() == 0
+                {
+                    continue;
+                }
+                let Ok(Some(blocks)) = SearchIndexReader::block_bounds(segment) else {
+                    return (nworkers, None);
+                };
+                if blocks.is_empty() || *blocks.end() == pg_sys::InvalidBlockNumber {
+                    continue;
+                }
+                let (first, last) = (u64::from(*blocks.start()), u64::from(*blocks.end()));
+                if last - first + 1
+                    < BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(segment.num_docs())
+                {
+                    visibility_map_words += last / 32 - first / 32 + 1;
+                }
+            }
+        }
+        let mut traversal_work = cost as f64 * pg_sys::cpu_index_tuple_cost;
+        if fast_count {
+            traversal_work /= crate::gucs::count_parallel_threshold_multiplier();
+        }
+        let work = traversal_work
             + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
+            + visibility_map_words as f64 * pg_sys::cpu_operator_cost
             + heap_checks * pg_sys::cpu_tuple_cost;
-        let nworkers = if parallel_scan_is_cheaper(
-            work,
-            workers,
-            pg_sys::parallel_leader_participation,
-            workers.get() as f64 * pg_sys::parallel_tuple_cost,
-        ) {
-            nworkers
-        } else {
-            0
+        let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
+        let parallel_cost = ParallelCost {
+            estimated_work: work,
+            parallel_threshold: pg_sys::parallel_setup_cost + transfer_cost,
         };
+        let use_parallel = work > parallel_cost.parallel_threshold;
+        let nworkers = if use_parallel { nworkers } else { 0 };
         pgrx::debug1!(
             "aggregate traversal cost={cost}, matching rows={rows}, heap checks={heap_checks}, requested parallel workers={nworkers}"
         );
-        nworkers
+        (nworkers, Some(parallel_cost))
     }
 }
 

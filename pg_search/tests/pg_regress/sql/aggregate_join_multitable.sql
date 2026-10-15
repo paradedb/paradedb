@@ -42,7 +42,9 @@ INSERT INTO mt_products (description, category, price, in_stock) VALUES
     ('Gaming laptop RGB', 'Electronics', 1299.99, true),
     ('Running shoes athlete', 'Sports', 89.99, true),
     ('Winter jacket warm', 'Clothing', 129.99, false),
-    ('Toy laptop kids', 'Toys', 49.99, true);
+    ('Toy laptop kids', 'Toys', 49.99, true),
+    ('Desk lamp adjustable', 'Home', 39.99, true),
+    ('Office chair ergonomic', 'Home', 99.99, true);
 
 INSERT INTO mt_tags (product_id, tag_name) VALUES
     (1, 'tech'), (1, 'computer'),

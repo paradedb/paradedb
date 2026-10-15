@@ -28,9 +28,9 @@ use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
-    CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
-    costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
-    topk_can_prune_for_method,
+    CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, WorkerDecisionReason,
+    WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
+    parallel_divisor, topk_can_prune_for_method,
 };
 
 use std::ffi::CStr;
@@ -92,6 +92,7 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
@@ -131,6 +132,12 @@ impl BaseScan {
         let wrapper_start = std::time::Instant::now();
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
+        // The read starts here, not at node init: a node that is initialized and never executed
+        // (`LIMIT 0`, an unreached inner side) reads nothing and owes SSI nothing.
+        predicate_lock_read(state.custom_state().heaprel(), unsafe {
+            (*state.csstate.ss.ps.state).es_snapshot
+        });
+
         let planstate = state.planstate();
         let runtime_context = state.custom_state().runtime_context;
         state
@@ -194,11 +201,8 @@ impl BaseScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if state.custom_state().need_snippets() {
-            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> = state
-                .custom_state_mut()
-                .snippet_generators
-                .drain()
-                .collect();
+            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> =
+                std::mem::take(&mut state.custom_state_mut().snippet_generators);
 
             // Pre-compute enhanced queries for snippet generation if we have join predicates
             let enhanced_query_for_snippets =
@@ -234,10 +238,10 @@ impl BaseScan {
 
                 unsafe {
                     let estate = (*csstate).ss.ps.state;
-                    snippet_type.configure_generator(&mut new_generator.1, estate);
+                    snippet_type.configure_generator(&mut new_generator, estate);
                 }
 
-                *generator = Some(new_generator.1);
+                *generator = Some(new_generator);
             }
 
             state.custom_state_mut().snippet_generators = snippet_generators;
@@ -1097,22 +1101,23 @@ impl CustomScan for BaseScan {
             // instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
 
+            let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
+
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
-            } else if quals.contains_external_var() {
-                // if the query has external vars (references to other relations which decide whether the rows in this
-                // relation are visible) then we end up returning *everything* from _this_ relation
-                FULL_RELATION_SELECTIVITY
-            } else if quals.contains_exprs() {
-                // if the query has expressions then it's parameterized and we have to guess something
-                PARAMETERIZED_SELECTIVITY
             } else {
-                // Ask the index. This is the one branch that opens, so reuse that same
-                // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone(), None);
-                precomputed_query_cost = cost;
-                sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                match estimation_query.resolve(&query) {
+                    Ok(indexable) => {
+                        // Ask the index. This is the one branch that opens, so reuse that same
+                        // open's cost for the TopK worker decision instead of opening twice.
+                        let (sel, cost) =
+                            estimate_selectivity_and_cost(&bm25_index, indexable.clone(), None);
+                        precomputed_query_cost = cost;
+                        sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                    }
+                    Err(guess) => guess,
+                }
             };
 
             // Use planning_estimate for costing so parameterized limits still
@@ -1196,6 +1201,7 @@ impl CustomScan for BaseScan {
             let drive_cost = match row_estimate {
                 RowEstimate::Known(_) => costable_drive_cost(
                     &query,
+                    &estimation_query,
                     &bm25_index,
                     &quals,
                     builder.args().root,
@@ -1243,10 +1249,11 @@ impl CustomScan for BaseScan {
                 // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
                 // applied to the cost.)
                 let path_drive_cost = match reason {
-                    WorkerDecisionReason::BlockWandPrunable => None,
+                    WorkerDecisionReason::BlockWandPrunable
+                    | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
-                    | WorkerDecisionReason::SortedPerSegment
+                    | WorkerDecisionReason::PerSegment
                     | WorkerDecisionReason::RowHeuristic => drive_cost,
                 };
                 let drive = match (path_drive_cost, row_estimate.known_rows()) {
@@ -1727,7 +1734,7 @@ impl CustomScan for BaseScan {
         if explainer.is_verbose()
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
-            explainer.add_text("Worker Selection", reason.label());
+            explainer.add_text("Worker Selection", reason.to_string());
         }
 
         if explainer.is_analyze() {
@@ -1774,7 +1781,17 @@ impl CustomScan for BaseScan {
                         .map(|stats| stats.hits())
                         .unwrap_or_else(|| vec![("Total".into(), 0)])
                     {
-                        explainer.add_unsigned_integer(&component, hits, None);
+                        if component == "Vectors"
+                            && let Some(stats) = &state.custom_state().io_trace
+                        {
+                            explainer.add_unsigned_integer_group(&component, hits, |explainer| {
+                                for (name, hits) in stats.vector_hits() {
+                                    explainer.add_unsigned_integer(name, hits, None);
+                                }
+                            });
+                        } else {
+                            explainer.add_unsigned_integer(&component, hits, None);
+                        }
                     }
                 });
             }
@@ -2124,27 +2141,22 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Leader-only: last chance to read DSM before Postgres destroys it.
+        // Postgres calls this hook at the end of `ExecutePlan`. In a worker, that is before it
+        // detaches its tuple queue, so a leader that read every row finds the worker's data in
+        // the DSM. `take()` makes a second call a no-op: by then the DSM can be gone.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel.take()
-            && parallel.is_leader()
-        {
-            parallel.finalize_explain(&mut scan_state.telemetry);
-        };
+        if let Some(parallel) = scan_state.parallel.take() {
+            if parallel.is_leader() {
+                // Leader: last chance to read the DSM before Postgres destroys it.
+                parallel.finalize_explain(&mut scan_state.telemetry);
+            } else {
+                // Worker: flush local telemetry into the DSM for the leader to read.
+                parallel.publish_telemetry(&scan_state.telemetry, scan_state.io_trace.as_ref());
+            }
+        }
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Workers: DSM is still alive; publish local telemetry once.
-        // Leader: do not touch DSM — Shutdown already ran (or serial path).
-        {
-            let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel.take()
-                && !parallel.is_leader()
-            {
-                parallel.publish_telemetry(&scan_state.telemetry);
-            }
-        }
-
         // get some things dropped now. Order matters: scorers hold bitmap
         // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
         // drops before the bitmap machinery is torn down.

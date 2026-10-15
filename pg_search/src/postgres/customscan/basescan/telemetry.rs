@@ -17,9 +17,11 @@
 
 //! Process-local scan telemetry for EXPLAIN.
 //!
-//! During a scan (serial or parallel), metrics are recorded only into
-//! [`ScanTelemetry`]. Parallel workers publish that local state into DSM at
-//! `EndCustomScan` via [`ParallelScanHandle`](super::parallel::ParallelScanHandle).
+//! During a scan (serial or parallel), metrics are recorded into
+//! [`ScanTelemetry`]. A parallel scan also adds each query to this process's
+//! count in DSM as it runs, so the count does not depend on hook order. Parallel
+//! workers publish the rest of their local state into DSM at `ShutdownCustomScan`
+//! via [`ParallelScanHandle`](super::parallel::ParallelScanHandle).
 //! The leader assembles worker telemetry plus shared metadata (e.g. segment
 //! claims) at `ShutdownCustomScan` for EXPLAIN.
 
@@ -123,8 +125,10 @@ impl ScanTelemetry {
                         | "routing_ns"
                         | "exact_scan_ns"
                         | "result_assembly_ns"
-                        | "rerank_fetch_ns"
-                        | "rerank_score_ns"
+                        | "exact_fetch_ns"
+                        | "exact_score_ns"
+                        | "locate_ns"
+                        | "centroid_ns"
                 ) || (name.starts_with("layer") && name.ends_with("_scan_ns"))
                     || (name.starts_with("boundary") && name.ends_with("_ns"));
                 if is_stage {

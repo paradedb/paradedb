@@ -684,9 +684,9 @@ unsafe fn read_ctid_records(
         if !nread.is_multiple_of(CTID_RECORD_LEN) {
             anyhow::bail!("partition spill file holds a partial ctid record ({nread} bytes read)");
         }
-        buf[..nread]
-            .chunks_exact(CTID_RECORD_LEN)
-            .for_each(&mut sink);
+        for record in buf[..nread].as_chunks::<CTID_RECORD_LEN>().0 {
+            sink(record);
+        }
     }
 }
 

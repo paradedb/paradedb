@@ -21,6 +21,7 @@ pub mod datafusion_build;
 pub mod datafusion_exec;
 pub mod datafusion_project;
 pub mod exec;
+pub mod explain;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
@@ -118,6 +119,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_ta
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
@@ -887,7 +889,14 @@ impl CustomScan for AggregateScan {
             });
         }
 
-        // Add note about recursive cost estimation if GUC is enabled
+        if explainer.is_analyze()
+            && let Some(parallelism) = &state.custom_state().parallelism
+        {
+            explainer.add_group("Parallelism", |explainer| {
+                parallelism.explain(explainer);
+            });
+        }
+
         if gucs::explain_recursive_estimates() && explainer.is_verbose() {
             explainer.add_text(
                 "Recursive Query Estimates",
@@ -1297,11 +1306,10 @@ impl AggregateScan {
                 explainer,
             )
         } else {
-            // Building the physical plan calls PgSearchTableProvider::scan() which opens each index
-            // reader and converts the query to a Tantivy query. HeapFilter predicates (e.g. from
-            // ILIKE) require an ExprContext to evaluate Postgres expressions at that point. During
-            // EXPLAIN-only mode begin_custom_scan skips allocating one on the planstate, so create a
-            // temporary standalone context for this rebuild — the same pattern JoinScan uses.
+            // Rebuild the physical shape without executor state. Providers with runtime
+            // expressions open an unfiltered metadata reader and keep those expressions
+            // on the display plan; they must not evaluate functions or prepared parameters.
+            // Other heap filters still need a context to initialize their expression states.
             let expr_context = ExprContextGuard::new();
 
             let custom_exprs = df_state.custom_exprs;
@@ -2012,6 +2020,10 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+                for source in df_state.plan.sources() {
+                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,

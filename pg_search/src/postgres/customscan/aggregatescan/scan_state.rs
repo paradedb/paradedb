@@ -20,6 +20,7 @@ use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggPlan;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
@@ -128,6 +129,7 @@ pub struct WrappedAggregateProjection {
 #[derive(Default)]
 pub struct AggregateScanState {
     pub visibility_stats: VisibilityStats,
+    pub parallelism: Option<AggregateParallelism>,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,

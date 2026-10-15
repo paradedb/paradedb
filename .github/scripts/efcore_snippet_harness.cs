@@ -1,3 +1,7 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore;
 using NpgsqlTypes;
 using ParadeDB.EntityFrameworkCore;
@@ -17,6 +21,22 @@ var options = new DbContextOptionsBuilder<SnippetDbContext>()
 await using var dbContext = new SnippetDbContext(options);
 _ = dbContext.Model;
 
+var designModel = dbContext.GetService<IDesignTimeModel>().Model;
+var operations = dbContext.GetService<IMigrationsModelDiffer>()
+    .GetDifferences(null, designModel.GetRelationalModel())
+    .OfType<CreateIndexOperation>()
+    .Where(operation => operation.FindAnnotation("ParadeDB:IndexFields") != null)
+    .ToList();
+if (Environment.GetEnvironmentVariable("DOCS_EXPECT_INDEX") == "true" && operations.Count == 0)
+    throw new InvalidOperationException("No ParadeDB index DDL generated for the documented model");
+foreach (var docsMigrationCommand in dbContext.GetService<IMigrationsSqlGenerator>().Generate(operations.Cast<MigrationOperation>().ToList(), designModel))
+    await dbContext.Database.ExecuteSqlRawAsync(docsMigrationCommand.CommandText);
+foreach (var operation in operations)
+{
+    var count = await dbContext.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_index WHERE indexrelid = to_regclass({operation.Name}) AND indisvalid AND indisready").SingleAsync();
+    if (count != 1) throw new InvalidOperationException($"Missing or invalid index {operation.Name}");
+}
+
 // __PARADEDB_SNIPPET__
 
 public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
@@ -24,6 +44,7 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
 {
     public DbSet<MockItem> MockItems => Set<MockItem>();
     public DbSet<ArrayDemo> ArrayDemo => Set<ArrayDemo>();
+    public DbSet<MockItemGeo> MockItemsGeo => Set<MockItemGeo>();
     public DbSet<Order> Orders => Set<Order>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -60,6 +81,14 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
             entity.Property(order => order.CustomerName).HasColumnName("customer_name");
         });
 
+        modelBuilder.Entity<MockItemGeo>(entity =>
+        {
+            entity.ToTable("mock_items_geo");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasColumnName("id");
+            entity.Property(item => item.Description).HasColumnName("description");
+        });
+
         // __PARADEDB_MODEL_SNIPPET__
     }
 }
@@ -88,4 +117,10 @@ public sealed class Order
     public int OrderId { get; set; }
     public int ProductId { get; set; }
     public string CustomerName { get; set; } = "";
+}
+
+public sealed class MockItemGeo
+{
+    public long Id { get; set; }
+    public string Description { get; set; } = "";
 }

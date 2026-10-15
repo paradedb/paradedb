@@ -46,6 +46,7 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
+use crate::query::estimate::QueryEstimate;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::pdb_query::pdb;
 use crate::query::segment_pruning::SegmentPruner;
@@ -62,11 +63,11 @@ use tantivy::collector::sort_key::{
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
+use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ProbeStats;
-use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::{ProbeParams, ProbeStats};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -96,6 +97,19 @@ fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u6
     } else {
         value
     }
+}
+
+fn scorer_estimate(weight: &dyn Weight, reader: &SegmentReader) -> (u64, u64) {
+    let mut scorer = weight
+        .scorer(reader, 1.0)
+        .expect("creating scorer for estimation should not fail");
+    let mut count = scorer.size_hint() as u64;
+    let mut cost = scorer.cost();
+    if count == 0 {
+        count = scorer.count_including_deleted() as u64;
+        cost = cost.max(count);
+    }
+    (count, cost)
 }
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
@@ -190,18 +204,23 @@ impl TopKSearch {
     }
 }
 
-/// Builds the PostgreSQL error for an unsupported vector storage version.
+/// Whether this build must rebuild the index before it can read the vectors `error` came from.
+pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
+    matches!(
+        error,
+        tantivy::TantivyError::IncompatibleIndex(
+            Incompatibility::VectorFormatMismatch { .. }
+                | Incompatibility::VectorRouterMismatch { .. },
+        )
+    )
+}
+
+/// Builds the PostgreSQL error for vector storage this build can't read without a rebuild.
 pub(crate) fn vector_format_error_report(
     index_name: &str,
     error: &tantivy::TantivyError,
 ) -> Option<pgrx::pg_sys::panic::ErrorReport> {
-    matches!(
-        error,
-        tantivy::TantivyError::IncompatibleIndex(
-            tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. }
-        )
-    )
-    .then(|| {
+    needs_rebuild(error).then(|| {
         pgrx::pg_sys::panic::ErrorReport::new(
             pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
             format!("index {index_name:?} has an unsupported vector storage format: {error}"),
@@ -362,6 +381,7 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
+    estimate_from_statistics: bool,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     /// The original query, retained for pruning only when a predicate references a partition
     /// column. This eligibility check needs no segment statistics. Keep the whole query so mixed
@@ -417,6 +437,7 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
+            estimate_from_statistics: self.estimate_from_statistics,
             segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             pruning_query: self.pruning_query.clone(),
             need_scores: self.need_scores,
@@ -647,6 +668,8 @@ impl SearchIndexReader {
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
+        index.settings_mut().bitmap_postings.use_for_queries =
+            crate::gucs::enable_bitmap_postings();
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -839,6 +862,7 @@ impl SearchIndexReader {
             });
         }
         let pruning_query = uses_partition_field.then(|| search_query_input.clone());
+        let estimate_from_statistics = search_query_input.supports_statistics_estimation();
         let query = search_query_input
             .into_tantivy_query(
                 &schema,
@@ -859,6 +883,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
+            estimate_from_statistics,
             segment_stats_snapshot,
             pruning_query,
             need_scores,
@@ -912,7 +937,7 @@ impl SearchIndexReader {
     /// The compiled query. Segment pruning happens in the reader's search and collection
     /// methods, not in the query.
     pub fn query(&self) -> &dyn Query {
-        &self.query
+        self.query.as_ref()
     }
 
     /// Pruning keeps deciding from the original query input, which stays correct because a
@@ -926,6 +951,7 @@ impl SearchIndexReader {
             (tantivy::query::Occur::Must, additional_query),
         ]));
         clone.pruning_estimate = OnceLock::new();
+        clone.estimate_from_statistics = false;
         clone
     }
 
@@ -970,7 +996,9 @@ impl SearchIndexReader {
     /// docsets without scoring or collection overhead. Counts raw index
     /// entries: no MVCC filtering.
     pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
-        let weight = self.weight();
+        let weight = self
+            .query
+            .weight(enable_scoring(self.need_scores, &self.searcher).with_bitmap_postings(true))?;
         let mut total = 0u64;
         for (_, segment_reader) in self.candidate_segment_readers() {
             total += u64::from(weight.count(segment_reader)?);
@@ -1147,32 +1175,88 @@ impl SearchIndexReader {
         Ok(self.underlying_index.validate_checksum()?)
     }
 
+    /// The snippet generator for `column`, built over every indexed field the column is stored
+    /// under.
+    ///
+    /// A column can back more than one field: an alias carries its own tokenizer over the same
+    /// text, and a column indexed only through an aliased expression has no field of its own.
+    /// Which of those fields a query matched cannot be read off the index, because term
+    /// lookups go through the segment readers and an empty index reports that nothing is
+    /// addressed at all. So the fields come from the index settings, and the generator selects
+    /// fragments over the union of their matches.
     pub fn snippet_generator(
         &self,
         field_name: impl AsRef<str> + Display,
         query: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
-    ) -> (tantivy::schema::Field, SnippetGenerator) {
-        let search_field = self
-            .schema
-            .search_field(&field_name)
-            .unwrap_or_else(|| panic!("cannot generate snippet for field {field_name} because it was not found in the index"));
-        if search_field.is_text() || search_field.is_json() {
-            let field = search_field.field();
-            let generator = SnippetGenerator::create(
-                &self.searcher,
-                &self.make_query(query, expr_context),
-                field,
-            )
-            .unwrap_or_else(|err| {
-                panic!("failed to create snippet generator for field: {field_name}... {err}")
-            });
-            (field, generator)
-        } else {
+    ) -> SnippetGenerator {
+        let named = self.schema.search_field(&field_name);
+        if let Some(field) = &named
+            && !(field.is_text() || field.is_json())
+        {
             panic!(
                 "failed to create snippet generator for field: {field_name}... can only highlight text fields"
             )
         }
+
+        let mut fields: Vec<_> = named.iter().map(|field| field.field()).collect();
+        let siblings: Vec<_> = self
+            .fields_backed_by(field_name.as_ref())
+            .into_iter()
+            .filter(|sibling| sibling.is_text() || sibling.is_json())
+            .map(|sibling| sibling.field())
+            .filter(|sibling| !fields.contains(sibling))
+            .collect();
+        fields.extend(siblings);
+        if fields.is_empty() {
+            panic!(
+                "cannot generate snippet for field {field_name} because it was not found in the index"
+            )
+        }
+
+        SnippetGenerator::create_for_fields(
+            &self.searcher,
+            &self.make_query(query, expr_context),
+            fields,
+        )
+        .unwrap_or_else(|err| {
+            panic!("failed to create snippet generator for field: {field_name}... {err}")
+        })
+    }
+
+    /// Every indexed field whose text comes from the heap column `column`.
+    ///
+    /// Two spellings reach the same column: a field configured with the column as its source,
+    /// which the schema resolves on its own, and an indexed expression carrying an alias,
+    /// whose source column is only recoverable by looking at the expression's `Var`. A column
+    /// indexed solely through the second spelling has no field of its own, so this is also
+    /// what lets highlighting resolve it at all.
+    fn fields_backed_by(&self, column: &str) -> Vec<crate::schema::SearchField> {
+        let mut fields = self.schema.fields_sourced_from(column);
+        let Some(heaprel) = self.index_rel.heap_relation() else {
+            return fields;
+        };
+        let expressions = self.index_rel.index_expressions();
+        for (field, data) in self.schema.categorized_fields().iter() {
+            let crate::postgres::utils::FieldSource::Expression { att_idx } = data.source else {
+                continue;
+            };
+            if fields.iter().any(|existing| existing == field) {
+                continue;
+            }
+            let matches_column = unsafe {
+                expressions
+                    .get_ptr(att_idx)
+                    .map(|expr| crate::postgres::utils::strip_tokenizer_cast(expr.cast()))
+                    .and_then(|node| crate::nodecast!(Var, T_Var, node))
+                    .and_then(|var| crate::api::operator::attname_from_var(&heaprel, var))
+                    .is_some_and(|attname| attname.as_ref() == column)
+            };
+            if matches_column {
+                fields.push(field.clone());
+            }
+        }
+        fields
     }
 
     /// Search the Tantivy index for matching documents.
@@ -1578,17 +1662,15 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                tantivy::vector::set_fixed_probe_cost_rows(
-                    crate::gucs::vector_fixed_probe_cost_rows(),
-                );
                 let max_scan_levels = crate::gucs::vector_max_scan_levels();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_adaptive_params(AdaptiveProbeParams {
+                    .with_probe_params(ProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         router_recall_target: crate::gucs::vector_router_recall_target(),
                         recall_target: crate::gucs::vector_recall_target(),
+                        fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -1917,19 +1999,12 @@ impl SearchIndexReader {
                 query_cost: 0,
             };
         };
-        let weight = self.weight();
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail");
-
-        // investigate the size_hint.  it will often give us a good enough value
-        let mut count = scorer.size_hint() as usize;
-        let mut cost = scorer.cost();
-        if count == 0 {
-            // but when it doesn't, we need to do a full count
-            count = scorer.count_including_deleted() as usize;
-            cost = cost.max(count as u64);
-        }
+        let (count, mut cost) = self
+            .estimate_from_statistics
+            .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
+            .flatten()
+            .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
+            .unwrap_or_else(|| scorer_estimate(self.weight().as_ref(), largest_reader));
         if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
             cost = cost.max(shortest_posting_list);
         }
@@ -1943,8 +2018,7 @@ impl SearchIndexReader {
         };
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
         DocsEstimate {
-            matching_docs: scale_largest_segment_estimate(count as u64, segment_doc_proportion)
-                as usize,
+            matching_docs: scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
         }
@@ -2051,7 +2125,15 @@ impl SearchIndexReader {
             .expect("should have at least one segment reader");
 
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
-        self.estimate_node_recursive(query_tree, largest_reader, segment_doc_proportion, parser);
+        // Keep EXPLAIN's child estimates on the same path as the whole query.
+        let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
+        self.estimate_node_recursive(
+            query_tree,
+            largest_reader,
+            segment_doc_proportion,
+            parser,
+            estimate_from_statistics,
+        );
     }
 
     fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
@@ -2060,12 +2142,17 @@ impl SearchIndexReader {
         largest_reader: &SegmentReader,
         segment_doc_proportion: f64,
         parser: &QueryParserCtor,
+        estimate_from_statistics: bool,
     ) {
-        use crate::query::SearchQueryInput;
-
         // First, recursively estimate all children
         for child in node.children_mut() {
-            self.estimate_node_recursive(child, largest_reader, segment_doc_proportion, parser);
+            self.estimate_node_recursive(
+                child,
+                largest_reader,
+                segment_doc_proportion,
+                parser,
+                estimate_from_statistics,
+            );
         }
 
         // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
@@ -2100,21 +2187,22 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
+        if estimate_from_statistics
+            && let Ok(Some(estimate)) = tantivy_query.estimate_docs(largest_reader)
+        {
+            node.set_estimate(scale_largest_segment_estimate(
+                estimate.live_docs(largest_reader),
+                segment_doc_proportion,
+            ) as usize);
+            return;
+        }
+
         let weight = tantivy_query
             .weight(enable_scoring(node.query.need_scores(), &self.searcher))
             .expect("creating weight for estimation should not fail");
 
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("creating scorer for estimation should not fail");
-
-        let mut count = scorer.size_hint() as usize;
-        if count == 0 {
-            count = scorer.count_including_deleted() as usize;
-        }
-
-        let estimated =
-            scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
+        let (count, _) = scorer_estimate(weight.as_ref(), largest_reader);
+        let estimated = scale_largest_segment_estimate(count, segment_doc_proportion) as usize;
 
         node.set_estimate(estimated);
     }
@@ -2127,7 +2215,10 @@ impl SearchIndexReader {
             .expect("search should not fail");
         let weight = self
             .query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
+            .weight(
+                enable_scoring(self.need_scores, &self.searcher)
+                    .with_bitmap_postings(collector.supports_bitmap_collection()),
+            )
             .expect("creating a Weight from a Query should not fail");
         let fruits = self.collect_segment_readers(
             self.candidate_segment_readers(),
@@ -2408,6 +2499,292 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn bitmap_postings_are_requested_only_for_counts() {
+        use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+        use tantivy::collector::{Count, DocSetCollector};
+
+        #[derive(Debug)]
+        struct CheckBitmapOptIn {
+            query: Box<dyn Query>,
+            expected: bool,
+            calls: Arc<AtomicUsize>,
+        }
+
+        impl Clone for CheckBitmapOptIn {
+            fn clone(&self) -> Self {
+                Self {
+                    query: self.query.box_clone(),
+                    expected: self.expected,
+                    calls: Arc::clone(&self.calls),
+                }
+            }
+        }
+
+        impl Query for CheckBitmapOptIn {
+            fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+                assert_eq!(scoring.bitmap_postings_enabled(), self.expected);
+                self.calls.fetch_add(1, Relaxed);
+                self.query.weight(scoring)
+            }
+        }
+
+        let (index, _) = segmented_index_fixture("bitmap_opt_in", 2, false);
+        for expected in [false, true] {
+            let mut reader = open_snapshot_reader(&index, term_query("title", "silver"), false);
+            let calls = Arc::new(AtomicUsize::new(0));
+            reader.query = Box::new(CheckBitmapOptIn {
+                query: reader.query.box_clone(),
+                expected,
+                calls: Arc::clone(&calls),
+            });
+            if expected {
+                assert_eq!(reader.collect(Count), 10);
+                assert_eq!(reader.count_matched_docs().unwrap(), 10);
+            } else {
+                assert_eq!(reader.search().count(), 10);
+                assert_eq!(reader.collect(DocSetCollector).len(), 10);
+            }
+            assert_eq!(calls.load(Relaxed), 2);
+        }
+    }
+
+    #[pg_test]
+    fn statistics_estimation_uses_only_supported_query_trees() {
+        let (index, _) = segmented_index_fixture("statistics_estimation", 1, false);
+        let term = term_query("title", "silver");
+        let phrase = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::TokenizedPhrase {
+                phrase: "silver dragon".into(),
+                slop: None,
+            },
+        };
+        let match_query = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::Match {
+                value: "SILVER dragon".into(),
+                tokenizer: None,
+                distance: None,
+                transposition_cost_one: None,
+                prefix: None,
+                conjunction_mode: Some(true),
+            },
+        };
+        let boolean = |must, should, must_not| SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+            minimum_should_match: None,
+        };
+        for (query, expected) in [
+            (SearchQueryInput::All, 10),
+            (SearchQueryInput::from_unfielded(pdb::Query::All), 10),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::All,
+                },
+                10,
+            ),
+            (term.clone(), 10),
+            (match_query.clone(), 10),
+            (phrase.clone(), 1),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::ScoreAdjusted {
+                        query: Box::new(pdb::Query::ScoreAdjusted {
+                            query: Box::new(pdb::Query::TokenizedPhrase {
+                                phrase: "silver dragon".into(),
+                                slop: None,
+                            }),
+                            score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
+                        }),
+                        score: Some(pdb::ScoreAdjustStyle::Const(0.0)),
+                    },
+                },
+                1,
+            ),
+            (term_query("title", "absent"), 0),
+            (
+                boolean(vec![SearchQueryInput::All, term.clone()], vec![], vec![]),
+                10,
+            ),
+            (
+                boolean(vec![SearchQueryInput::All], vec![], vec![term.clone()]),
+                0,
+            ),
+            (
+                boolean(vec![term.clone(), phrase.clone()], vec![], vec![]),
+                1,
+            ),
+            (
+                boolean(
+                    vec![term.clone()],
+                    vec![],
+                    vec![term_query("title", "absent")],
+                ),
+                10,
+            ),
+            (
+                boolean(
+                    vec![],
+                    vec![
+                        term.clone(),
+                        boolean(vec![match_query.clone()], vec![], vec![]),
+                    ],
+                    vec![],
+                ),
+                10,
+            ),
+            (
+                SearchQueryInput::WithIndex {
+                    oid: index.oid(),
+                    query: Box::new(phrase.clone()),
+                },
+                1,
+            ),
+        ] {
+            for query in [
+                query.clone(),
+                SearchQueryInput::Boost {
+                    query: Box::new(query.clone()),
+                    factor: 2.0,
+                },
+                SearchQueryInput::ConstScore {
+                    query: Box::new(SearchQueryInput::Boost {
+                        query: Box::new(query),
+                        factor: 2.0,
+                    }),
+                    score: 0.0,
+                },
+            ] {
+                let reader = SearchIndexReader::open(
+                    &index,
+                    query.clone(),
+                    false,
+                    MvccSatisfies::LargestSegment,
+                )
+                .unwrap();
+                assert!(reader.estimate_from_statistics, "{query:?}");
+                let estimate = reader.estimate_docs(RowEstimate::Known(10));
+                assert_eq!(estimate.matching_docs, expected, "{query:?}");
+                assert_eq!(
+                    reader
+                        .build_query_tree_with_estimates(query.clone())
+                        .unwrap()
+                        .estimated_docs,
+                    Some(expected),
+                    "{query:?}"
+                );
+                assert_eq!(
+                    reader.estimate_docs(RowEstimate::Known(100)).matching_docs,
+                    expected * 10
+                );
+                assert_eq!(reader.estimate_docs(RowEstimate::Unknown).total_docs, 10);
+            }
+        }
+
+        let mut fuzzy_match = match_query;
+        if let SearchQueryInput::FieldedQuery {
+            query: pdb::Query::Match { distance, .. },
+            ..
+        } = &mut fuzzy_match
+        {
+            *distance = Some(1);
+        }
+        for unsupported in [
+            range_query("id", 1, 5),
+            fuzzy_match,
+            SearchQueryInput::Parse {
+                query_string: "title:silver".into(),
+                lenient: None,
+                conjunction_mode: None,
+            },
+            SearchQueryInput::Parse {
+                query_string: "title:\"silver dragon\"".into(),
+                lenient: None,
+                conjunction_mode: None,
+            },
+            SearchQueryInput::FieldedQuery {
+                field: "title".into(),
+                query: pdb::Query::Regex {
+                    pattern: "sil.*".into(),
+                },
+            },
+            SearchQueryInput::FieldedQuery {
+                field: "title".into(),
+                query: pdb::Query::ScoreAdjusted {
+                    query: Box::new(pdb::Query::Regex {
+                        pattern: "sil.*".into(),
+                    }),
+                    score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
+                },
+            },
+        ] {
+            for query in [
+                unsupported.clone(),
+                SearchQueryInput::Boost {
+                    query: Box::new(unsupported.clone()),
+                    factor: 2.0,
+                },
+                SearchQueryInput::ConstScore {
+                    query: Box::new(unsupported.clone()),
+                    score: 0.0,
+                },
+                boolean(vec![phrase.clone(), unsupported.clone()], vec![], vec![]),
+                boolean(vec![], vec![term.clone(), unsupported.clone()], vec![]),
+                boolean(vec![term.clone()], vec![], vec![unsupported]),
+            ] {
+                let reader = SearchIndexReader::open(
+                    &index,
+                    query.clone(),
+                    false,
+                    MvccSatisfies::LargestSegment,
+                )
+                .unwrap();
+                assert!(!reader.estimate_from_statistics, "{query:?}");
+                let segment = reader.searcher.segment_reader(0);
+                let (count, mut cost) = scorer_estimate(reader.weight().as_ref(), segment);
+                if let Some(shortest) = reader.shortest_posting_list(segment) {
+                    cost = cost.max(shortest);
+                }
+                let estimate = reader.estimate_docs(RowEstimate::Known(10));
+                assert_eq!(
+                    (estimate.matching_docs, estimate.query_cost),
+                    (count as usize, cost),
+                    "{query:?}"
+                );
+                let mut tree = reader.build_query_tree_with_estimates(query).unwrap();
+                assert_eq!(tree.estimated_docs, Some(count as usize));
+                tree.traverse_mut(0, &mut |node, _| {
+                    if node.query == phrase {
+                        assert_eq!(node.estimated_docs, Some(10));
+                    }
+                });
+            }
+        }
+        for (name, mutable, expected) in [
+            ("statistics_empty", false, 0),
+            ("statistics_mutable", true, 5),
+        ] {
+            let (index, _) = segmented_index_fixture(name, 0, mutable);
+            unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+            let reader = SearchIndexReader::open(
+                &index,
+                term_query("title", "mutable"),
+                false,
+                MvccSatisfies::LargestSegment,
+            )
+            .unwrap();
+            let estimate = reader.estimate_docs(RowEstimate::Unknown);
+            assert_eq!(estimate.matching_docs, expected);
+            assert_eq!(estimate.total_docs, expected as u64);
+            unsafe { pg_sys::PopActiveSnapshot() };
+        }
+    }
 
     #[pg_test]
     fn collect_ctidset_rebinds_visibility_to_each_reader() {
@@ -3593,22 +3970,20 @@ mod vector_probe_stats_tests {
     use super::{ProbeStats, SegmentId, probe_stats_to_segment_info};
     use tantivy::vector::VectorIoStats;
 
-    // Rerank I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
+    // Exact-scoring I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
     #[test]
-    fn rerank_io_counters_are_flat_segment_fields() {
+    fn exact_io_counters_are_flat_segment_fields() {
         let id = SegmentId::from_bytes([7; 16]);
-        let stats = ProbeStats {
-            rerank_io: VectorIoStats {
-                reads: 3,
-                bytes_read: 64,
-                storage_blocks: 5,
-            },
-            ..Default::default()
+        let mut stats = ProbeStats::default();
+        stats.exact_io = VectorIoStats {
+            reads: 3,
+            bytes_read: 64,
+            storage_blocks: 5,
         };
         let info = probe_stats_to_segment_info(&[id], &[stats]);
-        assert_eq!(info[&id]["rerank_reads"], 3);
-        assert_eq!(info[&id]["rerank_bytes_read"], 64);
-        assert_eq!(info[&id]["rerank_storage_blocks"], 5);
-        assert!(info[&id].get("rerank_io").is_none());
+        assert_eq!(info[&id]["exact_reads"], 3);
+        assert_eq!(info[&id]["exact_bytes_read"], 64);
+        assert_eq!(info[&id]["exact_storage_blocks"], 5);
+        assert!(info[&id].get("exact_io").is_none());
     }
 }

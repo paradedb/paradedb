@@ -16,19 +16,20 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use chrono::{NaiveDate, NaiveDateTime};
-use soa_derive::StructOfArray;
 use sqlx::FromRow;
 
-#[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
-pub struct SimpleProductsTable {
-    pub id: i32,
-    pub description: String,
-    pub category: String,
-    pub rating: i32,
-    pub in_stock: bool,
-    pub metadata: serde_json::Value,
-    pub created_at: NaiveDateTime,
-    pub last_updated_date: NaiveDate,
+fixture_table! {
+    #[derive(Debug, PartialEq, FromRow, Default)]
+    pub struct SimpleProductsTable => SimpleProductsTableVec {
+        pub id: i32,
+        pub description: String,
+        pub category: String,
+        pub rating: i32,
+        pub in_stock: bool,
+        pub metadata: serde_json::Value,
+        pub created_at: NaiveDateTime,
+        pub last_updated_date: NaiveDate,
+    }
 }
 
 impl SimpleProductsTable {

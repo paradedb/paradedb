@@ -870,3 +870,59 @@ async fn test_background_merge_commits_without_synchronous_replication_standby()
     conn.execute("SELECT pg_reload_conf()").await?;
     result
 }
+
+// A background merger works through all of its candidates in one transaction, so it must release
+// the buffer pins of each segment it merges. Otherwise a merge over many small segments pins all
+// of shared_buffers and fails with "no unpinned buffers available" (paradedb/paradedb#6796).
+#[async_std::test]
+async fn test_ephemeral_background_merge_releases_merged_segment_pins() -> Result<()> {
+    // 2048 buffers: without the release, the merger fills them after about 125 small segments.
+    let postgres = EphemeralPostgres::new(
+        Some("shared_preload_libraries = 'pg_search'\nshared_buffers = '16MB'\nautovacuum = off"),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute("CREATE EXTENSION pg_search CASCADE").await?;
+    conn.execute("CREATE TABLE merge_pins (id bigint, body text)")
+        .await?;
+    // Each insert seals its own segment, and nothing merges them until the background layers
+    // are set below.
+    conn.execute(
+        "CREATE INDEX merge_pins_idx ON merge_pins USING paradedb (id, body) \
+         WITH (background_layer_sizes = '0', target_segment_count = 1, mutable_segment_rows = 0)",
+    )
+    .await?;
+    for id in 0..500_i64 {
+        sqlx::query("INSERT INTO merge_pins VALUES ($1, 'beer wine cheese ' || $1)")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    let segments = "SELECT count(*) FROM paradedb.index_info('merge_pins_idx')";
+    let (before,): (i64,) = sqlx::query_as(segments).fetch_one(&mut conn).await?;
+    conn.execute("ALTER INDEX merge_pins_idx SET (background_layer_sizes = '1kb,10kb,64kb')")
+        .await?;
+    // There are no mutable segments, so no backpressure: this insert launches the merger.
+    conn.execute("INSERT INTO merge_pins VALUES (500, 'beer wine cheese 500')")
+        .await?;
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let (after,): (i64,) = sqlx::query_as(segments).fetch_one(&mut conn).await?;
+        if after < before / 10 {
+            break;
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "the background merge stopped at {after} of {before} segments"
+        );
+        async_std::task::sleep(Duration::from_millis(50)).await;
+    }
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('merge_pins_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(passed == Some(true), "verify_index failed after the merge");
+    Ok(())
+}

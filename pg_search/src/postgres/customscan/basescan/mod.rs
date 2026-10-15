@@ -28,9 +28,9 @@ use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
-    CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
-    costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
-    topk_can_prune_for_method,
+    CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, WorkerDecisionReason,
+    WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
+    parallel_divisor, topk_can_prune_for_method,
 };
 
 use std::ffi::CStr;
@@ -1101,22 +1101,23 @@ impl CustomScan for BaseScan {
             // instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
 
+            let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
+
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
-            } else if quals.contains_external_var() {
-                // if the query has external vars (references to other relations which decide whether the rows in this
-                // relation are visible) then we end up returning *everything* from _this_ relation
-                FULL_RELATION_SELECTIVITY
-            } else if quals.contains_exprs() {
-                // if the query has expressions then it's parameterized and we have to guess something
-                PARAMETERIZED_SELECTIVITY
             } else {
-                // Ask the index. This is the one branch that opens, so reuse that same
-                // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone(), None);
-                precomputed_query_cost = cost;
-                sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                match estimation_query.resolve(&query) {
+                    Ok(indexable) => {
+                        // Ask the index. This is the one branch that opens, so reuse that same
+                        // open's cost for the TopK worker decision instead of opening twice.
+                        let (sel, cost) =
+                            estimate_selectivity_and_cost(&bm25_index, indexable.clone(), None);
+                        precomputed_query_cost = cost;
+                        sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                    }
+                    Err(guess) => guess,
+                }
             };
 
             // Use planning_estimate for costing so parameterized limits still
@@ -1200,6 +1201,7 @@ impl CustomScan for BaseScan {
             let drive_cost = match row_estimate {
                 RowEstimate::Known(_) => costable_drive_cost(
                     &query,
+                    &estimation_query,
                     &bm25_index,
                     &quals,
                     builder.args().root,
@@ -1779,7 +1781,17 @@ impl CustomScan for BaseScan {
                         .map(|stats| stats.hits())
                         .unwrap_or_else(|| vec![("Total".into(), 0)])
                     {
-                        explainer.add_unsigned_integer(&component, hits, None);
+                        if component == "Vectors"
+                            && let Some(stats) = &state.custom_state().io_trace
+                        {
+                            explainer.add_unsigned_integer_group(&component, hits, |explainer| {
+                                for (name, hits) in stats.vector_hits() {
+                                    explainer.add_unsigned_integer(name, hits, None);
+                                }
+                            });
+                        } else {
+                            explainer.add_unsigned_integer(&component, hits, None);
+                        }
                     }
                 });
             }
@@ -2139,7 +2151,7 @@ impl CustomScan for BaseScan {
                 parallel.finalize_explain(&mut scan_state.telemetry);
             } else {
                 // Worker: flush local telemetry into the DSM for the leader to read.
-                parallel.publish_telemetry(&scan_state.telemetry);
+                parallel.publish_telemetry(&scan_state.telemetry, scan_state.io_trace.as_ref());
             }
         }
     }

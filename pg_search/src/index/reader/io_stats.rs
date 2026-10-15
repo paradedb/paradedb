@@ -24,7 +24,7 @@ use pgrx::pg_sys;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tantivy::index::{SegmentComponent, SegmentId};
-use tantivy::vector::current_vector_stage;
+use tantivy::vector::{VectorReadKind, current_vector_read_kind, current_vector_stage};
 
 #[cfg(any(test, feature = "pg_test"))]
 thread_local! {
@@ -35,6 +35,45 @@ thread_local! {
 #[cfg(any(test, feature = "pg_test"))]
 pub(crate) fn vector_buffer_reads() -> usize {
     VECTOR_BUFFER_READS.get()
+}
+
+const COMPONENT_NAMES: [(&str, &str); 16] = [
+    ("idx", "Postings"),
+    ("pos", "Positions"),
+    ("term", "Term Dictionary"),
+    ("fieldnorm", "Field Norms"),
+    ("pnorm", "Posting Norms"),
+    ("bmap", "Posting Bitmaps"),
+    ("ctid_map", "CTID Map"),
+    ("fast", "Columnar Fields"),
+    ("store", "Document Store"),
+    ("temp", "Temporary Store"),
+    ("del", "Liveness Bitmap"),
+    ("stats", "Segment Statistics"),
+    ("vec", "Vectors"),
+    ("centroids", "Centroids"),
+    ("Heap", "Heap"),
+    ("Metadata", "Metadata"),
+];
+
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct SharedBufferHits {
+    total: u64,
+    components: [u64; COMPONENT_NAMES.len()],
+    vectors: [u64; 3],
+}
+
+impl SharedBufferHits {
+    pub(crate) fn merge(&mut self, other: Self) {
+        self.total += other.total;
+        for (target, source) in self.components.iter_mut().zip(other.components) {
+            *target += source;
+        }
+        for (target, source) in self.vectors.iter_mut().zip(other.vectors) {
+            *target += source;
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -60,6 +99,7 @@ impl SegmentIo {
 struct Data {
     total: u64,
     components: BTreeMap<String, u64>,
+    vector_hits: [u64; 3],
     current: SegmentIo,
     per_segment: Vec<(SegmentId, SegmentIo)>,
     scan_init: bool,
@@ -210,23 +250,11 @@ impl Trace {
             .iter()
             .filter(|(_, hits)| **hits > 0)
             .map(|(component, hits)| {
-                let name = match component.as_str() {
-                    "idx" => "Postings",
-                    "pos" => "Positions",
-                    "term" => "Term Dictionary",
-                    "fieldnorm" => "Field Norms",
-                    "pnorm" => "Posting Norms",
-                    "bmap" => "Posting Bitmaps",
-                    "ctid_map" => "CTID Map",
-                    "fast" => "Columnar Fields",
-                    "store" => "Document Store",
-                    "temp" => "Temporary Store",
-                    "del" => "Liveness Bitmap",
-                    "stats" => "Segment Statistics",
-                    "vec" => "Vectors",
-                    "centroids" => "Centroids",
-                    other => other,
-                };
+                let name = COMPONENT_NAMES
+                    .iter()
+                    .find(|(key, _)| *key == component)
+                    .map(|(_, name)| *name)
+                    .unwrap_or(component);
                 (name.to_owned(), *hits)
             })
             .collect();
@@ -237,6 +265,42 @@ impl Trace {
             hits.push(("Other".into(), other));
         }
         hits
+    }
+
+    pub(crate) fn shared_hits(&self) -> SharedBufferHits {
+        let data = self.0.lock();
+        SharedBufferHits {
+            total: data.total,
+            components: COMPONENT_NAMES
+                .map(|(key, _)| data.components.get(key).copied().unwrap_or(0)),
+            vectors: data.vector_hits,
+        }
+    }
+
+    pub(crate) fn merge_hits(&self, hits: SharedBufferHits) {
+        let mut data = self.0.lock();
+        data.total += hits.total;
+        for ((key, _), count) in COMPONENT_NAMES.iter().zip(hits.components) {
+            if count > 0 {
+                *data.components.entry((*key).into()).or_default() += count;
+            }
+        }
+        for (target, source) in data.vector_hits.iter_mut().zip(hits.vectors) {
+            *target += source;
+        }
+    }
+
+    pub fn vector_hits(&self) -> [(&'static str, u64); 4] {
+        let data = self.0.lock();
+        let [layer0, layer1, full_precision] = data.vector_hits;
+        let other =
+            data.components.get("vec").copied().unwrap_or(0) - data.vector_hits.iter().sum::<u64>();
+        [
+            ("Quantized Layer 0", layer0),
+            ("Quantized Layer 1", layer1),
+            ("Full Precision", full_precision),
+            ("Other", other),
+        ]
     }
 
     pub fn attach(&self, segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {
@@ -278,14 +342,6 @@ impl Trace {
                 for (name, counters) in io.stages {
                     map.insert(format!("{name}_buffer_hits"), counters.blks_hit.into());
                     map.insert(format!("{name}_buffer_reads"), counters.blks_read.into());
-                    if name == "rerank_fetch" {
-                        map.insert("rerank_buffer_hits".to_string(), counters.blks_hit.into());
-                        map.insert("rerank_buffer_reads".to_string(), counters.blks_read.into());
-                        map.insert(
-                            "rerank_blocks_fetched".to_string(),
-                            (counters.blks_hit + counters.blks_read).into(),
-                        );
-                    }
                 }
                 for (component, counters) in io.scan_init_components {
                     let component = component
@@ -354,6 +410,17 @@ impl ComponentStats {
         }
         if data.depth > 0 {
             *data.components.entry(self.component.clone()).or_default() += delta.blks_hit;
+            if self.component == "vec" {
+                let slot = match current_vector_read_kind() {
+                    VectorReadKind::QuantizedLayer(0) => Some(0),
+                    VectorReadKind::QuantizedLayer(1) => Some(1),
+                    VectorReadKind::FullPrecision => Some(2),
+                    _ => None,
+                };
+                if let Some(slot) = slot {
+                    data.vector_hits[slot] += delta.blks_hit;
+                }
+            }
         }
         result
     }
@@ -400,6 +467,7 @@ mod tests {
         let hits: BTreeMap<_, _> = trace.hits().into_iter().collect();
         assert_eq!(hits["Total"], 28);
         assert_eq!(hits["Vectors"], 7);
+        assert_eq!(trace.vector_hits().map(|(_, hits)| hits), [0, 0, 0, 7]);
         assert_eq!(hits["Centroids"], 3);
         assert_eq!(hits["CTID Map"], 7);
         assert_eq!(hits["Metadata"], 11);
@@ -520,6 +588,69 @@ mod tests {
         assert!(!hits.contains_key("Other"));
     }
     #[pgrx::pg_test]
+    fn parallel_buffer_hits_include_workers_without_claimed_segments() {
+        use crate::index::mvcc::SegmentView;
+        use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
+        use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+        use crate::postgres::test_support::parallel_state_for_view;
+
+        let dsm = parallel_state_for_view(SegmentView::new(Vec::new()));
+        let leader = unsafe { ParallelScanHandle::new(dsm, ParallelRole::Leader) };
+        let worker = unsafe { ParallelScanHandle::new(dsm, ParallelRole::Worker) };
+        let leader_trace = Trace::default();
+        let mut telemetry = ScanTelemetry::default();
+        for (is_leader, vectors, centroids, other, layers) in [
+            (true, 5, 0, 2, [1, 1, 2]),
+            (false, 11, 3, 1, [3, 4, 2]),
+            (false, 0, 7, 2, [0, 0, 0]),
+        ] {
+            let trace = if is_leader {
+                leader_trace.clone()
+            } else {
+                Trace::default()
+            };
+            {
+                let _scope = trace.enter();
+                read_buffers(
+                    Some(&trace.component(&SegmentComponent::Custom("vec".into()))),
+                    vectors,
+                    0,
+                );
+                read_buffers(
+                    Some(&trace.component(&SegmentComponent::Custom("centroids".into()))),
+                    centroids,
+                    0,
+                );
+                read_buffers(None, other, 0);
+            }
+            trace.0.lock().vector_hits = layers;
+            if is_leader {
+                leader.finalize_explain(&mut telemetry);
+            } else {
+                worker.publish_telemetry(&telemetry, Some(&trace));
+            }
+        }
+        unsafe { (*dsm).reset() };
+        leader.finalize_explain(&mut telemetry);
+        leader.finalize_buffer_hits(&leader_trace);
+        let hits: BTreeMap<_, _> = leader_trace.hits().into_iter().collect();
+        assert_eq!(hits["Total"], 31);
+        assert_eq!(hits["Vectors"], 16);
+        assert_eq!(hits["Centroids"], 10);
+        assert_eq!(hits["Other"], 5);
+        assert_eq!(
+            leader_trace.vector_hits().map(|(_, hits)| hits),
+            [4, 5, 4, 3]
+        );
+        leader.finalize_explain(&mut telemetry);
+        leader.finalize_buffer_hits(&leader_trace);
+        assert_eq!(
+            leader_trace.hits().into_iter().collect::<BTreeMap<_, _>>(),
+            hits
+        );
+    }
+
+    #[pgrx::pg_test]
     fn bm25_and_vector_explain_share_buffer_accounting() {
         pgrx::Spi::run(
             "SET max_parallel_workers_per_gather = 0;
@@ -579,10 +710,25 @@ mod tests {
                     assert_eq!(
                         hits.iter()
                             .filter(|(name, _)| name.as_str() != "Total")
-                            .map(|(_, value)| value.as_u64().unwrap())
+                            .map(|(_, value)| value
+                                .as_u64()
+                                .or_else(|| value["Total"].as_u64())
+                                .unwrap())
                             .sum::<u64>(),
                         total,
                     );
+                    if let Some(vectors) = hits.get("Vectors") {
+                        assert_eq!(
+                            vectors
+                                .as_object()
+                                .unwrap()
+                                .iter()
+                                .filter(|(name, _)| name.as_str() != "Total")
+                                .map(|(_, value)| value.as_u64().unwrap())
+                                .sum::<u64>(),
+                            vectors["Total"].as_u64().unwrap(),
+                        );
+                    }
                 }
                 if vector && analyze && verbose {
                     let segments: BTreeMap<String, serde_json::Value> =
@@ -593,7 +739,7 @@ mod tests {
                         .sum::<u64>();
                     assert_eq!(vector_hits > 0, buffers);
                     if let Some(hits) = hits {
-                        assert!(vector_hits <= hits["Vectors"].as_u64().unwrap());
+                        assert!(vector_hits <= hits["Vectors"]["Total"].as_u64().unwrap());
                     }
                     assert_eq!(
                         segments.values().any(|stats| {
@@ -634,7 +780,10 @@ mod tests {
                     total,
                     hits.iter()
                         .filter(|(name, _)| name.as_str() != "Total")
-                        .map(|(_, value)| value.as_u64().unwrap())
+                        .map(|(_, value)| value
+                            .as_u64()
+                            .or_else(|| value["Total"].as_u64())
+                            .unwrap())
                         .sum::<u64>()
                 );
             }

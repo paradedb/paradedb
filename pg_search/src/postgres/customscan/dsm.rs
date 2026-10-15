@@ -25,11 +25,9 @@ where
 {
     fn estimate_dsm_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> pg_sys::Size;
 
-    /// `planned_workers` is the parallel context's worker count: the most workers
-    /// that can attach, not the number that will launch.
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        planned_workers: usize,
+        pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut std::os::raw::c_void,
     );
 
@@ -69,8 +67,7 @@ pub extern "C-unwind" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQue
     coordinate: *mut std::os::raw::c_void,
 ) {
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
-    let planned_workers = unsafe { (*pcxt).nworkers } as usize;
-    unsafe { CS::initialize_dsm_custom_scan(custom_state.as_mut(), planned_workers, coordinate) }
+    unsafe { CS::initialize_dsm_custom_scan(custom_state.as_mut(), pcxt, coordinate) }
 }
 
 /// Re-initialize the dynamic shared memory required for parallel operation when the custom-scan

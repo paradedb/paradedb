@@ -21,11 +21,20 @@
 //! sequence, so the hashes have to be separated in the macro input; pgrx strips the whitespace out
 //! of the `opname` token stream, so the operator Postgres sees is still `###`.
 
+use crate::api::FieldName;
 use crate::api::operator::ReturnedNodePointer;
+use crate::api::operator::SearchOperator;
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
-use crate::query::pdb_query::pdb;
-use pgrx::{AnyElement, extension_sql, opname, pg_operator};
+use crate::query::SearchQueryInput;
+use crate::query::pdb_query::{pdb, to_search_query_input};
+use pgrx::{AnyElement, extension_sql, opname, pg_extern, pg_operator};
+
+/// Runtime classification for `###` expressions that cannot be folded during planning.
+#[pg_extern(immutable, parallel_safe)]
+pub fn phrase_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    to_search_query_input(field, SearchOperator::Phrase.classify_rhs(query))
+}
 
 // The `# # #` spelling below is the SQL operator `###`. Edition 2024 reserves `##` as a token
 // sequence, so the hashes have to be separated in the macro input; pgrx strips the whitespace out

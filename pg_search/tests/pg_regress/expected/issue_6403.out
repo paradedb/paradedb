@@ -53,8 +53,8 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on memory_units
          Table: memory_units
@@ -64,7 +64,7 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
          ->  Bitmap Index Scan on idx_mu_bank_fact
                Index Cond: ((bank_id = 'bank1'::text) AND (fact_type = 'observation'::text))
 (12 rows)
@@ -110,17 +110,47 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 
 SET paradedb.enable_bitmap_intersection TO on;
 -- The issue's own shape: the scan sits on the inner side of a nested loop and is
--- rescanned once per outer row, so the bitmap is rebuilt and republished each
--- time and every rescan retries like the first.
+-- rescanned once per outer row, so the bitmap is rebuilt for each one and every
+-- rescan retries like the first.
 DROP TABLE IF EXISTS drivers CASCADE;
 CREATE TABLE drivers AS
-SELECT 'bank1' AS bank_id, 'observation' AS fact_type FROM generate_series(1, 3);
+SELECT g AS n, 'bank1' AS bank_id, 'observation' AS fact_type FROM generate_series(1, 3) g;
 SET enable_hashjoin TO off;
 SET enable_mergejoin TO off;
 SET enable_material TO off;
 SET enable_memoize TO off;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.n, m.id
-FROM (SELECT row_number() OVER () AS n, bank_id, fact_type FROM drivers) d
+FROM drivers d
+CROSS JOIN LATERAL (
+    SELECT id FROM memory_units mu
+    WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
+      AND mu.id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+    ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
+) m
+ORDER BY d.n, m.id;
+                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.n, mu.id
+   ->  Nested Loop
+         ->  Seq Scan on drivers d
+         ->  Limit
+               ->  Custom Scan (ParadeDB Base Scan) on memory_units mu
+                     Table: memory_units
+                     Index: idx_mu_search
+                     Bitmap Intersection: idx_mu_bank_fact
+                     Exec Method: TopKScanExecState
+                     Scores: true
+                        TopK Order By: pdb.score() desc, id asc
+                        TopK Limit: 3
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = $2)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                     ->  Bitmap Index Scan on idx_mu_bank_fact
+                           Index Cond: ((bank_id = d.bank_id) AND (fact_type = d.fact_type))
+(16 rows)
+
+SELECT d.n, m.id
+FROM drivers d
 CROSS JOIN LATERAL (
     SELECT id FROM memory_units mu
     WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
@@ -161,8 +191,8 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -174,7 +204,7 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
                Scores: true
                   TopK Order By: pdb.score() desc, id asc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                ->  Bitmap Index Scan on idx_mu_bank_fact
                      Index Cond: ((bank_id = 'bank1'::text) AND (fact_type = 'observation'::text))
 (14 rows)
@@ -197,28 +227,6 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
  2709
 (10 rows)
 
--- With no chunk growth the pass count is bounded only by the candidates, so this
--- is the case that cannot work with a fixed number of pre-minted states.
-SET paradedb.topk_retry_scale_factor TO 1;
-SELECT id FROM memory_units
-WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-  id  
-------
-    9
-  309
-  609
-  909
- 1209
- 1509
- 1809
- 2109
- 2409
- 2709
-(10 rows)
-
-RESET paradedb.topk_retry_scale_factor;
 -- Unordered TopK with a window aggregate runs a second, standalone search over
 -- the participant's own segments after the TopK one, and the participants merge
 -- their partial aggregates. Which ten rows arrive first depends on how the
@@ -229,8 +237,8 @@ FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather
          Workers Planned: 1
@@ -241,7 +249,7 @@ LIMIT 10;
                Exec Method: TopKScanExecState
                Scores: false
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                ->  Bitmap Index Scan on idx_mu_bank_fact
                      Index Cond: ((bank_id = 'bank1'::text) AND (fact_type = 'observation'::text))
 (13 rows)
@@ -292,6 +300,64 @@ LIMIT 10;
  9909 | {"value": 67.0}
 (10 rows)
 
+-- With no chunk growth the pass count is bounded only by the candidates. Thin the
+-- live rows to 1 in 278 candidates, so every participant makes dozens of passes
+-- over its page cache, and compare with the bitmap off.
+DELETE FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation' AND id % 130 <> 9;
+SELECT count(*) AS visible
+FROM memory_units WHERE bank_id = 'bank1' AND fact_type = 'observation';
+ visible 
+---------
+       6
+(1 row)
+
+SET max_parallel_workers_per_gather TO 2;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET min_parallel_table_scan_size TO 0;
+SET min_parallel_index_scan_size TO 0;
+SET paradedb.min_rows_per_worker TO 0;
+SET debug_parallel_query TO on;
+SET paradedb.topk_retry_scale_factor TO 1;
+SELECT id FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation'
+  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  id   
+-------
+     9
+  3909
+  7809
+ 11709
+ 15609
+ 19509
+(6 rows)
+
+SET paradedb.enable_bitmap_intersection TO off;
+SELECT id FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation'
+  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  id   
+-------
+     9
+  3909
+  7809
+ 11709
+ 15609
+ 19509
+(6 rows)
+
+SET paradedb.enable_bitmap_intersection TO on;
+RESET paradedb.topk_retry_scale_factor;
+RESET debug_parallel_query;
+RESET paradedb.min_rows_per_worker;
+RESET min_parallel_index_scan_size;
+RESET min_parallel_table_scan_size;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+SET max_parallel_workers_per_gather TO 0;
 DROP TABLE drivers;
 DROP TABLE memory_units;
 RESET max_parallel_workers_per_gather;

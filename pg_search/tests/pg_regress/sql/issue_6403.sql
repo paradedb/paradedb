@@ -70,17 +70,27 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO on;
 
 -- The issue's own shape: the scan sits on the inner side of a nested loop and is
--- rescanned once per outer row, so the bitmap is rebuilt and republished each
--- time and every rescan retries like the first.
+-- rescanned once per outer row, so the bitmap is rebuilt for each one and every
+-- rescan retries like the first.
 DROP TABLE IF EXISTS drivers CASCADE;
 CREATE TABLE drivers AS
-SELECT 'bank1' AS bank_id, 'observation' AS fact_type FROM generate_series(1, 3);
+SELECT g AS n, 'bank1' AS bank_id, 'observation' AS fact_type FROM generate_series(1, 3) g;
 SET enable_hashjoin TO off;
 SET enable_mergejoin TO off;
 SET enable_material TO off;
 SET enable_memoize TO off;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.n, m.id
-FROM (SELECT row_number() OVER () AS n, bank_id, fact_type FROM drivers) d
+FROM drivers d
+CROSS JOIN LATERAL (
+    SELECT id FROM memory_units mu
+    WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
+      AND mu.id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+    ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
+) m
+ORDER BY d.n, m.id;
+SELECT d.n, m.id
+FROM drivers d
 CROSS JOIN LATERAL (
     SELECT id FROM memory_units mu
     WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
@@ -114,15 +124,6 @@ WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 
--- With no chunk growth the pass count is bounded only by the candidates, so this
--- is the case that cannot work with a fixed number of pre-minted states.
-SET paradedb.topk_retry_scale_factor TO 1;
-SELECT id FROM memory_units
-WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-RESET paradedb.topk_retry_scale_factor;
-
 -- Unordered TopK with a window aggregate runs a second, standalone search over
 -- the participant's own segments after the TopK one, and the participants merge
 -- their partial aggregates. Which ten rows arrive first depends on how the
@@ -152,6 +153,40 @@ FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 LIMIT 10;
+
+-- With no chunk growth the pass count is bounded only by the candidates. Thin the
+-- live rows to 1 in 278 candidates, so every participant makes dozens of passes
+-- over its page cache, and compare with the bitmap off.
+DELETE FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation' AND id % 130 <> 9;
+SELECT count(*) AS visible
+FROM memory_units WHERE bank_id = 'bank1' AND fact_type = 'observation';
+SET max_parallel_workers_per_gather TO 2;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET min_parallel_table_scan_size TO 0;
+SET min_parallel_index_scan_size TO 0;
+SET paradedb.min_rows_per_worker TO 0;
+SET debug_parallel_query TO on;
+SET paradedb.topk_retry_scale_factor TO 1;
+SELECT id FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation'
+  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+SET paradedb.enable_bitmap_intersection TO off;
+SELECT id FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation'
+  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+SET paradedb.enable_bitmap_intersection TO on;
+RESET paradedb.topk_retry_scale_factor;
+RESET debug_parallel_query;
+RESET paradedb.min_rows_per_worker;
+RESET min_parallel_index_scan_size;
+RESET min_parallel_table_scan_size;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+SET max_parallel_workers_per_gather TO 0;
 
 DROP TABLE drivers;
 DROP TABLE memory_units;

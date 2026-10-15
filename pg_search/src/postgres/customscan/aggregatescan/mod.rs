@@ -1191,12 +1191,16 @@ impl CustomScan for AggregateScan {
         // goes before the runtime (tokio). `spilled` stays: the warning covers the
         // whole `ExecutorRun`, and a rescan is part of it.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
-            df_state.stream = None;
-            df_state.physical_plan = None;
-            df_state.current_batch = None;
+            let relaunch_mpp = matches!(
+                &df_state.mpp,
+                MppLifecycle::Pending | MppLifecycle::Launched(_)
+            );
+            Self::finish_mpp_execution(df_state);
             df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
-            df_state.runtime = None;
+            if relaunch_mpp {
+                df_state.mpp = MppLifecycle::Pending;
+            }
         }
     }
 
@@ -1256,27 +1260,8 @@ impl CustomScan for AggregateScan {
         // intended lifecycle boundary rather than relying on Postgres to drop the
         // state wrapper later. Mirrors JoinScan::end_custom_scan.
         if let Some(mut df_state) = state.custom_state_mut().datafusion_state.take() {
-            // Pull the builder handle out so we can join the workers and destroy the parallel
-            // context once nothing references the ring mesh anymore. The leader value (and its
-            // own mesh handle) drops at the end of this match arm.
-            let finish = match df_state.mpp.take_leader() {
-                Some(mut leader) => leader.finish.take(),
-                _ => None,
-            };
-            // Drop order: the physical plan and session hold a mesh reference, so both
-            // must go before the DSM is destroyed below, and the stream must go before
-            // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
-            // to `drop(df_state)` so the order doesn't depend on struct field order.
-            df_state.stream = None;
-            df_state.physical_plan = None;
-            df_state.current_batch = None;
-            df_state.runtime = None;
+            Self::finish_mpp_execution(&mut df_state);
             drop(df_state);
-            if let Some(finish) = finish {
-                // The gather already drained, or early-terminated and the deadlock fix let the
-                // producers stop, so the workers have finished and detached; this returns promptly.
-                finish.wait_for_finish();
-            }
         }
 
         // Clean up the reusable scan slot
@@ -1356,6 +1341,42 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
+    /// Join the MPP producer workers and destroy the parallel context once nothing
+    /// references the ring mesh. Drains any remaining worker metrics first, takes the
+    /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
+    /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
+    /// `end_custom_scan` and before a rescan relaunches a fresh worker set.
+    fn finish_mpp_execution(df_state: &mut scan_state::DataFusionAggState) {
+        df_state.stream = None;
+        if let Some(leader) = df_state.mpp.leader()
+            && let Some(plan) = df_state.physical_plan.as_ref()
+        {
+            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                plan,
+                &leader.session.mesh,
+            );
+        }
+        let finish = match df_state.mpp.take_leader() {
+            Some(mut leader) => leader.finish.take(),
+            None => None,
+        };
+        // Drop order: the physical plan and session hold a mesh reference, so both
+        // must go before the DSM is destroyed below, and the stream must go before
+        // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
+        // to `drop(df_state)` so the order doesn't depend on struct field order.
+        df_state.current_batch = None;
+        df_state.physical_plan = None;
+        df_state.runtime = None;
+        if let Some(mut finish) = finish {
+            // Join first: a producer can still spill while it winds down, and the join
+            // is what orders its store before this load. `recv` is idempotent, so the
+            // one inside `wait_for_finish` returns at once.
+            let _ = finish.recv();
+            crate::postgres::customscan::mpp::glue::record_worker_spill(&df_state.spilled, &finish);
+            finish.wait_for_finish();
+        }
+    }
+
     /// Capture per-source `SearchIndexManifest`s for every PgSearchScan
     /// reachable from the aggregate's `RelNode` plan tree. Mirrors
     /// `JoinScan::ensure_source_manifests`. Required at DSM-init time so

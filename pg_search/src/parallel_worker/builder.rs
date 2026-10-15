@@ -17,8 +17,8 @@
 
 use crate::parallel_worker::mqueue::MessageQueueReceiver;
 use crate::parallel_worker::{
-    MAXALIGN_DOWN, PARALLEL_KEY_BUFFER_USAGE, PARALLEL_KEY_WAL_USAGE, ParallelProcess,
-    ParallelStateManager, TocKeys, WorkerStyle, estimate_chunk, estimate_keys,
+    MAXALIGN_DOWN, ParallelProcess, ParallelStateManager, TocKeys, WorkerStyle, estimate_chunk,
+    estimate_keys,
 };
 use pgrx::{check_for_interrupts, pg_sys};
 use std::ffi::CString;
@@ -141,7 +141,7 @@ impl ParallelProcessBuilder {
             std::ptr::write_bytes(buf_usage, 0, nworkers);
             pg_sys::shm_toc_insert(
                 (*pcxt.as_ptr()).toc,
-                PARALLEL_KEY_BUFFER_USAGE,
+                TocKeys::BufferUsage.into(),
                 buf_usage.cast(),
             );
 
@@ -151,7 +151,7 @@ impl ParallelProcessBuilder {
             std::ptr::write_bytes(wal_usage, 0, nworkers);
             pg_sys::shm_toc_insert(
                 (*pcxt.as_ptr()).toc,
-                PARALLEL_KEY_WAL_USAGE,
+                TocKeys::WalUsage.into(),
                 wal_usage.cast(),
             );
 
@@ -215,6 +215,17 @@ impl ParallelProcessLauncher {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WorkerQueueState {
+    /// Waiting for a message or detach from this worker.
+    Active,
+    /// Received the worker's single message, but the worker has not yet detached or exited,
+    /// so its `WorkerStatsGuard` may not have flushed buffer/WAL usage to DSM yet.
+    MessageReceived,
+    /// The worker has detached or exited and its buffer/WAL usage has been accumulated.
+    Accumulated,
+}
+
 #[repr(transparent)]
 pub struct ParallelProcessAttach {
     launcher: ParallelProcessLauncher,
@@ -226,8 +237,7 @@ impl ParallelProcessAttach {
             let nqueues = self.launcher.mq_handles.len();
             Some(ParallelProcessFinish {
                 launcher: self.launcher,
-                done_queues: vec![false; nqueues],
-                accumulated: vec![false; nqueues],
+                worker_states: vec![WorkerQueueState::Active; nqueues],
             })
         }
     }
@@ -235,14 +245,13 @@ impl ParallelProcessAttach {
 
 pub struct ParallelProcessFinish {
     launcher: ParallelProcessLauncher,
-    done_queues: Vec<bool>,
-    accumulated: Vec<bool>,
+    worker_states: Vec<WorkerQueueState>,
 }
 
 impl ParallelProcessFinish {
     unsafe fn accumulate_worker(&mut self, i: usize) {
-        if i < self.accumulated.len() && !self.accumulated[i] {
-            self.accumulated[i] = true;
+        if i < self.worker_states.len() && self.worker_states[i] != WorkerQueueState::Accumulated {
+            self.worker_states[i] = WorkerQueueState::Accumulated;
             if !self.launcher.buf_usage.is_null() && !self.launcher.wal_usage.is_null() {
                 pg_sys::InstrAccumParallelQuery(
                     self.launcher.buf_usage.add(i),
@@ -252,7 +261,7 @@ impl ParallelProcessFinish {
         }
     }
 
-    pub fn accumulate_all_workers(&mut self) {
+    fn accumulate_all_workers(&mut self) {
         let nlaunched = self.launched_workers();
         for i in 0..nlaunched {
             unsafe {
@@ -291,23 +300,26 @@ impl ParallelProcessFinish {
         loop {
             check_for_interrupts!();
 
-            if self.done_queues.iter().take(nlaunched).all(|&done| done) {
+            if self
+                .worker_states
+                .iter()
+                .take(nlaunched)
+                .all(|&state| state != WorkerQueueState::Active)
+            {
                 break;
             }
 
             for i in 0..nlaunched {
-                if self.done_queues[i] {
+                if self.worker_states[i] != WorkerQueueState::Active {
                     continue;
                 }
                 let res = self.launcher.mq_handles[i].recv();
                 match res {
                     Ok(message) => {
                         messages.push((i, message));
-                        self.done_queues[i] = true;
-                        unsafe { self.accumulate_worker(i) };
+                        self.worker_states[i] = WorkerQueueState::MessageReceived;
                     }
                     Err(_) => {
-                        self.done_queues[i] = true;
                         unsafe { self.accumulate_worker(i) };
                     }
                 }
@@ -332,26 +344,30 @@ impl ParallelProcessFinish {
         let mut messages = Vec::with_capacity(nlaunched);
 
         for i in 0..nlaunched {
-            if self.done_queues[i] {
+            if self.worker_states[i] != WorkerQueueState::Active {
                 continue;
             }
             let res = self.launcher.mq_handles[i].try_recv();
             match res {
                 Ok(Some(message)) => {
                     messages.push((i, message));
-                    self.done_queues[i] = true;
-                    unsafe { self.accumulate_worker(i) };
+                    self.worker_states[i] = WorkerQueueState::MessageReceived;
                 }
                 Ok(None) => {}
                 Err(_) => {
-                    self.done_queues[i] = true;
                     unsafe { self.accumulate_worker(i) };
                 }
             }
         }
 
         // all message queues are detached
-        if messages.is_empty() && self.done_queues.iter().take(nlaunched).all(|&done| done) {
+        if messages.is_empty()
+            && self
+                .worker_states
+                .iter()
+                .take(nlaunched)
+                .all(|&state| state != WorkerQueueState::Active)
+        {
             return None;
         }
 

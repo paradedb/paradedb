@@ -49,13 +49,14 @@ impl WorkerStyle {
 enum TocKeys {
     MessageQueues = 1,
     UserStateLength = 2,
+    // `UserState` entries allocate consecutive keys starting at `UserState` (`3 + 2*i`),
+    // so fixed keys added after it must live in a high range to avoid collisions.
     UserState = 3,
+    BufferUsage = 0xE000_0000_0000_0004,
+    WalUsage = 0xE000_0000_0000_000A,
 }
 
-pub const PARALLEL_KEY_BUFFER_USAGE: u64 = 0xE000_0000_0000_0004;
-pub const PARALLEL_KEY_WAL_USAGE: u64 = 0xE000_0000_0000_000A;
-
-pub struct WorkerStatsGuard {
+pub(crate) struct WorkerStatsGuard {
     buf_usage: *mut pg_sys::BufferUsage,
     wal_usage: *mut pg_sys::WalUsage,
     worker_idx: usize,
@@ -602,10 +603,10 @@ pub unsafe fn generic_parallel_worker_entry_point(
         .add(pg_sys::ParallelWorkerNumber as usize * mq_size)
         .cast::<pg_sys::shm_mq>();
 
-    let buf_usage: *mut pg_sys::BufferUsage = get_toc_entry(toc, PARALLEL_KEY_BUFFER_USAGE)
+    let buf_usage: *mut pg_sys::BufferUsage = get_toc_entry(toc, TocKeys::BufferUsage)
         .map(|p| p.as_ptr().cast())
         .unwrap_or(std::ptr::null_mut());
-    let wal_usage: *mut pg_sys::WalUsage = get_toc_entry(toc, PARALLEL_KEY_WAL_USAGE)
+    let wal_usage: *mut pg_sys::WalUsage = get_toc_entry(toc, TocKeys::WalUsage)
         .map(|p| p.as_ptr().cast())
         .unwrap_or(std::ptr::null_mut());
 

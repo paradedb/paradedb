@@ -926,3 +926,71 @@ async fn test_ephemeral_background_merge_releases_merged_segment_pins() -> Resul
     anyhow::ensure!(passed == Some(true), "verify_index failed after the merge");
     Ok(())
 }
+
+// With more than 2 mutable segments an insert is under backpressure and merges them in the
+// foreground. With no foreground layers configured that merge leaves the immutable segments
+// alone, so the insert must still launch the background merger, or concurrent writers keep it
+// from ever running (paradedb/paradedb#6796).
+#[async_std::test]
+async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -> Result<()> {
+    let postgres = EphemeralPostgres::new(
+        Some("shared_preload_libraries = 'pg_search'\nautovacuum = off"),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute("CREATE EXTENSION pg_search CASCADE").await?;
+    conn.execute("CREATE TABLE merge_launch (id bigint, body text)")
+        .await?;
+    conn.execute(
+        "CREATE INDEX merge_launch_idx ON merge_launch USING paradedb (id, body) \
+         WITH (background_layer_sizes = '0', target_segment_count = 1)",
+    )
+    .await?;
+    // Immutable segments, which only the background merger merges.
+    conn.execute("SET paradedb.global_mutable_segment_rows = 0")
+        .await?;
+    for _ in 0..12 {
+        conn.execute(
+            "INSERT INTO merge_launch SELECT i, 'beer wine cheese ' || i FROM generate_series(1, 1000) s(i)",
+        )
+        .await?;
+    }
+    // Single-row inserts alternately create a mutable segment and fill it, which leaves two
+    // frozen mutable segments.
+    conn.execute("SET paradedb.global_mutable_segment_rows = 1")
+        .await?;
+    for id in 0..4_i64 {
+        sqlx::query("INSERT INTO merge_launch VALUES ($1, 'single row')")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    let immutable =
+        "SELECT count(*) FROM paradedb.index_info('merge_launch_idx') WHERE NOT mutable";
+    let (before,): (i64,) = sqlx::query_as(immutable).fetch_one(&mut conn).await?;
+    conn.execute("ALTER INDEX merge_launch_idx SET (background_layer_sizes = '1kb,10kb,64kb')")
+        .await?;
+    // A third mutable segment puts this insert under backpressure.
+    conn.execute("INSERT INTO merge_launch VALUES (4, 'single row')")
+        .await?;
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (after,): (i64,) = sqlx::query_as(immutable).fetch_one(&mut conn).await?;
+        if after < before {
+            break;
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "no background merge of the {before} immutable segments within the deadline"
+        );
+        async_std::task::sleep(Duration::from_millis(50)).await;
+    }
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('merge_launch_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(passed == Some(true), "verify_index failed after the merge");
+    Ok(())
+}

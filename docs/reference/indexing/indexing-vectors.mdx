@@ -243,6 +243,15 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
+<ParamField body="quantization" default="[1,1]">
+  Quantization layer widths shared by all vector fields in the index. Use a
+  quoted array of one to three widths, each between `1` and `4`, such as
+  `quantization = '[1,4]'`. Set `quantization = 0` to disable quantization. By
+  default, fields with fewer than 64 dimensions remain unquantized; an explicit
+  layer schedule requires every vector field to have at least 64 dimensions.
+  Changes require `REINDEX`. See [Quantization
+  settings](/reference/vector/tuning#quantization-settings).
+</ParamField>
 <ParamField body="training_sample_ratio" default={0.32}>
   The fraction of indexed vectors sampled to train the clustering at build time.
   Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The

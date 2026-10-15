@@ -1217,7 +1217,7 @@ pub(crate) mod test_support {
             INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
                 FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
             CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
-                WITH (vector_fields='{\"vec\":{\"quantization\":{\"layers\":[1,4]}}}', target_segment_count=1);").unwrap();
+                WITH (quantization='[1,4]', target_segment_count=1);").unwrap();
         PgSearchRelation::open(
             Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
                 .unwrap()

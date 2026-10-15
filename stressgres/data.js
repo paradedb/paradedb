@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792052162419,
+  "lastUpdate": 1792053625725,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111184,6 +111184,52 @@ window.BENCHMARK_DATA = {
             "value": 3542.245963211946,
             "unit": "median tps",
             "extra": "avg tps: 3502.545350280524, max tps: 3676.4443559655247, count: 59443"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792053617064,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2113.9196563464707,
+            "unit": "median tps",
+            "extra": "avg tps: 2114.2883688637166, max tps: 2198.3967316815124, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7363687116482,
+            "unit": "median tps",
+            "extra": "avg tps: 2.964292485405572, max tps: 4.961619922463922, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 393.34930537348686,
+            "unit": "median tps",
+            "extra": "avg tps: 373.602344454241, max tps: 713.3351846253487, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3460.064686085818,
+            "unit": "median tps",
+            "extra": "avg tps: 3349.218289030926, max tps: 3607.7169707890685, count: 59411"
           }
         ]
       }

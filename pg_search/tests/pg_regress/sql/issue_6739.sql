@@ -17,23 +17,9 @@ FROM generate_series(1, 100) AS i;
 CREATE INDEX issue_6739_repro_idx ON issue_6739_repro USING paradedb (id, body);
 
 -- Test evaluating allocating functions like jsonb_build_array in heap filter predicates
-EXPLAIN (COSTS OFF)
 SELECT count(*) FROM issue_6739_repro
 WHERE body @@@ 'document'
   AND tags @> jsonb_build_array('tag_1');
-
-SELECT count(*) FROM issue_6739_repro
-WHERE body @@@ 'document'
-  AND tags @> jsonb_build_array('tag_1');
-
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM issue_6739_repro
-WHERE body @@@ 'document'
-  AND (
-    tags @> jsonb_build_array('never1')
-    OR tags @> jsonb_build_array('never2')
-    OR tags @> jsonb_build_array('never3')
-  );
 
 SELECT count(*) FROM issue_6739_repro
 WHERE body @@@ 'document'

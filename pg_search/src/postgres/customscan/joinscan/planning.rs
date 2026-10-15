@@ -2864,6 +2864,11 @@ unsafe fn pathkey_is_in_sort_pathkeys(
 /// - `None`: If the function encounters an `ORDER BY` pathkey where *none* of its Equivalence
 ///   Class members survived the schema pruning. This signals the planner to abandon `JoinScan` and
 ///   fall back to native PostgreSQL execution.
+///
+/// For post-`GROUP BY` `ORDER BY` resolution in `AggregateScan` (where sort keys
+/// resolve against `GROUP BY` columns and per-group `Aggref`s rather than
+/// base-table pathkeys), see `aggregatescan::resolve_topk_sort_target` and
+/// `aggregatescan::detect_join_aggregate_topk`.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],

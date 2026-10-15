@@ -15,20 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{MvccVisibility, is_agg_funcoid};
-use crate::schema::SearchFieldType;
-use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
-use pgrx::{PgList, pg_sys};
-use serde::{Deserialize, Serialize};
-use std::fmt;
-
+use crate::api::window_aggregate::{PlaceholderId, make_window_agg_placeholder};
+use crate::api::{MvccVisibility, is_agg_funcoid, is_combine_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::datafusion_build::ResolutionSource;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+    numeric_avg_func_with_args, numeric_sum_func_with_args,
+};
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, lower_pdb_agg_call, unwrap_to_var,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggRequest;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
+use crate::postgres::deparse::deparse_planner_expr;
+use crate::postgres::utils::strip_relabel;
+use crate::schema::SearchFieldType;
+use datafusion::common::DataFusionError;
+use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
+use datafusion::functions_aggregate::{average, count, min_max, sum};
+use datafusion::logical_expr::{AggregateUDF, Expr, lit};
+use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
+use pgrx::{PgList, pg_sys};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::sync::Arc;
 
 use super::build::JoinSource;
 
@@ -51,6 +62,54 @@ impl SupportedWindowAggType {
             Some(AggKind::Min) => Some(SupportedWindowAggType::Min),
             Some(AggKind::Max) => Some(SupportedWindowAggType::Max),
             _ => None,
+        }
+    }
+
+    /// Lower a SQL window aggregate to its DataFusion
+    /// [`AggregateUDF`] and call
+    /// arguments, routing `NUMERIC` `SUM` and `AVG` to the decimal accumulators.
+    pub fn udaf_with_args(
+        self,
+        input: Option<Expr>,
+        numeric: Option<&SearchFieldType>,
+    ) -> datafusion::common::Result<(Arc<AggregateUDF>, Vec<Expr>)> {
+        let require_input = || {
+            input.ok_or_else(|| {
+                DataFusionError::Internal(format!("{self} OVER () must have an input expression"))
+            })
+        };
+        Ok(match self {
+            Self::CountStar => (count::count_udaf(), vec![lit(COUNT_STAR_EXPANSION)]),
+            Self::Count => (count::count_udaf(), vec![require_input()?]),
+            Self::Sum => {
+                let ce = require_input()?;
+                match numeric {
+                    Some(field_type) => numeric_sum_func_with_args(ce, field_type),
+                    None => (sum::sum_udaf(), vec![ce]),
+                }
+            }
+            Self::Avg => {
+                let ce = require_input()?;
+                match numeric {
+                    Some(field_type) => numeric_avg_func_with_args(ce, field_type),
+                    None => (average::avg_udaf(), vec![ce]),
+                }
+            }
+            Self::Min => (min_max::min_udaf(), vec![require_input()?]),
+            Self::Max => (min_max::max_udaf(), vec![require_input()?]),
+        })
+    }
+}
+
+impl fmt::Display for SupportedWindowAggType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CountStar => write!(f, "COUNT(*)"),
+            Self::Count => write!(f, "COUNT"),
+            Self::Sum => write!(f, "SUM"),
+            Self::Avg => write!(f, "AVG"),
+            Self::Min => write!(f, "MIN"),
+            Self::Max => write!(f, "MAX"),
         }
     }
 }
@@ -297,6 +356,30 @@ impl WindowAggList {
     }
 }
 
+/// Returns `true` iff `winref` resolves to a `WindowClause` in `parse.windowClause` with an
+/// empty `OVER ()` specification (no `PARTITION BY`, no `ORDER BY`, and default framing).
+pub unsafe fn has_empty_over_clause(parse: *const pg_sys::Query, winref: pg_sys::Index) -> bool {
+    if parse.is_null() {
+        return false;
+    }
+    let Some(clause) = PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause)
+        .iter_ptr()
+        .find(|wc| (**wc).winref == winref)
+    else {
+        return false;
+    };
+    (*clause).partitionClause.is_null()
+        && (*clause).orderClause.is_null()
+        && ((*clause).frameOptions & FRAMEOPTION_NONDEFAULT as i32) == 0
+}
+
+/// Extracts an `OVER ()` window aggregate for an **ungrouped** query (`JoinScan`),
+/// where arguments resolve directly to base-table `Var`s or `pdb.agg(...) OVER ()`.
+///
+/// For the **post-`GROUP BY`** counterpart (`AggregateScan`), where Stage 2
+/// `OVER ()` window aggregates resolve against Stage 1 `GROUP BY` columns,
+/// per-group `Aggref`s, or `pdb.combine_agg(pdb.agg(...)) OVER ()`, see
+/// `aggregatescan::join_targetlist::extract_raw_window_entry`.
 pub fn extract_window_agg(
     wf: *const WindowFunc,
     sources: &[&JoinSource],
@@ -316,19 +399,7 @@ pub fn extract_window_agg(
         );
     }
 
-    let clause = unsafe {
-        PgList::<pg_sys::WindowClause>::from_pg(parse.windowClause)
-            .iter_ptr()
-            .find(|wc| (**wc).winref == wf.winref)
-            .expect("WindowFunc.winref should always match a clause")
-    };
-    assert!(!clause.is_null());
-    let clause = unsafe { *clause };
-
-    if !clause.partitionClause.is_null()
-        || !clause.orderClause.is_null()
-        || clause.frameOptions & FRAMEOPTION_NONDEFAULT as i32 != 0
-    {
+    if !unsafe { has_empty_over_clause(parse, wf.winref) } {
         return Err(
             "only bare window functions of the style 'agg OVER ()' are supported".to_string(),
         );
@@ -396,6 +467,16 @@ fn extract_column_info(
                 );
             }
 
+            if matches!(
+                agg_type,
+                SupportedWindowAggType::Min | SupportedWindowAggType::Max
+            ) && !unsafe { collation_supports(wf.inputcollid, CollationOperation::Ordering) }
+            {
+                return Err(format!(
+                    "{agg_type} OVER () uses a collation whose ordering cannot be pushed down"
+                ));
+            }
+
             Ok(Some(ColumnInfo::new(
                 var.varno as pg_sys::Index,
                 var.varattno,
@@ -445,30 +526,51 @@ pub unsafe fn rewrite_window_funcs_to_sentinels(
     sentinel_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
 }
 
-/// Copy `expr`, replacing each embedded `WindowFunc` with a
-/// `paradedb.window_agg('<description>')` placeholder `FuncExpr` whose
-/// node-level `funcresulttype` is the aggregate's wintype.
+/// Rewrites embedded `WindowFunc` nodes into `paradedb.window_agg('<description>')`
+/// placeholder `FuncExpr`s whose node-level `funcresulttype` is the aggregate's
+/// `wintype` and whose argument `Const.consttypmod` encodes the `WindowFunc`'s
+/// deduplicated [`PlaceholderId`].
 ///
 /// PG18's EXPLAIN requires a `WindowAgg` plan node to deparse a `WindowFunc`
 /// (commit 8b1b342544b6 removed the `OVER (?)` fallback), but the scan
 /// absorbs the window so no such node exists — a raw `WindowFunc` left in
 /// the plan's target lists makes every `EXPLAIN VERBOSE` fail with "could
 /// not find window clause". The placeholder deparses as an ordinary function
-/// call. It is never executed: `plan_custom_path` applies this rewrite
-/// identically to `scan.plan.targetlist` and `custom_scan_tlist`, so
-/// setrefs' whole-entry equality match still rewrites the outer occurrence
-/// to an INDEX_VAR into the scan output. The text argument is cosmetic
-/// EXPLAIN output only — it is never parsed.
-pub unsafe fn rewrite_window_funcs_to_placeholders(
-    expr: *mut pg_sys::Node,
+/// call. It is never executed: `plan_custom_path` applies this rewriter
+/// across `scan.plan.targetlist` and `custom_scan_tlist`, so two placeholders
+/// are `equal()` in `setrefs.c` if and only if their original `WindowFunc`
+/// AST nodes were `equal()`. The text argument is cosmetic EXPLAIN output
+/// only — it is never parsed.
+pub struct PlaceholderRewriter {
     root: *mut pg_sys::PlannerInfo,
-) -> *mut pg_sys::Node {
-    let mut ctx = PlaceholderRewriteCtx { root };
-    placeholder_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
+    seen: Vec<*mut pg_sys::WindowFunc>,
 }
 
-struct PlaceholderRewriteCtx {
-    root: *mut pg_sys::PlannerInfo,
+impl PlaceholderRewriter {
+    pub fn new(root: *mut pg_sys::PlannerInfo) -> Self {
+        Self {
+            root,
+            seen: Vec::new(),
+        }
+    }
+
+    pub unsafe fn rewrite_expr(&mut self, expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+        placeholder_mutator(expr, std::ptr::from_mut(self).cast())
+    }
+
+    unsafe fn placeholder_id(&mut self, wf: *mut pg_sys::WindowFunc) -> PlaceholderId {
+        if let Some(idx) = self
+            .seen
+            .iter()
+            .position(|known| pg_sys::equal((*known).cast(), wf.cast()))
+        {
+            PlaceholderId(idx)
+        } else {
+            let idx = self.seen.len();
+            self.seen.push(wf);
+            PlaceholderId(idx)
+        }
+    }
 }
 
 #[pgrx::pg_guard]
@@ -481,17 +583,19 @@ unsafe extern "C-unwind" fn placeholder_mutator(
     }
 
     if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
-        let ctx = context.cast::<PlaceholderRewriteCtx>();
+        let ctx = &mut *context.cast::<PlaceholderRewriter>();
+        let placeholder_id = ctx.placeholder_id(wf);
 
         // A ruleutils deparse of the WindowFunc hits the same PG18 error
         // this rewrite exists to avoid (deparse_planner_expr catches it and
         // returns None on PG18; on older versions it renders `OVER (?)`),
         // so fall back to a description built from the node itself.
-        let description = crate::postgres::deparse::deparse_planner_expr((*ctx).root, node)
-            .unwrap_or_else(|| describe_window_func(&*wf, (*ctx).root));
+        let description = deparse_planner_expr(ctx.root, node)
+            .unwrap_or_else(|| describe_window_func(&*wf, ctx.root));
 
-        match crate::api::window_aggregate::make_window_agg_placeholder(
+        match make_window_agg_placeholder(
             &description,
+            Some(placeholder_id),
             (*wf).wintype,
             (*wf).wincollid,
         ) {
@@ -518,6 +622,10 @@ unsafe extern "C-unwind" fn placeholder_mutator(
 
 /// Human-readable description of a window aggregate for the EXPLAIN
 /// placeholder, e.g. `count(*) OVER ()` or `sum(price) OVER ()`.
+///
+/// This string is strictly cosmetic for `EXPLAIN VERBOSE`; `setrefs.c`
+/// identity is carried by [`PlaceholderId`] in
+/// the placeholder argument's `Const.consttypmod`.
 unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::PlannerInfo) -> String {
     let func_name = {
         let name_ptr = pg_sys::get_func_name(wf.winfnoid);
@@ -529,36 +637,63 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
                 .into_owned()
         }
     };
+    let filter_suffix = if wf.aggfilter.is_null() {
+        String::new()
+    } else {
+        let filter_str =
+            deparse_planner_expr(root, wf.aggfilter.cast()).unwrap_or_else(|| "...".to_string());
+        format!(" FILTER (WHERE {filter_str})")
+    };
     if wf.winstar {
-        return format!("{func_name}(*) OVER ()");
+        return format!("{func_name}(*){filter_suffix} OVER ()");
     }
     let args = PgList::<pg_sys::Node>::from_pg(wf.args);
+    if is_combine_agg_funcoid(wf.winfnoid.to_u32()) {
+        let spec = args
+            .get_ptr(0)
+            .and_then(|arg| nodecast!(Aggref, T_Aggref, strip_relabel(arg)))
+            .and_then(|aggref| {
+                let agg_args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                let first_te = agg_args.get_ptr(0)?;
+                pdb_agg_spec((*aggref).aggfnoid.to_u32(), (*first_te).expr.cast(), None)
+            })
+            .map(|(spec, _)| spec.to_string())
+            .unwrap_or_else(|| "...".to_string());
+        return format!("pdb.{func_name}(pdb.agg('{spec}')){filter_suffix} OVER ()");
+    }
     if is_agg_funcoid(wf.winfnoid.to_u32()) {
         let spec = args
             .get_ptr(0)
-            .and_then(|spec| crate::api::pdb_agg_spec(wf.winfnoid.to_u32(), spec, None))
+            .and_then(|spec| pdb_agg_spec(wf.winfnoid.to_u32(), spec, None))
             .map(|(spec, _)| spec.to_string())
             .unwrap_or_else(|| "...".to_string());
-        return format!("pdb.{func_name}('{spec}') OVER ()");
+        return format!("pdb.{func_name}('{spec}'){filter_suffix} OVER ()");
     }
     let arg_name = args
         .get_ptr(0)
         .and_then(|arg| {
-            let var = unwrap_to_var(arg)?;
-            var_column_name(&*var, root)
+            if let Some(var) = unwrap_to_var(arg)
+                && let Some(col_name) = var_column_name(&*var, root)
+            {
+                return Some(col_name);
+            }
+            deparse_planner_expr(root, arg)
         })
         .unwrap_or_else(|| "...".to_string());
-    format!("{func_name}({arg_name}) OVER ()")
+    format!("{func_name}({arg_name}){filter_suffix} OVER ()")
 }
 
-/// The column name a parse-tree Var refers to, resolved through the query's
-/// range table; `None` when anything along the way is unresolvable.
+/// The unqualified column name a parse-tree Var refers to, resolved through the
+/// query's range table; returns `None` when unresolvable or when another relation
+/// in the range table has a column with the same name (so the caller falls back
+/// to relation-qualified deparsing).
 fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<String> {
     if root.is_null() || unsafe { (*root).parse.is_null() } || var.varno < 1 {
         return None;
     }
     let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable) };
-    let rte = rtable.get_ptr(var.varno as usize - 1)?;
+    let var_rte_idx = var.varno as usize - 1;
+    let rte = rtable.get_ptr(var_rte_idx)?;
     let rte = unsafe { &*rte };
     if rte.rtekind != pg_sys::RTEKind::RTE_RELATION {
         return None;
@@ -566,6 +701,19 @@ fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<
     let name_ptr = unsafe { pg_sys::get_attname(rte.relid, var.varattno, true) };
     if name_ptr.is_null() {
         return None;
+    }
+    for (idx, other_ptr) in rtable.iter_ptr().enumerate() {
+        if idx == var_rte_idx {
+            continue;
+        }
+        let other = unsafe { &*other_ptr };
+        if other.rtekind == pg_sys::RTEKind::RTE_RELATION
+            && other.relid != pg_sys::InvalidOid
+            && unsafe { pg_sys::get_attnum(other.relid, name_ptr) }
+                != pg_sys::InvalidAttrNumber as pg_sys::AttrNumber
+        {
+            return None;
+        }
     }
     Some(
         unsafe { std::ffi::CStr::from_ptr(name_ptr) }

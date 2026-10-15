@@ -35,7 +35,6 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
 use datafusion::common::{
     Column, DFSchema, DataFusionError, Result, TableReference, internal_datafusion_err,
     internal_err, plan_err,
@@ -62,9 +61,6 @@ use super::window_func::{
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
-use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    numeric_avg_func_with_args, numeric_sum_func_with_args,
-};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
 use crate::postgres::customscan::datafusion::topk_agg::{
@@ -1754,8 +1750,6 @@ fn lower_sql_window_agg(
     info: &SqlWindowAggDef,
     join_clause: &JoinCSClause,
 ) -> Result<LoweredSqlWindowAgg> {
-    use datafusion::functions_aggregate::{average, count, min_max, sum};
-
     let col_expr = match info.col_info() {
         Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
             Some(ce) => Some(ce),
@@ -1783,45 +1777,7 @@ fn lower_sql_window_agg(
         None => None,
     };
     let numeric_field = numeric_window_field(info.agg_type(), info.arg_field_type())?;
-
-    // Match only basic aggregate functions. Missing and filters are not supported in global window
-    // functions
-    //
-    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    let (udaf, args) = match info.agg_type() {
-        SupportedWindowAggType::Sum => {
-            let ce = col_expr.expect("should always have a column expression for SUM");
-            match numeric_field {
-                Some(field_type) => numeric_sum_func_with_args(ce, field_type),
-                None => (sum::sum_udaf(), vec![ce]),
-            }
-        }
-        SupportedWindowAggType::Avg => {
-            let ce = col_expr.expect("should always have a column expression for AVG");
-            match numeric_field {
-                Some(field_type) => numeric_avg_func_with_args(ce, field_type),
-                None => (average::avg_udaf(), vec![ce]),
-            }
-        }
-        SupportedWindowAggType::Min => (
-            min_max::min_udaf(),
-            vec![col_expr.expect("should always have a column expression for MIN")],
-        ),
-        SupportedWindowAggType::Max => (
-            min_max::max_udaf(),
-            vec![col_expr.expect("should always have a column expression for MAX")],
-        ),
-        SupportedWindowAggType::Count => (
-            count::count_udaf(),
-            vec![col_expr.expect("should always have a column expression for COUNT")],
-        ),
-        SupportedWindowAggType::CountStar => (
-            count::count_udaf(),
-            vec![datafusion::logical_expr::lit(COUNT_STAR_EXPANSION)],
-        ),
-    };
+    let (udaf, args) = info.agg_type().udaf_with_args(col_expr, numeric_field)?;
     Ok(LoweredSqlWindowAgg::Call(udaf, args))
 }
 

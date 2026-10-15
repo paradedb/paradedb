@@ -543,8 +543,10 @@ pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHoo
     if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
         return false;
     }
-    // Must have a LIMIT for TopK to matter
-    if (*parse).limitCount.is_null() {
+    // Must have a plain count LIMIT for TopK to matter
+    if (*parse).limitCount.is_null()
+        || (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES
+    {
         return false;
     }
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);

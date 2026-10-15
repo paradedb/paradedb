@@ -17,7 +17,7 @@
 
 use pgrx::*;
 
-use crate::postgres::merge::{MergeStyle, do_merge};
+use crate::postgres::merge::{MergeStyle, do_merge, garbage_collect_index};
 use crate::postgres::rel::PgSearchRelation;
 
 #[pg_guard]
@@ -26,6 +26,10 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let index = PgSearchRelation::open((*(*info).index).rd_id);
+    if !(*info).analyze_only {
+        let next_xid = pg_sys::ReadNextFullTransactionId();
+        garbage_collect_index(&index, next_xid, next_xid);
+    }
     do_merge(&index, MergeStyle::Vacuum, None, None).expect("should be able to merge");
     stats
 }

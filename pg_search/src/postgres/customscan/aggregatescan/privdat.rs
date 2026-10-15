@@ -201,10 +201,11 @@ impl TopKSortTarget {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DataFusionTopK {
     /// What the ORDER BY targets.
-    pub sort_target: TopKSortTarget,
-    pub direction: crate::api::SortDirection,
-    /// Maximum number of rows to return (LIMIT + OFFSET).
-    pub k: usize,
+    pub sorts: Vec<(TopKSortTarget, crate::api::SortDirection)>,
+    /// Maximum number of rows to return after OFFSET, if a LIMIT is present.
+    pub limit: Option<crate::postgres::customscan::parameterized_value::ParameterizedValue<i64>>,
+    /// OFFSET count, if an OFFSET is present.
+    pub offset: Option<crate::postgres::customscan::parameterized_value::ParameterizedValue<i64>>,
 }
 
 /// Private data serialized between planning and execution for AggregateScan.

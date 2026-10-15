@@ -1280,7 +1280,10 @@ unsafe fn try_extract_null_and_subplan(
 
 /// Whether two `NumericBytes` join keys come from indexes that encode negative values
 /// differently. See `NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION`.
-fn numeric_bytes_layouts_differ(
+///
+/// `pub(super)` so `mod.rs`'s `numeric_pushdown_safe` can reuse this same
+/// compatibility check instead of re-deriving it.
+pub(super) fn numeric_bytes_layouts_differ(
     outer_ff: &WhichFastField,
     outer_ir: &PgSearchRelation,
     inner_ff: &WhichFastField,
@@ -2864,6 +2867,11 @@ unsafe fn pathkey_is_in_sort_pathkeys(
 /// - `None`: If the function encounters an `ORDER BY` pathkey where *none* of its Equivalence
 ///   Class members survived the schema pruning. This signals the planner to abandon `JoinScan` and
 ///   fall back to native PostgreSQL execution.
+///
+/// For post-`GROUP BY` `ORDER BY` resolution in `AggregateScan` (where sort keys
+/// resolve against `GROUP BY` columns and per-group `Aggref`s rather than
+/// base-table pathkeys), see `aggregatescan::resolve_topk_sort_target` and
+/// `aggregatescan::detect_join_aggregate_topk`.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],

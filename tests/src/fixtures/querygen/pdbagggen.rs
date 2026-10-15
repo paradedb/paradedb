@@ -131,13 +131,50 @@ impl OuterAgg {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WindowSqlAgg {
+    CountStar,
+    CountGroup,
+    MinGroup,
+    MaxGroup,
+    SumGroup,
+    CountOuterAgg(usize),
+    MinOuterAgg(usize),
+    MaxOuterAgg(usize),
+    SumOuterAgg(usize),
+}
+
+impl WindowSqlAgg {
+    pub fn sql(&self, group: &str, outer_aggs: &[OuterAgg]) -> String {
+        match self {
+            WindowSqlAgg::CountStar => "COUNT(*) OVER ()".to_string(),
+            WindowSqlAgg::CountGroup => format!("COUNT({group}) OVER ()"),
+            WindowSqlAgg::MinGroup => format!("MIN({group}) OVER ()"),
+            WindowSqlAgg::MaxGroup => format!("MAX({group}) OVER ()"),
+            WindowSqlAgg::SumGroup => format!("SUM({group}) OVER ()"),
+            WindowSqlAgg::CountOuterAgg(i) => format!("COUNT({}) OVER ()", outer_aggs[*i].sql()),
+            WindowSqlAgg::MinOuterAgg(i) => format!("MIN({}) OVER ()", outer_aggs[*i].sql()),
+            WindowSqlAgg::MaxOuterAgg(i) => format!("MAX({}) OVER ()", outer_aggs[*i].sql()),
+            WindowSqlAgg::SumOuterAgg(i) => format!("SUM({}) OVER ()", outer_aggs[*i].sql()),
+        }
+    }
+}
+
 /// One `pdb.agg()` call and the shape of its result.
 #[derive(Clone, Debug)]
 pub struct PdbAggExpr {
-    /// A SQL `GROUP BY` column beside the call, which becomes the root grouping set.
+    /// A SQL `GROUP BY` column beside the call, which becomes the root grouping set
+    /// (unless `combine_across_groups` is true, where `pdb.combine_agg(pdb.agg(...)) OVER ()`
+    /// combines across all groups).
     pub outer_group: Option<String>,
+    /// Whether `pdb.agg()` is wrapped in `pdb.combine_agg(...) OVER ()` across groups.
+    pub combine_across_groups: bool,
     /// SQL aggregates beside the call.
     pub outer_aggs: Vec<OuterAgg>,
+    /// SQL `OVER ()` window aggregates beside `pdb.combine_agg(pdb.agg(...)) OVER ()`.
+    pub window_aggs: Vec<WindowSqlAgg>,
+    /// Optional `LIMIT` on the outer `GROUP BY` rows when `combine_across_groups` is true.
+    pub group_limit: Option<usize>,
     /// `terms` levels, outermost first. Empty for a spec that is one metric.
     pub terms: Vec<PdbTerm>,
     /// A `size` cut on one level, under the default `_count desc` order.
@@ -194,28 +231,20 @@ impl PdbAggExpr {
     }
 
     pub fn pdb_query(&self, from_clause: &str, where_clause: &str) -> String {
-        let call = self.call();
-        let mut select = Vec::new();
-        if let Some(group) = &self.outer_group {
-            select.push(group.clone());
-        }
-        for agg in &self.outer_aggs {
-            select.push(agg.sql());
-        }
-        select.push(call);
-        let select_clause = select.join(", ");
-        match &self.outer_group {
-            Some(group) => {
-                format!(
-                    "SELECT {select_clause} {from_clause} WHERE {where_clause} GROUP BY {group}"
-                )
-            }
-            None => format!("SELECT {select_clause} {from_clause} WHERE {where_clause}"),
-        }
+        self.outer_query_sql(from_clause, where_clause, true)
     }
 
-    /// The outer group and outer aggregates without unnesting.
+    /// The outer group, outer aggregates, and window aggregates without unnesting.
     pub fn pg_outer_query(&self, from_clause: &str, where_clause: &str) -> String {
+        self.outer_query_sql(from_clause, where_clause, false)
+    }
+
+    fn outer_query_sql(
+        &self,
+        from_clause: &str,
+        where_clause: &str,
+        include_pdb_agg: bool,
+    ) -> String {
         let mut select = Vec::new();
         if let Some(group) = &self.outer_group {
             select.push(group.clone());
@@ -223,12 +252,33 @@ impl PdbAggExpr {
         for agg in &self.outer_aggs {
             select.push(agg.sql());
         }
+        if let Some(group) = &self.outer_group
+            && self.combine_across_groups
+        {
+            for win in &self.window_aggs {
+                select.push(win.sql(group, &self.outer_aggs));
+            }
+        }
+        if include_pdb_agg {
+            let call = if self.combine_across_groups {
+                format!("pdb.combine_agg({}) OVER ()", self.call())
+            } else {
+                self.call()
+            };
+            select.push(call);
+        }
         let select_clause = select.join(", ");
         match &self.outer_group {
             Some(group) => {
-                format!(
+                let mut sql = format!(
                     "SELECT {select_clause} {from_clause} WHERE {where_clause} GROUP BY {group}"
-                )
+                );
+                if self.combine_across_groups
+                    && let Some(limit) = self.group_limit
+                {
+                    sql.push_str(&format!(" ORDER BY {group} ASC NULLS LAST LIMIT {limit}"));
+                }
+                sql
             }
             None => format!("SELECT {select_clause} {from_clause} WHERE {where_clause}"),
         }
@@ -239,7 +289,11 @@ impl PdbAggExpr {
     /// SQL form.
     pub fn pg_query(&self, from_clause: &str, where_clause: &str) -> String {
         let mut from = from_clause.to_string();
-        let mut keys: Vec<String> = self.outer_group.iter().cloned().collect();
+        let mut keys: Vec<String> = if self.combine_across_groups {
+            Vec::new()
+        } else {
+            self.outer_group.iter().cloned().collect()
+        };
         for term in &self.terms {
             if term.is_array && term.unnested_as.is_none() {
                 let alias = term.sql_key();
@@ -297,7 +351,8 @@ impl PdbAggExpr {
             let last = row.len() - 1;
             match row.try_get::<Value, _>(last) {
                 Ok(document) => {
-                    let outer = self.outer_group.is_some().then(|| column_string(&row, 0));
+                    let outer = (self.outer_group.is_some() && !self.combine_across_groups)
+                        .then(|| column_string(&row, 0));
                     self.flatten(&document, 0, &mut outer.into_iter().collect(), &mut out);
                 }
                 Err(_) => {
@@ -386,6 +441,8 @@ fn column_string(row: &PgRow, i: usize) -> String {
         v.to_string()
     } else if let Ok(v) = row.try_get::<i32, _>(i) {
         v.to_string()
+    } else if let Ok(v) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+        format!("{v:.6}")
     } else if let Ok(v) = row.try_get::<f64, _>(i) {
         format!("{v:.6}")
     } else if let Ok(v) = row.try_get::<String, _>(i) {
@@ -660,54 +717,109 @@ fn arb_pdb_agg(
         }));
     }
 
+    let window_agg_choice = prop_oneof![
+        Just(WindowSqlAgg::CountStar),
+        Just(WindowSqlAgg::CountGroup),
+        Just(WindowSqlAgg::MinGroup),
+        Just(WindowSqlAgg::MaxGroup),
+        Just(WindowSqlAgg::SumGroup),
+        (0..2usize).prop_map(WindowSqlAgg::CountOuterAgg),
+        (0..2usize).prop_map(WindowSqlAgg::MinOuterAgg),
+        (0..2usize).prop_map(WindowSqlAgg::MaxOuterAgg),
+        (0..2usize).prop_map(WindowSqlAgg::SumOuterAgg),
+    ];
+
     (
         outer_group,
+        proptest::bool::ANY,
         outer_aggs_strat,
+        proptest::collection::vec(window_agg_choice, 0..=2),
+        proptest::option::weighted(0.5, 1..=10usize),
         proptest::sample::subsequence(all_terms, 0..=2),
         proptest::option::weighted(0.4, (0..2usize, 1..4u32)),
         proptest::collection::vec(metric, 0..=3),
     )
-        .prop_map(move |(outer_group, outer_aggs, terms, size, metrics)| {
-            let mut metrics: Vec<Metric> = metrics
-                .into_iter()
-                .enumerate()
-                .map(|(i, (kind, field))| Metric {
-                    name: format!("m{i}"),
-                    kind,
-                    field,
-                })
-                .collect();
-            if terms.is_empty() {
-                // A spec without levels is exactly one metric.
-                metrics.truncate(1);
-                if metrics.is_empty() {
-                    metrics.push(Metric {
-                        name: "m0".to_string(),
-                        kind: MetricKind::ValueCount,
-                        field: default_metric_field.clone(),
-                    });
-                }
-            }
-            if usize::from(outer_group.is_some()) + terms.len() > shape.sketch_keys {
-                for metric in &mut metrics {
-                    if metric.kind == MetricKind::Cardinality {
-                        metric.kind = MetricKind::ValueCount;
-                    }
-                }
-            }
-            let size = size.filter(|&(level, _)| {
-                level < terms.len()
-                    && (shape.size_anywhere
-                        || (level == 0 && terms.len() == 1 && outer_group.is_none()))
-            });
-            PdbAggExpr {
+        .prop_map(
+            move |(
                 outer_group,
+                combine_flag,
                 outer_aggs,
+                raw_window_aggs,
+                raw_group_limit,
                 terms,
                 size,
                 metrics,
-            }
-        })
+            )| {
+                let combine_across_groups = outer_group.is_some() && combine_flag;
+                let window_aggs = if let Some(group) = &outer_group
+                    && combine_across_groups
+                {
+                    let group_is_int = !group.ends_with("color");
+                    raw_window_aggs
+                        .into_iter()
+                        .filter(|w| match w {
+                            WindowSqlAgg::CountStar | WindowSqlAgg::CountGroup => true,
+                            WindowSqlAgg::MinGroup
+                            | WindowSqlAgg::MaxGroup
+                            | WindowSqlAgg::SumGroup => group_is_int,
+                            WindowSqlAgg::CountOuterAgg(i) => *i < outer_aggs.len(),
+                            WindowSqlAgg::MinOuterAgg(i)
+                            | WindowSqlAgg::MaxOuterAgg(i)
+                            | WindowSqlAgg::SumOuterAgg(i) => outer_aggs
+                                .get(*i)
+                                .is_some_and(|a| a.kind != OuterAggKind::Avg),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let group_limit = combine_across_groups.then_some(raw_group_limit).flatten();
+
+                let mut metrics: Vec<Metric> = metrics
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (kind, field))| Metric {
+                        name: format!("m{i}"),
+                        kind,
+                        field,
+                    })
+                    .collect();
+                if terms.is_empty() {
+                    // A spec without levels is exactly one metric.
+                    metrics.truncate(1);
+                    if metrics.is_empty() {
+                        metrics.push(Metric {
+                            name: "m0".to_string(),
+                            kind: MetricKind::ValueCount,
+                            field: default_metric_field.clone(),
+                        });
+                    }
+                }
+                if usize::from(outer_group.is_some()) + terms.len() > shape.sketch_keys {
+                    for metric in &mut metrics {
+                        if metric.kind == MetricKind::Cardinality {
+                            metric.kind = MetricKind::ValueCount;
+                        }
+                    }
+                }
+                let has_bucket_outer_group = outer_group.is_some() && !combine_across_groups;
+                let size = size.filter(|&(level, _)| {
+                    level < terms.len()
+                        && (shape.size_anywhere
+                            || (level == 0 && terms.len() == 1 && !has_bucket_outer_group))
+                });
+                PdbAggExpr {
+                    outer_group,
+                    combine_across_groups,
+                    outer_aggs,
+                    window_aggs,
+                    group_limit,
+                    terms,
+                    size,
+                    metrics,
+                }
+            },
+        )
 }
 
 #[cfg(test)]
@@ -808,7 +920,10 @@ mod tests {
     fn test_pg_query_unnests_array_terms() {
         let agg = PdbAggExpr {
             outer_group: Some("users.color".to_string()),
+            combine_across_groups: false,
             outer_aggs: vec![],
+            window_aggs: vec![],
+            group_limit: None,
             terms: vec![
                 PdbTerm {
                     field: "users.tags".to_string(),

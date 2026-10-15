@@ -87,13 +87,12 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::arrow::array::UInt64Array;
-use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
+use datafusion::arrow::array::{Array, ArrayRef, BooleanArray, NullArray, UInt64Array};
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
-use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{
@@ -101,6 +100,7 @@ use datafusion::physical_expr::expressions::{
 };
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
+use parking_lot::Mutex;
 use tantivy::{Score, SegmentOrdinal};
 
 use crate::api::HashSet;
@@ -122,6 +122,10 @@ pub struct PreFilter {
     pub expr: Arc<dyn PhysicalExpr>,
     /// The indices of the fast fields this expression requires.
     pub required_columns: Vec<usize>,
+    /// Cached segment-rewritten expression `(segment_ord, rewritten_expr)` so
+    /// `apply_arrow` only runs the AST rewrite once per segment rather than
+    /// on every batch.
+    cached_segment_expr: Mutex<Option<(SegmentOrdinal, Arc<dyn PhysicalExpr>)>>,
 }
 
 /// A wrapper bundling a list of `PreFilter`s with the schema they apply to.
@@ -141,70 +145,80 @@ impl PreFilter {
         schema: &SchemaRef,
         num_rows: usize,
     ) -> Result<BooleanArray, String> {
-        // 1. Rewrite the expression for the current segment.
+        // 1. Rewrite the expression for the current segment (cached per segment_ord).
         // String literal comparisons are rewritten to ordinal comparisons.
-        // NOTE: This runs two `transform()` passes on every batch. If this shows up in
-        // profiling, the rewritten expression could be cached per-segment to reduce
-        // allocation overhead for small batch sizes.
-        let rewritten_string_expr = self
-            .expr
-            .clone()
-            .transform_down(|node| {
-                if let Some(dyn_filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
-                    let current_expr = dyn_filter.current().map_err(|e| {
-                        datafusion::error::DataFusionError::Execution(format!(
-                            "DynamicFilter error: {}",
-                            e
-                        ))
-                    })?;
-                    return Ok(Transformed::yes(current_expr));
-                } else if let Some(cast) = node.downcast_ref::<CastExpr>() {
-                    if cast.cast_type() == &cast.expr().data_type(schema)? {
-                        return Ok(Transformed::yes(Arc::clone(cast.expr())));
-                    }
-                    return Ok(Transformed::no(node));
-                } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
-                    if let Some(rewritten) =
-                        try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
-                    {
-                        return Ok(Transformed::yes(rewritten));
-                    }
-                } else if let Some(in_list) = node.downcast_ref::<InListExpr>()
-                    && let Some(rewritten) =
-                        try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
-                {
-                    return Ok(Transformed::yes(rewritten));
-                }
-                Ok(Transformed::no(node))
-            })
-            .data()
-            .map_err(|e| format!("Failed to rewrite string expr: {}", e))?;
+        let rewritten_expr = {
+            let mut cache = self.cached_segment_expr.lock();
+            if let Some((cached_ord, cached_expr)) = cache.as_ref()
+                && *cached_ord == segment_ord
+            {
+                Arc::clone(cached_expr)
+            } else {
+                let rewritten = self
+                    .expr
+                    .clone()
+                    .transform_down(|node| {
+                        if let Some(dyn_filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
+                            let current_expr = dyn_filter.current().map_err(|e| {
+                                datafusion::error::DataFusionError::Execution(format!(
+                                    "DynamicFilter error: {}",
+                                    e
+                                ))
+                            })?;
+                            return Ok(Transformed::yes(current_expr));
+                        } else if let Some(cast) = node.downcast_ref::<CastExpr>() {
+                            if cast.cast_type() == &cast.expr().data_type(schema)? {
+                                return Ok(Transformed::yes(Arc::clone(cast.expr())));
+                            }
+                            return Ok(Transformed::no(node));
+                        } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
+                            if let Some(rewritten) =
+                                try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
+                            {
+                                return Ok(Transformed::new(
+                                    rewritten,
+                                    true,
+                                    TreeNodeRecursion::Jump,
+                                ));
+                            }
+                        } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
+                            if let Some(rewritten) =
+                                try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
+                            {
+                                return Ok(Transformed::new(
+                                    rewritten,
+                                    true,
+                                    TreeNodeRecursion::Jump,
+                                ));
+                            }
+                            // Skip visiting `InListExpr::children()`, which allocates and clones
+                            // every literal in `in_list.list()`.
+                            return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                        } else if node.is::<HashTableLookupExpr>() {
+                            return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                        }
+                        Ok(Transformed::no(node))
+                    })
+                    .data()
+                    .map_err(|e| format!("Failed to rewrite string expr: {}", e))?;
+                *cache = Some((segment_ord, Arc::clone(&rewritten)));
+                rewritten
+            }
+        };
 
-        let rewritten_expr = rewritten_string_expr
-            .transform(|node| {
-                if let Some(col) = node.downcast_ref::<Column>() {
-                    let orig_idx = col.index();
-                    if orig_idx < schema.fields().len()
-                        && let Some(new_idx) = self
-                            .required_columns
-                            .iter()
-                            .position(|&idx| idx == orig_idx)
-                    {
-                        let new_col = Column::new(col.name(), new_idx);
-                        return Ok(Transformed::yes(Arc::new(new_col) as Arc<dyn PhysicalExpr>));
-                    }
-                }
-                Ok(Transformed::no(node))
-            })
-            .data()
-            .map_err(|e| format!("Failed to update col indices: {}", e))?;
+        // 2. Build a RecordBatch from memoized_columns preserving original schema column indices.
+        // Non-required columns are filled with zero-buffer `NullArray` placeholders so we don't
+        // need a bottom-up `transform()` pass to remap `Column` indices (which would otherwise
+        // call `InListExpr::with_new_children` and clone the entire list).
+        let null_array: ArrayRef = Arc::new(NullArray::new(num_rows));
+        let mut fields: Vec<Field> = schema
+            .fields()
+            .iter()
+            .map(|f| Field::new(f.name(), DataType::Null, true))
+            .collect();
+        let mut arrays: Vec<ArrayRef> = vec![null_array; schema.fields().len()];
 
-        // 2. Build a RecordBatch from memoized_columns.
-        // We only include the columns that were actually required and fetched.
-        let mut fields = Vec::with_capacity(self.required_columns.len());
-        let mut arrays = Vec::with_capacity(self.required_columns.len());
         for &ff_index in &self.required_columns {
-            let col_name = schema.field(ff_index).name().clone();
             let mut array = memoized_columns[ff_index]
                 .as_ref()
                 .ok_or_else(|| format!("Column {} not fetched", ff_index))?
@@ -225,14 +239,14 @@ impl PreFilter {
             // Note: The schema of the array might differ from the global schema
             // (e.g. UInt64 ordinals instead of Utf8). DataFusion `Column` exprs just extract by name/index,
             // so we must build the batch schema to match the *actual* array types we pass in.
-            fields.push(Field::new(col_name, array.data_type().clone(), true));
-            arrays.push(array);
+            fields[ff_index] = Field::new(schema_field.name(), array.data_type().clone(), true);
+            arrays[ff_index] = array;
         }
 
         let batch_schema = Arc::new(Schema::new(fields));
         let options = datafusion::arrow::record_batch::RecordBatchOptions::new()
             .with_row_count(Some(num_rows));
-        let batch = RecordBatch::try_new_with_options(batch_schema.clone(), arrays, &options)
+        let batch = RecordBatch::try_new_with_options(batch_schema, arrays, &options)
             .map_err(|e| format!("Failed to build RecordBatch: {}", e))?;
 
         // 3. Evaluate the rewritten expression natively via DataFusion.
@@ -287,6 +301,14 @@ pub fn collect_filters(
         return;
     }
 
+    // Ignore trivial `true` literals (e.g. uninitialized TopK dynamic filters or
+    // `InList` nodes rewritten to `lit(true)` after inverted-index pushdown).
+    if let Some(lit) = expr.downcast_ref::<Literal>()
+        && matches!(lit.value(), ScalarValue::Boolean(Some(true)))
+    {
+        return;
+    }
+
     let threshold = match (
         try_extract_score_threshold(expr, score_col_schema_idx),
         &score_threshold,
@@ -306,6 +328,7 @@ pub fn collect_filters(
         out.push(PreFilter {
             expr: Arc::clone(expr),
             required_columns,
+            cached_segment_expr: Mutex::new(None),
         });
     }
 }
@@ -466,8 +489,16 @@ fn is_supported(
                     return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
                 }
             }
-        } else if node.is::<IsNullExpr>() || node.is::<NotExpr>() || node.is::<InListExpr>() {
+        } else if node.is::<IsNullExpr>() || node.is::<NotExpr>() {
             // Allowed
+        } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
+            if !is_supported(in_list.expr(), schema, required_columns) {
+                supported = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            // Skip visiting `InListExpr::children()`, which allocates a `Vec` and clones
+            // every literal in `in_list.list()`.
+            return Ok(TreeNodeRecursion::Jump);
         } else if node.is::<HashTableLookupExpr>() {
             // We only support HashTableLookupExpr for non-string columns.
             let mut is_numeric = true;
@@ -798,10 +829,8 @@ fn extract_in_list_exprs<'a>(
 enum InListPushdown {
     /// AND the converted term-set query into the tantivy search.
     Query(Box<dyn Query>),
-    /// Drop the predicate: evaluating it in the scan costs more per row than the hash
-    /// join above, which re-checks the same keys against its build table anyway.
-    Skip,
-    /// Not convertible; keep it as a batch-level pre-filter.
+    /// Not convertible (or faster as a vectorized batch pre-filter than Tantivy
+    /// `LinearScan`); keep it as a batch-level pre-filter.
     Keep,
 }
 
@@ -849,30 +878,25 @@ fn try_convert_in_list_to_query(
         return InListPushdown::Keep;
     }
 
-    // Integrating the term set only pays when the segments admit an index-driven strategy.
-    // Past its density gate tantivy's planner falls back to `LinearScan`, a per-candidate
-    // fast-field probe that re-does the membership test the hash join above performs against
-    // its build table anyway, at a far higher per-row cost than the join's own vectorized
-    // probe — so the predicate is dropped rather than kept. The gate only guards that
-    // fallback: a keyword column or one without a fast representation routes to the FST
-    // automaton, and a column the segments are sorted by routes to gallop, both index-driven
-    // at any density.
+    // Integrating the term set into the Tantivy query only pays when the segments admit an
+    // index-driven strategy. Past its density gate tantivy's planner falls back to `LinearScan`,
+    // a per-candidate fast-field probe inside the scorer. Keeping the `InListExpr` as a
+    // batch-level `PreFilter` instead evaluates its vectorized `static_filter` hash set over
+    // the fast-field batch before heap visibility (`fetch_ctids`) and non-filter column
+    // materialization. The gate only guards that fallback: a keyword column or one without a
+    // fast representation routes to the FST automaton, and a column the segments are sorted by
+    // routes to gallop, both index-driven at any density.
     // Gate on the largest segment: the big segments carry the linear cost, and a small
     // segment's linear scan is cheap even when it misses its own bitset gate. The looser
     // multi-column threshold is used because the column's docs-per-term isn't known here; a
     // unique-keyed column between the two thresholds still lands on `LinearScan`, an
     // accepted residual since either path is inexpensive in that band.
-    // A per-segment exact decision needs doc counts and doc_freqs only tantivy's weight
-    // sees. A `TermSetStrategyConfig` flag meaning "a consumer above rechecks membership"
-    // would let each segment fall back to match-all instead of `LinearScan`, and this
-    // planner-side prediction would go away; until then the largest segment stands in for
-    // all of them.
     let linear_fallback_possible = field.is_fast()
         && !field.is_text()
         && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));
     let density = in_list.list().len() as f64 / max_segment_docs.max(1) as f64;
     if linear_fallback_possible && density > crate::gucs::term_set_bitset_max_density_multi() {
-        return InListPushdown::Skip;
+        return InListPushdown::Keep;
     }
 
     let tantivy_schema = schema.tantivy_schema();
@@ -987,9 +1011,6 @@ pub fn try_dynamic_filter_pushdown(
                     pushed_down_queries.push(query);
                     pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
                 }
-                InListPushdown::Skip => {
-                    pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
-                }
                 InListPushdown::Keep => {}
             }
         }
@@ -1000,9 +1021,13 @@ pub fn try_dynamic_filter_pushdown(
                 .clone()
                 .transform_down(|node| {
                     if pushed_down_pointers.contains(&(Arc::as_ptr(&node) as *const () as usize)) {
-                        Ok(Transformed::yes(Arc::new(Literal::new(
-                            ScalarValue::Boolean(Some(true)),
-                        ))))
+                        Ok(Transformed::new(
+                            Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
+                            true,
+                            TreeNodeRecursion::Jump,
+                        ))
+                    } else if node.is::<InListExpr>() {
+                        Ok(Transformed::new(node, false, TreeNodeRecursion::Jump))
                     } else {
                         Ok(Transformed::no(node))
                     }
@@ -1164,5 +1189,46 @@ mod tests {
             try_extract_score_threshold(&lit(true), Some(SCORE_IDX)),
             None
         );
+    }
+
+    #[test]
+    fn collect_filters_skips_true_literals_and_supports_in_list() {
+        use super::collect_filters;
+        use datafusion::arrow::array::Int64Array;
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::physical_plan::expressions::InListExpr;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("pdb.score()", DataType::Float32, true),
+            Field::new("id", DataType::Int64, true),
+        ]));
+
+        // Standalone `lit(true)` should produce no PreFilters.
+        let mut filters = Vec::new();
+        let mut threshold = None;
+        collect_filters(
+            &lit(true),
+            &schema,
+            &mut filters,
+            Some(SCORE_IDX),
+            &mut threshold,
+        );
+        assert!(filters.is_empty());
+
+        // `lit(true) AND id IN (1, 2, 3)` should skip `lit(true)` and keep only the `InListExpr`
+        // with `required_columns == [ID_IDX]`.
+        let array = Arc::new(Int64Array::from(vec![1, 2, 3]));
+        let in_list = Arc::new(InListExpr::try_new_from_array(id(), array, false, &schema).unwrap())
+            as Arc<dyn PhysicalExpr>;
+        let conj = bin(lit(true), Operator::And, in_list);
+        collect_filters(
+            &conj,
+            &schema,
+            &mut filters,
+            Some(SCORE_IDX),
+            &mut threshold,
+        );
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].required_columns, vec![ID_IDX]);
     }
 }

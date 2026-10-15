@@ -1343,10 +1343,29 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             let mut pushdown_metric_recorded = false;
             let mut score_pushdown_metric_recorded = false;
+            let mut last_filter_generations: Option<Vec<u64>> = None;
+            let mut pre_filters: Vec<PreFilter> = Vec::new();
+            let mut score_threshold: Option<Score> = None;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) =
-                    build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                if !dynamic_filters.is_empty() {
+                    let generations_unchanged =
+                        last_filter_generations.as_ref().is_some_and(|gens| {
+                            gens.iter()
+                                .copied()
+                                .eq(dynamic_filters.iter().map(|df| df.snapshot_generation()))
+                        });
+                    if !generations_unchanged {
+                        (pre_filters, score_threshold) =
+                            build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                        last_filter_generations = Some(
+                            dynamic_filters
+                                .iter()
+                                .map(|df| df.snapshot_generation())
+                                .collect(),
+                        );
+                    }
+                }
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {

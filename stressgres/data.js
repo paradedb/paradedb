@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792053625725,
+  "lastUpdate": 1792053642922,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -152380,6 +152380,106 @@ window.BENCHMARK_DATA = {
             "value": 43.00390625,
             "unit": "median mem",
             "extra": "avg mem: 42.99446968892468, max mem: 43.00390625, count: 59443"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792053633593,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.040817357055090805, max background_merging: 1.0, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.848729139302755, max cpu: 9.628887, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.97213597334669, max mem: 27.7734375, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8163010914079685, max cpu: 23.54095, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 53.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.94947096549881, max mem: 57.88671875, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 70265,
+            "unit": "median block_count",
+            "extra": "avg block_count: 69375.8809648045, max block_count: 70266.0, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 74,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.74630960596522, max segment_count: 106.0, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.59882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.222075569501662, max cpu: 33.633633, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 97.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 93.52095643851727, max mem: 97.19921875, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.41182020954616, max cpu: 9.472126, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 72.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 68.63982555050832, max mem: 72.71875, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.899605232896486, max cpu: 28.20764, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 55.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.58637821962684, max mem: 59.76953125, count: 59411"
           }
         ]
       }

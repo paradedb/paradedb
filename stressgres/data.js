@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792052092192,
+  "lastUpdate": 1792052108947,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -440230,6 +440230,58 @@ window.BENCHMARK_DATA = {
             "value": 38.86626393338285,
             "unit": "median tps",
             "extra": "avg tps: 60.45557795338863, max tps: 570.4553293624466, count: 58803"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792052100591,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.58045103428831,
+            "unit": "median tps",
+            "extra": "avg tps: 54.76440347537243, max tps: 532.8204791811926, count: 58729"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.92757902630904,
+            "unit": "median tps",
+            "extra": "avg tps: 30.007168750031376, max tps: 362.7770692745728, count: 58729"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.98452950128676,
+            "unit": "median tps",
+            "extra": "avg tps: 135.70193301941742, max tps: 1259.0877015649894, count: 58729"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 18.799229568679046,
+            "unit": "median tps",
+            "extra": "avg tps: 28.628623903272693, max tps: 273.8707436656048, count: 58729"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 36.492024384150774,
+            "unit": "median tps",
+            "extra": "avg tps: 56.77698657969947, max tps: 525.6424087116337, count: 58729"
           }
         ]
       }

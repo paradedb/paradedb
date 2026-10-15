@@ -231,6 +231,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
 /// combinations unrepresentable. Held only by the leader; builder-launched workers reconstruct
 /// their state from DSM and never carry this.
 #[derive(Default)]
+#[allow(clippy::large_enum_variant)]
 pub enum MppLifecycle {
     /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
     /// teardown already reclaimed the leader state.

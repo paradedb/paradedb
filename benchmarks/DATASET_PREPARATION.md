@@ -12,7 +12,7 @@ This document walks through the full process of preparing a new non-synthetic da
 
 Unless otherwise noted, run commands from the `benchmarks/` directory.
 
-For HN's embedding input profile and held-out query selection, see
+For HN's embedding generation, held-out queries, and corpus assembly, see
 [HN vector dataset preparation](datasets/hn/README.md).
 
 ## Step 1: Load Source Data into S3

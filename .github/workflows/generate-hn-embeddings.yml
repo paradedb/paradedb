@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Prepare requests, or advance paid Batch API jobs."
+        description: "Prepare requests, advance paid Batch jobs, or assemble a completed cache."
         type: choice
-        options: [prepare, advance]
+        options: [prepare, advance, assemble]
         default: prepare
       preparation:
         description: "Immutable cache name under hn/v1/embedding-cache/. Reuse it to resume."
@@ -44,7 +44,7 @@ jobs:
       - cpu=8
       - ram=16
       - image=ubuntu26-full-arm64
-      - volume=100gb
+      - volume=${{ inputs.action == 'assemble' && '600gb' || '100gb' }}
     env:
       PREPARATION: ${{ inputs.preparation }}
       MAX_ACTIVE: ${{ inputs.max_active }}
@@ -88,18 +88,24 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a") as stream:
               stream.write(f"WORK={os.environ['RUNNER_TEMP']}/hn-embeddings\n")
               stream.write(f"SOURCE_URI={config['source']}\n")
+              stream.write(f"DATASET_PREFIX={config['artifact_prefix']}\n")
               stream.write(f"CACHE_PREFIX={config['artifact_prefix']}/embedding-cache/{os.environ['PREPARATION']}\n")
           PY
 
-      - name: Prepare and Publish Requests
+      - name: Check for Existing Request Plan
         if: inputs.action == 'prepare'
         run: |
           set -euo pipefail
           existing=$(aws s3 ls "${CACHE_PREFIX}/plan.json")
           if [ -n "${existing}" ]; then
             echo "Plan already exists; use advance with this preparation name."
-            exit 0
+            echo "PREPARED=true" >> "${GITHUB_ENV}"
           fi
+
+      - name: Download and Extract Source
+        if: inputs.action == 'assemble' || (inputs.action == 'prepare' && env.PREPARED != 'true')
+        run: |
+          set -euo pipefail
           mkdir -p "${WORK}"
           aws s3 cp "${SOURCE_URI}" "${WORK}/source.tar.gz" --only-show-errors
           python - <<'PY'
@@ -132,6 +138,11 @@ jobs:
               "archive_verified": True,
           })
           PY
+
+      - name: Prepare and Publish Requests
+        if: inputs.action == 'prepare' && env.PREPARED != 'true'
+        run: |
+          set -euo pipefail
           python benchmarks/scripts/prepare_hn.py \
             --source "${WORK}/data.csv" --output "${WORK}/profile" \
             --workers 4 --memory-limit 4GB
@@ -170,14 +181,28 @@ jobs:
             --max-active "${MAX_ACTIVE}" --max-pending-tokens "${MAX_PENDING_TOKENS}" \
             --max-seconds "${MAX_SECONDS}"
 
+      - name: Assemble and Publish Corpus and Queries
+        if: inputs.action == 'assemble'
+        run: |
+          set -euo pipefail
+          python benchmarks/scripts/assemble_hn.py assemble \
+            --source "${WORK}/data.csv" --cache-directory "${WORK}/cache" \
+            --cache-s3-prefix "${CACHE_PREFIX}" --output "${WORK}/dataset" \
+            --sizes full 1m 10m --workers 4 --memory-limit 4GB
+          python benchmarks/scripts/assemble_hn.py publish \
+            --output "${WORK}/dataset" --s3-prefix "${DATASET_PREFIX}"
+
       - name: Summarize Progress
         if: always() && env.CACHE_PREFIX != ''
         run: |
           {
             echo "Embedding cache: \`${CACHE_PREFIX}\`"
             echo
-            if [ -f "${WORK}/cache/embeddings.json" ]; then
-              echo "Embedding cache complete. Corpus assembly and ground truth remain separate steps."
+            if [ -f "${WORK}/dataset/manifest.json" ]; then
+              echo "Corpus and query files assembled locally. Check the publication step for S3 success."
+              echo "Dataset destination: \`${DATASET_PREFIX}\`. Ground truth and snapshots remain separate steps."
+            elif [ -f "${WORK}/cache/embeddings.json" ]; then
+              echo "Embedding cache complete. Use assemble to build and publish corpus/query files."
             else
               echo "Reuse this preparation name with advance to collect or resume jobs."
               echo "The cache is complete only once embeddings.json has been published."

@@ -53,8 +53,8 @@ publishing a dataset version.
   batching, and worker count.
 - `holdout.parquet` contains `id` (int32 query ID), `hn_id` (int64),
   `normalized_sha256`, `input_sha256`, and `token_ids` (list of int32).
-- The later corpus assembly step must exclude every held-out `hn_id` before
-  sampling, GT generation, or heap loading. The dry run only records this split;
+- Corpus assembly excludes every held-out `hn_id` before sampling, GT generation,
+  or heap loading. The dry run only records this split;
   it does not delete any source rows.
 
 ## Artifact destinations
@@ -73,6 +73,8 @@ s3://paradedb-benchmarks/datasets/hn/v1/
     vectors/*.parquet
     queries/holdout.parquet
   manifest.json
+  assembly-intent.json
+  provenance/{profile,plan,embeddings}.json
   queries/
     holdout.parquet
     hn_queries.parquet
@@ -85,10 +87,11 @@ Heap snapshots belong under
 `s3://paradedb-ci-benchmarks/snapshots/hn/v1/<size>/`.
 
 The profile manifest has state `profiled`; it is not a complete benchmark dataset.
-The embedding cache is also an intermediate artifact. Corpus assembly, GT,
-snapshot publication, and benchmark workflow registration follow in subsequent
-steps. Keep published versions immutable and bind each snapshot and fixture set
-to the same completed manifest.
+The embedding cache is also an intermediate artifact. Assembly produces a manifest
+with state `assembled`, covering the corpus and query files. GT generation,
+snapshot publication, and benchmark workflow registration remain subsequent steps.
+Keep published versions immutable and bind each snapshot and fixture set to the
+same assembled manifest.
 
 ## Generate embeddings with the Batch API
 
@@ -146,7 +149,7 @@ for the configured model, dimensions, and finite nonzero float32 values. Cache
 Parquet files contain `input_sha256` and `emb` (a fixed-size list of 1,536 float32
 values). `embeddings.json` records their checksums and counts only after every
 unique input succeeds. Empty source rows have no cache entry. Corpus and held-out
-query rows will both join to this cache in the subsequent assembly step.
+query rows both join to this cache during assembly.
 
 Partial jobs retain successes and retry only transient failures, with three
 attempts per shard by default. Permanent failures and incomplete/malformed
@@ -156,6 +159,68 @@ restart it searches batch metadata to recover an accepted job. If the outcome
 cannot be reconciled, it stops for operator investigation instead of submitting
 another copy; inspect `state.json` and the OpenAI batch dashboard before changing
 that checkpoint. Collect results before the API's output files expire.
+
+## Assemble corpus and query files
+
+Once `embeddings.json` exists, assemble from the exact original CSV and completed
+cache. No OpenAI calls are made by this step:
+
+```sh
+uv run benchmarks/scripts/assemble_hn.py assemble \
+  --source /path/to/extracted/data.csv \
+  --cache-directory /path/to/hn-v1-embeddings \
+  --output /path/to/hn-v1-dataset \
+  --sizes full 1m 10m
+```
+
+Add `--cache-s3-prefix
+s3://paradedb-benchmarks/datasets/hn/v1/embedding-cache/initial` to restore a remote
+cache into a local directory. Assembly verifies the source, plan, profile,
+holdout, and every vector shard against their recorded checksums. It rejects
+missing, duplicate, unexpected, null, zero, nonfinite, or incorrectly dimensioned
+cache vectors. Original HN columns retain their types and values; `\N` becomes
+NULL, empty strings remain empty strings, and timestamps are interpreted in UTC.
+Rows with empty normalized text have NULL embeddings. Duplicate inputs share a
+vector while retaining their separate HN IDs and original text.
+
+The output directory must be empty. Each corpus contains the original 15 columns
+in table order followed by `emb` (list of float32). The query fixture contains
+exactly `id` (int32) and `emb`, matching pdbench's loader. The separate
+`queries/holdout.parquet` maps query IDs back to source HN IDs and input hashes.
+Held-out rows are excluded before sampling; no source CSV or database is mutated.
+
+Samples have exact row counts. They use the first N corpus IDs ordered by SHA-256
+of `"<sampling_seed>:<hn_id>"`, then numeric HN ID, with the seed from `config.toml`.
+Thus `1m` is a subset of `10m`, both are subsets of `full`, and all share the same
+query fixture. Empty-text rows participate in sampling. The manifest records
+both row and vector counts for each size. Custom positive sizes such as `100k`
+are supported; a requested size larger than the available corpus fails.
+
+Assembly uses hash partitions and a disk-backed DuckDB database with a default
+4 GB memory limit. It temporarily holds downloaded cache shards and partitioned
+vectors, then deletes downloaded shards and consumes partitions as output is
+written. Existing local cache files are preserved. Allow roughly 600 GB of free
+disk for full-scale assembly and spill; the CI assembly runner provisions a
+600 GB volume. `--memory-limit` controls DuckDB, and `--workers` controls the text
+profiling processes. The full-scale resource/runtime requirements have not yet
+been measured with real embeddings.
+
+Publish a successfully assembled dataset separately:
+
+```sh
+uv run benchmarks/scripts/assemble_hn.py publish \
+  --output /path/to/hn-v1-dataset \
+  --s3-prefix s3://paradedb-benchmarks/datasets/hn/v1
+```
+
+Publication requires an archive-verified source profile, checks local artifact
+checksums, and uploads `manifest.json` last. An intent object reserves the prefix
+for that exact manifest before artifact uploads start. Rerunning publication of
+the same local output resumes safely; a different manifest is refused. Use one
+writer per dataset prefix. Assembly itself has no checkpoints: if interrupted,
+restart with a new empty output directory and the same completed embedding cache.
+Failed assembly never writes a completion manifest. A partial S3 publication must
+be resumed with the identical artifacts, not replaced by a different assembly.
 
 ## Run in CI
 
@@ -174,9 +239,13 @@ Use the manual **Generate HN Embeddings** workflow with a preparation name such 
    run; progress is saved after each transition. The default queue holds at most
    four batches and 20 million input tokens for this cache. Set lower limits if
    other jobs share the project's Batch quota, or raise them within that quota.
+4. Choose `assemble` with the same preparation name to download the source/cache,
+   build `full`, `1m`, and `10m` corpora and the query fixture, and publish the
+   assembled dataset. This requires read/write access to the dataset prefix, no
+   OpenAI key, and makes no paid embedding requests.
 
-Normal benchmark CI does not generate embeddings. This workflow builds only the
-embedding cache; it does not load a database, remove holdout rows from the source,
+Normal benchmark CI does not generate embeddings. This manual workflow prepares
+the embedding cache and portable dataset artifacts. It does not load a database,
 generate GT, or create heap snapshots.
 
 ## Checks
@@ -188,4 +257,7 @@ uv run --python 3.12 \
   python -m unittest discover -s benchmarks/scripts -p 'test_*hn*.py'
 ```
 
-Tests use simulated API responses and do not require credentials or incur charges.
+Tests use simulated API responses and S3 copies and do not require credentials or
+incur charges. Assembly tests cover original column preservation, duplicate-input
+reuse, NULL vectors, disjoint query/corpus IDs, nested exact samples, corrupt
+caches, remote cache restoration, and interrupted/immutable publication.

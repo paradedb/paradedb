@@ -35,6 +35,19 @@ pub fn comparison(node: &Node) -> String {
             _ => String::new(),
         });
     }
+    match &mut normalized.node {
+        Some(NodeEnum::DropStmt(drop)) => {
+            drop.missing_ok = false;
+            for object in &mut drop.objects {
+                if let Some(NodeEnum::ObjectWithArgs(args)) = &mut object.node {
+                    args.objfuncargs.clear();
+                }
+            }
+        }
+        Some(NodeEnum::DefineStmt(definition)) => definition.replace = false,
+        Some(NodeEnum::ViewStmt(view)) => view.replace = false,
+        _ => {}
+    }
     let mut json = serde_json::to_value(normalized).expect("protobuf node serialization");
     remove_offsets(&mut json);
     json.to_string()
@@ -60,8 +73,7 @@ pub fn parse(input: &str) -> Result<Vec<ParsedStatement>, String> {
         Some((guard, sql)) if guard.starts_with("\\echo Use ") && guard.ends_with("\\quit") => sql,
         _ => input,
     };
-    let input = input.replace("@extschema@", "\"@extschema@\"");
-    let result = pg_query::parse(&input).map_err(|error| format!("SQL parse error: {error}"))?;
+    let result = pg_query::parse(input).map_err(|error| format!("SQL parse error: {error}"))?;
     result
         .protobuf
         .stmts
@@ -72,6 +84,22 @@ pub fn parse(input: &str) -> Result<Vec<ParsedStatement>, String> {
                 0 => input.len(),
                 length => start + length as usize,
             };
+            let slice = &input[start..end];
+            let tokens =
+                pg_query::scan(slice).map_err(|error| format!("SQL scan error: {error}"))?;
+            let start = start
+                + tokens
+                    .tokens
+                    .iter()
+                    .find(|token| {
+                        !matches!(
+                            token.token(),
+                            pg_query::protobuf::Token::SqlComment
+                                | pg_query::protobuf::Token::CComment
+                        )
+                    })
+                    .ok_or("empty SQL statement")?
+                    .start as usize;
             let node = *statement.stmt.ok_or("empty parser statement")?;
             Ok(ParsedStatement {
                 comparison: comparison(&node),
@@ -132,5 +160,51 @@ mod tests {
             parse("CREATE TABLESPACE ts LOCATION '/mnt/one'").unwrap()[0].comparison,
             parse("CREATE TABLESPACE ts LOCATION '/mnt/two'").unwrap()[0].comparison
         );
+    }
+    #[test]
+    fn normalizes_drop_spelling_and_replace_for_views_and_aggregates() {
+        for (a, b) in [
+            (
+                "DROP FUNCTION IF EXISTS vector_info(index regclass, field text)",
+                "DROP FUNCTION vector_info(regclass, text)",
+            ),
+            ("DROP PROCEDURE IF EXISTS f(a int)", "DROP PROCEDURE f(int)"),
+            (
+                "DROP AGGREGATE IF EXISTS pdb.agg(a jsonb, b text)",
+                "DROP AGGREGATE pdb.agg(jsonb, text)",
+            ),
+            (
+                "CREATE OR REPLACE VIEW v AS SELECT 1",
+                "CREATE VIEW v AS SELECT 1",
+            ),
+            (
+                "CREATE OR REPLACE AGGREGATE a(int) (SFUNC = int4pl, STYPE = int)",
+                "CREATE AGGREGATE a(int) (SFUNC = int4pl, STYPE = int)",
+            ),
+        ] {
+            assert_eq!(
+                parse(a).unwrap()[0].comparison,
+                parse(b).unwrap()[0].comparison,
+                "{a}"
+            );
+        }
+        assert_ne!(
+            parse("DROP FUNCTION f(int)").unwrap()[0].comparison,
+            parse("DROP FUNCTION f(text)").unwrap()[0].comparison
+        );
+        assert_ne!(
+            parse("DROP FUNCTION f(int)").unwrap()[0].comparison,
+            parse("DROP FUNCTION f(int) CASCADE").unwrap()[0].comparison
+        );
+    }
+
+    #[test]
+    fn quoted_extension_schema_round_trips_without_rewriting() {
+        let parsed = parse("CREATE TABLE \"@extschema@\".t(x int)").unwrap();
+        assert_eq!(
+            parse(&parsed[0].source).unwrap()[0].comparison,
+            parsed[0].comparison
+        );
+        assert!(parse("CREATE TABLE @extschema@.t(x int)").is_err());
     }
 }

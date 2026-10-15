@@ -32,8 +32,12 @@ fn run() -> Result<(), String> {
         [command, before, after] if command == "diff" => {
             let before = sql::read(before)?;
             let after = sql::read(after)?;
-            print!("{}", schema::diff(&before, &after)?);
-            Ok(())
+            let diff = schema::diff(&before, &after)?;
+            use std::io::Write;
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(diff.sql.as_bytes()).map_err(|error| error.to_string())?;
+            stdout.flush().map_err(|error| error.to_string())?;
+            if diff.manual.is_empty() { Ok(()) } else { Err(diff.manual.join("\n")) }
         }
         [command, expected, fragments @ ..] if command == "check" && !fragments.is_empty() => {
             let expected = std::fs::read_to_string(expected).map_err(|e| e.to_string())?;

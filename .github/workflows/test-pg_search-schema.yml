@@ -72,7 +72,7 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
-          extra_packages: libopenblas-dev clang libclang-dev lld llvm protobuf-compiler
+          extra_packages: libopenblas-dev clang libclang-dev lld llvm
 
       - name: Build SchemaBot
         run: |
@@ -120,10 +120,13 @@ jobs:
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
+        id: schema_diff
         run: |
-          "$RUNNER_TEMP/schemabot" diff ~/old.sql ~/this.sql > ~/diff.sql
-          echo "Schema diff generated successfully:"
+          status=0
+          "$RUNNER_TEMP/schemabot" diff ~/old.sql ~/this.sql > ~/diff.sql || status=$?
+          echo "Suggested schema changes:"
           cat ~/diff.sql
+          echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Switch Back to PR Branch
         env:
@@ -178,3 +181,9 @@ jobs:
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Require Manual Migration Review
+        if: steps.schema_diff.outputs.status != '0'
+        run: |
+          echo "SchemaBot found changes requiring a manual migration; see diagnostics above."
+          exit 1

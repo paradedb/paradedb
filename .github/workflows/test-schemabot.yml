@@ -54,7 +54,7 @@ jobs:
       - name: Install Build Dependencies
         uses: paradedb/actions/apt-install@v14
         with:
-          packages: --no-install-recommends clang libclang-dev lld protobuf-compiler
+          packages: --no-install-recommends clang libclang-dev lld
 
       - name: Cache Rust Build
         uses: Swatinem/rust-cache@v2

@@ -93,9 +93,7 @@ extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::text_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::text_from_json);
 }
 
 #[pg_guard]
@@ -104,9 +102,7 @@ extern "C-unwind" fn validate_inet_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::inet_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::inet_from_json);
 }
 
 #[pg_guard]
@@ -115,9 +111,7 @@ extern "C-unwind" fn validate_numeric_fields(value: *const std::os::raw::c_char)
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::numeric_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::numeric_from_json);
 }
 
 #[pg_guard]
@@ -126,9 +120,7 @@ extern "C-unwind" fn validate_boolean_fields(value: *const std::os::raw::c_char)
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::boolean_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::boolean_from_json);
 }
 
 #[pg_guard]
@@ -137,9 +129,7 @@ extern "C-unwind" fn validate_json_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::json_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::json_from_json);
 }
 
 #[pg_guard]
@@ -148,9 +138,7 @@ extern "C-unwind" fn validate_range_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::range_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::range_from_json);
 }
 
 #[pg_guard]
@@ -159,9 +147,7 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::date_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::date_from_json);
 }
 
 #[pg_guard]
@@ -170,9 +156,7 @@ extern "C-unwind" fn validate_vector_fields(value: *const std::os::raw::c_char) 
     if json_str.is_empty() {
         return;
     }
-    if let Err(err) = deserialize_config_fields(json_str, &SearchFieldConfig::vector_from_json) {
-        pgrx::error!("{err}");
-    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::vector_from_json);
 }
 
 #[pg_guard]
@@ -200,7 +184,7 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
     }
 
     if fields == 0 {
-        pgrx::error!("invalid partition_by value: must specify at least one field");
+        panic!("invalid partition_by value: must specify at least one field");
     }
 }
 
@@ -210,9 +194,8 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
     if s.is_empty() {
         return;
     }
-    if crate::api::tokenizers::tokenizer_from_expression(&s).is_none() {
-        pgrx::error!("invalid search_tokenizer: '{s}'");
-    }
+    crate::api::tokenizers::tokenizer_from_expression(&s)
+        .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
 #[pg_guard]
@@ -222,10 +205,8 @@ extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
         return;
     }
     let cstr = unsafe { CStr::from_ptr(value) };
-    let Ok(s) = cstr.to_str() else {
-        pgrx::error!("`layer_sizes` must be valid UTF-8");
-    };
-    let _ = get_layer_sizes(s).collect::<Vec<_>>();
+    let _ = get_layer_sizes(cstr.to_str().expect("`layer_sizes` must be valid UTF-8"))
+        .collect::<Vec<_>>();
 }
 
 fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
@@ -239,7 +220,7 @@ fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
         match size {
             Some(b) if b > 0 => Some(b),
             Some(0) => None,
-            _ => pgrx::error!("a single layer size must be non-negative"),
+            _ => panic!("a single layer size must be non-negative"),
         }
     })
 }
@@ -513,11 +494,11 @@ impl BM25IndexOptions {
                 _ => config,
             },
             None => {
-                let Some(field_type) = field_type else {
-                    pgrx::error!(
+                let field_type = field_type.unwrap_or_else(|| {
+                    panic!(
                         "field `{field_name}` is not configured in the CREATE INDEX WITH options"
-                    );
-                };
+                    )
+                });
                 field_type.default_config()
             }
         }
@@ -768,9 +749,7 @@ impl BM25IndexOptions {
                 let (_, is_array) = crate::postgres::utils::resolve_base_type(
                     PgOid::from_untagged(attr.inner_typoid),
                 )
-                .unwrap_or_else(|| {
-                    pgrx::error!("failed to resolve base type for `{current_name}`")
-                });
+                .unwrap_or_else(|| panic!("failed to resolve base type for `{current_name}`"));
 
                 return is_array
                     || matches!(
@@ -1004,13 +983,9 @@ impl BM25IndexOptionsData {
         let mut configs = HashMap::default();
         let config = self.get_str(offset, "".to_string());
         if !config.is_empty() {
-            match deserialize_config_fields(config, parser) {
-                Ok(mut deserialized) => {
-                    for (field_name, config) in deserialized.drain() {
-                        configs.insert(field_name, config);
-                    }
-                }
-                Err(err) => pgrx::error!("{err}"),
+            let mut deserialized = deserialize_config_fields(config, parser);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
             }
         }
         configs
@@ -1188,20 +1163,23 @@ pub unsafe fn init() {
 fn deserialize_config_fields(
     serialized: String,
     parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
-) -> Result<HashMap<FieldName, SearchFieldConfig>> {
+) -> HashMap<FieldName, SearchFieldConfig> {
     let config_map: Map<String, serde_json::Value> = serde_json::from_str(&serialized)
-        .map_err(|err| anyhow::anyhow!("failed to deserialize field config: {err:?}"))?;
+        .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
 
-    let mut result = HashMap::default();
-    for (field_name, field_config) in config_map {
-        let config = parser(field_config).map_err(|err| {
-            anyhow::anyhow!(
-                "field config should be valid for SearchFieldConfig::{field_name}: {err}"
+    config_map
+        .into_iter()
+        .map(|(field_name, field_config)| {
+            (
+                field_name.clone().into(),
+                parser(field_config).unwrap_or_else(|err| {
+                    panic!(
+                        "field config should be valid for SearchFieldConfig::{field_name}: {err}"
+                    )
+                }),
             )
-        })?;
-        result.insert(field_name.into(), config);
-    }
-    Ok(result)
+        })
+        .collect()
 }
 
 /// Represents a single field in the sort_by specification.

@@ -60,6 +60,16 @@ impl Clone for HeapFieldFilter {
     }
 }
 
+crate::impl_safe_drop!(HeapFieldFilter, |self| {
+    unsafe {
+        if let Some(context) = self.scratch_context.take() {
+            if crate::postgres::utils::IsTransactionState() {
+                pg_sys::MemoryContextDelete(context);
+            }
+        }
+    }
+});
+
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &HeapFieldFilter) -> bool {
         self.expr_node == other.expr_node && self.heap_filter == other.heap_filter
@@ -149,9 +159,9 @@ impl HeapFieldFilter {
                 pg_sys::AllocSetContextCreateExtended(
                     (*econtext).ecxt_per_query_memory,
                     c"HeapFieldFilter scratch context".as_ptr(),
-                    pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
-                    pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
-                    pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
                 )
             });
 

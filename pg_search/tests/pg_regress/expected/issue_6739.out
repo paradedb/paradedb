@@ -38,3 +38,35 @@ WHERE body @@@ 'document'
 (1 row)
 
 DROP TABLE issue_6739_repro;
+-- Test solve-context interaction under force_generic_plan with multiple segments
+-- and aggregate custom scan (verifies generic plan parameters are not corrupted
+-- by per-candidate scratch context resets)
+CREATE TABLE issue_6739_generic (id int PRIMARY KEY, body text, lib text);
+CREATE INDEX issue_6739_generic_idx ON issue_6739_generic USING paradedb (id, body);
+INSERT INTO issue_6739_generic
+SELECT g, 'document ' || g, 'lib' || (g % 3)
+FROM generate_series(1, 100) g;
+INSERT INTO issue_6739_generic
+SELECT g, 'document ' || g, 'lib' || (g % 3)
+FROM generate_series(101, 200) g;
+INSERT INTO issue_6739_generic
+SELECT g, 'document ' || g, 'lib' || (g % 3)
+FROM generate_series(201, 300) g;
+SET plan_cache_mode = force_generic_plan;
+SET paradedb.enable_aggregate_custom_scan = on;
+PREPARE issue_6739_p(text, text) AS
+SELECT count(*) FROM (SELECT DISTINCT id FROM issue_6739_generic WHERE body @@@ $1 AND lib = $2) s;
+EXECUTE issue_6739_p('document', 'lib0');
+ count 
+-------
+   100
+(1 row)
+
+EXECUTE issue_6739_p('document', 'lib0');
+ count 
+-------
+   100
+(1 row)
+
+DEALLOCATE issue_6739_p;
+DROP TABLE issue_6739_generic;

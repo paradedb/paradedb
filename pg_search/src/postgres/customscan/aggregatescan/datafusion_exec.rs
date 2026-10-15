@@ -42,8 +42,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, JoinAggregateEntry, JoinAggregateTargetList, SupportedWindowAggType, WindowAggInput,
-    WindowAggKind,
+    AggKind, JoinAggregateEntry, JoinAggregateTargetList, WindowAggInput, WindowAggKind,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{
     CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
@@ -55,7 +54,7 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::{pdb_combine_agg, pdb_precombine_agg};
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::topk_agg::{
-    TOPK_AGG_ROWS_COL_NAME, topk_as_agg_static,
+    TOPK_AGG_ROWS_COL_NAME, topk_as_agg, topk_as_agg_static,
 };
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
@@ -68,6 +67,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
 use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
+use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
@@ -423,8 +423,18 @@ pub async fn build_join_aggregate_plan(
             if !sort_exprs.is_empty() {
                 df = df.sort(sort_exprs)?;
             }
-            if topk.offset > 0 || topk.limit.is_some() {
-                df = df.limit(topk.offset, topk.limit)?;
+            let limit = topk
+                .limit
+                .as_ref()
+                .and_then(|l| l.static_value())
+                .map(|&v| v as usize);
+            let offset = topk
+                .offset
+                .as_ref()
+                .and_then(|o| o.static_value())
+                .map_or(0, |&v| v as usize);
+            if offset > 0 || limit.is_some() {
+                df = df.limit(offset, limit)?;
             }
         }
     } else {
@@ -435,11 +445,50 @@ pub async fn build_join_aggregate_plan(
         let stage1_cols = df.schema().columns();
         let payload_cols = &stage1_cols[..num_stage1_payload_cols];
         let payload_exprs: Vec<Expr> = payload_cols.iter().cloned().map(Expr::Column).collect();
-        let fetch = topk
-            .and_then(|t| t.limit.map(|l| t.offset.saturating_add(l)))
-            .unwrap_or(usize::MAX);
-        let topk_expr = topk_as_agg_static(&payload_exprs, sort_exprs, fetch, &[], false)
-            .alias(TOPK_AGG_ROWS_COL_NAME);
+        let estate = planstate
+            .map(|ps| unsafe { (*ps).state })
+            .filter(|s| !s.is_null());
+        let has_unbound_param = estate.is_none()
+            && topk.is_some_and(|t| {
+                t.limit.as_ref().is_some_and(|l| l.is_param())
+                    || t.offset.as_ref().is_some_and(|o| o.is_param())
+            });
+        let (topk_expr, post_select_limit) = if has_unbound_param {
+            let topk = topk.expect("checked above");
+            let expr = match &topk.limit {
+                Some(limit) => {
+                    let lo = LimitOffset {
+                        limit: limit.clone(),
+                        offset: topk.offset.clone(),
+                    };
+                    topk_as_agg(&payload_exprs, sort_exprs, &lo, &[], false)
+                }
+                None => topk_as_agg_static(&payload_exprs, sort_exprs, usize::MAX, &[], false),
+            };
+            (expr.alias(TOPK_AGG_ROWS_COL_NAME), None)
+        } else {
+            let estate_ptr = estate.unwrap_or(std::ptr::null_mut());
+            let limit = LimitOffset::resolve_bound(
+                topk.and_then(|t| t.limit.as_ref()),
+                estate_ptr,
+                LimitClauseKind::Limit,
+            )
+            .map_err(DataFusionError::Execution)?;
+            let offset = LimitOffset::resolve_bound(
+                topk.and_then(|t| t.offset.as_ref()),
+                estate_ptr,
+                LimitClauseKind::Offset,
+            )
+            .map_err(DataFusionError::Execution)?
+            .unwrap_or(0);
+            let fetch = limit
+                .map(|l| offset.saturating_add(l))
+                .unwrap_or(usize::MAX);
+            let expr = topk_as_agg_static(&payload_exprs, sort_exprs, fetch, &[], false)
+                .alias(TOPK_AGG_ROWS_COL_NAME);
+            let post_limit = (offset > 0).then_some((offset, limit));
+            (expr, post_limit)
+        };
 
         let mut stage2_aggs = Vec::with_capacity(1 + targetlist.window_aggregates.len());
         stage2_aggs.push(topk_expr);
@@ -449,39 +498,16 @@ pub async fn build_join_aggregate_plan(
                     pdb_combine_agg(request, col(targetlist.precombine_name(win_idx)))?
                 }
                 WindowAggKind::SqlAgg { op, input, numeric } => {
-                    let resolve_input = |inp: &Option<WindowAggInput>| -> Result<Expr> {
-                        match inp {
-                            Some(WindowAggInput::GroupColumn(gc_idx)) => Ok(Expr::Column(
-                                payload_cols[group_df_indices[*gc_idx]].clone(),
-                            )),
-                            Some(WindowAggInput::Aggregate(agg_idx)) => {
-                                Ok(col(targetlist.aggregate_name(*agg_idx)))
-                            }
-                            None => Err(DataFusionError::Internal(
-                                "non-COUNT(*) window aggregate must have an input".to_string(),
-                            )),
+                    let input_expr = input.as_ref().map(|inp| match inp {
+                        WindowAggInput::GroupColumn(gc_idx) => {
+                            Expr::Column(payload_cols[group_df_indices[*gc_idx]].clone())
                         }
-                    };
-                    match op {
-                        SupportedWindowAggType::CountStar => count(lit(1)),
-                        SupportedWindowAggType::Count => count(resolve_input(input)?),
-                        SupportedWindowAggType::Sum => {
-                            let input_expr = resolve_input(input)?;
-                            match numeric {
-                                None => sum(input_expr),
-                                Some(field_type) => numeric_sum(input_expr, field_type),
-                            }
+                        WindowAggInput::Aggregate(agg_idx) => {
+                            col(targetlist.aggregate_name(*agg_idx))
                         }
-                        SupportedWindowAggType::Avg => {
-                            let input_expr = resolve_input(input)?;
-                            match numeric {
-                                None => avg(input_expr),
-                                Some(field_type) => numeric_avg(input_expr, field_type),
-                            }
-                        }
-                        SupportedWindowAggType::Min => min(resolve_input(input)?),
-                        SupportedWindowAggType::Max => max(resolve_input(input)?),
-                    }
+                    });
+                    let (udaf, args) = op.udaf_with_args(input_expr, numeric.as_ref())?;
+                    udaf.call(args)
                 }
             };
             stage2_aggs.push(win_expr.alias(targetlist.window_aggregate_name(win_idx)));
@@ -502,10 +528,8 @@ pub async fn build_join_aggregate_plan(
             select_exprs.push(col(targetlist.window_aggregate_name(win_idx)));
         }
         df = df.select(select_exprs)?;
-        if let Some(topk) = topk
-            && topk.offset > 0
-        {
-            df = df.limit(topk.offset, topk.limit)?;
+        if let Some((offset, limit)) = post_select_limit {
+            df = df.limit(offset, limit)?;
         }
     }
 
@@ -856,10 +880,12 @@ pub(crate) fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     }
 }
 
-/// A metric as an aggregate call: the function and its arguments.
+/// A metric as an aggregate call: the function, its arguments, and the Arrow
+/// `DataType` of its column argument (`None` for `DocCount`).
 pub(crate) struct PdbMetricCall {
     pub udaf: Arc<AggregateUDF>,
     pub args: Vec<Expr>,
+    pub arg0_type: Option<DataType>,
 }
 
 /// The aggregate call a metric runs as. `column` supplies the metric's field as
@@ -880,6 +906,7 @@ pub(crate) fn pdb_metric_call(
         return PdbMetricCall {
             udaf: count_udaf(),
             args: vec![lit(1)],
+            arg0_type: None,
         };
     };
     let mut column = column(field);
@@ -896,16 +923,18 @@ pub(crate) fn pdb_metric_call(
         };
         Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
     };
-    let (udaf, args) = match stat {
-        PdbStat::Count => (count_udaf(), vec![column]),
+    let raw_type = field.field_type.arrow_data_type();
+    let (udaf, args, arg0_type) = match stat {
+        PdbStat::Count => (count_udaf(), vec![column], raw_type),
         // NUMERIC takes the decimal accumulator the SQL aggregates use; the
         // assembler decodes its blob.
         PdbStat::Sum if field.field_type.is_numeric() => {
-            numeric_sum_func_with_args(column, &field.field_type)
+            let (udaf, args) = numeric_sum_func_with_args(column, &field.field_type);
+            (udaf, args, raw_type)
         }
-        PdbStat::Sum => (sum_udaf(), vec![as_f64(column)]),
-        PdbStat::Min => (min_udaf(), vec![column]),
-        PdbStat::Max => (max_udaf(), vec![column]),
+        PdbStat::Sum => (sum_udaf(), vec![as_f64(column)], DataType::Float64),
+        PdbStat::Min => (min_udaf(), vec![column], raw_type),
+        PdbStat::Max => (max_udaf(), vec![column], raw_type),
         // Tantivy's own sketch, salted by the column type the way a
         // segment collection is.
         PdbStat::Cardinality => (
@@ -914,9 +943,14 @@ pub(crate) fn pdb_metric_call(
                 column,
                 lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
             ],
+            raw_type,
         ),
     };
-    PdbMetricCall { udaf, args }
+    PdbMetricCall {
+        udaf,
+        args,
+        arg0_type: Some(arg0_type),
+    }
 }
 
 fn pdb_metric_expr(

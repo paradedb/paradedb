@@ -832,6 +832,7 @@ fn replace_in_node(node: *mut pg_sys::Node, window_tl: &TargetList) -> *mut pg_s
 
         match crate::api::window_aggregate::make_window_agg_placeholder(
             &json,
+            None,
             window_tl.singleton_result_type_oid(),
             pg_sys::InvalidOid,
         ) {

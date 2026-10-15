@@ -44,6 +44,17 @@ LIMIT 1;
                  Aggregate Definition: {"grouped":{"terms":{"field":"n","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (13 rows)
 
+SELECT n, SUM(n) OVER ()
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY n
+ORDER BY n
+LIMIT 1;
+ n | sum 
+---+-----
+ 1 |   6
+(1 row)
+
 -- Test 2: ORDER BY on grouped column is pushed into aggregate definition (planner-time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT n, COUNT(*)

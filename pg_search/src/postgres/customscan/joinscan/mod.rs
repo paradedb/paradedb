@@ -1243,15 +1243,12 @@ impl CustomScan for JoinScan {
             // build_output_projection, which match on the original
             // WindowFunc nodes.
             if !private_data.join_clause.window_aggs.is_empty() {
+                let mut rewriter = window_func::PlaceholderRewriter::new(root);
                 for tlist in [tlist_ptr, node.custom_scan_tlist] {
                     let entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
                     for te in entries.iter_ptr() {
                         if pg_sys::contain_window_function((*te).expr.cast()) {
-                            (*te).expr = window_func::rewrite_window_funcs_to_placeholders(
-                                (*te).expr.cast(),
-                                root,
-                            )
-                            .cast();
+                            (*te).expr = rewriter.rewrite_expr((*te).expr.cast()).cast();
                         }
                     }
                 }

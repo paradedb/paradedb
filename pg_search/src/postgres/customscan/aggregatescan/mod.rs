@@ -165,7 +165,7 @@ impl GroupingPushdownDeclineReason {
 /// `pdb.agg()` argument) happens during targetlist extraction in
 /// `join_targetlist::extract_raw_window_entry`.
 unsafe fn validate_and_detect_combine_agg(parse: *mut pg_sys::Query) -> bool {
-    if parse.is_null() {
+    if parse.is_null() || (!(*parse).hasAggs && !(*parse).hasWindowFuncs) {
         return false;
     }
     let paradedb_agg_oids = crate::api::agg_funcoids();
@@ -183,28 +183,35 @@ unsafe fn validate_and_detect_combine_agg(parse: *mut pg_sys::Query) -> bool {
                 && (*aggref).aggfnoid.to_u32() == combine_oid
             {
                 pgrx::error!(
-                    "pdb.combine_agg() must be used as a window function: pdb.combine_agg(pdb.agg(...)) OVER ()"
+                    "`pdb.combine_agg()` must be used as a window function: `pdb.combine_agg(pdb.agg(...)) OVER ()`"
                 );
             }
 
             if let Some(wf) = crate::nodecast!(WindowFunc, T_WindowFunc, node) {
                 let winfnoid = (*wf).winfnoid.to_u32();
-                if paradedb_agg_oids.contains(&winfnoid) && (has_group_by || (*parse).hasAggs) {
-                    pgrx::error!(
-                        "pdb.agg() cannot be used directly as a window function in a GROUP BY or aggregate query. \
-                         Use pdb.combine_agg(pdb.agg(...)) OVER () instead."
-                    );
+                if paradedb_agg_oids.contains(&winfnoid) {
+                    if has_group_by {
+                        pgrx::error!(
+                            "`pdb.agg()` cannot be used directly as a window function in a `GROUP BY` or aggregate query. \
+                             Use `pdb.combine_agg(pdb.agg(...)) OVER ()` instead."
+                        );
+                    } else if (*parse).hasAggs {
+                        pgrx::error!(
+                            "`pdb.agg() OVER ()` cannot be combined with aggregate functions without a `GROUP BY` clause. \
+                             Remove `OVER ()` to use `pdb.agg()` as an aggregate function, or add a `GROUP BY` clause with `pdb.combine_agg(pdb.agg(...)) OVER ()`."
+                        );
+                    }
                 }
                 if combine_oid != pg_sys::InvalidOid.to_u32() && winfnoid == combine_oid {
                     if !has_group_by {
                         pgrx::error!(
-                            "pdb.combine_agg(pdb.agg(...)) OVER () requires a GROUP BY clause. \
-                             For queries without GROUP BY, use pdb.agg(...) OVER () directly."
+                            "`pdb.combine_agg(pdb.agg(...)) OVER ()` requires a `GROUP BY` clause. \
+                             For queries without `GROUP BY`, use `pdb.agg(...) OVER ()` directly."
                         );
                     }
                     if !(*parse).havingQual.is_null() {
                         pgrx::error!(
-                            "HAVING is not supported in queries using pdb.combine_agg(pdb.agg(...)) OVER ()"
+                            "`HAVING` is not supported in queries using `pdb.combine_agg(pdb.agg(...)) OVER ()`"
                         );
                     }
                     if !(*parse).distinctClause.is_null()
@@ -213,7 +220,7 @@ unsafe fn validate_and_detect_combine_agg(parse: *mut pg_sys::Query) -> bool {
                         || !(*parse).setOperations.is_null()
                     {
                         pgrx::error!(
-                            "Cannot execute pdb.combine_agg: SELECT DISTINCT, FOR UPDATE, or set operations are not supported"
+                            "Cannot execute `pdb.combine_agg`: `SELECT DISTINCT`, `FOR UPDATE`, or set operations are not supported"
                         );
                     }
                     found_combine_agg = true;
@@ -351,6 +358,21 @@ enum AggregateDeclineReason {
     Other(String),
 }
 
+#[derive(Clone, Copy)]
+enum RequiredPdbFunc {
+    Agg,
+    CombineAgg,
+}
+
+impl RequiredPdbFunc {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Agg => "pdb.agg",
+            Self::CombineAgg => "`pdb.combine_agg`",
+        }
+    }
+}
+
 impl AggregateDeclineReason {
     fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
@@ -371,8 +393,8 @@ impl AggregateDeclineReason {
         );
     }
 
-    fn emit_error(&self) {
-        pgrx::error!("Cannot execute pdb.agg: {}", self.detail());
+    fn emit_error(&self, func: RequiredPdbFunc) {
+        pgrx::error!("Cannot execute {}: {}", func.as_str(), self.detail());
     }
 }
 
@@ -574,9 +596,17 @@ impl CustomScan for AggregateScan {
             return Vec::new();
         }
 
+        let required_pdb_func = if has_combine_agg {
+            Some(RequiredPdbFunc::CombineAgg)
+        } else if has_paradedb_agg {
+            Some(RequiredPdbFunc::Agg)
+        } else {
+            None
+        };
+
         if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
-            if has_paradedb_agg {
-                pgrx::error!("Cannot execute pdb.agg: {}", reason.detail());
+            if let Some(func) = required_pdb_func {
+                pgrx::error!("Cannot execute {}: {}", func.as_str(), reason.detail());
             } else if gucs::enable_aggregate_custom_scan()
                 && gucs::planner_warnings() != gucs::PlannerWarnings::Off
             {
@@ -595,7 +625,7 @@ impl CustomScan for AggregateScan {
         let Some(input_rel) = (unsafe { builder.args().scan_join_rel() }) else {
             if has_combine_agg {
                 pgrx::error!(
-                    "Cannot execute pdb.combine_agg: query cannot be pushed down to ParadeDB Aggregate Scan"
+                    "Cannot execute `pdb.combine_agg`: query cannot be pushed down to ParadeDB Aggregate Scan"
                 );
             }
             return Vec::new();
@@ -605,13 +635,18 @@ impl CustomScan for AggregateScan {
         if has_combine_agg {
             let paths = match input_rel.reloptkind {
                 pg_sys::RelOptKind::RELOPT_BASEREL | pg_sys::RelOptKind::RELOPT_JOINREL => {
-                    Self::build_datafusion_aggregate_path(builder, true, shape, None)
+                    Self::build_datafusion_aggregate_path(
+                        builder,
+                        Some(RequiredPdbFunc::CombineAgg),
+                        shape,
+                        None,
+                    )
                 }
                 _ => Vec::new(),
             };
             if paths.is_empty() {
                 pgrx::error!(
-                    "Cannot execute pdb.combine_agg: table must have a ParadeDB index and query must be supported by ParadeDB Aggregate Scan"
+                    "Cannot execute `pdb.combine_agg`: table must have a ParadeDB index and query must be supported by ParadeDB Aggregate Scan"
                 );
             }
             return paths;
@@ -676,7 +711,7 @@ impl CustomScan for AggregateScan {
                     }
                     return Self::build_datafusion_aggregate_path(
                         builder,
-                        has_paradedb_agg,
+                        required_pdb_func,
                         shape,
                         pdb_route,
                     );
@@ -687,7 +722,7 @@ impl CustomScan for AggregateScan {
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
-                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape, None)
+                Self::build_datafusion_aggregate_path(builder, required_pdb_func, shape, None)
             }
             _ => Vec::new(),
         }
@@ -786,12 +821,17 @@ impl CustomScan for AggregateScan {
                     cscan.custom_exprs = custom_exprs_list.into_pg();
                     cscan.custom_scan_tlist = scan_tlist.into_pg();
 
-                    // On PG18, EXPLAIN VERBOSE fails with "could not find window clause"
-                    // if a raw WindowFunc remains in the targetlist without a WindowAgg
-                    // plan node. Rewrite WindowFunc nodes in both targetlists to the
-                    // same deterministic placeholder FuncExpr so setrefs.c still matches
-                    // them by `equal()` and replaces them with INDEX_VAR references.
+                    // A raw WindowFunc in the target list has no WindowAgg plan node
+                    // to resolve against, and setrefs needs both lists to stay equal().
+                    // Rewrite WindowFunc nodes in both target lists to placeholder
+                    // FuncExprs carrying their deduplicated WindowFunc identity so
+                    // setrefs.c matches them by equal() and replaces them with
+                    // INDEX_VAR references.
                     if pg_sys::contain_window_function(cscan.scan.plan.targetlist.cast()) {
+                        let mut rewriter =
+                            crate::postgres::customscan::joinscan::window_func::PlaceholderRewriter::new(
+                                root,
+                            );
                         for tlist in [
                             &mut cscan.scan.plan.targetlist,
                             &mut cscan.custom_scan_tlist,
@@ -802,12 +842,7 @@ impl CustomScan for AggregateScan {
                                 let new_te = pg_sys::flatCopyTargetEntry(te);
                                 let expr_copy = pg_sys::copyObjectImpl((*te).expr.cast())
                                     .cast::<pg_sys::Node>();
-                                (*new_te).expr =
-                                    crate::postgres::customscan::joinscan::window_func::rewrite_window_funcs_to_placeholders(
-                                        expr_copy,
-                                        root,
-                                    )
-                                    .cast();
+                                (*new_te).expr = rewriter.rewrite_expr(expr_copy).cast();
                                 rewritten.push(new_te);
                             }
                             *tlist = rewritten.into_pg();
@@ -1671,7 +1706,7 @@ impl AggregateScan {
     /// New DataFusion-backed aggregate path for JOINs.
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
-        has_paradedb_agg: bool,
+        required_pdb_func: Option<RequiredPdbFunc>,
         shape: GroupingShape,
         pdb_route: Option<PdbAggRoute>,
     ) -> Vec<pg_sys::CustomPath> {
@@ -1684,13 +1719,17 @@ impl AggregateScan {
                     .is_some_and(|r| r.reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL)
             }
             && gucs::enable_join_custom_scan();
-        match Self::try_build_datafusion_aggregate_path(builder, has_paradedb_agg, shape, pdb_route)
-        {
+        match Self::try_build_datafusion_aggregate_path(
+            builder,
+            required_pdb_func.is_some(),
+            shape,
+            pdb_route,
+        ) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                if has_paradedb_agg {
-                    reason.emit_error();
+                if let Some(func) = required_pdb_func {
+                    reason.emit_error(func);
                 } else if gucs::planner_warnings() != gucs::PlannerWarnings::Off {
                     // Suppress AggregateScan decline warnings for DISTINCT over a join
                     // when JoinScan is enabled: JoinScan evaluates DISTINCT joins at
@@ -2864,7 +2903,9 @@ unsafe fn detect_join_aggregate_topk(
 
     if args.stage == pg_sys::UpperRelationKind::UPPERREL_FINAL {
         if (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
-            return Err("FETCH FIRST ... WITH TIES is not supported with pdb.combine_agg()".into());
+            return Err(
+                "`FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`".into(),
+            );
         }
         let mut sorts = Vec::new();
         if !(*parse).sortClause.is_null() {
@@ -2882,11 +2923,14 @@ unsafe fn detect_join_aggregate_topk(
             }
         }
         use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
-        let limit = LimitOffset::parse_static_bound((*parse).limitCount, LimitClauseKind::Limit)?;
-        let offset =
-            LimitOffset::parse_static_bound((*parse).limitOffset, LimitClauseKind::Offset)?
-                .unwrap_or(0);
-        if sorts.is_empty() && limit.is_none() && offset == 0 {
+        let limit = LimitOffset::parse_bound((*parse).limitCount, LimitClauseKind::Limit)
+            .map_err(|e| e.into_message("`pdb.combine_agg()`"))?;
+        let offset = LimitOffset::parse_bound((*parse).limitOffset, LimitClauseKind::Offset)
+            .map_err(|e| e.into_message("`pdb.combine_agg()`"))?;
+        if sorts.is_empty()
+            && limit.is_none()
+            && offset.as_ref().is_none_or(|o| o.static_value() == Some(&0))
+        {
             return Ok(None);
         }
         return Ok(Some(privdat::DataFusionTopK {
@@ -2954,8 +2998,10 @@ unsafe fn detect_join_aggregate_topk(
 
     Ok(Some(privdat::DataFusionTopK {
         sorts: vec![(sort_target, direction)],
-        limit: Some(k),
-        offset: 0,
+        limit: Some(
+            crate::postgres::customscan::parameterized_value::ParameterizedValue::Static(k as i64),
+        ),
+        offset: None,
     }))
 }
 

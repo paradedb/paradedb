@@ -3105,31 +3105,210 @@ LIMIT 2;
   3 |            1 |                    3 |             4 | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
 (2 rows)
 
+-- Test 41b under MPP (parallel workers across partitions)
+BEGIN;
+SET LOCAL max_parallel_workers_per_gather = 3;
+SET LOCAL paradedb.mpp_min_rows = 0;
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    MIN(p.brand) OVER () AS min_brand_group,
+    MAX(p.brand) OVER () AS max_brand_group,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id, p.brand
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+ id | review_count | total_product_groups | total_reviews | min_brand_group | max_brand_group |                                                                                                                by_brand                                                                                                                 
+----+--------------+----------------------+---------------+-----------------+-----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 |            2 |                    3 |             4 | ASUS            | Lenovo          | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
+  3 |            1 |                    3 |             4 | ASUS            | Lenovo          | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
+(2 rows)
+
+COMMIT;
+-- Prepared statement with parameterized LIMIT $1 OFFSET $2 under generic plan
+BEGIN;
+SET LOCAL plan_cache_mode = 'force_generic_plan';
+PREPARE combine_agg_limit(int, int) AS
+SELECT
+    brand,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY brand
+LIMIT $1 OFFSET $2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE combine_agg_limit(2, 0);
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: brand, (count(*)), (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('pdb.combine_agg(pdb.agg(''{"terms":{"field":"brand","order":{"_key":"asc"}}}'')) OVER ()'::text))
+   Backend: DataFusion
+   Indexes: products_idx (products)
+   Group By: brand
+   Aggregates: COUNT(*), COUNT(*) OVER (), pdb.combine_agg(pdb.agg({"terms":{"field":"brand","order":{"_key":"asc"}}})) OVER ()
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as brand, get_field(__topk@0, c1) as agg_0, win_0@1 as win_0, win_1@2 as win_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(products_0.brand, agg_0, $1 + $2, []) ORDER BY [products_0.brand ASC NULLS LAST] as __topk, count(1) as win_0, pdb_combine_agg({"terms":{"field":"brand","order":{"_key":"asc"}}}) as win_1]
+     :       AggregateExec: mode=Single, gby=[brand@0 as brand], aggr=[count(1) as agg_0, pdb_precombine_agg({"terms":{"field":"brand","order":{"_key":"asc"}}}) as precombine_1]
+     :         CooperativeExec
+     :           PgSearchScan: table=products, segments=1, eager=[brand], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
+
+EXECUTE combine_agg_limit(2, 0);
+ brand | group_rows | total_groups |                                                                                    brands                                                                                    
+-------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ASUS  |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ Apple |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(2 rows)
+
+EXECUTE combine_agg_limit(2, 1);
+ brand | group_rows | total_groups |                                                                                    brands                                                                                    
+-------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Apple |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ HP    |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(2 rows)
+
+EXECUTE combine_agg_limit(NULL, 0);
+ brand  | group_rows | total_groups |                                                                                    brands                                                                                    
+--------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ASUS   |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ Apple  |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ HP     |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ Lenovo |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(4 rows)
+
+DEALLOCATE combine_agg_limit;
+COMMIT;
+-- LIMIT ALL and LIMIT NULL with pdb.combine_agg
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER () AS total
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT ALL;
+ in_stock | group_rows |     total      
+----------+------------+----------------
+ t        |          4 | {"value": 4.0}
+(1 row)
+
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER () AS total
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT NULL;
+ in_stock | group_rows |     total      
+----------+------------+----------------
+ t        |          4 | {"value": 4.0}
+(1 row)
+
+-- WITH TIES fallback to PostgreSQL for GROUP BY Top-K and BaseScan Top-K
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+ brand  | cnt 
+--------+-----
+ ASUS   |   1
+ Apple  |   1
+ HP     |   1
+ Lenovo |   1
+(4 rows)
+
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
+FETCH FIRST 1 ROWS WITH TIES;
+ in_stock 
+----------
+ t
+ t
+ t
+ t
+(4 rows)
+
 -- Test 41c: Validation errors for invalid pdb.combine_agg / pdb.agg OVER () usage
 -- Bare pdb.agg() OVER () in a GROUP BY query must suggest pdb.combine_agg
 SELECT in_stock, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
 WHERE description ||| 'laptop'
 GROUP BY in_stock;
-ERROR:  pdb.agg() cannot be used directly as a window function in a GROUP BY or aggregate query. Use pdb.combine_agg(pdb.agg(...)) OVER () instead.
+ERROR:  `pdb.agg()` cannot be used directly as a window function in a `GROUP BY` or aggregate query. Use `pdb.combine_agg(pdb.agg(...)) OVER ()` instead.
+-- Bare pdb.agg() OVER () combined with an aggregate function without GROUP BY
+SELECT COUNT(*), pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description ||| 'laptop';
+ERROR:  `pdb.agg() OVER ()` cannot be combined with aggregate functions without a `GROUP BY` clause. Remove `OVER ()` to use `pdb.agg()` as an aggregate function, or add a `GROUP BY` clause with `pdb.combine_agg(pdb.agg(...)) OVER ()`.
 -- pdb.combine_agg without OVER ()
 SELECT in_stock, pdb.combine_agg('{"avg": {"field": "rating"}}'::jsonb)
 FROM products
 WHERE description ||| 'laptop'
 GROUP BY in_stock;
-ERROR:  pdb.combine_agg() must be used as a window function: pdb.combine_agg(pdb.agg(...)) OVER ()
+ERROR:  `pdb.combine_agg()` must be used as a window function: `pdb.combine_agg(pdb.agg(...)) OVER ()`
 -- pdb.combine_agg OVER () without GROUP BY
 SELECT pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
 FROM products
 WHERE description ||| 'laptop';
-ERROR:  pdb.combine_agg(pdb.agg(...)) OVER () requires a GROUP BY clause. For queries without GROUP BY, use pdb.agg(...) OVER () directly.
+ERROR:  `pdb.combine_agg(pdb.agg(...)) OVER ()` requires a `GROUP BY` clause. For queries without `GROUP BY`, use `pdb.agg(...) OVER ()` directly.
 -- pdb.combine_agg OVER () with HAVING
 SELECT in_stock, COUNT(*), pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
 FROM products
 WHERE description ||| 'laptop'
 GROUP BY in_stock
 HAVING COUNT(*) > 1;
-ERROR:  HAVING is not supported in queries using pdb.combine_agg(pdb.agg(...)) OVER ()
+ERROR:  `HAVING` is not supported in queries using `pdb.combine_agg(pdb.agg(...)) OVER ()`
+-- Negative LIMIT / OFFSET with pdb.combine_agg must error
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT -1;
+ERROR:  Cannot execute `pdb.combine_agg`: LIMIT must not be negative
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+OFFSET -1;
+ERROR:  Cannot execute `pdb.combine_agg`: OFFSET must not be negative
+-- FETCH FIRST ... WITH TIES with pdb.combine_agg must error
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+FETCH FIRST 1 ROWS WITH TIES;
+ERROR:  Cannot execute `pdb.combine_agg`: `FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`
 -- Cleanup
 DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;

@@ -28,6 +28,13 @@ GROUP BY n
 ORDER BY n
 LIMIT 1;
 
+SELECT n, SUM(n) OVER ()
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY n
+ORDER BY n
+LIMIT 1;
+
 -- Test 2: ORDER BY on grouped column is pushed into aggregate definition (planner-time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT n, COUNT(*)

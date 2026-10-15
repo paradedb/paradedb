@@ -32,6 +32,7 @@ use super::privdat::FilterExpr;
 use crate::api::{SortDirection, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
@@ -45,10 +46,10 @@ use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
-    F_MAX_NUMERIC, F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE,
-    F_MIN_FLOAT4, F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC,
-    F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
-    F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+    F_MAX_NUMERIC, F_MAX_TEXT, F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ,
+    F_MIN_DATE, F_MIN_FLOAT4, F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY,
+    F_MIN_NUMERIC, F_MIN_TEXT, F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ,
+    F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 
 /// Look up a join source by RTI, returning a uniform error message that
@@ -464,12 +465,11 @@ pub fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) 
             Some(AggKind::Sum)
         }
         F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some(AggKind::Max)
-        }
+        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC
+        | F_MAX_TEXT => Some(AggKind::Max),
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
         | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some(AggKind::Min),
+        | F_MIN_NUMERIC | F_MIN_TEXT => Some(AggKind::Min),
         _ => classify_aggregate_by_name(aggfnoid),
     }
 }
@@ -548,11 +548,13 @@ fn extract_timestamp_to_date_var(
 /// and it must be carried in the raw tuple.
 unsafe fn collect_output_nodes(
     expr: *mut pg_sys::Node,
+    combine_agg_funcoid: pg_sys::Oid,
     group_exprs: &mut Vec<*mut pg_sys::Node>,
     aggrefs: &mut Vec<*mut pg_sys::Aggref>,
     window_funcs: &mut Vec<*mut pg_sys::WindowFunc>,
 ) {
     struct WalkerContext<'a> {
+        combine_agg_funcoid: pg_sys::Oid,
         group_exprs: &'a mut Vec<*mut pg_sys::Node>,
         aggrefs: &'a mut Vec<*mut pg_sys::Aggref>,
         window_funcs: &'a mut Vec<*mut pg_sys::WindowFunc>,
@@ -574,7 +576,9 @@ unsafe fn collect_output_nodes(
             pg_sys::NodeTag::T_WindowFunc => {
                 let wf = node.cast::<pg_sys::WindowFunc>();
                 push_unique(ctx.window_funcs, wf);
-                if crate::api::is_combine_agg_funcoid((*wf).winfnoid.to_u32()) {
+                if ctx.combine_agg_funcoid != pg_sys::InvalidOid
+                    && (*wf).winfnoid == ctx.combine_agg_funcoid
+                {
                     false
                 } else {
                     pg_sys::expression_tree_walker(node, Some(walker), context)
@@ -593,6 +597,7 @@ unsafe fn collect_output_nodes(
     }
 
     let mut context = WalkerContext {
+        combine_agg_funcoid,
         group_exprs,
         aggrefs,
         window_funcs,
@@ -693,13 +698,24 @@ pub unsafe fn extract_aggregate_targetlist(
     } else {
         Vec::new()
     };
+    let combine_agg_funcoid = if (*parse).hasWindowFuncs {
+        crate::api::combine_agg_funcoid()
+    } else {
+        pg_sys::InvalidOid
+    };
     let output_exprs = target_exprs
         .iter_ptr()
         .map(|expr| expr.cast::<pg_sys::Node>())
         .chain(sort_exprs)
         .chain((!having.is_null()).then_some(having));
     for expr in output_exprs {
-        collect_output_nodes(expr, &mut group_exprs, &mut aggrefs, &mut window_funcs);
+        collect_output_nodes(
+            expr,
+            combine_agg_funcoid,
+            &mut group_exprs,
+            &mut aggrefs,
+            &mut window_funcs,
+        );
     }
 
     let context = RawColumnContext {
@@ -709,6 +725,7 @@ pub unsafe fn extract_aggregate_targetlist(
         outer_root_id,
         shape,
         pdb_agg_funcoids: crate::api::agg_funcoids(),
+        combine_agg_funcoid,
     };
     let keys = &group_exprs[..clause_positions.len()];
     let mut group_columns = Vec::with_capacity(group_exprs.len());
@@ -749,7 +766,7 @@ pub unsafe fn extract_aggregate_targetlist(
             .any(|agg| matches!(agg.agg_kind, AggKind::PdbAgg(_)))
     {
         return Err(
-            "cannot mix per-group pdb.agg() with pdb.combine_agg() in the same query".into(),
+            "cannot mix per-group `pdb.agg()` with `pdb.combine_agg()` in the same query".into(),
         );
     }
 
@@ -846,6 +863,7 @@ struct RawColumnContext<'a> {
     outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     shape: GroupingShape,
     pdb_agg_funcoids: [u32; 3],
+    combine_agg_funcoid: pg_sys::Oid,
 }
 
 struct ResolvedVar<'a> {
@@ -1047,28 +1065,33 @@ unsafe fn extract_raw_window_entry(
     }
 
     let winfnoid = (*wf).winfnoid.to_u32();
-    if crate::api::is_combine_agg_funcoid(winfnoid) {
+    if context.combine_agg_funcoid != pg_sys::InvalidOid
+        && (*wf).winfnoid == context.combine_agg_funcoid
+    {
         let args = PgList::<pg_sys::Node>::from_pg((*wf).args);
         if args.len() != 1 {
-            return Err("pdb.combine_agg() requires a single pdb.agg() argument".into());
+            return Err("`pdb.combine_agg()` requires a single `pdb.agg()` argument".into());
         }
         let arg = strip_relabel(args.get_ptr(0).unwrap());
         let Some(inner_aggref) = nodecast!(Aggref, T_Aggref, arg) else {
-            return Err("pdb.combine_agg() argument must be a direct pdb.agg() call".into());
+            return Err("`pdb.combine_agg()` argument must be a direct `pdb.agg()` call".into());
         };
         if !context
             .pdb_agg_funcoids
             .contains(&(*inner_aggref).aggfnoid.to_u32())
         {
-            return Err("pdb.combine_agg() argument must be a direct pdb.agg() call".into());
+            return Err("`pdb.combine_agg()` argument must be a direct `pdb.agg()` call".into());
         }
         if !(*inner_aggref).aggdistinct.is_null() || !(*inner_aggref).aggorder.is_null() {
             return Err(
-                "pdb.agg() inside pdb.combine_agg() does not accept DISTINCT or ORDER BY".into(),
+                "`pdb.agg()` inside `pdb.combine_agg()` does not accept `DISTINCT` or `ORDER BY`"
+                    .into(),
             );
         }
         if !(*inner_aggref).aggfilter.is_null() {
-            return Err("FILTER on pdb.agg() inside pdb.combine_agg() is not supported".into());
+            return Err(
+                "`FILTER` on `pdb.agg()` inside `pdb.combine_agg()` is not supported".into(),
+            );
         }
         let mut request = lower_pdb_agg(inner_aggref, context.sources)?;
         request.assign_plan_positions(|field| {
@@ -1091,6 +1114,15 @@ unsafe fn extract_raw_window_entry(
                     format!("unsupported window function OID in GROUP BY: {winfnoid}")
                 })
         })?;
+    if matches!(
+        op,
+        SupportedWindowAggType::Min | SupportedWindowAggType::Max
+    ) && !collation_supports((*wf).inputcollid, CollationOperation::Ordering)
+    {
+        return Err(format!(
+            "{op} OVER () uses a collation whose ordering cannot be pushed down"
+        ));
+    }
     if op == SupportedWindowAggType::CountStar {
         return Ok(WindowAggEntry {
             func_oid: winfnoid,
@@ -1114,7 +1146,7 @@ unsafe fn extract_raw_window_entry(
     {
         let agg = &aggregates[agg_idx];
         if matches!(agg.agg_kind, AggKind::PdbAgg(_)) {
-            return Err(format!("{op} OVER () cannot aggregate over pdb.agg()"));
+            return Err(format!("`{op} OVER ()` cannot aggregate over `pdb.agg()`"));
         }
         if agg.numeric.is_some()
             || (matches!(agg.agg_kind, AggKind::Avg) && op != SupportedWindowAggType::Count)
@@ -1204,6 +1236,13 @@ unsafe fn extract_raw_aggregate_entry(
                 .map(|name| format!("unsupported aggregate function: {name}"))
                 .unwrap_or_else(|| format!("unsupported aggregate function OID: {aggfnoid}"))
         })?;
+    if matches!(agg_kind, AggKind::Min | AggKind::Max)
+        && !collation_supports((*aggref).inputcollid, CollationOperation::Ordering)
+    {
+        return Err(format!(
+            "{agg_kind} uses a collation whose ordering cannot be pushed down"
+        ));
+    }
     let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
     if is_string_agg {
         agg_kind =

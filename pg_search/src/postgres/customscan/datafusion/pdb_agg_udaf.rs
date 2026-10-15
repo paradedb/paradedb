@@ -78,8 +78,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::{
     PdbMetricCall, make_plan_position_col, pdb_key_expr, pdb_metric_call, pdb_missing_scalar,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::{
-    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
-    assemble_pdb_agg_rows,
+    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, assemble_pdb_agg_rows,
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 
@@ -294,23 +293,19 @@ impl Metric {
 }
 
 /// Synthetic input schema and physical expressions for building a metric's
-/// `AggregateFunctionExpr` solely from its [`PdbMetricSpec`] (used by both
+/// `AggregateFunctionExpr` solely from its [`PdbMetricCall`] (used by both
 /// Stage 1 and Stage 2, where Stage 2 only receives the serialized state column).
-fn metric_physical_args(
-    metric: &PdbMetricSpec,
-    call: &PdbMetricCall,
-) -> Result<(SchemaRef, Vec<Arc<dyn PhysicalExpr>>)> {
+fn metric_physical_args(call: &PdbMetricCall) -> Result<(SchemaRef, Vec<Arc<dyn PhysicalExpr>>)> {
     let mut exprs: Vec<Arc<dyn PhysicalExpr>> = Vec::with_capacity(call.args.len());
-    let schema = match metric {
-        PdbMetricSpec::DocCount { .. } => Arc::new(Schema::empty()),
-        PdbMetricSpec::Stat { stat, field, .. } => {
-            let arg0_type = if *stat == PdbStat::Sum && !field.field_type.is_numeric() {
-                DataType::Float64
-            } else {
-                field.field_type.arrow_data_type()
-            };
+    let schema = match &call.arg0_type {
+        None => Arc::new(Schema::empty()),
+        Some(arg0_type) => {
             exprs.push(Arc::new(PhysicalColumn::new("__arg0", 0)));
-            Arc::new(Schema::new(vec![Field::new("__arg0", arg0_type, true)]))
+            Arc::new(Schema::new(vec![Field::new(
+                "__arg0",
+                arg0_type.clone(),
+                true,
+            )]))
         }
     };
     for arg in &call.args[exprs.len()..] {
@@ -443,7 +438,7 @@ impl PdbAggAccumulator {
             let call = pdb_metric_call(metric, |_| lit(ScalarValue::Null));
             let metric_args = next_arg..next_arg + call.args.len();
             next_arg = metric_args.end;
-            let (metric_schema, exprs) = metric_physical_args(metric, &call)?;
+            let (metric_schema, exprs) = metric_physical_args(&call)?;
             let expr = AggregateExprBuilder::new(call.udaf, exprs)
                 .schema(metric_schema)
                 .alias(format!("__pdb_m{j}"))

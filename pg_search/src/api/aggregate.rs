@@ -373,8 +373,8 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::State {
             pgrx::error!(
-                "pdb.combine_agg() must be used as pdb.combine_agg(pdb.agg(...)) OVER () \
-                 in a GROUP BY query handled by ParadeDB's custom scan."
+                "`pdb.combine_agg()` must be used as `pdb.combine_agg(pdb.agg(...)) OVER ()` \
+                 in a `GROUP BY` query handled by ParadeDB's custom scan."
             )
         }
 
@@ -384,8 +384,8 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
             pgrx::error!(
-                "pdb.combine_agg() must be used as pdb.combine_agg(pdb.agg(...)) OVER () \
-                 in a GROUP BY query handled by ParadeDB's custom scan."
+                "`pdb.combine_agg()` must be used as `pdb.combine_agg(pdb.agg(...)) OVER ()` \
+                 in a `GROUP BY` query handled by ParadeDB's custom scan."
             )
         }
     }

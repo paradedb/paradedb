@@ -53,6 +53,52 @@ impl SupportedWindowAggType {
             _ => None,
         }
     }
+
+    /// Lower a SQL window aggregate to its DataFusion
+    /// [`AggregateUDF`](datafusion::logical_expr::AggregateUDF) and call
+    /// arguments, routing `NUMERIC` `SUM` and `AVG` to the decimal accumulators.
+    pub fn udaf_with_args(
+        self,
+        input: Option<datafusion::logical_expr::Expr>,
+        numeric: Option<&SearchFieldType>,
+    ) -> datafusion::common::Result<(
+        std::sync::Arc<datafusion::logical_expr::AggregateUDF>,
+        Vec<datafusion::logical_expr::Expr>,
+    )> {
+        use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+            numeric_avg_func_with_args, numeric_sum_func_with_args,
+        };
+        use datafusion::common::DataFusionError;
+        use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
+        use datafusion::functions_aggregate::{average, count, min_max, sum};
+        use datafusion::logical_expr::lit;
+
+        let require_input = || {
+            input.ok_or_else(|| {
+                DataFusionError::Internal(format!("{self} OVER () must have an input expression"))
+            })
+        };
+        Ok(match self {
+            Self::CountStar => (count::count_udaf(), vec![lit(COUNT_STAR_EXPANSION)]),
+            Self::Count => (count::count_udaf(), vec![require_input()?]),
+            Self::Sum => {
+                let ce = require_input()?;
+                match numeric {
+                    Some(field_type) => numeric_sum_func_with_args(ce, field_type),
+                    None => (sum::sum_udaf(), vec![ce]),
+                }
+            }
+            Self::Avg => {
+                let ce = require_input()?;
+                match numeric {
+                    Some(field_type) => numeric_avg_func_with_args(ce, field_type),
+                    None => (average::avg_udaf(), vec![ce]),
+                }
+            }
+            Self::Min => (min_max::min_udaf(), vec![require_input()?]),
+            Self::Max => (min_max::max_udaf(), vec![require_input()?]),
+        })
+    }
 }
 
 impl fmt::Display for SupportedWindowAggType {
@@ -421,6 +467,20 @@ fn extract_column_info(
                 );
             }
 
+            if matches!(
+                agg_type,
+                SupportedWindowAggType::Min | SupportedWindowAggType::Max
+            ) && !unsafe {
+                crate::postgres::customscan::collation_semantics::collation_supports(
+                    wf.inputcollid,
+                    crate::postgres::customscan::collation_semantics::CollationOperation::Ordering,
+                )
+            } {
+                return Err(format!(
+                    "{agg_type} OVER () uses a collation whose ordering cannot be pushed down"
+                ));
+            }
+
             Ok(Some(ColumnInfo::new(
                 var.varno as pg_sys::Index,
                 var.varattno,
@@ -470,30 +530,54 @@ pub unsafe fn rewrite_window_funcs_to_sentinels(
     sentinel_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
 }
 
-/// Copy `expr`, replacing each embedded `WindowFunc` with a
-/// `paradedb.window_agg('<description>')` placeholder `FuncExpr` whose
-/// node-level `funcresulttype` is the aggregate's wintype.
+/// Rewrites embedded `WindowFunc` nodes into `paradedb.window_agg('<description>')`
+/// placeholder `FuncExpr`s whose node-level `funcresulttype` is the aggregate's
+/// `wintype` and whose argument `Const.consttypmod` encodes the `WindowFunc`'s
+/// deduplicated [`PlaceholderId`](crate::api::window_aggregate::PlaceholderId).
 ///
 /// PG18's EXPLAIN requires a `WindowAgg` plan node to deparse a `WindowFunc`
 /// (commit 8b1b342544b6 removed the `OVER (?)` fallback), but the scan
 /// absorbs the window so no such node exists — a raw `WindowFunc` left in
 /// the plan's target lists makes every `EXPLAIN VERBOSE` fail with "could
 /// not find window clause". The placeholder deparses as an ordinary function
-/// call. It is never executed: `plan_custom_path` applies this rewrite
-/// identically to `scan.plan.targetlist` and `custom_scan_tlist`, so
-/// setrefs' whole-entry equality match still rewrites the outer occurrence
-/// to an INDEX_VAR into the scan output. The text argument is cosmetic
-/// EXPLAIN output only — it is never parsed.
-pub unsafe fn rewrite_window_funcs_to_placeholders(
-    expr: *mut pg_sys::Node,
+/// call. It is never executed: `plan_custom_path` applies this rewriter
+/// across `scan.plan.targetlist` and `custom_scan_tlist`, so two placeholders
+/// are `equal()` in `setrefs.c` if and only if their original `WindowFunc`
+/// AST nodes were `equal()`. The text argument is cosmetic EXPLAIN output
+/// only — it is never parsed.
+pub struct PlaceholderRewriter {
     root: *mut pg_sys::PlannerInfo,
-) -> *mut pg_sys::Node {
-    let mut ctx = PlaceholderRewriteCtx { root };
-    placeholder_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
+    seen: Vec<*mut pg_sys::WindowFunc>,
 }
 
-struct PlaceholderRewriteCtx {
-    root: *mut pg_sys::PlannerInfo,
+impl PlaceholderRewriter {
+    pub fn new(root: *mut pg_sys::PlannerInfo) -> Self {
+        Self {
+            root,
+            seen: Vec::new(),
+        }
+    }
+
+    pub unsafe fn rewrite_expr(&mut self, expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+        placeholder_mutator(expr, std::ptr::from_mut(self).cast())
+    }
+
+    unsafe fn placeholder_id(
+        &mut self,
+        wf: *mut pg_sys::WindowFunc,
+    ) -> crate::api::window_aggregate::PlaceholderId {
+        if let Some(idx) = self
+            .seen
+            .iter()
+            .position(|known| pg_sys::equal((*known).cast(), wf.cast()))
+        {
+            crate::api::window_aggregate::PlaceholderId(idx)
+        } else {
+            let idx = self.seen.len();
+            self.seen.push(wf);
+            crate::api::window_aggregate::PlaceholderId(idx)
+        }
+    }
 }
 
 #[pgrx::pg_guard]
@@ -506,17 +590,19 @@ unsafe extern "C-unwind" fn placeholder_mutator(
     }
 
     if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
-        let ctx = context.cast::<PlaceholderRewriteCtx>();
+        let ctx = &mut *context.cast::<PlaceholderRewriter>();
+        let placeholder_id = ctx.placeholder_id(wf);
 
         // A ruleutils deparse of the WindowFunc hits the same PG18 error
         // this rewrite exists to avoid (deparse_planner_expr catches it and
         // returns None on PG18; on older versions it renders `OVER (?)`),
         // so fall back to a description built from the node itself.
-        let description = crate::postgres::deparse::deparse_planner_expr((*ctx).root, node)
-            .unwrap_or_else(|| describe_window_func(&*wf, (*ctx).root));
+        let description = crate::postgres::deparse::deparse_planner_expr(ctx.root, node)
+            .unwrap_or_else(|| describe_window_func(&*wf, ctx.root));
 
         match crate::api::window_aggregate::make_window_agg_placeholder(
             &description,
+            Some(placeholder_id),
             (*wf).wintype,
             (*wf).wincollid,
         ) {
@@ -544,9 +630,9 @@ unsafe extern "C-unwind" fn placeholder_mutator(
 /// Human-readable description of a window aggregate for the EXPLAIN
 /// placeholder, e.g. `count(*) OVER ()` or `sum(price) OVER ()`.
 ///
-/// Crucially, distinct `WindowFunc` expressions in the same query must produce
-/// distinct descriptions so that `setrefs.c` (`tlist_member` via `equal()`) does
-/// not alias one window aggregate's target entry onto another's output slot.
+/// This string is strictly cosmetic for `EXPLAIN VERBOSE`; `setrefs.c`
+/// identity is carried by [`crate::api::window_aggregate::PlaceholderId`] in
+/// the placeholder argument's `Const.consttypmod`.
 unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::PlannerInfo) -> String {
     let func_name = {
         let name_ptr = pg_sys::get_func_name(wf.winfnoid);

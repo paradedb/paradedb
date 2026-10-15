@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792051015437,
+  "lastUpdate": 1792051030704,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -404474,6 +404474,88 @@ window.BENCHMARK_DATA = {
             "value": 599.516309558455,
             "unit": "median tps",
             "extra": "avg tps: 597.2415784192941, max tps: 648.6231905255428, count: 55245"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792050974998,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 602.3010161098948,
+            "unit": "median tps",
+            "extra": "avg tps: 601.9622956904246, max tps: 652.900917982972, count: 54927"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 559.9442836413484,
+            "unit": "median tps",
+            "extra": "avg tps: 559.6358985474789, max tps: 604.6019877872155, count: 54927"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 205.30647099133762,
+            "unit": "median tps",
+            "extra": "avg tps: 205.37455135714401, max tps: 219.62322481484202, count: 54927"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 620.482127441767,
+            "unit": "median tps",
+            "extra": "avg tps: 620.0694666871674, max tps: 681.0647278702357, count: 54927"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 416.7178526019545,
+            "unit": "median tps",
+            "extra": "avg tps: 416.41545757100556, max tps: 457.0657665102331, count: 54927"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.713068592961356,
+            "unit": "median tps",
+            "extra": "avg tps: 14.717794448242397, max tps: 16.08971880966118, count: 54927"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 751.6224532358743,
+            "unit": "median tps",
+            "extra": "avg tps: 751.1215064256456, max tps: 791.2590554916584, count: 54927"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 770.6128340448295,
+            "unit": "median tps",
+            "extra": "avg tps: 770.3553917030613, max tps: 809.3744606649964, count: 54927"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 333.1148847955236,
+            "unit": "median tps",
+            "extra": "avg tps: 332.9708103181592, max tps: 349.26523294280287, count: 54927"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 658.8905416067782,
+            "unit": "median tps",
+            "extra": "avg tps: 658.1819971852228, max tps: 674.2942860738291, count: 54927"
           }
         ]
       }

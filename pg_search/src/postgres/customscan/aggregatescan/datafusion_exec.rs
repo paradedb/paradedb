@@ -1254,6 +1254,22 @@ impl FilterExpr {
                 let plan = ctx.plan?;
                 Some(make_plan_position_col(plan, *plan_position, field_name))
             }
+            FilterExpr::SearchTag {
+                plan_position,
+                predicate,
+            } => {
+                // Same lookup as `translate_join_level_expr`: the scan emits one
+                // boolean column per tagged query, matched by query equality.
+                let source = ctx.plan?.source_at_plan_position(*plan_position)?;
+                let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode
+                else {
+                    return None;
+                };
+                let tagged = local_queries
+                    .iter()
+                    .find(|tq| (*tq.query) == predicate.query)?;
+                Some(col(&tagged.tag_name))
+            }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
             FilterExpr::LitBool(v) => Some(lit(*v)),
@@ -1335,9 +1351,8 @@ async fn build_source_df(
     // the Const/expression nodes retained by the first source. Generic plans
     // that parameterize predicates on both join inputs then dereference stale
     // nodes during reader construction and abort the backend.
-    let source_query = scan_info.mode.query().clone();
     let needs_runtime_context =
-        source_query.has_postgres_expressions() || source_query.has_parameters();
+        scan_info.mode.has_postgres_expressions() || scan_info.mode.has_parameters();
     // Only the EXPLAIN-only rebuild has no planstate. It preserves runtime
     // expressions without solving them, so the fallback context is never reset.
     let source_expr_context = if needs_runtime_context {

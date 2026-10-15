@@ -189,6 +189,79 @@ impl ScanMode {
             }
         }
     }
+
+    /// Whether any query in this scan mode contains runtime `PostgresExpression` nodes.
+    pub fn has_postgres_expressions(&self) -> bool {
+        match self {
+            Self::Standard { query } => query.has_postgres_expressions(),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.has_postgres_expressions()
+                    || local_queries
+                        .iter()
+                        .any(|tq| tq.query.has_postgres_expressions())
+            }
+        }
+    }
+
+    /// Whether any query in this scan mode contains parameterized heap filters.
+    pub fn has_parameters(&self) -> bool {
+        match self {
+            Self::Standard { query } => query.has_parameters(),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.has_parameters()
+                    || local_queries.iter().any(|tq| tq.query.has_parameters())
+            }
+        }
+    }
+
+    /// Initialize runtime `PostgresExpression` nodes in this scan mode against `planstate`.
+    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        match self {
+            Self::Standard { query } => {
+                query.init_postgres_expressions(planstate);
+            }
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.init_postgres_expressions(planstate);
+                for tq in local_queries {
+                    tq.query.init_postgres_expressions(planstate);
+                }
+            }
+        }
+    }
+
+    /// Solve all runtime `PostgresExpression` and parameterized heap filters in this scan mode.
+    /// Resets `ecxt_per_tuple_memory` once up front, then solves each query with the no-reset
+    /// variant (rule 2 in `solve_expr.rs`).
+    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
+        match self {
+            Self::Standard { query } => {
+                query.solve_postgres_expressions_no_reset(expr_context);
+            }
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.solve_postgres_expressions_no_reset(expr_context);
+                for tq in local_queries {
+                    tq.query.solve_postgres_expressions_no_reset(expr_context);
+                }
+            }
+        }
+    }
 }
 
 /// Information about a scan of a ParadeDB table.

@@ -1781,7 +1781,17 @@ impl CustomScan for BaseScan {
                         .map(|stats| stats.hits())
                         .unwrap_or_else(|| vec![("Total".into(), 0)])
                     {
-                        explainer.add_unsigned_integer(&component, hits, None);
+                        if component == "Vectors"
+                            && let Some(stats) = &state.custom_state().io_trace
+                        {
+                            explainer.add_unsigned_integer_group(&component, hits, |explainer| {
+                                for (name, hits) in stats.vector_hits() {
+                                    explainer.add_unsigned_integer(name, hits, None);
+                                }
+                            });
+                        } else {
+                            explainer.add_unsigned_integer(&component, hits, None);
+                        }
                     }
                 });
             }
@@ -2141,7 +2151,7 @@ impl CustomScan for BaseScan {
                 parallel.finalize_explain(&mut scan_state.telemetry);
             } else {
                 // Worker: flush local telemetry into the DSM for the leader to read.
-                parallel.publish_telemetry(&scan_state.telemetry);
+                parallel.publish_telemetry(&scan_state.telemetry, scan_state.io_trace.as_ref());
             }
         }
     }

@@ -346,7 +346,9 @@ impl<'a> ParallelAggregationWorker<'a> {
     /// bgworkers only: attach the owner's claim table so this worker's scorers
     /// stream their (consumer, segment) cursors. The area detaches at process
     /// exit.
-    fn attach_bitmap_handle(&mut self) {
+    /// Worker `worker_number` attaches the owner's table as participant
+    /// `worker_number + 1`; the owner is slot 0.
+    fn attach_bitmap_handle(&mut self, worker_number: i32) {
         if let Some(handle) = self.bitmap_handle.take() {
             let area = unsafe { pg_sys::dsa_attach(handle.area) };
             self.attached_area = area;
@@ -354,6 +356,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             cell.fill(std::sync::Arc::new(BitmapCursorSource::shared(
                 area,
                 handle.table,
+                worker_number as u32 + 1,
             )));
             self.query.attach_bitmap_cell(&cell);
         }
@@ -592,7 +595,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
-        self.attach_bitmap_handle();
+        self.attach_bitmap_handle(worker_number);
         // wait for all workers to launch
         while self.state.launched_workers() == 0 {
             check_for_interrupts!();
@@ -725,9 +728,9 @@ pub fn execute_aggregate(
             .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
-        // leader's bitmap into this scan's own DSA area, prepare one iterator
-        // state per (consumer, segment) stream, and refresh the leader's cell
-        // (cloned into `query`) with the shared view.
+        // leader's bitmap into this scan's own DSA area, mint one iteration state
+        // per participant slot, and refresh the leader's cell (cloned into
+        // `query`) with the shared view.
         let mut leader_bitmap_source = None;
         let bitmap_handle = bitmap_exec.and_then(|bitmap_exec| {
             let consumers = query.bitmap_consumer_count();
@@ -736,7 +739,7 @@ pub fn execute_aggregate(
             }
             let segments: Vec<SegmentId> =
                 segment_ids.iter().map(|entry| entry.segment_id()).collect();
-            let handle = bitmap_exec.shared_source(consumers, &segments)?;
+            let handle = bitmap_exec.shared_source(consumers, &segments, nworkers as u32 + 1)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()
             {

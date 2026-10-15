@@ -195,6 +195,30 @@ impl TopKScanExecState {
         }
     }
 
+    /// In a parallel scan, contribute this participant's partial aggregate over
+    /// the segments it claimed and wait for the merged result; serially it is
+    /// already the whole result.
+    fn merge_across_participants(
+        &self,
+        state: &BaseScanState,
+        agg_result: IntermediateAggregationResults,
+    ) -> IntermediateAggregationResults {
+        let Some(parallel_state) = state.parallel_state() else {
+            return agg_result;
+        };
+        let segment_count = self
+            .claimed_segments
+            .borrow()
+            .as_ref()
+            .expect("Should have claimed segments while running.")
+            .len();
+        let parallel_state = unsafe { &mut *parallel_state };
+        parallel_state
+            .aggregation_append(agg_result, segment_count)
+            .expect("Failed to append aggregation result");
+        parallel_state.aggregation_wait()
+    }
+
     fn prepare_aggregations(&self, state: &mut BaseScanState) -> Option<PreparedAggregations> {
         if self.window_aggregates.is_empty() || state.window_aggregate_results.is_some() {
             // There are no aggregates, or we already executed them and stashed their results.
@@ -435,31 +459,17 @@ impl ExecMethod for TopKScanExecState {
         // If aggregates were executed, publish their results in our state for projection during
         // the scan.
         if let Some(prepared) = prepared {
-            let intermediate_results = if self.orderby_info.is_some() {
+            let agg_result = if self.orderby_info.is_some() {
                 // Ordered TopK: aggregation was piggybacked on the search via aux collector
-                let agg_result = search_results
+                search_results
                     .aggregation_results
                     .take()
-                    .expect("an aggregation request should produce a result");
-                if let Some(parallel_state) = state.parallel_state() {
-                    let segment_count = self
-                        .claimed_segments
-                        .borrow()
-                        .as_ref()
-                        .expect("Should have claimed segments while running.")
-                        .len();
-                    let parallel_state = unsafe { &mut *parallel_state };
-                    parallel_state
-                        .aggregation_append(agg_result, segment_count)
-                        .expect("Failed to append aggregation result");
-
-                    parallel_state.aggregation_wait()
-                } else {
-                    agg_result
-                }
+                    .expect("an aggregation request should produce a result")
             } else {
                 // Unordered TopK: run a standalone aggregation query since the
-                // unordered path does not support aggregation collectors
+                // unordered path does not support aggregation collectors. In a
+                // parallel scan it covers this participant's segments, like the
+                // search did; the participants merge below.
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let (aggregation_collector, vischeck) = prepared.aggregations.plan(
                     search_reader,
@@ -468,12 +478,20 @@ impl ExecMethod for TopKScanExecState {
                     agg_limits.clone(),
                     None,
                 );
+                let segments = self.segments_to_query(
+                    state.search_reader.as_ref().unwrap(),
+                    state.parallel_state(),
+                );
                 if let Some(vischeck) = vischeck {
-                    search_reader.collect(MVCCFilterCollector::new(aggregation_collector, vischeck))
+                    search_reader.collect_segments(
+                        segments,
+                        MVCCFilterCollector::new(aggregation_collector, vischeck),
+                    )
                 } else {
-                    search_reader.collect(aggregation_collector)
+                    search_reader.collect_segments(segments, aggregation_collector)
                 }
             };
+            let intermediate_results = self.merge_across_participants(state, agg_result);
 
             let search_reader = state.search_reader.as_ref().unwrap();
             let index_info = AggIndexInfo {

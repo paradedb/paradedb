@@ -70,13 +70,13 @@ pub extern "C-unwind" fn ambuild(
 
             let rd_rel = unsafe { &*existing_index.rd_rel };
             if rd_rel.relam.is_paradedb_am() && !is_concurrent {
-                panic!("a relation may only have one ParadeDB index");
+                pgrx::error!("a relation may only have one ParadeDB index");
             }
         }
     }
 
     let heap_tuples = build_index(heap_relation, index_relation.clone(), is_concurrent)
-        .unwrap_or_else(|e| panic!("{e}"));
+        .unwrap_or_else(|e| pgrx::error!("{e}"));
 
     pgrx::debug1!("build_index: flushing buffers");
 
@@ -122,7 +122,7 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
 
     validate_index_config(index_relation);
 
-    create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
+    create_index(index_relation).unwrap_or_else(|e| pgrx::error!("{e}"));
 }
 
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
@@ -202,7 +202,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
             unreachable!("vector field validation accepted a non-vector field")
         };
         if config.quantization_layers().is_some() && schema_dims < MIN_QUANTIZATION_DIMENSIONS {
-            panic!(
+            pgrx::error!(
                 "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
             );
         }
@@ -211,10 +211,10 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     // Validate that `sort_by` and `partition_by` fields are single-valued
     let check_single_valued = |field_name: &FieldName, context: &str| {
         if options.get_field_type(field_name).is_none() {
-            panic!("`{field_name}` in `{context}` does not exist");
+            pgrx::error!("`{field_name}` in `{context}` does not exist");
         }
         if options.is_multi_valued(field_name) {
-            panic!(
+            pgrx::error!(
                 "`{field_name}` cannot be used in `{context}` because it is a multi-valued field"
             );
         }
@@ -236,7 +236,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     let partition_by = options.partition_by();
     for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
         if let Err(e) = check_fast_dims(&schema, dims, reloption) {
-            panic!("{e}");
+            pgrx::error!("{e}");
         }
     }
 
@@ -244,7 +244,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     // normalized one leaves it with boundaries nothing can test against. `sort_by` only lays the
     // segment out, and a normalized one still orders it, so that costs pruning alone.
     if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
-        panic!(
+        pgrx::error!(
             "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
         );
     }
@@ -262,7 +262,7 @@ fn validate_field_config(
     matches: fn(&SearchFieldType) -> bool,
 ) {
     if field_name.is_ctid() {
-        panic!("the name `ctid` is reserved by pg_search");
+        pgrx::error!("the name `ctid` is reserved by pg_search");
     }
 
     if let Some(alias) = config.alias() {
@@ -270,23 +270,23 @@ fn validate_field_config(
             .get_field_type(&FieldName::from(alias.to_string()))
             .is_none()
         {
-            panic!(
+            pgrx::error!(
                 "the column `{alias}` referenced by the field configuration for '{field_name}' does not exist"
             );
         }
 
         let config = options.field_config_or_default(&FieldName::from(alias.to_string()));
         if config.alias().is_some() {
-            panic!("the column `{alias}` cannot alias an already aliased column");
+            pgrx::error!("the column `{alias}` cannot alias an already aliased column");
         }
     }
 
     let field_name = config.alias().unwrap_or(field_name);
-    let field_type = options
-        .get_field_type(&FieldName::from(field_name.to_string()))
-        .unwrap_or_else(|| panic!("the column `{field_name}` does not exist in the USING clause"));
+    let Some(field_type) = options.get_field_type(&FieldName::from(field_name.to_string())) else {
+        pgrx::error!("the column `{field_name}` does not exist in the USING clause");
+    };
     if !matches(&field_type) {
-        panic!("`{field_name}` was configured with the wrong type");
+        pgrx::error!("`{field_name}` was configured with the wrong type");
     }
 }
 

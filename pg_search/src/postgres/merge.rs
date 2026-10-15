@@ -906,8 +906,8 @@ mod tests {
 
     #[pg_test]
     fn test_layer_sizes_from_index_with_small_segments() {
-        // the query from #6760: every single-row segment stays, and the default layers are all
-        // larger than the target segment size
+        // 20 single-row segments under a small target: every default layer is larger than the
+        // target segment size
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run(
             "CREATE INDEX t_idx ON t USING paradedb (id, data) \

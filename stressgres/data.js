@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792050982659,
+  "lastUpdate": 1792051000283,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -174818,6 +174818,64 @@ window.BENCHMARK_DATA = {
             "value": 22.41232782552683,
             "unit": "median tps",
             "extra": "avg tps: 22.413695336847507, max tps: 34.950735714734336, count: 59309"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "36f6c784381921c23e82815dc95fc3ab99311c7d",
+          "message": "feat: Make mutable segments append-only (#6788)\n\nVACUUM flushes sealed mutable segments through the existing merge path so mutable logs remain append-only, filtering dead CTIDs before materialization and publishing outputs with copy-on-write metadata. Preserve legacy Remove decoding and align Antithesis SDK initialization.",
+          "timestamp": "2026-10-15T06:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/36f6c784381921c23e82815dc95fc3ab99311c7d"
+        },
+        "date": 1792050973393,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 136.2340208608945,
+            "unit": "median tps",
+            "extra": "avg tps: 134.68447171744123, max tps: 142.18061512586974, count: 59315"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 512.1649631772883,
+            "unit": "median tps",
+            "extra": "avg tps: 543.5290721933958, max tps: 5711.957577683495, count: 59315"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 798.1144104188605,
+            "unit": "median tps",
+            "extra": "avg tps: 765.1827231944466, max tps: 1005.2052531108912, count: 59315"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 170.6054343265196,
+            "unit": "median tps",
+            "extra": "avg tps: 168.77170076669495, max tps: 179.09332149080313, count: 59315"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 242.4452819711343,
+            "unit": "median tps",
+            "extra": "avg tps: 313.25584815945814, max tps: 2137.346594141963, count: 118630"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.606679574329064,
+            "unit": "median tps",
+            "extra": "avg tps: 22.341222611733475, max tps: 34.53691965628029, count: 59315"
           }
         ]
       }

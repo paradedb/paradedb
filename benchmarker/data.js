@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792175838354,
+  "lastUpdate": 1792175853544,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20469,6 +20469,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.35725818507637,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd54eef3faacd3853a8b9e8d32f4c3ad871cbad7",
+          "message": "fix: Centralize pg->arrow type mappings (#6767)\n\n# Ticket(s) Closed\n\n- Closes #6577\n\n## What\nThe change in `v0.26.0` to have join scan hook at `UPPERREL_FINAL`\ncaused datetime type casts to start failing now that they were running\nin datafusion. This fixes that. As part of this, we realized we can\ncentralize the handling of pg->arrow type mapping. The \"tantivy arrow\ntype\" handling was only necessary for `PgExprUdf` signature computation,\nwhich we can remove by just having the signature be variadic_any.\n\n`PgExprUdf::get_result_type_to_arrow` and `is_arrow_convertible` now\nreference `pg_type_to_arrow`. `pg_type_to_tantivy_arrow` is now dead\ncode and has been removed. The datum->arrow mapping\n`PgExprUdf::invoke_with_args` has been updated to match\n`pg_type_to_arrow`, and the comments for both of those functions have\nbeen updated to call out the need to stay in sync with the other.\n\n## Tests\n- New regression test covering casts for each datetime type",
+          "timestamp": "2026-10-16T11:09:12-06:00",
+          "tree_id": "da0fd22607c65dc783e8b092abfcce064dd499e1",
+          "url": "https://github.com/paradedb/paradedb/commit/fd54eef3faacd3853a8b9e8d32f4c3ad871cbad7"
+        },
+        "date": 1792175842059,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.019357956755826,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.643268505419186,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.744383845390356,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.17849166203592,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.973438239949004,
             "unit": "queries/s"
           }
         ]

@@ -42,6 +42,12 @@ use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
 
+#[cfg(feature = "dst")]
+#[test]
+fn antithesis_sdk_initializes() {
+    ensure_dst_init();
+}
+
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
 /// draws its randomness from the Antithesis SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.
@@ -218,10 +224,21 @@ enum SubqueryPolarity {
     Negated,
 }
 
+/// How an `EXISTS` subquery reads the outer row's column.
+#[derive(Clone, Copy, Debug)]
+enum SubqueryCorrelation {
+    /// `inner.col = outer.col`
+    Var,
+    /// `inner.col = (SELECT outer.col)`: the value arrives through an InitPlan, which a
+    /// parallel plan has to hand its workers on every rescan.
+    InitPlan,
+}
+
 #[derive(Clone, Debug)]
 struct GeneratedSubquery {
     kind: SubqueryKind,
     polarity: SubqueryPolarity,
+    correlation: SubqueryCorrelation,
     column: &'static str,
     inner_where_expr: WhereExpr,
     paging_exprs: String,
@@ -233,12 +250,18 @@ impl GeneratedSubquery {
             SubqueryKind::Exists => format!(
                 "EXISTS (\
                     SELECT 1 FROM {inner_table_name} \
-                    WHERE {inner_table_name}.{column} = {outer_table_name}.{column} \
+                    WHERE {inner_table_name}.{column} = {outer_value} \
                     AND {} {}\
                 )",
                 self.inner_where_expr.to_sql(op),
                 self.paging_exprs,
                 column = self.column,
+                outer_value = match self.correlation {
+                    SubqueryCorrelation::Var => format!("{outer_table_name}.{}", self.column),
+                    SubqueryCorrelation::InitPlan => {
+                        format!("(SELECT {outer_table_name}.{})", self.column)
+                    }
+                },
             ),
             SubqueryKind::In => format!(
                 "{outer_table_name}.{column} IN (\
@@ -716,7 +739,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"], 100),
         gucs in any::<PgGucs>(),
     )| {
         qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -747,7 +770,7 @@ async fn generated_paging_large(database: Db) {
     let setup_sql = generated_queries_setup(&pool, &[(table_name, 100000)], COLUMNS);
 
     proptest!(qgen_proptest_config(), |(
-        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"], 100),
         gucs in any::<PgGucs>(),
     )| {
         qgen_oracle!("qgen: generated_paging_large - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -786,18 +809,32 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
             vec![inner_table_name],
             COLUMNS,
         ),
-        subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        // `rating` is not indexed, so its predicate runs as a heap filter.
+        subquery_column in proptest::sample::select(&["name", "color", "age", "rating"]),
         subquery_kind in prop_oneof![Just(SubqueryKind::Exists), Just(SubqueryKind::In)],
         subquery_polarity in prop_oneof![
             Just(SubqueryPolarity::Positive),
             Just(SubqueryPolarity::Negated),
         ],
-        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
-        gucs in any::<PgGucs>(),
+        subquery_correlation in prop_oneof![
+            Just(SubqueryCorrelation::Var),
+            Just(SubqueryCorrelation::InitPlan),
+        ],
+        // Bounded by the inner table's size: an `OFFSET` past its rows makes the `EXISTS` false
+        // whatever the scan returns.
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"], tables_and_sizes[1].1),
+        mut gucs in any::<PgGucs>(),
     )| {
+        // TODO(#6814): once Postgres pulls the EXISTS up into a semi join, the InitPlan form is a
+        // SubPlan in the join filter, which the DataFusion aggregate cannot evaluate ("SubPlan
+        // found with no parent plan").
+        if matches!(subquery_correlation, SubqueryCorrelation::InitPlan) {
+            gucs.aggregate_custom_scan = false;
+        }
         let subquery = GeneratedSubquery {
             kind: subquery_kind,
             polarity: subquery_polarity,
+            correlation: subquery_correlation,
             column: subquery_column,
             inner_where_expr,
             paging_exprs,
@@ -1693,40 +1730,79 @@ async fn generated_pdb_agg_join(database: Db) {
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
 
-        if !agg.outer_aggs.is_empty() {
-            let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
-            qgen_oracle!("qgen: generated_pdb_agg_join - outer aggregates match PostgreSQL", compare_outcome_retrying(
-                &pg_outer_query,
+        let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
+        if agg.combine_across_groups {
+            qgen_oracle!(
+                "qgen: generated_pdb_agg_join - ParadeDB Aggregate Scan planned for pdb.combine_agg",
+                compare_plan_retrying(
+                    &pg_outer_query,
+                    &bm25_query,
+                    &gucs,
+                    &pool,
+                    &setup_sql,
+                    &["ParadeDB Aggregate Scan"],
+                    &["WindowAgg"],
+                )
+            )?;
+        }
+
+        if agg.combine_across_groups || !agg.outer_aggs.is_empty() {
+            qgen_oracle!(
+                "qgen: generated_pdb_agg_join - outer aggregates match PostgreSQL",
+                compare_outcome_retrying(
+                    &pg_outer_query,
+                    &bm25_query,
+                    &gucs,
+                    &pool,
+                    &setup_sql,
+                    |query, side, conn| {
+                        "SET work_mem TO '64MB';".execute_result(conn)?;
+                        let rows = query.fetch_dynamic_result(conn)?;
+                        let mut outer = agg.outer_rows(rows, side.is_candidate())?;
+                        if agg.group_limit.is_none() {
+                            outer.sort();
+                        }
+                        Ok(outer)
+                    },
+                )
+            )?;
+        }
+
+        let baseline_query = if agg.combine_across_groups {
+            &pg_outer_query
+        } else {
+            &pg_query
+        };
+        qgen_oracle!(
+            "qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY",
+            compare_outcome_retrying(
+                baseline_query,
                 &bm25_query,
                 &gucs,
                 &pool,
                 &setup_sql,
                 |query, side, conn| {
+                    // A keyless join under three bucket keys makes tens of thousands of
+                    // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
                     "SET work_mem TO '64MB';".execute_result(conn)?;
                     let rows = query.fetch_dynamic_result(conn)?;
-                    let mut rows = agg.outer_rows(rows, side.is_candidate())?;
-                    rows.sort();
-                    Ok(rows)
+                    let mut buckets = if agg.combine_across_groups {
+                        if rows.is_empty() {
+                            return Ok(Vec::new());
+                        }
+                        if side.is_candidate() {
+                            agg.window_rows(&rows)?
+                        } else {
+                            agg.rows(pg_query.as_str().fetch_dynamic_result(conn)?)?
+                        }
+                    } else {
+                        agg.rows(rows)?
+                    };
+                    buckets.sort();
+                    Ok(buckets)
                 },
-            ))?;
-        }
-
-        qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
-            &pg_query,
-            &bm25_query,
-            &gucs,
-            &pool,
-            &setup_sql,
-            |query, _, conn| {
-                // A keyless join under three bucket keys makes tens of thousands of
-                // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
-                "SET work_mem TO '64MB';".execute_result(conn)?;
-                let rows = query.fetch_dynamic_result(conn)?;
-                let mut rows = agg.rows(rows)?;
-                rows.sort();
-                Ok(rows)
-            },
-        ))?;
+            )
+        )?;
     });
 }
 
@@ -1751,12 +1827,24 @@ async fn generated_pdb_agg_single_table(database: Db) {
         mut gucs in any::<PgGucs>(),
     )| {
         let group = agg.outer_group.as_deref().expect("a single-table spec sits beside a GROUP BY");
-        let tantivy_query = format!(
-            "SELECT {group}, COUNT(*), {} FROM users WHERE {} GROUP BY {group}",
-            agg.call(),
-            outer_bm25.to_sql("@@@")
-        );
-        let datafusion_query = format!("{tantivy_query} ORDER BY COUNT(*) DESC LIMIT 1000");
+        let where_bm25 = outer_bm25.to_sql("@@@");
+        let (tantivy_query, datafusion_query) = if agg.combine_across_groups {
+            let tantivy = format!("SELECT {} FROM users WHERE {where_bm25}", agg.call());
+            let df = format!(
+                "SELECT {group}, COUNT(*), COUNT(*) OVER (), pdb.combine_agg({}) OVER () \
+                 FROM users WHERE {where_bm25} GROUP BY {group} \
+                 ORDER BY COUNT(*) DESC, {group} ASC NULLS LAST LIMIT 10",
+                agg.call()
+            );
+            (tantivy, df)
+        } else {
+            let tantivy = format!(
+                "SELECT {group}, COUNT(*), {} FROM users WHERE {where_bm25} GROUP BY {group}",
+                agg.call(),
+            );
+            let df = format!("{tantivy} ORDER BY COUNT(*) DESC LIMIT 1000");
+            (tantivy, df)
+        };
 
         gucs.aggregate_custom_scan = true;
         gucs.custom_scan = true;
@@ -1774,9 +1862,12 @@ async fn generated_pdb_agg_single_table(database: Db) {
             &pool,
             &setup_sql,
             &["DataFusion Physical Plan"],
-            &[],
+            &["WindowAgg"],
         ))?;
 
+        let group_check_query = format!(
+            "SELECT 1 FROM users WHERE {where_bm25} GROUP BY {group} LIMIT 1"
+        );
         qgen_oracle!("qgen: generated_pdb_agg_single_table - both backends answer pdb.agg() alike", compare_outcome_retrying_on(
             &sides,
             &tantivy_query,
@@ -1784,10 +1875,36 @@ async fn generated_pdb_agg_single_table(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, _, conn| {
-                let mut documents = agg.documents(query.fetch_dynamic_result(conn)?)?;
-                documents.sort_by(|a, b| a.0.cmp(&b.0));
-                Ok(documents)
+            |query, side, conn| {
+                if agg.combine_across_groups {
+                    if !side.is_candidate() {
+                        let has_groups = !group_check_query.as_str().fetch_dynamic_result(conn)?.is_empty();
+                        if !has_groups {
+                            return Ok(Vec::new());
+                        }
+                        let rows = query.fetch_dynamic_result(conn)?;
+                        let doc: serde_json::Value = rows[0].try_get(0)?;
+                        return Ok(vec![(String::new(), doc)]);
+                    }
+                    let rows = query.fetch_dynamic_result(conn)?;
+                    if rows.is_empty() {
+                        return Ok(Vec::new());
+                    }
+                    let docs = agg.documents(rows)?;
+                    let first = docs[0].1.clone();
+                    for (_, doc) in &docs[1..] {
+                        if *doc != first {
+                            return Err(sqlx::Error::Protocol(
+                                "pdb.combine_agg(pdb.agg()) OVER () rows carry different documents".into(),
+                            ));
+                        }
+                    }
+                    Ok(vec![(String::new(), first)])
+                } else {
+                    let mut documents = agg.documents(query.fetch_dynamic_result(conn)?)?;
+                    documents.sort_by(|a, b| a.0.cmp(&b.0));
+                    Ok(documents)
+                }
             },
         ))?;
     });

@@ -34,7 +34,7 @@ use tantivy::Opstamp;
 use tantivy::index::{SegmentComponent, SegmentId};
 
 /// Extensions of tantivy's per-segment vector files. These mirror tantivy's
-/// (`pub(crate)`) `vector::VEC_EXT` and `vector::ivf::CENTROIDS_EXT`: `.vec`
+/// (`pub(crate)`) `vector::storage::header::{VEC_EXT, CENTROIDS_EXT}`: `.vec`
 /// is written for every segment with a vector field (both storage layouts),
 /// `.centroids` only for IVF (clustered) segments.
 pub(crate) const VECTOR_VEC_EXT: &str = "vec";
@@ -151,6 +151,7 @@ pub trait LinkedList {
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum MutableSegmentEntry {
     Add(u64),
+    // Read compatibility with mutable logs written before VACUUM flushed them.
     Remove(u64),
 }
 
@@ -248,8 +249,7 @@ pub struct DeleteEntry {
 pub struct SegmentMetaEntryMutable {
     pub header_block: pg_sys::BlockNumber,
     pub num_deleted_docs: u32,
-    // Once a mutable segment reaches a configurable size threshold, it is frozen, and becomes
-    // mergeable.
+    // Frozen at the size threshold or by VACUUM; no longer accepts inserts and is mergeable.
     pub frozen: bool,
 }
 
@@ -293,6 +293,7 @@ pub struct SegmentMetaEntryImmutable {
     pub stats: Option<FileEntry>,
     pub ctid_map: Option<FileEntry>,
     pub posting_norms: Option<FileEntry>,
+    pub posting_bitmaps: Option<FileEntry>,
 }
 
 /// The pre-vector on-disk layout of [`SegmentMetaEntryImmutable`]. Indexes built before vector
@@ -396,6 +397,11 @@ impl SegmentMetaEntryImmutable {
                     .iter()
                     .map(|fe| (fe, SegmentComponent::PostingNorms)),
             )
+            .chain(
+                self.posting_bitmaps
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::PostingBitmaps)),
+            )
     }
 }
 
@@ -487,31 +493,6 @@ impl SegmentMetaEntry {
             _ => return Err("Cannot add items to a non-mutable segment"),
         }
         self.header.max_doc = new_max_doc;
-        Ok(())
-    }
-
-    /// If this is a mutable segment which is not frozen, delete the given items; otherwise, return an
-    /// error.
-    pub fn mutable_delete_items(
-        &mut self,
-        indexrel: &PgSearchRelation,
-        ctids: Vec<u64>,
-    ) -> Result<(), &str> {
-        let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
-            return Err("Cannot delete items from a non-mutable segment");
-        };
-
-        let entries = ctids
-            .into_iter()
-            .map(MutableSegmentEntry::Remove)
-            .collect::<Vec<_>>();
-
-        unsafe {
-            content.open(indexrel).add_items(&entries, None);
-        }
-        let deleted: u32 = entries.len().try_into().unwrap();
-        content.num_deleted_docs += deleted;
-
         Ok(())
     }
 
@@ -774,6 +755,11 @@ impl SegmentMetaEntry {
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
+        size += content
+            .posting_bitmaps
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
         size
     }
 
@@ -918,6 +904,17 @@ impl From<PgItem> for SegmentMetaEntry {
                 } else {
                     None
                 };
+                let posting_bitmaps: Option<FileEntry> = if content_bytes.len() > offset {
+                    let (entry, len) = bincode::serde::decode_from_slice(
+                        &content_bytes[offset..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("invalid SegmentMetaEntry posting bitmap file entry");
+                    offset += len;
+                    entry
+                } else {
+                    None
+                };
                 debug_assert_eq!(offset, content_bytes.len());
 
                 SegmentMetaEntryContent::Immutable(SegmentMetaEntryImmutable {
@@ -934,6 +931,7 @@ impl From<PgItem> for SegmentMetaEntry {
                     stats,
                     ctid_map,
                     posting_norms,
+                    posting_bitmaps,
                 })
             }
             SegmentMetaEntryTag::Mutable => {
@@ -1060,6 +1058,7 @@ mod tests {
         stats: Option<FileEntry>,
         ctid_map: Option<FileEntry>,
         posting_norms: Option<FileEntry>,
+        posting_bitmaps: Option<FileEntry>,
     ) -> SegmentMetaEntry {
         SegmentMetaEntry::new_immutable(
             SegmentId::generate_random(),
@@ -1075,6 +1074,7 @@ mod tests {
                 stats,
                 ctid_map,
                 posting_norms,
+                posting_bitmaps,
                 ..Default::default()
             },
         )
@@ -1099,9 +1099,9 @@ mod tests {
                 total_bytes: 100 * block as usize,
             })
         };
-        let full = entry_with(file(8), file(10), file(9), file(11), file(12));
+        let full = entry_with(file(8), file(10), file(9), file(11), file(12), file(13));
         assert_eq!(decoded(encoded(full)), full);
-        assert_eq!(full.byte_size(), 5100);
+        assert_eq!(full.byte_size(), 6400);
         let norm_path = SegmentMetaEntryImmutable::path(
             &full.segment_id().uuid_string(),
             SegmentComponent::PostingNorms,
@@ -1115,25 +1115,38 @@ mod tests {
         );
         assert!(full.get_component_paths().any(|path| path == norm_path));
 
-        let ctid_map_era = entry_with(file(8), file(10), file(9), file(11), None);
+        let bitmap_path = SegmentMetaEntryImmutable::path(
+            &full.segment_id().uuid_string(),
+            SegmentComponent::PostingBitmaps,
+        );
+        assert_eq!(
+            content.file_entry(&full.segment_id().uuid_string(), &bitmap_path),
+            file(13)
+        );
+        assert!(full.get_component_paths().any(|path| path == bitmap_path));
+        let norm_era = entry_with(file(8), file(10), file(9), file(11), file(12), None);
+        let bytes = encoded(norm_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 1]), norm_era);
+
+        let ctid_map_era = entry_with(file(8), file(10), file(9), file(11), None, None);
         let bytes = encoded(ctid_map_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 1]), ctid_map_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 2]), ctid_map_era);
 
-        let stats_era = entry_with(file(8), file(10), file(9), None, None);
+        let stats_era = entry_with(file(8), file(10), file(9), None, None, None);
         let bytes = encoded(stats_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 2]), stats_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 3]), stats_era);
 
-        // The vector generation stopped before the stats, CTID map, and posting norm markers.
-        let vector_era = entry_with(file(8), file(10), None, None, None);
+        // The vector generation stopped before the stats, CTID map, posting norm, and bitmap markers.
+        let vector_era = entry_with(file(8), file(10), None, None, None, None);
         let bytes = encoded(vector_era);
         assert_eq!(decoded(bytes), vector_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 3]), vector_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 4]), vector_era);
 
         // The first generation stopped before the vector markers too: one `None` byte each for
-        // `vec`, `centroids`, `stats`, `ctid_map`, and `posting_norms`.
-        let first = entry_with(None, None, None, None, None);
+        // `vec`, `centroids`, `stats`, `ctid_map`, `posting_norms`, and `posting_bitmaps`.
+        let first = entry_with(None, None, None, None, None, None);
         let bytes = encoded(first);
-        assert_eq!(decoded(&bytes[..bytes.len() - 5]), first);
+        assert_eq!(decoded(&bytes[..bytes.len() - 6]), first);
     }
 }
 

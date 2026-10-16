@@ -38,6 +38,7 @@ use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use serde_json::Value;
 use tantivy::schema::FieldType;
+use tantivy::vector::diagnostics::VectorStorageFormat;
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
@@ -303,6 +304,7 @@ fn index_info(
             name!(fieldnorms_bytes, Option<AnyNumeric>),
             name!(store_bytes, Option<AnyNumeric>),
             name!(deletes_bytes, Option<AnyNumeric>),
+            name!(posting_bitmaps_bytes, Option<AnyNumeric>),
         ),
     >,
 > {
@@ -355,6 +357,7 @@ fn index_info(
                         content
                             .delete
                             .map(|file| file.file_entry.total_bytes.into()),
+                        content.posting_bitmaps.map(|file| file.total_bytes.into()),
                     ));
                 }
                 SegmentMetaEntryContent::Mutable(_) => {
@@ -368,6 +371,7 @@ fn index_info(
                         None,
                         Some(entry.num_docs().into()),
                         Some(entry.num_deleted_docs().into()),
+                        None,
                         None,
                         None,
                         None,
@@ -439,29 +443,19 @@ fn vector_info(
             let Some(info) = vector_index.info() else {
                 continue;
             };
-            let metadata = vector_index
-                .metadata()
-                .context("vector storage metadata is absent")?;
-            let quantized = matches!(
-                metadata,
-                tantivy::vector::VectorColMetadata::Quantized { .. }
-            );
-            let layers = quantized.then(|| {
-                metadata
-                    .layers()
-                    .iter()
-                    .map(|layer| i32::from(layer.bits()))
-                    .collect()
-            });
-            let quantizer_kinds = quantized.then(|| {
-                metadata
-                    .layers()
-                    .iter()
-                    .map(|layer| layer.kind().name().to_string())
+            let quantized = info.quantized_layers.is_some();
+            let layers = info
+                .quantized_layers
+                .as_ref()
+                .map(|bits| bits.iter().map(|&bits| i32::from(bits)).collect());
+            // A one-bit layer is a sign plane; wider layers are grids.
+            let quantizer_kinds = info.quantized_layers.as_ref().map(|bits| {
+                bits.iter()
+                    .map(|&bits| if bits == 1 { "sign" } else { "grid" }.to_string())
                     .collect::<Vec<_>>()
             });
-            let bytes_per_row = metadata
-                .quantized_bytes_per_row()
+            let bytes_per_row = info
+                .quantized_bytes_per_row
                 .map(i32::try_from)
                 .transpose()
                 .context("quantized bytes per row exceeds SQL integer range")?;
@@ -473,8 +467,8 @@ fn vector_info(
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
                 match info.format {
-                    tantivy::vector::VectorStorageFormat::Flat => "flat",
-                    tantivy::vector::VectorStorageFormat::Ivf => "ivf",
+                    VectorStorageFormat::Flat => "flat",
+                    VectorStorageFormat::Ivf => "ivf",
                 }
                 .to_string(),
                 info.num_vectors.into(),
@@ -600,10 +594,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.index().map(|ivf| {
-                let bounds = ivf.bounds();
-                (0..ivf.num_clusters()).map(|c| bounds.ball_r(c)).collect()
-            });
+            let radii = vector_index.cluster_radii();
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 sizes,

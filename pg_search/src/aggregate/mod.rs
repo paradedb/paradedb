@@ -346,7 +346,9 @@ impl<'a> ParallelAggregationWorker<'a> {
     /// bgworkers only: attach the owner's claim table so this worker's scorers
     /// stream their (consumer, segment) cursors. The area detaches at process
     /// exit.
-    fn attach_bitmap_handle(&mut self) {
+    /// Worker `worker_number` attaches the owner's table as participant
+    /// `worker_number + 1`; the owner is slot 0.
+    fn attach_bitmap_handle(&mut self, worker_number: i32) {
         if let Some(handle) = self.bitmap_handle.take() {
             let area = unsafe { pg_sys::dsa_attach(handle.area) };
             self.attached_area = area;
@@ -354,6 +356,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             cell.fill(std::sync::Arc::new(BitmapCursorSource::shared(
                 area,
                 handle.table,
+                worker_number as u32 + 1,
             )));
             self.query.attach_bitmap_cell(&cell);
         }
@@ -592,7 +595,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
-        self.attach_bitmap_handle();
+        self.attach_bitmap_handle(worker_number);
         // wait for all workers to launch
         while self.state.launched_workers() == 0 {
             check_for_interrupts!();
@@ -725,9 +728,9 @@ pub fn execute_aggregate(
             .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
-        // leader's bitmap into this scan's own DSA area, prepare one iterator
-        // state per (consumer, segment) stream, and refresh the leader's cell
-        // (cloned into `query`) with the shared view.
+        // leader's bitmap into this scan's own DSA area, mint one iteration state
+        // per participant slot, and refresh the leader's cell (cloned into
+        // `query`) with the shared view.
         let mut leader_bitmap_source = None;
         let bitmap_handle = bitmap_exec.and_then(|bitmap_exec| {
             let consumers = query.bitmap_consumer_count();
@@ -736,7 +739,7 @@ pub fn execute_aggregate(
             }
             let segments: Vec<SegmentId> =
                 segment_ids.iter().map(|entry| entry.segment_id()).collect();
-            let handle = bitmap_exec.shared_source(consumers, &segments)?;
+            let handle = bitmap_exec.shared_source(consumers, &segments, nworkers as u32 + 1)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()
             {
@@ -1219,6 +1222,10 @@ pub mod interrupt_collector {
             self.inner.requires_scoring()
         }
 
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
         fn merge_fruits(
             &self,
             segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
@@ -1254,6 +1261,15 @@ pub mod interrupt_collector {
         fn collect_block(&mut self, docs: &[DocId]) {
             self.maybe_check_interrupt(docs.len());
             self.inner.collect_block(docs);
+        }
+
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
+        fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            self.maybe_check_interrupt(tantivy::BLOCK_WINDOW as usize);
+            self.inner.collect_bitmap(base, mask);
         }
 
         fn harvest(self) -> Self::Fruit {
@@ -1312,6 +1328,10 @@ pub mod mvcc_collector {
 
         fn requires_scoring(&self) -> bool {
             self.inner.requires_scoring()
+        }
+
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
         }
 
         fn merge_fruits(
@@ -1445,9 +1465,104 @@ pub mod mvcc_collector {
             }
         }
 
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
+        fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            let Some(lock) = &self.lock else {
+                self.inner.collect_bitmap(base, mask);
+                return;
+            };
+            let (visible, dirty) =
+                lock.lock()
+                    .partition_bitmap_visibility(self.segment_ord, base, mask);
+            if visible.iter().any(|word| !word.is_empty()) {
+                // Bitmap collection is count-only, so buffered IDs can be counted later.
+                self.inner.collect_bitmap(base, &visible);
+            }
+            tantivy::DocSetBatch::Bitmap(base, &dirty)
+                .for_each_doc_block(|docs| self.collect_block(docs));
+        }
+
         fn harvest(mut self) -> Self::Fruit {
             self.flush();
             self.inner.harvest()
+        }
+    }
+    #[cfg(any(test, feature = "pg_test"))]
+    #[pgrx::pg_schema]
+    mod tests {
+        use super::*;
+        use crate::postgres::rel::PgSearchRelation;
+        use pgrx::prelude::*;
+
+        #[derive(Default)]
+        struct BatchCount {
+            count: usize,
+            batches: Vec<usize>,
+        }
+
+        impl SegmentCollector for BatchCount {
+            type Fruit = (usize, Vec<usize>);
+
+            fn collect(&mut self, _: DocId, _: Score) {
+                unreachable!();
+            }
+
+            fn collect_block(&mut self, docs: &[DocId]) {
+                assert!(docs.is_sorted());
+                assert!(docs.iter().all(|doc| doc % 1024 < 3));
+                self.count += docs.len();
+                self.batches.push(docs.len());
+            }
+
+            fn supports_bitmap_collection(&self) -> bool {
+                true
+            }
+
+            fn collect_bitmap(&mut self, _: DocId, mask: &tantivy::DocIdBitmap) {
+                self.count += mask.iter().map(|word| word.len() as usize).sum::<usize>();
+            }
+
+            fn harvest(self) -> Self::Fruit {
+                (self.count, self.batches)
+            }
+        }
+
+        #[pg_test]
+        fn bitmap_collection_preserves_pending_visibility_batches() {
+            Spi::run("CREATE TABLE bitmap_batch_visibility (id int)").unwrap();
+            let oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_batch_visibility'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let relation = PgSearchRelation::open(oid);
+            let checker = VisibilityChecker::with_rel_and_snap(&relation, unsafe {
+                pg_sys::GetActiveSnapshot()
+            })
+            .with_check_visibility(false);
+            let mut collector = MVCCFilterSegmentCollector {
+                inner: BatchCount::default(),
+                lock: Some(MVCCFilterCollector::new(tantivy::collector::Count, checker).lock),
+                segment_ord: 0,
+                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                score_buffer: Vec::new(),
+                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
+                requires_scoring: false,
+            };
+            let mut visible = [tantivy_common::TinySet::range_greater_or_equal(0); 16];
+            visible[0] = tantivy_common::TinySet::range_greater_or_equal(3);
+            for window in 0..1000 {
+                let base = window * 1024;
+                collector.collect_block(&[base, base + 1, base + 2]);
+                collector.collect_bitmap(base, &visible);
+            }
+            assert_eq!(collector.inner.batches, [2049]);
+            assert_eq!(collector.doc_buffer.len(), 951);
+            let (count, batches) = collector.harvest();
+            assert_eq!(count, 1000 * 1024);
+            assert_eq!(batches, [2049, 951]);
         }
     }
 }

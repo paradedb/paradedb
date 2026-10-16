@@ -21,7 +21,9 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     GroupingTransform, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DATE_UDF_NAME;
-use crate::postgres::customscan::joinscan::build::{RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelSearchPredicate, RelNode, RelationAlias,
+};
 use datafusion::common::Column;
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
@@ -64,6 +66,10 @@ pub enum FilterExpr {
     Not(Box<FilterExpr>),
     IsNull(Box<FilterExpr>),
     IsNotNull(Box<FilterExpr>),
+    SearchTag {
+        plan_position: usize,
+        predicate: Box<JoinLevelSearchPredicate>,
+    },
 }
 
 impl FilterExpr {
@@ -76,7 +82,8 @@ impl FilterExpr {
             | FilterExpr::LitInt(_)
             | FilterExpr::LitFloat(_)
             | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_) => false,
+            | FilterExpr::LitString(_)
+            | FilterExpr::SearchTag { .. } => false,
             FilterExpr::BinOp { left, right, .. } => {
                 left.any_agg_ref(pred) || right.any_agg_ref(pred)
             }
@@ -86,6 +93,38 @@ impl FilterExpr {
             FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
                 inner.any_agg_ref(pred)
             }
+        }
+    }
+
+    /// Collects every FILTER `(plan_position, predicate)` pair in this tree.
+    pub fn collect_search_predicates<'a>(
+        &'a self,
+        out: &mut Vec<(usize, &'a JoinLevelSearchPredicate)>,
+    ) {
+        match self {
+            FilterExpr::SearchTag {
+                plan_position,
+                predicate,
+            } => out.push((*plan_position, predicate)),
+            FilterExpr::BinOp { left, right, .. } => {
+                left.collect_search_predicates(out);
+                right.collect_search_predicates(out);
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children
+                    .iter()
+                    .for_each(|c| c.collect_search_predicates(out));
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.collect_search_predicates(out);
+            }
+            FilterExpr::AggRef(_)
+            | FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => {}
         }
     }
 }
@@ -162,10 +201,11 @@ impl TopKSortTarget {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DataFusionTopK {
     /// What the ORDER BY targets.
-    pub sort_target: TopKSortTarget,
-    pub direction: crate::api::SortDirection,
-    /// Maximum number of rows to return (LIMIT + OFFSET).
-    pub k: usize,
+    pub sorts: Vec<(TopKSortTarget, crate::api::SortDirection)>,
+    /// Maximum number of rows to return after OFFSET, if a LIMIT is present.
+    pub limit: Option<crate::postgres::customscan::parameterized_value::ParameterizedValue<i64>>,
+    /// OFFSET count, if an OFFSET is present.
+    pub offset: Option<crate::postgres::customscan::parameterized_value::ParameterizedValue<i64>>,
 }
 
 /// Private data serialized between planning and execution for AggregateScan.

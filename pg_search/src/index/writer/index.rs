@@ -30,12 +30,12 @@ use tantivy::{
 
 use crate::index::ctid_map;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::reader::index::needs_rebuild;
 use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::schema::SearchIndexSchema;
-use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 
@@ -305,9 +305,6 @@ impl SerialIndexWriter {
         let mut index = crate::index::open_index(directory)?;
         stats::register(&mut index);
         ctid_map::register(&mut index);
-        if has_vector_field {
-            set_ivf_clusterer(&mut index, index_relation.options());
-        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -345,7 +342,13 @@ impl SerialIndexWriter {
             max_docs_per_segment: None,
         };
 
-        let pending_segment = Some(PendingSegment::with_id(&index, memory_budget, segment_id)?);
+        // Size the initial term table independently of the unlimited flush threshold.
+        let initial_memory_budget = NonZeroUsize::new(1024 * 1024).unwrap();
+        let pending_segment = Some(PendingSegment::with_id(
+            &index,
+            initial_memory_budget,
+            segment_id,
+        )?);
 
         Ok(Self {
             id: worker_number,
@@ -527,13 +530,9 @@ impl SearchIndexMerger {
         mvcc_satisfies: MvccSatisfies,
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
-        let schema = indexrel.schema()?;
         let mut index = crate::index::open_index(directory.clone())?;
         stats::register(&mut index);
         ctid_map::register(&mut index);
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, indexrel.options());
-        }
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),
@@ -561,9 +560,7 @@ impl SearchIndexMerger {
             }
             match segment.validate_vector_format() {
                 Ok(()) => {}
-                Err(tantivy::TantivyError::IncompatibleIndex(
-                    tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. },
-                )) => {
+                Err(error) if needs_rebuild(&error) => {
                     unsupported.insert(segment.id());
                 }
                 Err(error) => return Err(error),
@@ -635,27 +632,13 @@ impl Mergeable for SearchIndexMerger {
         let new_segment = writer.merge_foreground(segment_ids, true)?;
 
         if let Some(new_segment) = new_segment.as_ref() {
-            // Merge doc-count conservation: the merged output segment's live doc count must equal
-            // the sum of the input segments' live doc counts (live = max_doc - num_deleted).
-            //
-            // This is an exact equality, not a bound: tantivy's `merge()` sets the merged segment's
-            // `max_doc` to `sum(input.num_docs())` computed from the SAME frozen `all_entries`
-            // snapshot that this merger loaded (`load_metas` populates it once, under a OnceLock),
-            // and the merged segment carries no deletes of its own (`num_deleted == 0`, so its
-            // `max_doc == num_docs`). Concurrent deletes append to a NEW metas list and cannot
-            // mutate this already-loaded directory's snapshot, so there is no accounting slack here.
-            // A violation would mean the merge silently lost or duplicated rows — top-tier data loss.
-            //
-            // We read each input's live count from the same frozen snapshot via
-            // `segment_meta_entry` (a single-entry lock+read, no whole-map clone, no I/O). Every
-            // input id is present because `merge_foreground` succeeded (it resolved their files
-            // from this snapshot); `all_found` guards against a spurious fire if that ever weren't so.
+            // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.
             dst::observe!(|| {
                 let mut sum_input_live: u64 = 0;
                 let mut all_found = true;
                 for segment_id in segment_ids {
-                    match self.directory.segment_meta_entry(segment_id) {
-                        Some(entry) => sum_input_live += entry.num_docs() as u64,
+                    match self.directory.segment_num_docs(segment_id) {
+                        Some(num_docs) => sum_input_live += num_docs as u64,
                         None => {
                             all_found = false;
                             break;

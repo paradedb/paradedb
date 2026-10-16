@@ -51,6 +51,7 @@ use crate::postgres::customscan::pullup::{
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+    optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
@@ -188,7 +189,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
             // Extract search-capable predicates all at once. This is required
             // for score filters, which must wrap the rest of the search query.
             // Fail the JoinScan if any search predicate cannot be extracted.
-            let qual = extract_quals(
+            let mut qual = extract_quals(
                 &context,
                 rti,
                 classified.search_ri.as_ptr().cast(),
@@ -198,6 +199,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
                 &mut state,
                 true,
             )?;
+            optimize_quals_with_heap_expr(&mut qual);
             let query = SearchQueryInput::from(&qual);
             side_info = side_info.with_query(query);
             if state.uses_our_operator {
@@ -1278,7 +1280,10 @@ unsafe fn try_extract_null_and_subplan(
 
 /// Whether two `NumericBytes` join keys come from indexes that encode negative values
 /// differently. See `NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION`.
-fn numeric_bytes_layouts_differ(
+///
+/// `pub(super)` so `mod.rs`'s `numeric_pushdown_safe` can reuse this same
+/// compatibility check instead of re-deriving it.
+pub(super) fn numeric_bytes_layouts_differ(
     outer_ff: &WhichFastField,
     outer_ir: &PgSearchRelation,
     inner_ff: &WhichFastField,
@@ -2862,6 +2867,11 @@ unsafe fn pathkey_is_in_sort_pathkeys(
 /// - `None`: If the function encounters an `ORDER BY` pathkey where *none* of its Equivalence
 ///   Class members survived the schema pruning. This signals the planner to abandon `JoinScan` and
 ///   fall back to native PostgreSQL execution.
+///
+/// For post-`GROUP BY` `ORDER BY` resolution in `AggregateScan` (where sort keys
+/// resolve against `GROUP BY` columns and per-group `Aggref`s rather than
+/// base-table pathkeys), see `aggregatescan::resolve_topk_sort_target` and
+/// `aggregatescan::detect_join_aggregate_topk`.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],

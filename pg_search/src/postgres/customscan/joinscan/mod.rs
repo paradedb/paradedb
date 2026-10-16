@@ -155,11 +155,13 @@ use self::privdat::PrivateData;
 use self::window_func::{
     SupportedWindowAggType, WindowAggDef, extract_window_agg, is_supported_window_agg_node,
 };
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::node::NodeExt;
+use crate::schema::SearchFieldType;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -189,6 +191,7 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use crate::scan::deferred_encode::DeferredCtid;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_buffer::ScalarBuffer;
+use datafusion::logical_expr::LogicalPlan;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::ParallelScanArgs;
@@ -199,7 +202,10 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations;
 use crate::postgres::serializable::predicate_lock_read;
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::scan::codec::{
+    deserialize_logical_plan_for_explain, deserialize_logical_plan_with_runtime,
+    serialize_logical_plan,
+};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
@@ -210,6 +216,7 @@ use std::sync::Arc;
 
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
+use super::datafusion::topk_agg::bind_topk_agg_fetch;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -529,6 +536,63 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 }
 
+/// Whether a NUMERIC join key pair is safe to push down into JoinScan's
+/// generated DataFusion plan.
+///
+/// NUMERIC fast fields with precision <= 18 are stored as scaled Int64
+/// values (`Numeric64`, e.g. numeric(10,2) 1.23 -> 123, numeric(10,3)
+/// 1.230 -> 1230) and lower to Arrow `DataType::Int64`. NUMERIC fields
+/// with precision > 18, or unbounded NUMERIC, are stored as
+/// lexicographically sortable bytes (`NumericBytes`) and lower to Arrow
+/// `DataType::BinaryView`.
+///
+/// Three hazards follow from this:
+/// - Two `Numeric64` sides with *different* scales: the generated
+///   `HashJoinExec` compares raw, unscaled Int64 values directly, so
+///   logically-equal decimals at different scales never compare equal.
+///   See <https://github.com/paradedb/paradedb/issues/6100>.
+/// - A `Numeric64` side paired with a `NumericBytes` side (even with an
+///   equal, known scale - e.g. numeric(10,2) vs numeric(20,2)): the two
+///   sides lower to different Arrow physical types (Int64 vs
+///   BinaryView), which DataFusion's type coercion rejects outright
+///   ("Cannot infer common argument type for comparison operation Int64
+///   = BinaryView") - a hard query-time error instead of a graceful
+///   fallback to Postgres's native join.
+/// - Two `NumericBytes` sides whose indexes encode negative values
+///   differently (see `planning::numeric_bytes_layouts_differ`): the
+///   byte encoding itself is incompatible, regardless of declared scale.
+///
+/// So this returns `true` in exactly two cases: both sides `Numeric64`
+/// with an equal scale, or both sides `NumericBytes` with a compatible
+/// byte layout (declared scale doesn't matter here - `NumericBytes` uses
+/// `decimal-bytes`'s arbitrary-precision, lexicographically sortable
+/// encoding, which is value-based rather than scaled-integer, so two
+/// `NumericBytes` sides with *different* declared scales are still safe
+/// to compare byte-for-byte as long as their layout matches). Anything
+/// else - a `Numeric64`/`NumericBytes` mismatch, incompatible
+/// `NumericBytes` layouts, or an unresolvable scale - declines. This
+/// mirrors the codebase's existing convention of rejecting
+/// unbounded-NUMERIC pushdown at planning time rather than letting the
+/// DataFusion plan bake fail (see `numeric_window_field` in
+/// `scan_state.rs`).
+fn numeric_pushdown_safe(
+    outer_ff: &WhichFastField,
+    outer_ir: &PgSearchRelation,
+    inner_ff: &WhichFastField,
+    inner_ir: &PgSearchRelation,
+) -> bool {
+    match (outer_ff.field_type(), inner_ff.field_type()) {
+        (
+            Some(SearchFieldType::Numeric64(_, outer_scale)),
+            Some(SearchFieldType::Numeric64(_, inner_scale)),
+        ) => outer_scale == inner_scale,
+        (Some(SearchFieldType::NumericBytes(..)), Some(SearchFieldType::NumericBytes(..))) => {
+            !planning::numeric_bytes_layouts_differ(outer_ff, outer_ir, inner_ff, inner_ir)
+        }
+        _ => false,
+    }
+}
+
 impl JoinScan {
     /// Phase 1: Validate a `RelNode` plan against JoinScan activation requirements
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
@@ -559,6 +623,12 @@ impl JoinScan {
 
         if (*(*root).parse).hasAggs {
             return Err(JoinDeclineReason::ContainsAggregate);
+        }
+
+        if (*(*root).parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: FETCH FIRST ... WITH TIES is not supported",
+            ));
         }
 
         // Require LIMIT for top-level queries (without it, JoinScan's TopK
@@ -676,18 +746,13 @@ impl JoinScan {
         }
 
         // pdb.agg() window functions computed inside the Top-K aggregate node, which
-        // needs OFFSET + LIMIT known at planning.
+        // needs a LIMIT
         let has_pdb_agg = window_aggs
             .iter()
             .any(|agg| agg.agg_def.pdb_agg().is_some());
-        if has_pdb_agg
-            && limit_offset
-                .as_ref()
-                .and_then(|lo| lo.static_fetch())
-                .is_none()
-        {
+        if has_pdb_agg && limit_offset.is_none() {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: pdb.agg(...) window functions require a statically known LIMIT and OFFSET",
+                "JoinScan not used: pdb.agg(...) window functions require a LIMIT",
             ));
         }
 
@@ -715,18 +780,34 @@ impl JoinScan {
                     let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
                     let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
                     let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                        .is_none()
-                        || resolve_fast_field(
-                            jk.inner_attno as i32,
-                            &inner_hr.tuple_desc(),
-                            &inner_ir,
-                        )
-                        .is_none()
-                    {
-                        return Err(JoinDeclineReason::new(
-                            "JoinScan not used: join conditions must reference columnar indexed fields",
-                        ));
+                    let outer_ff = resolve_fast_field(
+                        jk.outer_attno as i32,
+                        &outer_hr.tuple_desc(),
+                        &outer_ir,
+                    );
+                    let inner_ff = resolve_fast_field(
+                        jk.inner_attno as i32,
+                        &inner_hr.tuple_desc(),
+                        &inner_ir,
+                    );
+                    match (&outer_ff, &inner_ff) {
+                        (Some(outer_ff), Some(inner_ff)) => {
+                            let either_numeric =
+                                outer_ff.field_type().is_some_and(|ft| ft.is_numeric())
+                                    || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
+                            if either_numeric
+                                && !numeric_pushdown_safe(outer_ff, &outer_ir, inner_ff, &inner_ir)
+                            {
+                                return Err(JoinDeclineReason::new(
+                                    "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(JoinDeclineReason::new(
+                                "JoinScan not used: join conditions must reference columnar indexed fields",
+                            ));
+                        }
                     }
                 }
                 _ => {
@@ -927,9 +1008,7 @@ impl JoinScan {
     /// `join_level_predicates` — still carries a Param or PostgresExpression(SubPlan) the
     /// executor needs to resolve. Clause-wide (not per-source): a cross-relation predicate
     /// (e.g. an `OR` spanning two joined tables) lives in `join_level_predicates`, outside
-    /// every source's `scan_info.query`, so a per-source-only check misses it. Read-only
-    /// (`&JoinCSClause`) so EXPLAIN's `&CustomScanStateWrapper` call site doesn't need a
-    /// mutable borrow just to ask a yes/no question.
+    /// every source's `scan_info.query`, so a per-source-only check misses it.
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.has_postgres_expressions() || join_clause.has_parameters()
     }
@@ -1000,7 +1079,6 @@ impl JoinScan {
             .collect();
         let args = ParallelScanArgs {
             all_sources,
-            query: vec![],
             with_aggregates: false,
             with_segment_info: false,
         };
@@ -1239,15 +1317,12 @@ impl CustomScan for JoinScan {
             // build_output_projection, which match on the original
             // WindowFunc nodes.
             if !private_data.join_clause.window_aggs.is_empty() {
+                let mut rewriter = window_func::PlaceholderRewriter::new(root);
                 for tlist in [tlist_ptr, node.custom_scan_tlist] {
                     let entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
                     for te in entries.iter_ptr() {
                         if pg_sys::contain_window_function((*te).expr.cast()) {
-                            (*te).expr = window_func::rewrite_window_funcs_to_placeholders(
-                                (*te).expr.cast(),
-                                root,
-                            )
-                            .cast();
+                            (*te).expr = rewriter.rewrite_expr((*te).expr.cast()).cast();
                         }
                     }
                 }
@@ -1480,18 +1555,6 @@ impl CustomScan for JoinScan {
                 explainer.add_text("MPP Launch", t.explain_text());
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
-            // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
-            // plan and calling PgSearchTableProvider::scan(), but without executor state
-            // (planstate=None). If any source query contains a PostgresExpression
-            // (e.g., prepared-statement parameter), scan() would fail with "missing
-            // planstate". Skip physical plan display for those cases.
-            if Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
-                explainer.add_text(
-                    "DataFusion Physical Plan",
-                    "omitted for EXPLAIN because source queries require executor-time expression resolution",
-                );
-                return;
-            }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
             // matching EXPLAIN ANALYZE. When MPP is active, first build against
@@ -1503,13 +1566,10 @@ impl CustomScan for JoinScan {
                 .build()
                 .expect("Failed to create tokio runtime");
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
-                let logical_plan = deserialize_logical_plan_with_runtime(
+                let logical_plan = deserialize_logical_plan_for_explain(
                     bytes,
                     &ctx.task_ctx(),
-                    None,
-                    Some(expr_context.as_ptr()),
-                    None,
-                    vec![],
+                    expr_context.as_ptr(),
                 )
                 .expect("Failed to deserialize logical plan");
                 runtime
@@ -1685,17 +1745,8 @@ impl CustomScan for JoinScan {
                             source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
-                        let logical_plan = match runtime_limit_offset {
-                            Some((skip, fetch)) => {
-                                use datafusion::logical_expr::LogicalPlanBuilder;
-                                LogicalPlanBuilder::from(logical_plan)
-                                    .limit(skip, Some(fetch))
-                                    .expect("failed to add Limit to logical plan")
-                                    .build()
-                                    .expect("failed to build logical plan with Limit")
-                            }
-                            None => logical_plan,
-                        };
+                        let logical_plan =
+                            bind_runtime_limit_offset(logical_plan, runtime_limit_offset);
                         runtime
                             .block_on(build_physical_plan(ctx, logical_plan))
                             .expect("Failed to create execution plan")
@@ -1750,17 +1801,8 @@ impl CustomScan for JoinScan {
                                 source_manifests.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
-                            let logical_plan = match runtime_limit_offset {
-                                Some((skip, fetch)) => {
-                                    use datafusion::logical_expr::LogicalPlanBuilder;
-                                    LogicalPlanBuilder::from(logical_plan)
-                                        .limit(skip, Some(fetch))
-                                        .expect("failed to add Limit to logical plan")
-                                        .build()
-                                        .expect("failed to build logical plan with Limit")
-                                }
-                                None => logical_plan,
-                            };
+                            let logical_plan =
+                                bind_runtime_limit_offset(logical_plan, runtime_limit_offset);
                             let plan = runtime
                                 .block_on(build_physical_plan(&serial_ctx, logical_plan))
                                 .expect("Failed to create execution plan from serial fallback");
@@ -2422,6 +2464,11 @@ impl JoinScan {
         let (mut plan, multi_table_clauses) =
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
+        let predicates = plan.search_predicates();
+        crate::postgres::customscan::joinscan::build::assign_tagged_queries(
+            plan.sources_mut(),
+            &predicates,
+        );
 
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
@@ -2873,5 +2920,24 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
+    }
+}
+
+fn bind_runtime_limit_offset(
+    logical_plan: LogicalPlan,
+    runtime_limit_offset: Option<(usize, usize)>,
+) -> LogicalPlan {
+    match runtime_limit_offset {
+        Some((skip, fetch)) => {
+            use datafusion::logical_expr::LogicalPlanBuilder;
+            let logical_plan = bind_topk_agg_fetch(logical_plan, skip.saturating_add(fetch))
+                .expect("failed to bind limit to __topk_agg");
+            LogicalPlanBuilder::from(logical_plan)
+                .limit(skip, Some(fetch))
+                .expect("failed to add Limit to logical plan")
+                .build()
+                .expect("failed to build logical plan with Limit")
+        }
+        None => logical_plan,
     }
 }

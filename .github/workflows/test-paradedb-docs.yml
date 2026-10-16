@@ -70,7 +70,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Install Mintlify CLI
-        run: npm install -g mintlify
+        run: npm install -g mintlify@4.2.1039
 
       - name: Test Docs for Broken Links
         working-directory: docs/

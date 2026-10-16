@@ -17,7 +17,7 @@
 
 use crate::api::Cardinality;
 
-use crate::index::mvcc::SegmentView;
+use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 
 use crate::postgres::ParallelScanState;
 
@@ -26,8 +26,10 @@ pub use crate::scan::info::RowEstimate;
 use crate::aggregate::AggregateRequest;
 use crate::api::operator::estimate_selectivity_and_cost;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::heap::BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use crate::query::estimate::QueryEstimate;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
@@ -106,8 +108,8 @@ pub(crate) fn parallel_scan_is_cheaper(
     work > parallel_threshold(nworkers, leader_participates, transfer_cost)
 }
 
-/// Use workers when dividing traversal, collector updates, and heap visibility checks
-/// saves more than parallel startup and transferring one partial result per worker.
+/// Use workers when traversal, collector updates, and heap visibility checks cost
+/// more than parallel startup and transferring one partial result per worker.
 /// Unknown estimates keep the existing worker budget.
 pub(crate) fn aggregate_nworkers(
     index: &PgSearchRelation,
@@ -160,28 +162,47 @@ pub(crate) fn aggregate_nworkers(
         } else {
             0.0
         };
-        let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+        let fast_count = matches!(aggregation, AggregateRequest::Sql(clause)
+            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
+            && reader.query().is_fast_count();
+        let mut visibility_map_words = 0u64;
+        if fast_count && solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
+            let view = reader.segment_view();
+            for (segment, entry) in reader.segment_readers().iter().zip(view.entries()) {
+                if !matches!(entry.docs, SegmentViewDocs::Immutable { .. })
+                    || segment.num_docs() == 0
+                {
+                    continue;
+                }
+                let Ok(Some(blocks)) = SearchIndexReader::block_bounds(segment) else {
+                    return (nworkers, None);
+                };
+                if blocks.is_empty() || *blocks.end() == pg_sys::InvalidBlockNumber {
+                    continue;
+                }
+                let (first, last) = (u64::from(*blocks.start()), u64::from(*blocks.end()));
+                if last - first + 1
+                    < BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(segment.num_docs())
+                {
+                    visibility_map_words += last / 32 - first / 32 + 1;
+                }
+            }
+        }
+        let mut traversal_work = cost as f64 * pg_sys::cpu_index_tuple_cost;
+        if fast_count {
+            traversal_work /= crate::gucs::count_parallel_threshold_multiplier();
+        }
+        let work = traversal_work
             + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
+            + visibility_map_words as f64 * pg_sys::cpu_operator_cost
             + heap_checks * pg_sys::cpu_tuple_cost;
         let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
         let parallel_cost = ParallelCost {
             estimated_work: work,
-            parallel_threshold: parallel_threshold(
-                workers,
-                pg_sys::parallel_leader_participation,
-                transfer_cost,
-            ),
+            parallel_threshold: pg_sys::parallel_setup_cost + transfer_cost,
         };
-        let nworkers = if parallel_scan_is_cheaper(
-            work,
-            workers,
-            pg_sys::parallel_leader_participation,
-            transfer_cost,
-        ) {
-            nworkers
-        } else {
-            0
-        };
+        let use_parallel = work > parallel_cost.parallel_threshold;
+        let nworkers = if use_parallel { nworkers } else { 0 };
         pgrx::debug1!(
             "aggregate traversal cost={cost}, matching rows={rows}, heap checks={heap_checks}, requested parallel workers={nworkers}"
         );

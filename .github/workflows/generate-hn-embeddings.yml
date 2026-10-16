@@ -92,6 +92,27 @@ jobs:
               stream.write(f"CACHE_PREFIX={config['artifact_prefix']}/embedding-cache/{os.environ['PREPARATION']}\n")
           PY
 
+      - name: Verify Artifact Read and Write Access
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "benchmarks/scripts")
+          from embed_hn import Store
+
+          probe = f"preflight/{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}.json"
+          expected = {"run_id": os.environ["GITHUB_RUN_ID"], "commit": os.environ["GITHUB_SHA"]}
+          for prefix in (os.environ["DATASET_PREFIX"], os.environ["CACHE_PREFIX"]):
+              store = Store(Path(os.environ["WORK"]) / "preflight", prefix)
+              store.save(probe, expected)
+              actual = json.loads(store.fetch(probe, refresh=True).read_text())
+              if actual != expected:
+                  raise ValueError(f"Artifact read/write verification failed for {prefix}")
+              print(f"Verified artifact read/write access: {prefix}")
+          PY
+
       - name: Check for Existing Request Plan
         if: inputs.action == 'prepare'
         run: |

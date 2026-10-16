@@ -1,7 +1,7 @@
 dataset = "hn"
 version = "v1"
 source = "s3://paradedb-benchmarker/datasets/hn-ci.tar.gz"
-artifact_prefix = "s3://paradedb-benchmarks/datasets/hn/v1"
+artifact_prefix = "s3://paradedb-ci-benchmarks/datasets/hn/v1"
 snapshot_prefix = "s3://paradedb-ci-benchmarks/snapshots/hn/v1"
 
 [embedding]

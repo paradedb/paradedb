@@ -62,7 +62,7 @@ publishing a dataset version.
 The agreed portable artifact layout is:
 
 ```text
-s3://paradedb-benchmarks/datasets/hn/v1/
+s3://paradedb-ci-benchmarks/datasets/hn/v1/
   embedding-cache/<preparation>/
     plan.json
     profile.json
@@ -82,6 +82,13 @@ s3://paradedb-benchmarks/datasets/hn/v1/
   sampled/<size>/parquet/hn/
     part-*.parquet
 ```
+
+Generated artifacts use the same `paradedb-ci-benchmarks` bucket and CI credentials
+as Cohere heap snapshots. Before downloading the source or submitting paid Batch
+jobs, the embedding workflow uploads and reads back a small JSON probe under each
+artifact/cache prefix's `preflight/` directory. The probes contain only the run ID
+and commit, and are retained separately from the immutable dataset manifests.
+A write denial therefore stops the run before profiling or request planning.
 
 Heap snapshots belong under
 `s3://paradedb-ci-benchmarks/snapshots/hn/v1/<run-id>-<attempt>/full/`.
@@ -129,11 +136,11 @@ For durable CI checkpoints and to avoid retaining all vectors on the runner:
 ```sh
 uv run benchmarks/scripts/embed_hn.py publish \
   --directory /path/to/hn-v1-embeddings \
-  --s3-prefix s3://paradedb-benchmarks/datasets/hn/v1/embedding-cache/initial
+  --s3-prefix s3://paradedb-ci-benchmarks/datasets/hn/v1/embedding-cache/initial
 
 uv run benchmarks/scripts/embed_hn.py advance \
   --directory /path/to/hn-v1-embeddings \
-  --s3-prefix s3://paradedb-benchmarks/datasets/hn/v1/embedding-cache/initial \
+  --s3-prefix s3://paradedb-ci-benchmarks/datasets/hn/v1/embedding-cache/initial \
   --max-seconds 18000
 ```
 
@@ -174,7 +181,7 @@ uv run benchmarks/scripts/assemble_hn.py assemble \
 ```
 
 Add `--cache-s3-prefix
-s3://paradedb-benchmarks/datasets/hn/v1/embedding-cache/initial` to restore a remote
+s3://paradedb-ci-benchmarks/datasets/hn/v1/embedding-cache/initial` to restore a remote
 cache into a local directory. Assembly verifies the source, plan, profile,
 holdout, and every vector shard against their recorded checksums. It rejects
 missing, duplicate, unexpected, null, zero, nonfinite, or incorrectly dimensioned
@@ -214,7 +221,7 @@ Publish a successfully assembled dataset separately:
 ```sh
 uv run benchmarks/scripts/assemble_hn.py publish \
   --output /path/to/hn-v1-dataset \
-  --s3-prefix s3://paradedb-benchmarks/datasets/hn/v1
+  --s3-prefix s3://paradedb-ci-benchmarks/datasets/hn/v1
 ```
 
 Publication requires an archive-verified source profile, checks local artifact
@@ -260,7 +267,7 @@ only the full corpus, freezes PostgreSQL filters, runs pinned Supernova
 `nova-bf`, and publishes pdbench-compatible top-10 fixtures under:
 
 ```text
-s3://paradedb-benchmarks/datasets/hn/v1/
+s3://paradedb-ci-benchmarks/datasets/hn/v1/
   queries/ground_truth_<query_name>_full.parquet
   ground_truth/manifest.json
   ground_truth/filters.json
@@ -313,7 +320,7 @@ NOVA_BF_DEVICE=cpu python benchmarks/scripts/ground_truth_hn.py compute \
 
 python benchmarks/scripts/ground_truth_hn.py publish \
   --output /path/to/hn-v1-gt \
-  --s3-prefix s3://paradedb-benchmarks/datasets/hn/v1
+  --s3-prefix s3://paradedb-ci-benchmarks/datasets/hn/v1
 ```
 
 Add `--s3-prefix` to `prepare` to restore missing dataset files. PostgreSQL needs

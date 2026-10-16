@@ -1,6 +1,6 @@
 sampling_seed = 42
 load_format = "parquet"
-s3_base_path = "s3://paradedb-benchmarks/datasets/hn/v1"
+s3_base_path = "s3://paradedb-ci-benchmarks/datasets/hn/v1"
 tables = []
 
 [root_table]

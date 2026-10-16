@@ -1008,7 +1008,7 @@ async fn test_ephemeral_small_immutable_backpressure_bounds_concurrent_writers()
         "CREATE EXTENSION pg_search CASCADE;
         CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
         CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
-        WITH (target_segment_count=1, mutable_segment_rows=0, max_small_segment_count=32)",
+        WITH (target_segment_count=1, mutable_segment_rows=0)",
     )
     .await?;
     let finished = std::sync::Arc::new(AtomicUsize::new(0));
@@ -1049,7 +1049,7 @@ async fn test_ephemeral_small_immutable_backpressure_bounds_concurrent_writers()
     for writer in writers {
         writer.await?;
     }
-    anyhow::ensure!(peak <= 32 + 8, "small segment count reached {peak}");
+    anyhow::ensure!(peak <= 256 + 8, "small segment count reached {peak}");
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
         .fetch_one(&mut conn)
         .await?;
@@ -1073,12 +1073,14 @@ async fn test_ephemeral_small_immutable_backpressure_wait_is_cancellable() -> Re
         None,
     );
     let mut conn = postgres.connection().await?;
-    conn.execute("CREATE EXTENSION pg_search CASCADE;
+    conn.execute(
+        "CREATE EXTENSION pg_search CASCADE;
         CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
         CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
-        WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0', max_small_segment_count=8)")
-        .await?;
-    for id in 0..40_i64 {
+        WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0')",
+    )
+    .await?;
+    for id in 0..320_i64 {
         sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
             .bind(id)
             .execute(&mut conn)
@@ -1096,7 +1098,7 @@ async fn test_ephemeral_small_immutable_backpressure_wait_is_cancellable() -> Re
         .await?;
     conn.execute("ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb'); SET statement_timeout = '100ms'").await?;
     let error = conn
-        .execute("INSERT INTO backpressure VALUES (40, 'cancel me')")
+        .execute("INSERT INTO backpressure VALUES (320, 'cancel me')")
         .await
         .unwrap_err();
     anyhow::ensure!(
@@ -1108,20 +1110,20 @@ async fn test_ephemeral_small_immutable_backpressure_wait_is_cancellable() -> Re
         .execute(&mut locker)
         .await?;
     conn.execute(
-        "SET statement_timeout = '30s'; INSERT INTO backpressure VALUES (40, 'after cancellation')",
+        "SET statement_timeout = '30s'; INSERT INTO backpressure VALUES (320, 'after cancellation')",
     )
     .await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
         .fetch_one(&mut conn)
         .await?;
-    anyhow::ensure!(count == 41, "expected 41 indexed rows, got {count}");
+    anyhow::ensure!(count == 321, "expected 321 indexed rows, got {count}");
     let segments: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable",
     )
     .fetch_one(&mut conn)
     .await?;
     anyhow::ensure!(
-        segments <= 4,
+        segments <= 128,
         "backpressure did not recover after cancellation: {segments}"
     );
     // Heap-reference verification includes aborted index entries until VACUUM removes them.

@@ -491,7 +491,7 @@ impl<'a> PredicateTranslator<'a> {
             input_vars,
             input_decodes,
             result_type_oid,
-        );
+        )?;
 
         Some(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(udf)),

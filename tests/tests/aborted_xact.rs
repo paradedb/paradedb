@@ -107,6 +107,8 @@ async fn cleanup_lock_wait_cancelled_then_retried(database: Db) -> anyhow::Resul
         )
         .await?;
 
+    wait_for_vacuum_horizon(&mut reader).await?;
+
     // An open search holds cleanup admission, so VACUUM waits until the timeout cancels it.
     reader.execute("BEGIN").await?;
     reader
@@ -114,6 +116,8 @@ async fn cleanup_lock_wait_cancelled_then_retried(database: Db) -> anyhow::Resul
         .await?;
     reader.execute("FETCH 1 FROM c").await?;
 
+    let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_locks WHERE pid=pg_backend_pid() AND locktype='page' AND relation='cleanup_wait_idx'::regclass AND mode='ShareLock' AND granted)").fetch_one(&mut reader).await?;
+    assert!(held, "cursor did not retain cleanup admission");
     vacuum.execute("SET statement_timeout = '1s'").await?;
     let err = vacuum
         .execute("VACUUM cleanup_wait")
@@ -148,7 +152,10 @@ async fn vacuum_admission_allows_existing_readers_to_finish(database: Db) -> any
          CREATE INDEX cleanup_admission_idx ON cleanup_admission USING paradedb (id,body); \
          DELETE FROM cleanup_admission WHERE id<=100",
     ).await?;
+    wait_for_vacuum_horizon(&mut reader).await?;
     reader.execute("SET statement_timeout='10s'; BEGIN; DECLARE c CURSOR FOR SELECT id FROM cleanup_admission WHERE id @@@ paradedb.all(); FETCH 1 FROM c").await?;
+    let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_locks WHERE pid=pg_backend_pid() AND locktype='page' AND relation='cleanup_admission_idx'::regclass AND mode='ShareLock' AND granted)").fetch_one(&mut reader).await?;
+    assert!(held, "cursor did not retain cleanup admission");
     vacuum.execute("SET statement_timeout='10s'").await?;
     late_reader.execute("SET statement_timeout='10s'").await?;
     let vacuum_task = tokio::spawn(async move { vacuum.execute("VACUUM cleanup_admission").await });
@@ -160,6 +167,12 @@ async fn vacuum_admission_allows_existing_readers_to_finish(database: Db) -> any
         ).fetch_one(&mut observer).await?;
         if queued {
             break;
+        }
+        if vacuum_task.is_finished() {
+            anyhow::bail!(
+                "VACUUM finished before queueing for reader admission: {:?}",
+                vacuum_task.await?
+            );
         }
         anyhow::ensure!(
             Instant::now() < deadline,
@@ -225,4 +238,30 @@ async fn vacuum_admission_allows_existing_readers_to_finish(database: Db) -> any
         .fetch_one(&mut observer).await?;
     assert_eq!(passed, Some(true));
     Ok(())
+}
+
+async fn wait_for_vacuum_horizon(conn: &mut PgConnection) -> anyhow::Result<()> {
+    use std::time::{Duration, Instant};
+
+    // A cursor must not retain an xmin older than the fixture's committed deletions.
+    let after_setup: String =
+        sqlx::query_scalar("SELECT pg_snapshot_xmax(pg_current_snapshot())::text")
+            .fetch_one(&mut *conn)
+            .await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let ready: bool =
+            sqlx::query_scalar("SELECT pg_snapshot_xmin(pg_current_snapshot()) >= $1::text::xid8")
+                .bind(&after_setup)
+                .fetch_one(&mut *conn)
+                .await?;
+        if ready {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "old snapshots prevented fixture rows from becoming vacuumable"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }

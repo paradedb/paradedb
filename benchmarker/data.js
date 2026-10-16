@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792112696120,
+  "lastUpdate": 1792113944863,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -12652,6 +12652,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 185.931,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bad19fd8e7d2b9351bb617f478adb563797e5492",
+          "message": "fix: launch the background merger under backpressure and release its pins per candidate (#6855)\n\n# Ticket(s) Closed\n\n- Closes #6796\n\n## What\n\nTwo fixes for segments piling up under concurrent writers and the\nbackground merger then failing with `no unpinned buffers available`:\n\n1. **Launch under backpressure** (`be108fecc`). An insert under\nbackpressure (more than 2 mutable segments) merged in the foreground and\ndid not launch the background merger, because the launch required\n`needs_background_merge && !need_backpressure`. With concurrent writers\nthat is nearly every insert that creates a segment (195 of 199 in a\n30-writer test), so a merger rarely ran while writers were active.\n`do_merge` now also launches the merger after the foreground merge when\nthere is background work.\n2. **Release pins per candidate** (`1b009de84`). The merger keeps every\nsegment file's reader in `MVCCDirectory.readers`, and each reader keeps\nits pages pinned. `drop_pins` released only the pin-cushion pin, so the\nmerger's pins grew with every candidate until it exited, and a merge\nover a large pile pinned all of `shared_buffers`. `drop_pins` now also\nremoves the merged segments' readers\n(`SegmentMetaEntry::get_component_paths`).\n\nThe Stressgres workload is in `d625c0bba` and `9ca7c5298`.\n\n## Why\n\nOn a large pile the merger exhausted the buffer pool, failed, and\nnothing retried. Writers reading at the same time failed with the same\nerror.\n\n## How\n\n- `merge.rs`: one guarded `try_launch_background_merger` call after the\nforeground merge. Only the \"backpressure + background work\" case reaches\nit; `merge_index` has already released the merge and cleanup locks.\nUnder backpressure every segment-creating insert now tries to launch;\nmost attempts find the slot busy and return after a non-blocking\nadvisory-lock check (about 11 per second in the Stressgres run).\n- `mvcc.rs`: `drop_pins` locks `readers` first (same order as\n`get_file_handle`) and removes each merged segment's readers.\n\n@rebasedming: this changes the `!need_backpressure` launch condition\nfrom #4244. Was blocking the launch under backpressure intended?\n\n## Tests\n\n- `test_ephemeral_background_merge_releases_merged_segment_pins`: one\nmerge over 500 single-row segments with 16MB `shared_buffers`. On `main`\nthe merger runs out of buffers (500 → 376 segments, `no unpinned buffers\navailable`); with the fix 500 → 11, no errors.\n- `test_ephemeral_insert_under_backpressure_launches_background_merger`:\nreaches backpressure in one session. Immutable segments stay at 13\nwithout the launch fix and drop to 3 with it.\n- Stressgres `bulk-update-merge-pressure`: adds 16 upsert writers on a\nseparate `upserts` table (autovacuum off, since VACUUM launches the\nmerger regardless of backpressure) and a check that fails if immutable\nsegments grow for a minute with none merged away. On `main` it fails at\n60s (\"idxupserts grew from 16 to 598 immutable segments ... none were\nmerged away\"); with the fixes it runs 10 minutes, with 7 to 312 segments\nmerged away per minute.\n\nTo check a test fails without its fix: revert `1b009de84` or\n`be108fecc`, `cargo pgrx install` into the Postgres that `PG_CONFIG`\npoints to, and run `PG_CONFIG=<pg_config> cargo test -p tests --test\nreplication <test name>`.\n\nCI: no new Stressgres job. The extra writers will lower the existing TPS\nnumbers of `bulk-update-merge-pressure` from this commit on.\n\nValidated on a local debug build only. There the segment count still\nclimbs over 10 minutes even though merging runs every minute;\nrelease-build behaviour will show in the Stressgres runs.",
+          "timestamp": "2026-10-15T16:59:21-07:00",
+          "tree_id": "d1f1787c26356efa55a9189733bf7d681588af76",
+          "url": "https://github.com/paradedb/paradedb/commit/bad19fd8e7d2b9351bb617f478adb563797e5492"
+        },
+        "date": 1792113933534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.531,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.561,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 340.789,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.203,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.681,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.246,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.625,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.24,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.984,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.843,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.552,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.16,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 83.059,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 186.189,
             "unit": "ms"
           }
         ]

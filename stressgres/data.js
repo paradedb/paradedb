@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792137304703,
+  "lastUpdate": 1792137322296,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -348866,6 +348866,160 @@ window.BENCHMARK_DATA = {
             "value": 22.11328125,
             "unit": "median mem",
             "extra": "avg mem: 22.057679681044803, max mem: 22.11328125, count: 59303"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792137312450,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.65593122730209, max cpu: 33.3996, count: 59283"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 51.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.87926911488116, max mem: 61.6953125, count: 59283"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.262459561716706, max cpu: 4.7058825, count: 59283"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 20.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.607830369794037, max mem: 20.6796875, count: 59283"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.718727463913149, max cpu: 9.425626, count: 59283"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 28.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.819826351989608, max mem: 28.8203125, count: 59283"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 12725,
+            "unit": "median pages",
+            "extra": "avg pages: 15543.590894522882, max pages: 41657.0, count: 59283"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 99.4140625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 121.4343041270263, max relation_size:MB: 325.4453125, count: 59283"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 39,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.30443803451242, max segment_count: 99.0, count: 59283"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633678060424508, max cpu: 4.7081904, count: 59283"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 19.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.909852951098966, max mem: 19.9296875, count: 59283"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.7029669078209, max cpu: 33.3996, count: 59283"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.95281089488133, max mem: 61.33984375, count: 59283"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.267086,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.475206825810226, max cpu: 33.08715, count: 59283"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.50406669597524, max mem: 56.91796875, count: 59283"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 95.44921875,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 198.39269793363582, max replication_lag:MB: 994.0146942138672, count: 59283"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.711817938760056, max cpu: 33.119766, count: 59283"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.31879284269942, max mem: 63.57421875, count: 59283"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.311348,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.860985157209301, max cpu: 32.95733, count: 59283"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 20.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.657676881968694, max mem: 22.84765625, count: 59283"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.311348,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.01014732358901, max cpu: 28.402367, count: 59283"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 20.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.52621720181165, max mem: 22.84765625, count: 59283"
           }
         ]
       }

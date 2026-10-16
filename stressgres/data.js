@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792117932134,
+  "lastUpdate": 1792117953504,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -330914,6 +330914,52 @@ window.BENCHMARK_DATA = {
             "value": 25.36701729025809,
             "unit": "median tps",
             "extra": "avg tps: 39.1697960973196, max tps: 405.2351001409763, count: 59296"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792117921894,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 26.44207642406813,
+            "unit": "median tps",
+            "extra": "avg tps: 40.69840187515833, max tps: 389.7379632911888, count: 59303"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 26.19721598813747,
+            "unit": "median tps",
+            "extra": "avg tps: 40.59684596910107, max tps: 384.17045175109956, count: 59303"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 28.70325384689426,
+            "unit": "median tps",
+            "extra": "avg tps: 46.92722312482769, max tps: 544.7730299539168, count: 59303"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 26.131992497277025,
+            "unit": "median tps",
+            "extra": "avg tps: 40.510734802255115, max tps: 389.9964577998196, count: 59303"
           }
         ]
       }

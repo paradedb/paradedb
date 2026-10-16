@@ -36,6 +36,7 @@ use pgrx::{FromDatum, IntoDatum, PgTryBuilder, check_for_interrupts, pg_guard, p
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
+use std::time::{Duration, Instant};
 use tantivy::index::SegmentMeta;
 
 thread_local! {
@@ -475,10 +476,66 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         );
     }
     let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
+    let mut mutable_slot = if args.slot_variant() == MergeSlotVariant::Mutable {
+        let slot = BackgroundWorker::transaction(|| {
+            AdvisoryLock::conditional_lock_session(
+                MergeSlot::new(args.index_oid(), args.slot_variant()).key(),
+            )
+        });
+        if slot.is_none() {
+            return;
+        }
+        slot
+    } else {
+        None
+    };
     loop {
         check_for_interrupts!();
         if BackgroundWorker::sighup_received() {
             pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
+        }
+        if mutable_slot.is_some() {
+            let collect = BackgroundWorker::transaction(|| {
+                if VacuumSignal::new(args.index_oid()).wants_cancel() {
+                    return None;
+                }
+                let index = PgSearchRelation::try_open(
+                    args.index_oid(),
+                    pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                )?;
+                if !index.is_valid() || index.options().background_layer_sizes().is_empty() {
+                    return None;
+                }
+                let metadata = MetaPage::open(&index);
+                Some(!metadata.segment_metas().list(None).iter().any(|entry| {
+                    entry.visible()
+                        && matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if content.frozen)
+                }))
+            });
+            let Some(collect) = collect else {
+                break;
+            };
+            if collect {
+                // Keep only the worker slot while collecting; latch wakeups do not extend the deadline.
+                let deadline = Instant::now() + MUTABLE_FLUSH_INTERVAL;
+                while Instant::now() < deadline {
+                    pg_sys::ResetLatch(pg_sys::MyLatch);
+                    check_for_interrupts!();
+                    if BackgroundWorker::sighup_received() {
+                        pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
+                    }
+                    pg_sys::WaitLatch(
+                        pg_sys::MyLatch,
+                        (pg_sys::WL_LATCH_SET | pg_sys::WL_TIMEOUT | pg_sys::WL_EXIT_ON_PM_DEATH)
+                            as i32,
+                        deadline
+                            .saturating_duration_since(Instant::now())
+                            .as_millis()
+                            .max(1) as _,
+                        pg_sys::PG_WAIT_EXTENSION,
+                    );
+                }
+            }
         }
         let merged = BackgroundWorker::transaction(|| {
             set_ps_display_suffix(MERGING.as_ptr());
@@ -504,6 +561,9 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             }
             let index = index.unwrap();
             if !index.is_valid() || index.options().background_layer_sizes().is_empty() {
+                return None;
+            }
+            if VacuumSignal::new(index.oid()).wants_cancel() {
                 return None;
             }
             // Each index has separate mutable, small immutable, and large immutable slots.
@@ -562,8 +622,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             break;
         }
 
-        // Release the slot before checking again so a concurrent append can launch a successor.
-        let pending = BackgroundWorker::transaction(|| {
+        let pending = BackgroundWorker::transaction(AssertUnwindSafe(|| {
             if VacuumSignal::new(args.index_oid()).wants_cancel() {
                 return false;
             }
@@ -577,16 +636,24 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             let merge_lock = metadata.acquire_merge_lock();
             let pending = has_unclaimed_mutable_segments(&metadata, &merge_lock, merged);
             drop(merge_lock);
-            if !pending && merged {
-                do_merge(&index, MergeStyle::Vacuum, None, None)
-                    .expect("should be able to schedule immutable merges after flushing");
+            if !pending {
+                // Recheck after releasing ownership so a concurrent append cannot lose its wakeup.
+                drop(mutable_slot.take());
+                let merge_lock = metadata.acquire_merge_lock();
+                let appended = has_unclaimed_mutable_segments(&metadata, &merge_lock, false);
+                drop(merge_lock);
+                if merged || appended {
+                    do_merge(&index, MergeStyle::Vacuum, None, None)
+                        .expect("should be able to schedule merges after flushing");
+                }
             }
             pending
-        });
+        }));
         if !pending {
             break;
         }
     }
+    BackgroundWorker::transaction(|| drop(mutable_slot));
 }
 
 #[inline]
@@ -756,6 +823,7 @@ pub fn free_entries(
 // random key, ensures that this advisory slot key doesn't conflict
 // with other Postgres advisory locks
 const MERGE_SLOT_KEY_BASE: u32 = 0x5047534D;
+const MUTABLE_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 
 // Mutable flushes have a dedicated slot. Immutable merges use separate small and large slots.
 const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb

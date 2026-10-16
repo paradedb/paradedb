@@ -1,8 +1,6 @@
 name: Generate HN Embeddings
 
 on:
-  pull_request:
-    paths: [".github/workflows/generate-hn-embeddings.yml"]
   workflow_dispatch:
     inputs:
       action:
@@ -36,15 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  register:
-    name: Register Manual Workflow
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo 'Registered for manual branch dispatch.'
-
   generate:
-    if: github.event_name == 'workflow_dispatch'
     name: ${{ inputs.action }} HN embeddings
     timeout-minutes: 360
     runs-on:

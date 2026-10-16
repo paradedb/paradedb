@@ -1,8 +1,6 @@
 name: Benchmark HN Vectors (pdbench)
 
 on:
-  pull_request:
-    paths: [".github/workflows/benchmark-hn-vectors.yml"]
   workflow_dispatch:
     inputs:
       action:
@@ -28,15 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  register:
-    name: Register Manual Workflow
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo 'Registered for manual branch dispatch.'
-
   benchmark:
-    if: github.event_name == 'workflow_dispatch'
     name: ${{ inputs.action }} Full HN
     timeout-minutes: 360
     runs-on:

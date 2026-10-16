@@ -1,8 +1,6 @@
 name: Generate HN Ground Truth
 
 on:
-  pull_request:
-    paths: [".github/workflows/generate-hn-ground-truth.yml"]
   workflow_dispatch:
 
 permissions:
@@ -13,15 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  register:
-    name: Register Manual Workflow
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo 'Registered for manual branch dispatch.'
-
   generate:
-    if: github.event_name == 'workflow_dispatch'
     name: Generate Full HN Ground Truth
     timeout-minutes: 360
     runs-on:

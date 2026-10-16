@@ -395,9 +395,16 @@ profile, frozen SQL, dataset/GT manifests, and per-query boundary diagnostics fo
 
 These workflows do not automatically chain. A successful `advance` job may still
 have Batch work pending; always check the completion marker before assembling.
-New `workflow_dispatch` workflows must be registered on the repository's default
-branch before GitHub permits manual dispatch. Once registered, a run can select
-the desired branch/ref.
+The workflows are registered with GitHub and can be dispatched from this branch:
+
+```sh
+gh workflow run generate-hn-embeddings.yml --repo paradedb/paradedb \
+  --ref codex/hn-vector-preparation -f action=prepare -f preparation=initial
+```
+
+For a brand-new workflow, a temporary PR-triggered registration job can make it
+available to the dispatch API before merge. Keep generation jobs restricted to
+`workflow_dispatch` during registration, then remove the temporary trigger.
 
 ## Checks
 

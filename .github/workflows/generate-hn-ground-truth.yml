@@ -1,0 +1,127 @@
+name: Generate HN Ground Truth
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hn-v1-ground-truth-generation
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate Full HN Ground Truth
+    timeout-minutes: 360
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=m8a+m8i
+      - cpu=16
+      - ram=64
+      - image=ubuntu26-full-x64
+      - volume=600gb
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: hn_gt_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      HN_GT_DATABASE_URL: postgresql://postgres:hn_gt_local@localhost:5432/postgres
+      NOVA_BF_DEVICE: cpu
+      OMP_NUM_THREADS: "16"
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Checkout Pinned Supernova
+        uses: actions/checkout@v7
+        with:
+          repository: qdrant-labs/supernova
+          ref: 695841a0fc29f8da303e8dccb80eb21cb732e280
+          path: supernova
+          persist-credentials: false
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Ground Truth Dependencies
+        run: |
+          python -m pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r benchmarks/scripts/requirements-hn-gt.txt
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Resolve Dataset Destination
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path("benchmarks/datasets/hn/prepare.toml").read_text())
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write(f"WORK={os.environ['RUNNER_TEMP']}/hn-ground-truth\n")
+              stream.write(f"DATASET_PREFIX={config['artifact_prefix']}\n")
+          PY
+
+      - name: Check for Existing Ground Truth
+        run: |
+          set -euo pipefail
+          existing=$(aws s3 ls "${DATASET_PREFIX}/ground_truth/manifest.json")
+          if [ -n "${existing}" ]; then
+            echo "Ground truth already exists at this immutable dataset version."
+            echo "GT_EXISTS=true" >> "${GITHUB_ENV}"
+          else
+            intent=$(aws s3 ls "${DATASET_PREFIX}/ground_truth/intent.json")
+            if [ -n "${intent}" ]; then
+              echo "::error::A previous GT publication is incomplete. Restore its recovery artifact and resume publish; do not recompute."
+              exit 1
+            fi
+          fi
+
+      - name: Restore Dataset and Freeze PostgreSQL Filters
+        if: env.GT_EXISTS != 'true'
+        run: |
+          python benchmarks/scripts/ground_truth_hn.py prepare \
+            --dataset-directory "${WORK}/dataset" --s3-prefix "${DATASET_PREFIX}" \
+            --output "${WORK}/gt" --memory-limit 8GB
+
+      - name: Compute Exhaustive Cosine Ground Truth
+        if: env.GT_EXISTS != 'true'
+        run: |
+          python benchmarks/scripts/ground_truth_hn.py compute \
+            --output "${WORK}/gt" --supernova "${GITHUB_WORKSPACE}/supernova"
+
+      - name: Publish Ground Truth
+        if: env.GT_EXISTS != 'true'
+        run: |
+          python benchmarks/scripts/ground_truth_hn.py publish \
+            --output "${WORK}/gt" --s3-prefix "${DATASET_PREFIX}"
+
+      - name: Preserve Ground Truth for Publication Recovery
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hn-ground-truth-recovery
+          path: |
+            ${{ env.WORK }}/gt/ground_truth
+            ${{ env.WORK }}/gt/queries
+          if-no-files-found: ignore
+          retention-days: 14

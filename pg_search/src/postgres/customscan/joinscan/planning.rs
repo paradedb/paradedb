@@ -2457,7 +2457,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     let result_type = pg_sys::exprType(expr);
 
-    if !crate::postgres::types_arrow::is_arrow_convertible(result_type) {
+    if !crate::postgres::types_arrow::is_expr_type_arrow_convertible(result_type) {
         let type_name = format_type_name(result_type);
         pgrx::debug1!(
             "JoinScan declined: target list expression returns type '{}' \

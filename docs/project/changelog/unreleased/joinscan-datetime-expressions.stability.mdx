@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed Join Scan queries that project an expression over an indexed `DATE`, `TIME`, or `TIMETZ` column, such as `d::text` or `to_char(d, 'YYYY-MM-DD')`. A `DATE` expression failed at planning time with `coercion from Timestamp(µs) to the signature Exact(Date32) failed`, and a `TIME` or `TIMETZ` expression failed at execution time with `Unsupported OID for Utf8 Arrow type` (#6577).

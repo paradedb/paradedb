@@ -32,7 +32,7 @@ use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder, UInt64Builder,
 };
-use arrow_array::{ArrayRef, UInt64Array};
+use arrow_array::{Array, ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
 use datafusion::common::Result;
 use datafusion::error::DataFusionError;
@@ -509,6 +509,46 @@ impl FFType {
                 ids.len(),
             )),
         }
+    }
+
+    /// Turns a list of term ordinals, as [`Self::fetch_array_values_or_ords_to_arrow`] reads a
+    /// multi-valued Text or Bytes column, into the list of the terms they name. Offsets and
+    /// nulls carry over, so a doc with no values stays a NULL list. A list read from any other
+    /// column already holds its values and comes back as it is.
+    pub(crate) fn decode_list_ords(&self, ords_list: ArrayRef) -> Result<ArrayRef> {
+        let list = ords_list
+            .as_any()
+            .downcast_ref::<arrow_array::ListArray>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "expected a list column, found {:?}",
+                    ords_list.data_type()
+                ))
+            })?;
+        let term_ords = || {
+            list.values()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "expected UInt64 term ordinals in a list, found {:?}",
+                        list.values().data_type()
+                    ))
+                })
+        };
+        let terms = match self {
+            FFType::Text(col) => ords_to_string_array(col.clone(), term_ords()?)?,
+            FFType::Bytes(col) => ords_to_bytes_array(col.clone(), term_ords()?)?,
+            _ => return Ok(ords_list),
+        };
+        let decoded = arrow_array::ListArray::try_new(
+            list_item_field(terms.data_type().clone()),
+            list.offsets().clone(),
+            terms,
+            list.nulls().cloned(),
+        )
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        Ok(Arc::new(decoded))
     }
 }
 

@@ -14,6 +14,7 @@ CREATE TABLE tbl_ltree (
     category ltree
 );
 CREATE INDEX idx_ltree ON tbl_ltree USING paradedb (id, category);
+WARNING:  Direct indexing of `ltree` fields in ParadeDB is deprecated and will be removed in a future release. Use a PostgreSQL GiST index ('USING gist (category)') alongside the ParadeDB index instead.
 -- Insert test data with various ltree paths
 INSERT INTO tbl_ltree (category) VALUES 
     ('Top.Science.Astronomy'),
@@ -71,6 +72,7 @@ CREATE TABLE tbl_ltree_key (
     name TEXT
 );
 CREATE INDEX idx_ltree_key ON tbl_ltree_key USING paradedb (path, name);
+WARNING:  Direct indexing of `ltree` fields in ParadeDB is deprecated and will be removed in a future release. Use a PostgreSQL GiST index ('USING gist (path)') alongside the ParadeDB index instead.
 INSERT INTO tbl_ltree_key (path, name) VALUES 
     ('Root.Branch1', 'First Branch'),
     ('Root.Branch2', 'Second Branch');

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792120416020,
+  "lastUpdate": 1792137269554,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -175226,6 +175226,64 @@ window.BENCHMARK_DATA = {
             "value": 23.7005607381841,
             "unit": "median tps",
             "extra": "avg tps: 23.430670539336145, max tps: 35.306909548075794, count: 59296"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792137259608,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 159.23909981950672,
+            "unit": "median tps",
+            "extra": "avg tps: 157.51470110594173, max tps: 163.62334459729436, count: 59306"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 519.5297522376175,
+            "unit": "median tps",
+            "extra": "avg tps: 560.5248392247634, max tps: 5592.7052863122735, count: 59306"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 954.8348177040095,
+            "unit": "median tps",
+            "extra": "avg tps: 913.2259141351502, max tps: 1035.8885941052467, count: 59306"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 206.61361149443172,
+            "unit": "median tps",
+            "extra": "avg tps: 204.23257456713998, max tps: 216.40199366464256, count: 59306"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 250.18220934057467,
+            "unit": "median tps",
+            "extra": "avg tps: 329.2173358233912, max tps: 2072.848910264231, count: 118612"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 23.416204381057586,
+            "unit": "median tps",
+            "extra": "avg tps: 23.17545477230625, max tps: 33.45978231199467, count: 59306"
           }
         ]
       }

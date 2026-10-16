@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792119021119,
+  "lastUpdate": 1792119039256,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -451586,6 +451586,94 @@ window.BENCHMARK_DATA = {
             "value": 47.58984375,
             "unit": "median mem",
             "extra": "avg mem: 48.17088741294761, max mem: 57.59375, count: 58729"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792119030750,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 52.1796875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 51.53976342936566, max partition_index_size:MB: 65.28125, count: 58817"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.403217,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.264248891169007, max cpu: 33.15244, count: 58817"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.10338515543975, max mem: 58.73828125, count: 58817"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.91816897345055, max cpu: 37.851162, count: 58817"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.43183518370539, max mem: 78.46875, count: 58817"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.514371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.956708147309616, max cpu: 23.856857, count: 58817"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.55751406374858, max mem: 43.5546875, count: 58817"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.922635260513555, max cpu: 37.2093, count: 58817"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 55.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.75921263197715, max mem: 63.23046875, count: 58817"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.403217,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.16946352057838, max cpu: 32.82853, count: 58817"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 48.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.176401686055904, max mem: 56.53515625, count: 58817"
           }
         ]
       }

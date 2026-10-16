@@ -166,7 +166,8 @@ jobs:
 
             SUGGESTED_FILE="pg_search/sql/unreleased/${PR_NUMBER:-<PR_NUMBER>}.<short_description>.sql"
             shopt -s nullglob
-            MATCHING_FILES=(pg_search/sql/unreleased/*.sql)
+            mapfile -t RELEASED_FILES < <(git diff --name-only --diff-filter=AM FETCH_HEAD HEAD -- 'pg_search/sql/pg_search--*--*.sql')
+            MATCHING_FILES=(pg_search/sql/unreleased/*.sql "${RELEASED_FILES[@]}")
 
             if (( ${#MATCHING_FILES[@]} == 0 )); then
               echo "❌ ERROR: Schema changed but no SQL migration fragment found in pg_search/sql/unreleased/"

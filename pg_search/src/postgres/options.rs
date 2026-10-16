@@ -235,7 +235,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -324,6 +324,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, background_layer_sizes_offset)
                 as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "max_small_segment_count".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, max_small_segment_count) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -436,6 +443,15 @@ impl BM25IndexOptions {
         self.explicit_target_segment_count().unwrap_or_else(|| {
             default_target_segment_count(WorkerStyle::Query.max(), self.partition_by().len())
         })
+    }
+
+    pub fn max_small_segment_count(&self) -> Option<usize> {
+        let target = self.target_segment_count();
+        match self.options_data().max_small_segment_count {
+            -1 => None,
+            0 => Some(256.max(4 * target)),
+            count => Some((count as usize).max(2 * target)),
+        }
     }
 
     /// The target the user asked for, by GUC or reloption, or `None` when the default applies.
@@ -808,6 +824,7 @@ struct BM25IndexOptionsData {
     inet_fields_offset: i32,
     target_segment_count: i32,
     background_layer_sizes_offset: i32,
+    max_small_segment_count: i32,
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
@@ -830,6 +847,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     inet_fields_offset: 0,
     target_segment_count: 0,
     background_layer_sizes_offset: 0,
+    max_small_segment_count: 0,
     mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
@@ -1098,6 +1116,15 @@ pub unsafe fn init() {
         DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
         0,
         MAX_MUTABLE_SEGMENT_ROWS as i32,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "max_small_segment_count".as_pg_cstr(),
+        "Small immutable segment backpressure threshold; 0 is automatic, -1 disables".as_pg_cstr(),
+        0,
+        -1,
+        i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

@@ -95,9 +95,8 @@ CREATE UNLOGGED TABLE segment_counts (
     immutable_segments BIGINT NOT NULL
 );
 
--- With no foreground layers configured, foreground merges only take mutable and empty segments,
--- and VACUUM is off, so a non-empty immutable segment can only disappear into a background merge.
-CREATE OR REPLACE FUNCTION assert_background_merging(merge_window INTERVAL, max_growth BIGINT)
+-- Immutable segments can disappear into background merges or foreground backpressure merges.
+CREATE OR REPLACE FUNCTION assert_merge_progress(merge_window INTERVAL, max_growth BIGINT)
 RETURNS BIGINT LANGUAGE plpgsql AS $$
 DECLARE
     sampled_now TIMESTAMPTZ := clock_timestamp();
@@ -179,11 +178,11 @@ WHERE id < 10000;
 
 [[jobs]]
 refresh_ms = 1000
-title = "Background Merging"
+title = "Merge Progress"
 log_tps = false
 log_columns = ["merged_away"]
 sql = """
-SELECT assert_background_merging('60 seconds', 16) AS merged_away;
+SELECT assert_merge_progress('60 seconds', 16) AS merged_away;
 """
 
 [[jobs]]

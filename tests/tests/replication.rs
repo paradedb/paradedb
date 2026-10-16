@@ -994,3 +994,147 @@ async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -
     anyhow::ensure!(passed == Some(true), "verify_index failed after the merge");
     Ok(())
 }
+
+#[async_std::test]
+async fn test_ephemeral_small_immutable_backpressure_bounds_concurrent_writers() -> Result<()> {
+    let postgres = EphemeralPostgres::new(
+        Some(
+            "shared_preload_libraries = 'pg_search'\nshared_buffers = '16MB'\nmax_worker_processes = 0\nautovacuum = off\nstatement_timeout = '30s'",
+        ),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute(
+        "CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
+        CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
+        WITH (target_segment_count=1, mutable_segment_rows=0, max_small_segment_count=32)",
+    )
+    .await?;
+    let finished = std::sync::Arc::new(AtomicUsize::new(0));
+    let mut writers = Vec::new();
+    for writer in 0..8_i64 {
+        let mut writer_conn = postgres.connection().await?;
+        let finished = finished.clone();
+        writers.push(async_std::task::spawn(async move {
+            let result = async {
+                for row in 0..120_i64 {
+                    sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+                        .bind(writer * 120 + row)
+                        .execute(&mut writer_conn)
+                        .await?;
+                }
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            finished.fetch_add(1, Ordering::SeqCst);
+            result
+        }));
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut peak = 0;
+    while finished.load(Ordering::SeqCst) < 8 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable",
+        )
+        .fetch_one(&mut conn)
+        .await?;
+        peak = peak.max(count);
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "writers stalled under backpressure"
+        );
+        async_std::task::sleep(Duration::from_millis(10)).await;
+    }
+    for writer in writers {
+        writer.await?;
+    }
+    anyhow::ensure!(peak <= 32 + 8, "small segment count reached {peak}");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
+        .fetch_one(&mut conn)
+        .await?;
+    anyhow::ensure!(count == 960, "expected 960 indexed rows, got {count}");
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(
+        passed == Some(true),
+        "verify_index failed after backpressure"
+    );
+    Ok(())
+}
+
+#[async_std::test]
+async fn test_ephemeral_small_immutable_backpressure_wait_is_cancellable() -> Result<()> {
+    let postgres = EphemeralPostgres::new(
+        Some("shared_preload_libraries = 'pg_search'\nmax_worker_processes = 0\nautovacuum = off"),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute("CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
+        CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
+        WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0', max_small_segment_count=8)")
+        .await?;
+    for id in 0..40_i64 {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    let oid: i64 = sqlx::query_scalar("SELECT 'backpressure_idx'::regclass::oid::bigint")
+        .fetch_one(&mut conn)
+        .await?;
+    // Hold the existing Small merge slot from a second backend.
+    let slot_key = (0x5047534D_i64 << 32) | (oid << 8);
+    let mut locker = postgres.connection().await?;
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(slot_key)
+        .execute(&mut locker)
+        .await?;
+    conn.execute("ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb'); SET statement_timeout = '100ms'").await?;
+    let error = conn
+        .execute("INSERT INTO backpressure VALUES (40, 'cancel me')")
+        .await
+        .unwrap_err();
+    anyhow::ensure!(
+        error.as_database_error().and_then(|e| e.code()).as_deref() == Some("57014"),
+        "expected query cancellation, got {error}"
+    );
+    sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(slot_key)
+        .execute(&mut locker)
+        .await?;
+    conn.execute(
+        "SET statement_timeout = '30s'; INSERT INTO backpressure VALUES (40, 'after cancellation')",
+    )
+    .await?;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
+        .fetch_one(&mut conn)
+        .await?;
+    anyhow::ensure!(count == 41, "expected 41 indexed rows, got {count}");
+    let segments: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(
+        segments <= 4,
+        "backpressure did not recover after cancellation: {segments}"
+    );
+    // Heap-reference verification includes aborted index entries until VACUUM removes them.
+    conn.execute("VACUUM backpressure").await?;
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    if passed != Some(true) {
+        let failures: String = sqlx::query_scalar("SELECT json_agg(v)::text FROM pdb.verify_index('backpressure_idx', heapallindexed => true) v WHERE NOT passed")
+            .fetch_one(&mut conn).await?;
+        anyhow::bail!("verify_index failed after cancellation: {failures}");
+    }
+    Ok(())
+}

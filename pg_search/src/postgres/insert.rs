@@ -280,7 +280,7 @@ unsafe fn insert(
     isnull: *mut bool,
     ctid: u64,
 ) {
-    match &mut state.mode {
+    let flushed = match &mut state.mode {
         InsertMode::Immutable(mode) => state.per_row_context.switch_to(|cxt| {
             let mut search_document = TantivyDocument::new();
 
@@ -306,11 +306,14 @@ unsafe fn insert(
                 &mut search_document,
                 state.index_created_by_version,
             );
-            mode.writer
+            let flushed = mode
+                .writer
                 .insert(search_document, ctid, || {})
-                .expect("insertion into index should succeed");
+                .expect("insertion into index should succeed")
+                .is_some();
 
             cxt.reset();
+            flushed
         }),
         InsertMode::Mutable(mode) => {
             if !mode.date_fields.is_empty() {
@@ -336,17 +339,25 @@ unsafe fn insert(
             //
             // Swap in the new mode, cleanup the old one, and then recurse to insert in the new
             // mode.
-            let new_mode = InsertMode::Immutable(
+            let old_mode = std::mem::replace(&mut state.mode, InsertMode::Completed);
+            insertcleanup(state, old_mode);
+            state.mode = InsertMode::Immutable(
                 InsertModeImmutable::new(&state.indexrel)
                     .expect("failed to open index for writing"),
             );
-            let old_mode = std::mem::replace(&mut state.mode, new_mode);
-            insertcleanup(state, old_mode);
             insert(state, values, isnull, ctid);
+            return;
         }
         InsertMode::Completed => {
             panic!("aminsertcleanup was already called.");
         }
+    };
+    if flushed {
+        let mode = std::mem::replace(&mut state.mode, InsertMode::Completed);
+        insertcleanup(state, mode);
+        state.mode = InsertMode::Immutable(
+            InsertModeImmutable::new(&state.indexrel).expect("failed to reopen index for writing"),
+        );
     }
 }
 

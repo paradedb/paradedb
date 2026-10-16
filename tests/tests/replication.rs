@@ -999,7 +999,7 @@ async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -
 async fn test_ephemeral_small_immutable_backpressure_bounds_concurrent_writers() -> Result<()> {
     let postgres = EphemeralPostgres::new(
         Some(
-            "shared_preload_libraries = 'pg_search'\nshared_buffers = '16MB'\nmax_worker_processes = 0\nautovacuum = off\nstatement_timeout = '30s'",
+            "shared_preload_libraries = 'pg_search'\nshared_buffers = '128MB'\nmax_worker_processes = 0\nautovacuum = off\nstatement_timeout = '30s'",
         ),
         None,
     );

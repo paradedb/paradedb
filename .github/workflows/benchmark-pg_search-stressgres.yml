@@ -1,12 +1,17 @@
 name: Benchmark pg_search (Stressgres)
 on:
   workflow_dispatch:
+    inputs:
+      commit:
+        description: Engine revision to test
+        required: true
+        default: codex/immutable-segment-backpressure
 permissions:
   contents: read
 jobs:
   diagnose:
     name: Diagnose immutable segment accumulation
-    timeout-minutes: 50
+    timeout-minutes: 75
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -15,18 +20,25 @@ jobs:
       - extras=s3-cache
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit }}
+      - name: Load diagnostic collector
+        run: |
+          git fetch origin codex/diagnose-stressgres-segments
+          git show FETCH_HEAD:.github/scripts/diagnose_stressgres.py > .github/scripts/diagnose_stressgres.py
+          git show FETCH_HEAD:.github/scripts/diagnose-stressgres.sql > .github/scripts/diagnose-stressgres.sql
       - uses: runs-on/action@v2
       - uses: ./.github/actions/setup-pg-search-build-environment
         with:
           pg_version: 18
           cache_prefix_key: v2-benchmarks-rust-cache
           extra_packages: lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld gdb postgresql-contrib-18
-      - name: Build failed revision
+      - name: Build requested revision
         run: |
           cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
           CARGO_TARGET_DIR=target cargo install --path stressgres
       - name: Reproduce with 16 writers
-        run: python3 .github/scripts/diagnose_stressgres.py 16
+        run: python3 .github/scripts/diagnose_stressgres.py 16 1800000
       - name: Preserve 16-writer evidence
         if: always()
         uses: actions/upload-artifact@v4

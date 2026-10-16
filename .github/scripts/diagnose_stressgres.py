@@ -13,6 +13,7 @@ from pathlib import Path
 def main():  # pylint: disable=too-many-locals
     """Run one writer-count variant and preserve diagnostic samples."""
     writers = int(sys.argv[1])
+    runtime_ms = int(sys.argv[2]) if len(sys.argv) > 2 else 600000
     output = Path("diagnostics") / str(writers)
     output.mkdir(parents=True, exist_ok=True)
     suite = Path("stressgres/suites/bulk-update-merge-pressure.toml").read_text(
@@ -70,7 +71,7 @@ def main():  # pylint: disable=too-many-locals
                 "--pgversion",
                 "pg18",
                 "--runtime",
-                "600000",
+                str(runtime_ms),
                 "--log-file",
                 str(output / "metrics.jsonl"),
             ],
@@ -143,7 +144,7 @@ def main():  # pylint: disable=too-many-locals
                     flush=True,
                 )
             iteration += 1
-            if time.monotonic() - started > 900:
+            if time.monotonic() - started > runtime_ms / 1000 + 300:
                 process.terminate()
                 break
             time.sleep(5)
@@ -154,6 +155,8 @@ def main():  # pylint: disable=too-many-locals
     for source in Path("/tmp/stressgres").glob("*.log"):
         shutil.copy2(source, output / source.name)
     print(f"{writers} writers: Stressgres exited {status}", flush=True)
+    if status != 0:
+        raise SystemExit(status)
 
 
 if __name__ == "__main__":

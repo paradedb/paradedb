@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed an issue where shared buffer and WAL statistics from parallel workers were underreported under MPP query plans (`JoinScan` and `AggregateScan`). Background workers launched through the custom parallel process builder now record their buffer accesses and WAL activity in shared memory, and the leader aggregates these statistics into `EXPLAIN (ANALYZE, BUFFERS)` and `pg_stat_statements`.

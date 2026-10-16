@@ -1,0 +1,43 @@
+---
+title: "0.26.2"
+description: "ParadeDB release notes for 0.26.2"
+noindex: true
+---
+
+See GitHub release: [v0.26.2](https://github.com/paradedb/paradedb/releases/tag/v0.26.2)
+
+## New Features ✨
+
+- Added `pdb.combine_agg(pdb.agg(...)) OVER ()` (and accompanying `COUNT`, `SUM`, `AVG`, `MIN`, and `MAX` `OVER ()` window aggregate pushdown) to compute global facets and aggregates across all groups in `GROUP BY` queries (#6806).
+
+- Search operators (`|||`, `&&&`, `@@@`) inside aggregate `FILTER (WHERE ...)` clauses are now pushed down for aggregates over joins and other DataFusion-backed aggregates (#6819).
+
+## Performance Improvements 🚀
+
+- Predicates the index cannot answer, such as a UDF over non-indexed columns, now run only on the
+  rows the `@@@` predicates matched, in the Aggregate Scan and the Join Scan as well as the Base
+  Scan. A `COUNT(*)` with such a predicate no longer reads every row of the table. Several such
+  predicates in one `WHERE` clause run one after the other, so the index is read once and the BM25
+  score is no longer multiplied by their number.
+
+- Join Scan now computes global window aggregates (`COUNT(*)`, `SUM`, `AVG`, `MIN`, and `MAX` with an empty `OVER ()`) in the same aggregate step as the `ORDER BY ... LIMIT` Top-K, instead of a separate window pass over every join row followed by a sort. The join runs once, and under parallel execution each worker aggregates its share of the rows while the leader merges the results. A query whose `LIMIT` is not known at plan time, such as a generic plan with a parameter, keeps the window pass.
+
+- Added [posting bitmaps](/reference/indexing/bitmap-postings), enabled by default, to speed up eligible count queries combining common search terms with `AND` or `OR`. Disable bitmap storage per field with `bitmap_postings=false`, or disable its use during queries with `paradedb.enable_bitmap_postings = off` without rebuilding the index.
+
+- Significantly improved Join Scan performance for hash joins with larger build sides by applying `IN`-list dynamic filters against fast fields before heap visibility checks and column materialization.
+
+## Stability Improvements 💪
+
+- Prepared statements no longer fail on the `&&&`, `|||` and `###` operators when the right-hand side is a `pdb.query` value (for example `pdb.fuzzy`) and Postgres switches to a generic plan. A finished `pdb.query` on the right-hand side of these operators and `===` is now rejected the same way under generic and custom plans, and a `text[]` cast to `pdb.fuzzy` without a typmod no longer fails the match array assertion on `&&&` and `|||`.
+
+- Fixed an issue where shared buffer and WAL statistics from parallel workers were underreported under MPP query plans (`JoinScan` and `AggregateScan`). Background workers launched through the custom parallel process builder now record their buffer accesses and WAL activity in shared memory, and the leader aggregates these statistics into `EXPLAIN (ANALYZE, BUFFERS)` and `pg_stat_statements`.
+
+- Fixed a primary being unable to complete a fast shutdown while a background merge worker waited for a missing synchronous standby. Merge workers now commit locally, as autovacuum does (#6708).
+
+- A parallel search with a bitmap intersection no longer crashes a parallel worker, fails with `bitmap cursor source was never initialized`, or returns wrong rows when its `Gather` or `Gather Merge` is rescanned, for example inside a correlated subquery (#6734). The workers of a rescanned parallel search now see the round's parameter values instead of keeping the first round's (#6790).
+
+- Fixed small indexes never merging their segments when every background layer was larger than the target segment size, which the default `target_segment_count` causes on hosts with many cores (#6760).
+
+- A range filter now adds its constant 1.0 to the score on every segment, so rows that match a text clause and the range equally rank the same regardless of segment layout (#6674). Before, a segment the range fully covered scored 1.0 lower than a segment it only partly covered, and Top K on the fully covered segment could not use Block-WAND.
+
+- Fixed `pdb.agg(...) OVER ()` over a join failing with `pdb.agg() must be handled by ParadeDB's custom scan` when its `LIMIT` or `OFFSET` is a parameter, as in a prepared statement under a generic plan (#6712). Join Scan now resolves the parameter when the query runs, so these queries, and global window aggregates such as `COUNT(*) OVER ()` with a parameterized `LIMIT`, compute their window aggregates in the same aggregate step as the Top-K.

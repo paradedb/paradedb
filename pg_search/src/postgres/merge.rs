@@ -516,6 +516,11 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 break;
             };
             if collect {
+                assert!(
+                    !pg_sys::IsTransactionState()
+                        && (*pg_sys::MyProc).xmin == pg_sys::InvalidTransactionId,
+                    "mutable collection must not retain a transaction or xmin"
+                );
                 // Keep only the worker slot while collecting; latch wakeups do not extend the deadline.
                 let deadline = Instant::now() + MUTABLE_FLUSH_INTERVAL;
                 while Instant::now() < deadline {

@@ -37,7 +37,7 @@ use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{
-    DynamicFilterTracker, DynamicFilterTracking, EquivalenceProperties, PhysicalExpr,
+    DynamicFilterTracker, DynamicFilterTracking, EquivalenceProperties, LexOrdering, PhysicalExpr,
     PhysicalSortExpr,
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -46,7 +46,7 @@ use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
 use datafusion::physical_plan::metrics::{
-    BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet, RecordOutput,
+    BaselineMetrics, Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -56,12 +56,14 @@ use datafusion_distributed::{
     ScaleUpLeafNodeEventResponse,
 };
 use datafusion_proto::physical_plan::{
-    DefaultPhysicalExtensionCodec, PhysicalPlanDecodeContext, PhysicalProtoConverterExtension,
+    DefaultPhysicalExtensionCodec, DefaultPhysicalProtoConverter, PhysicalPlanDecodeContext,
+    PhysicalProtoConverterExtension,
 };
 use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
 
+use crate::api::OrderByInfo;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -80,6 +82,10 @@ use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
+use crate::scan::lazy_sort::build_lazy_sort_stream;
+pub use crate::scan::lazy_sort::{
+    LazySortConfig, LazySortTelemetry, LazySortTelemetryState, SharedThresholdMode, TopKSelectivity,
+};
 use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
 
@@ -207,6 +213,8 @@ pub struct PgSearchScanPlan {
     pub(crate) assigned_partition: Option<usize>,
     pub(crate) partition_segments: Option<PartitionSegments>,
     pub(crate) scan_mode: crate::scan::ScanMode,
+    /// Optional iterative Top-K windowing configuration.
+    lazy_sort: Option<LazySortConfig>,
     /// Fallback ExprContext guard created during dispatch decode when heap filters are present
     /// but no external ExprContext was supplied through the codec. Kept alive on the plan so
     /// the underlying ExprContext remains valid across execution.
@@ -237,6 +245,7 @@ impl Clone for PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
+            lazy_sort: self.lazy_sort.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
         }
     }
@@ -293,7 +302,7 @@ impl PgSearchScanPlan {
             .map(|s| s.build(partition_count));
         let partitioning =
             declared_partitioning(&schema, partition_count, range_split_points.as_ref());
-        let eq_properties = build_equivalence_properties(schema, sort_order);
+        let eq_properties = build_equivalence_properties(schema, sort_order, None);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
@@ -365,6 +374,7 @@ impl PgSearchScanPlan {
             assigned_partition: None,
             partition_segments: None,
             scan_mode,
+            lazy_sort: None,
             _expr_context_guard: None,
         }
     }
@@ -373,6 +383,62 @@ impl PgSearchScanPlan {
         self.table_alias = table_alias.into();
         self
     }
+
+    /// Configures this scan to execute iterative, expanding-window Top-K pulls via
+    /// `SearchIndexReader::search_top_k_in_segments` instead of streaming segment-by-segment.
+    pub fn with_lazy_sort(mut self, lazy_sort: LazySortConfig) -> Self {
+        let schema = self.properties.eq_properties.schema().clone();
+        let eq_properties =
+            build_equivalence_properties(schema, self.sort_order.as_ref(), Some(&lazy_sort));
+        // NOTE: Lazy-sorted scans currently execute as a single `Shared` partition;
+        // `LazySegmentTarget::RangePartitioned` is wired up in `lazy_sort` for future
+        // range-partitioned rank joins.
+        self.global_partition_count = 1;
+        self.range_split_points = None;
+        self.assigned_partition = None;
+        self.partition_segments = None;
+        {
+            let mut state_guard = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let new_state =
+                match std::mem::replace(&mut *state_guard, ExecutionState::Uninitialized) {
+                    ExecutionState::RangePartitioned { scan_state, .. } => ExecutionState::Shared {
+                        parallel_state: None,
+                        scan_state,
+                    },
+                    ExecutionState::Shared {
+                        parallel_state,
+                        scan_state,
+                    } => ExecutionState::Shared {
+                        parallel_state: if lazy_sort.shared_threshold
+                            == SharedThresholdMode::Disabled
+                        {
+                            None
+                        } else {
+                            parallel_state
+                        },
+                        scan_state,
+                    },
+                    other => other,
+                };
+            *state_guard = new_state;
+        }
+        self.properties = Arc::new(PlanProperties::new(
+            eq_properties,
+            Partitioning::UnknownPartitioning(1),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+        self.lazy_sort = Some(lazy_sort);
+        self
+    }
+
+    pub fn lazy_sort(&self) -> Option<&LazySortConfig> {
+        self.lazy_sort.as_ref()
+    }
+
     /// Returns a new copy of this plan resized to support exactly `target_partitions`.
     ///
     /// This allows a `TaskEstimator` or distributed planner to override the natural
@@ -469,6 +535,7 @@ impl PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
+            lazy_sort: self.lazy_sort.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
         })
     }
@@ -540,6 +607,13 @@ impl PgSearchScanPlan {
     /// the only reader of the field. `RangePartitioned` and `Uninitialized` scans never consult
     /// the pointer, so they are left untouched.
     pub(crate) fn set_parallel_state(&self, ps: *mut ParallelScanState) {
+        if self
+            .lazy_sort
+            .as_ref()
+            .is_some_and(|ls| ls.shared_threshold == SharedThresholdMode::Disabled)
+        {
+            return;
+        }
         let mut state_guard = self
             .state
             .lock()
@@ -577,6 +651,15 @@ impl PgSearchScanPlan {
     /// partitions the way `partition_statistics` divides it.
     pub fn planner_estimated_rows(&self) -> u64 {
         self.planner_estimated_rows
+    }
+
+    fn rebuild_properties_with_schema(&mut self, schema: SchemaRef) {
+        self.properties = Arc::new(PlanProperties::new(
+            build_equivalence_properties(schema, self.sort_order.as_ref(), self.lazy_sort.as_ref()),
+            self.properties.output_partitioning().clone(),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
     }
 
     pub fn deferred_fields(&self) -> &[DeferredField] {
@@ -630,13 +713,7 @@ impl PgSearchScanPlan {
                 },
             )
             .collect();
-        let schema: SchemaRef = Arc::new(arrow_schema::Schema::new(fields));
-        plan.properties = Arc::new(PlanProperties::new(
-            build_equivalence_properties(schema, plan.sort_order.as_ref()),
-            self.properties.output_partitioning().clone(),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        ));
+        plan.rebuild_properties_with_schema(Arc::new(arrow_schema::Schema::new(fields)));
 
         let mut state = plan.state.lock().unwrap();
         if let ExecutionState::Shared { scan_state, .. }
@@ -715,6 +792,35 @@ impl PgSearchScanPlan {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let lazy_sort = match self.lazy_sort() {
+            Some(ls) => {
+                let ordering_proto = match &ls.ordering {
+                    Some(ordering) => {
+                        let proto_conv = DefaultPhysicalProtoConverter {};
+                        let sort_proto = datafusion_proto::physical_plan::to_proto::serialize_physical_sort_exprs(
+                            ordering.iter().cloned(),
+                            &codec,
+                            &proto_conv,
+                        )?;
+                        Some(
+                            sort_proto
+                                .iter()
+                                .map(prost::Message::encode_to_vec)
+                                .collect(),
+                        )
+                    }
+                    None => None,
+                };
+                Some(LazySortConfigDescriptor {
+                    orderby_info: ls.orderby_info.clone(),
+                    ordering_proto,
+                    initial_window: ls.initial_window,
+                    shared_threshold: ls.shared_threshold,
+                })
+            }
+            None => None,
+        };
+
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             dynamic_filters,
@@ -735,6 +841,7 @@ impl PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
             scan_mode: scanner_config.scan_mode,
+            lazy_sort,
             check_visibility: state.0.visibility.checks_visibility(),
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
@@ -879,6 +986,46 @@ impl PgSearchScanPlan {
             Some(Arc::new(FFHelper::with_fields(&reader, &which)))
         };
 
+        let decoded_lazy_sort = match descriptor.lazy_sort {
+            Some(ls) => {
+                let ordering = match ls.ordering_proto {
+                    Some(sort_bytes) => {
+                        let sort_proto = sort_bytes
+                            .iter()
+                            .map(|b| {
+                                <datafusion_proto::protobuf::PhysicalSortExprNode as prost::Message>::decode(
+                                    b.as_slice(),
+                                )
+                            })
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                            .map_err(|e| {
+                                DataFusionError::Internal(format!(
+                                    "PgSearchScan dispatch: lazy_sort ordering decode: {e}"
+                                ))
+                            })?;
+                        let proto_conv = DefaultPhysicalProtoConverter {};
+                        let exprs =
+                            datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
+                                &sort_proto,
+                                &decode_ctx,
+                                schema.as_ref(),
+                                &proto_conv,
+                            )?;
+                        LexOrdering::new(exprs)
+                    }
+                    None => None,
+                };
+                Some(LazySortConfig {
+                    orderby_info: ls.orderby_info,
+                    ordering,
+                    initial_window: ls.initial_window,
+                    shared_threshold: ls.shared_threshold,
+                    telemetry: None,
+                })
+            }
+            None => None,
+        };
+
         let mut plan = PgSearchScanPlan::new(
             Some(state),
             schema,
@@ -893,6 +1040,9 @@ impl PgSearchScanPlan {
             descriptor.range_split_points,
         )
         .with_table_alias(descriptor.table_alias);
+        if let Some(ls) = decoded_lazy_sort {
+            plan = plan.with_lazy_sort(ls);
+        }
         plan.dynamic_filters = dynamic_filters;
         plan.eager_fields = descriptor.eager_fields;
         plan._expr_context_guard = fallback_guard;
@@ -910,6 +1060,14 @@ impl PgSearchScanPlan {
         };
         Ok(final_plan)
     }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LazySortConfigDescriptor {
+    orderby_info: Option<Vec<OrderByInfo>>,
+    ordering_proto: Option<Vec<Vec<u8>>>,
+    initial_window: f64,
+    shared_threshold: SharedThresholdMode,
 }
 
 /// Transport-neutral description of a `PgSearchScanPlan` for leader dispatch. Carries the
@@ -951,6 +1109,8 @@ struct ScanDispatchDescriptor {
     #[serde(default)]
     partition_segments: Option<PartitionSegments>,
     scan_mode: crate::scan::ScanMode,
+    #[serde(default)]
+    lazy_sort: Option<LazySortConfigDescriptor>,
 }
 
 /// A classification received with a dispatched task, tagged by the view it is checked
@@ -983,14 +1143,22 @@ fn declared_partitioning(
 
 /// Build `EquivalenceProperties` with the specified sort ordering.
 ///
-/// If `sort_order` is `Some`, the returned properties will declare that the
-/// data is sorted by the specified field in the specified direction.
-/// If `sort_order` is `None`, returns empty equivalence properties.
+/// When `lazy_sort` is `Some`, the stream ordering is governed by `lazy_sort.ordering`
+/// (the cross-segment Top-K collector ordering). Otherwise, if `sort_order` is `Some`,
+/// the returned properties declare that the data is sorted by the specified field.
 fn build_equivalence_properties(
     schema: SchemaRef,
     sort_order: Option<&SortByField>,
+    lazy_sort: Option<&LazySortConfig>,
 ) -> EquivalenceProperties {
     let mut eq_properties = EquivalenceProperties::new(schema.clone());
+
+    if let Some(lazy_sort) = lazy_sort {
+        if let Some(ref ordering) = lazy_sort.ordering {
+            eq_properties.add_ordering(ordering.iter().cloned());
+        }
+        return eq_properties;
+    }
 
     if let Some(sort_field) = sort_order {
         // Find the column index for the sort field
@@ -1091,6 +1259,9 @@ impl DisplayAs for PgSearchScanPlan {
                     range_split_points.partition_by.as_ref()
                 )?;
             }
+        }
+        if let Some(ref lazy_sort) = self.lazy_sort {
+            write!(f, ", lazy_sort={}", lazy_sort.initial_window as usize)?;
         }
         // Only a projected deferred column leaves the scan as ordinals; a string column the
         // plan did not defer is decoded here whatever the setting says.
@@ -1273,10 +1444,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             planner_estimated_rows,
             scanner_config,
             ffhelper,
-            mut visibility,
+            visibility,
             reader,
         } = scan_state;
 
+        let lazy_sort = self.lazy_sort.clone();
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
@@ -1296,223 +1468,40 @@ impl ExecutionPlan for PgSearchScanPlan {
             .filter(|d| d.fetch_at_scan)
             .map(|d| d.name.clone())
             .collect();
-
         let assigned_partition_segments = self.partition_segments.clone();
 
-        let stream_gen = async_stream::try_stream! {
-            // Create a local copy of the reader if the query changed
-            let mut reader = reader;
+        let stream_ctx = ScanStreamContext {
+            source_idx,
+            planner_estimated_rows,
+            scanner_config,
+            ffhelper,
+            visibility,
+            reader,
+            parallel_state,
+            range_boundaries,
+            assigned_partition_segments,
+            target_partition,
+            schema,
+            score_column_schema_idx,
+            dynamic_filters,
+            scan_fetched_fields,
+            plan_metrics,
+            baseline_metrics,
+            rows_scanned,
+            rows_pruned,
+        };
 
-            // Optimized Search Integration:
-            // We initialize the search here, inside the stream, because for HashJoin
-            // this block is evaluated lazily during the first `poll_next`, which happens
-            // AFTER the build side has completed and dynamic filters are published.
-            let mut dynamic_filters = dynamic_filters.clone();
-            let strategy_sink = Arc::new(AtomicU8::new(0));
-            let pushed = if !dynamic_filters.is_empty() {
-                try_dynamic_filter_pushdown(
-                    &mut reader,
-                    &mut dynamic_filters,
-                    Some(strategy_sink.clone()),
-                )
-            } else {
-                false
-            };
-
-            let search_results = if let Some(range_boundaries) = &range_boundaries {
-                // In range-partitioned mode, each partition searches segments classified by
-                // their bounds: fully included segments omit the partition RangeQuery,
-                // while partially included segments retain it.
-                let partition_segments = assigned_partition_segments
-                    .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
-
-                reader.search_segments_with_range_filter(
-                    &partition_segments,
-                    &range_boundaries.partition_bounds(target_partition),
-                )
-            } else {
-                // Standard mode delegates to the parallel state if present
-                match parallel_state {
-                    Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
-                    // No shared scan state even though the plan may carry per-source claim
-                    // markers: the serial fallback (size gate, short launch). The plan was
-                    // built while MPP was eligible but executes as a plain serial scan, so
-                    // search everything. Two takers are legitimate here: the leader's serial
-                    // fallback, and a parallel-safe scan replicated whole into a PG worker
-                    // (each worker runs the full serial plan, so a full search is correct).
-                    // MPP-dispatched fragments cannot land here: their decode always injects
-                    // the state, and the worker entrypoint errors when the DSM lacks it.
-                    None => reader.search(),
-                }
-            };
-            let need_scores = scanner_config
-                .which_fast_fields
-                .iter()
-                .any(|wff| wff.is_score());
-            let mut scanner = Scanner::new(
-                search_results,
-                scanner_config.batch_size_hint,
-                scanner_config.which_fast_fields,
-                scanner_config.heap_relid,
-            );
-            if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
-                for tq in local_queries {
-                    let weight = reader
-                        .compile_match_weight(&tq.query, need_scores)
-                        .map_err(|e| DataFusionError::Internal(format!(
-                            "Failed to compile match weight for tag {}: {e}",
-                            tq.tag_name
-                        )))?;
-                    scanner.add_tagged_query(tq.tag_name.clone(), weight);
-                }
-            }
-            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
-            if df_batch_size > 0 {
-                scanner.set_batch_size(df_batch_size as usize);
-            }
-            if !scan_fetched_fields.is_empty() {
-                scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
-            }
-
-            let mut pushdown_metric_recorded = false;
-            let mut score_pushdown_metric_recorded = false;
-            // Rebuild `PreFilter`s only on the first batch or when an incomplete dynamic filter
-            // publishes a new expression. Reusing `pre_filters` across batches while filters are
-            // unchanged avoids re-walking the filter AST on every batch and preserves each
-            // `PreFilter`'s per-segment rewritten expression cache.
-            //
-            // `DynamicFilterTracking::classify` walks each filter tree once and subscribes only to
-            // still-incomplete `DynamicFilterPhysicalExpr`s: filters rewritten to static
-            // expressions by `try_dynamic_filter_pushdown` (`Static`) or already marked complete by
-            // a finished `HashJoinExec` build (`AllComplete`) produce no tracker, and
-            // `DynamicFilterTracker::changed` automatically drops subscriptions as filters complete.
-            let mut filter_trackers: Option<Vec<DynamicFilterTracker>> = None;
-            let mut pre_filters: Vec<PreFilter> = Vec::new();
-            let mut score_threshold: Option<Score> = None;
-            loop {
-                let timer = baseline_metrics.elapsed_compute().timer();
-                if !dynamic_filters.is_empty() {
-                    // Subscribe (on the first batch) or poll `changed()` (on subsequent batches)
-                    // *before* calling `build_filters` so an update cannot land between reading
-                    // `current()` and recording the observed generation. Use `fold` rather than
-                    // `any` so every tracker advances its observed generation before `build_filters`
-                    // reads `current()` across all filters.
-                    let should_rebuild = match &mut filter_trackers {
-                        None => {
-                            filter_trackers = Some(
-                                dynamic_filters
-                                    .iter()
-                                    .filter_map(|df| match DynamicFilterTracking::classify(df) {
-                                        DynamicFilterTracking::Watching(tracker) => Some(tracker),
-                                        DynamicFilterTracking::Static
-                                        | DynamicFilterTracking::AllComplete => None,
-                                    })
-                                    .collect(),
-                            );
-                            true
-                        }
-                        Some(trackers) => trackers
-                            .iter_mut()
-                            .fold(false, |changed, tracker| changed | tracker.changed()),
-                    };
-                    if should_rebuild {
-                        (pre_filters, score_threshold) =
-                            build_filters(&dynamic_filters, &schema, score_column_schema_idx)?;
-                    }
-                }
-                let pre_filters_wrapper = if pre_filters.is_empty() {
-                    None
-                } else {
-                    Some(crate::scan::pre_filter::PreFilters {
-                        filters: &pre_filters,
-                        schema: &schema,
-                    })
-                };
-
-                if scanner.can_pushdown_score_threshold() {
-                    scanner.set_score_threshold(score_threshold);
-                }
-                // `block_on_next` holds interrupts while this stream runs, so the scanner's own
-                // check can't fire. Bail out instead and let the caller act on the interrupt
-                // once `block_on` has returned.
-                if cancel_pending() {
-                    Err::<(), DataFusionError>(interrupted())?;
-                }
-                let next_batch = scanner.next(
-                    &ffhelper,
-                    &mut visibility,
-                    pre_filters_wrapper.as_ref(),
-                );
-                timer.done();
-
-                if pushed && !pushdown_metric_recorded {
-                    let tag = strategy_sink.load(Ordering::Relaxed);
-                    if tag > 0 {
-                        let strategy = tantivy::query::StrategyTag::try_from(tag)
-                            .unwrap_or(tantivy::query::StrategyTag::None);
-                        let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
-                            "dynamic_filter_pushdown".to_string()
-                        } else {
-                            format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
-                        };
-                        MetricBuilder::new(&plan_metrics)
-                            .counter(metric_name, target_partition)
-                            .add(1);
-                        pushdown_metric_recorded = true;
-                    }
-                }
-
-                if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
-                    MetricBuilder::new(&plan_metrics)
-                        .counter("dynamic_filter_pushdown_score", target_partition)
-                        .add(1);
-                    score_pushdown_metric_recorded = true;
-                }
-
-                match next_batch {
-                    Some(batch) => {
-                        let record_batch = batch.to_record_batch(&schema);
-                        yield record_batch.record_output(&baseline_metrics);
-                    }
-                    None => {
-                        if pushed && !pushdown_metric_recorded {
-                            let tag = strategy_sink.load(Ordering::Relaxed);
-                            let strategy = tantivy::query::StrategyTag::try_from(tag)
-                                .unwrap_or(tantivy::query::StrategyTag::None);
-                            let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
-                                "dynamic_filter_pushdown".to_string()
-                            } else {
-                                format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
-                            };
-                            MetricBuilder::new(&plan_metrics)
-                                .counter(metric_name, target_partition)
-                                .add(1);
-                        }
-                        if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
-                            MetricBuilder::new(&plan_metrics)
-                                .counter("dynamic_filter_pushdown_score", target_partition)
-                                .add(1);
-                        }
-                        // Flush pre-materialization filter stats from Scanner.
-                        if let Some(ref counter) = rows_scanned {
-                            counter.add(scanner.pre_filter_rows_scanned);
-                        }
-                        if let Some(ref counter) = rows_pruned {
-                            counter.add(scanner.pre_filter_rows_pruned);
-                        }
-                        break;
-                    }
-                }
-            }
-            baseline_metrics.done();
+        let stream: Pin<Box<dyn Stream<Item = Result<RecordBatch>>>> = match lazy_sort {
+            Some(lazy_sort) => Box::pin(build_lazy_sort_stream(stream_ctx, lazy_sort)),
+            None => Box::pin(build_standard_stream(stream_ctx)),
         };
 
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
         // so it is safe to wrap !Send types for use within DataFusion.
-        let stream = unsafe {
-            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
+        let send_stream = unsafe {
+            UnsafeSendStream::new(stream, self.properties.eq_properties.schema().clone())
         };
-        Ok(Box::pin(stream))
+        Ok(Box::pin(send_stream))
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
@@ -1601,6 +1590,278 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 }
 
+/// Execution context extracted from [`PgSearchScanPlan`] at `execute()` time and passed
+/// to either [`build_standard_stream`] or [`build_lazy_sort_stream`].
+pub(super) struct ScanStreamContext {
+    pub(super) source_idx: Option<usize>,
+    pub(super) planner_estimated_rows: u64,
+    pub(super) scanner_config: ScannerConfig,
+    pub(super) ffhelper: Arc<FFHelper>,
+    pub(super) visibility: Box<VisibilityChecker>,
+    pub(super) reader: SearchIndexReader,
+    pub(super) parallel_state: Option<*mut ParallelScanState>,
+    pub(super) range_boundaries: Option<RangePartitioning>,
+    pub(super) assigned_partition_segments: Option<PartitionSegments>,
+    pub(super) target_partition: usize,
+    pub(super) schema: SchemaRef,
+    pub(super) score_column_schema_idx: Option<usize>,
+    pub(super) dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    pub(super) scan_fetched_fields: Vec<String>,
+    pub(super) plan_metrics: ExecutionPlanMetricsSet,
+    pub(super) baseline_metrics: BaselineMetrics,
+    pub(super) rows_scanned: Option<Count>,
+    pub(super) rows_pruned: Option<Count>,
+}
+
+/// Tracks incremental dynamic-filter and pre-filter metric deltas across stream steps
+/// for both standard segment-by-segment scans and iterative lazy-sort window pulls.
+pub(super) struct FilterStepMetrics {
+    pub(super) strategy_sink: Arc<AtomicU8>,
+    pub(super) pushed: bool,
+    pushdown_metric_recorded: bool,
+    score_pushdown_metric_recorded: bool,
+    flushed_rows_scanned: usize,
+    flushed_rows_pruned: usize,
+}
+
+impl FilterStepMetrics {
+    pub(super) fn init(
+        reader: &mut SearchIndexReader,
+        dynamic_filters: &mut Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Self {
+        // Optimized Search Integration:
+        // Initialize the search inside the stream so that for HashJoin this block is
+        // evaluated lazily during the first `poll_next`, after the build side has completed
+        // and dynamic filters are published.
+        let strategy_sink = Arc::new(AtomicU8::new(0));
+        let pushed = if !dynamic_filters.is_empty() {
+            try_dynamic_filter_pushdown(reader, dynamic_filters, Some(strategy_sink.clone()))
+        } else {
+            false
+        };
+        Self {
+            strategy_sink,
+            pushed,
+            pushdown_metric_recorded: false,
+            score_pushdown_metric_recorded: false,
+            flushed_rows_scanned: 0,
+            flushed_rows_pruned: 0,
+        }
+    }
+
+    pub(super) fn flush(
+        &mut self,
+        scanner: &Scanner,
+        plan_metrics: &ExecutionPlanMetricsSet,
+        target_partition: usize,
+        rows_scanned: &Option<Count>,
+        rows_pruned: &Option<Count>,
+        exhausted: bool,
+    ) {
+        if self.pushed && !self.pushdown_metric_recorded {
+            let tag = self.strategy_sink.load(Ordering::Relaxed);
+            if tag > 0 || exhausted {
+                let strategy = tantivy::query::StrategyTag::try_from(tag)
+                    .unwrap_or(tantivy::query::StrategyTag::None);
+                let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
+                    "dynamic_filter_pushdown".to_string()
+                } else {
+                    format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
+                };
+                MetricBuilder::new(plan_metrics)
+                    .counter(metric_name, target_partition)
+                    .add(1);
+                self.pushdown_metric_recorded = true;
+            }
+        }
+
+        if scanner.score_threshold_pushed && !self.score_pushdown_metric_recorded {
+            MetricBuilder::new(plan_metrics)
+                .counter("dynamic_filter_pushdown_score", target_partition)
+                .add(1);
+            self.score_pushdown_metric_recorded = true;
+        }
+
+        if let Some(counter) = rows_scanned {
+            let delta = scanner.pre_filter_rows_scanned - self.flushed_rows_scanned;
+            if delta > 0 {
+                counter.add(delta);
+                self.flushed_rows_scanned = scanner.pre_filter_rows_scanned;
+            }
+        }
+        if let Some(counter) = rows_pruned {
+            let delta = scanner.pre_filter_rows_pruned - self.flushed_rows_pruned;
+            if delta > 0 {
+                counter.add(delta);
+                self.flushed_rows_pruned = scanner.pre_filter_rows_pruned;
+            }
+        }
+    }
+}
+
+/// Builds the standard segment-by-segment stream for a `PgSearchScanPlan` when `lazy_sort` is `None`.
+fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<RecordBatch>> {
+    let ScanStreamContext {
+        source_idx,
+        planner_estimated_rows,
+        scanner_config,
+        ffhelper,
+        mut visibility,
+        mut reader,
+        parallel_state,
+        range_boundaries,
+        assigned_partition_segments,
+        target_partition,
+        schema,
+        score_column_schema_idx,
+        mut dynamic_filters,
+        scan_fetched_fields,
+        plan_metrics,
+        baseline_metrics,
+        rows_scanned,
+        rows_pruned,
+    } = ctx;
+
+    async_stream::try_stream! {
+        let mut filter_metrics = FilterStepMetrics::init(&mut reader, &mut dynamic_filters);
+
+        let need_scores = scanner_config
+            .which_fast_fields
+            .iter()
+            .any(|wff| wff.is_score());
+
+        let search_results = if let Some(range_boundaries) = &range_boundaries {
+            // In range-partitioned mode, each partition searches segments classified by
+            // their bounds: fully included segments omit the partition RangeQuery,
+            // while partially included segments retain it.
+            let partition_segments = assigned_partition_segments
+                .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
+
+            reader.search_segments_with_range_filter(
+                &partition_segments,
+                &range_boundaries.partition_bounds(target_partition),
+            )
+        } else {
+            // Standard mode delegates to the parallel state if present
+            match parallel_state {
+                Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
+                // No shared scan state even though the plan may carry per-source claim
+                // markers: the serial fallback (size gate, short launch). The plan was
+                // built while MPP was eligible but executes as a plain serial scan, so
+                // search everything. Two takers are legitimate here: the leader's serial
+                // fallback, and a parallel-safe scan replicated whole into a PG worker
+                // (each worker runs the full serial plan, so a full search is correct).
+                // MPP-dispatched fragments cannot land here: their decode always injects
+                // the state, and the worker entrypoint errors when the DSM lacks it.
+                None => reader.search(),
+            }
+        };
+        let mut scanner = Scanner::new(
+            search_results,
+            scanner_config.batch_size_hint,
+            scanner_config.which_fast_fields,
+            scanner_config.heap_relid,
+        );
+        scanner.register_tagged_queries(&scanner_config.scan_mode, &reader, need_scores)?;
+        let df_batch_size = crate::gucs::dynamic_filter_batch_size();
+        if df_batch_size > 0 {
+            scanner.set_batch_size(df_batch_size as usize);
+        }
+        if !scan_fetched_fields.is_empty() {
+            scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
+        }
+
+        // Rebuild `PreFilter`s only on the first batch or when an incomplete dynamic filter
+        // publishes a new expression. Reusing `pre_filters` across batches while filters are
+        // unchanged avoids re-walking the filter AST on every batch and preserves each
+        // `PreFilter`'s per-segment rewritten expression cache.
+        //
+        // `DynamicFilterTracking::classify` walks each filter tree once and subscribes only to
+        // still-incomplete `DynamicFilterPhysicalExpr`s: filters rewritten to static
+        // expressions by `try_dynamic_filter_pushdown` (`Static`) or already marked complete by
+        // a finished `HashJoinExec` build (`AllComplete`) produce no tracker, and
+        // `DynamicFilterTracker::changed` automatically drops subscriptions as filters complete.
+        let mut filter_trackers: Option<Vec<DynamicFilterTracker>> = None;
+        let mut pre_filters: Vec<PreFilter> = Vec::new();
+        let mut score_threshold: Option<Score> = None;
+        loop {
+            let timer = baseline_metrics.elapsed_compute().timer();
+            if !dynamic_filters.is_empty() {
+                // Subscribe (on the first batch) or poll `changed()` (on subsequent batches)
+                // *before* calling `build_filters` so an update cannot land between reading
+                // `current()` and recording the observed generation. Use `fold` rather than
+                // `any` so every tracker advances its observed generation before `build_filters`
+                // reads `current()` across all filters.
+                let should_rebuild = match &mut filter_trackers {
+                    None => {
+                        filter_trackers = Some(
+                            dynamic_filters
+                                .iter()
+                                .filter_map(|df| match DynamicFilterTracking::classify(df) {
+                                    DynamicFilterTracking::Watching(tracker) => Some(tracker),
+                                    DynamicFilterTracking::Static
+                                    | DynamicFilterTracking::AllComplete => None,
+                                })
+                                .collect(),
+                        );
+                        true
+                    }
+                    Some(trackers) => trackers
+                        .iter_mut()
+                        .fold(false, |changed, tracker| changed | tracker.changed()),
+                };
+                if should_rebuild {
+                    (pre_filters, score_threshold) =
+                        build_filters(&dynamic_filters, &schema, score_column_schema_idx)?;
+                }
+            }
+            let pre_filters_wrapper = if pre_filters.is_empty() {
+                None
+            } else {
+                Some(crate::scan::pre_filter::PreFilters {
+                    filters: &pre_filters,
+                    schema: &schema,
+                })
+            };
+
+            if scanner.can_pushdown_score_threshold() {
+                scanner.set_score_threshold(score_threshold);
+            }
+            // `block_on_next` holds interrupts while this stream runs, so the scanner's own
+            // check can't fire. Bail out instead and let the caller act on the interrupt
+            // once `block_on` has returned.
+            if cancel_pending() {
+                Err::<(), DataFusionError>(interrupted())?;
+            }
+            let next_batch = scanner.next(
+                &ffhelper,
+                &mut visibility,
+                pre_filters_wrapper.as_ref(),
+            );
+            timer.done();
+
+            let exhausted = next_batch.is_none();
+            filter_metrics.flush(
+                &scanner,
+                &plan_metrics,
+                target_partition,
+                &rows_scanned,
+                &rows_pruned,
+                exhausted,
+            );
+
+            match next_batch {
+                Some(batch) => {
+                    let record_batch = batch.to_record_batch(&schema);
+                    yield record_batch.record_output(&baseline_metrics);
+                }
+                None => break,
+            }
+        }
+        baseline_metrics.done();
+    }
+}
+
 /// Evaluate the current dynamic filter expressions and convert them into
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
 ///
@@ -1617,7 +1878,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// comparisons are retained. Anything else (unsupported types, non-comparison
 /// operators) is silently dropped — the parent operator is still responsible
 /// for enforcing the full predicate, so correctness is not affected.
-fn build_filters(
+pub(super) fn build_filters(
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
     score_col_schema_idx: Option<usize>,
@@ -1679,14 +1940,18 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
     }
 }
 
-/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks.
+/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks (or `1` task for
+/// lazy-sorted scans).
 ///
-/// This preserves useful scan parallelism: a single-segment scan has one task, while larger or
-/// range-partitioned scans expose their partitions to the distributed planner.
+/// This preserves useful scan parallelism: a single-segment or lazy-sorted scan has one task,
+/// while larger or range-partitioned scans expose their partitions to the distributed planner.
 pub(crate) fn pg_search_scan_desired_task_count(
     ev: DesiredTaskCountEvent,
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
-    let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
+    let scan = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
+    if scan.lazy_sort().is_some() {
+        return Some(Ok(DesiredTaskCountEventResponse::maximum(1)));
+    }
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
     let partition_count = NonZeroUsize::new(partition_count)?;
     // `maximum` rather than `desired`: `partition_count` is already clamped to the number
@@ -1970,5 +2235,50 @@ mod tests {
             pruned.contains("PgSearchScan: table=items, segments={included=1, pruned=3},"),
             "unexpected display when pruned_segments > 0: {pruned}"
         );
+    }
+
+    #[pg_test]
+    fn lazy_sort_declares_output_ordering() {
+        use arrow_schema::{DataType, Field, SortOptions};
+        use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion::physical_plan::expressions::Column;
+
+        use super::{LazySortConfig, SharedThresholdMode};
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("__paradedb_ctid", DataType::UInt64, false),
+            Field::new("_pdb_score", DataType::Float32, false),
+        ]));
+        let ordering = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: Arc::new(Column::new("_pdb_score", 1)),
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        }]);
+        let plan = PgSearchScanPlan::new(
+            None,
+            schema,
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            0,
+            None,
+            1,
+            None,
+            None,
+        )
+        .with_lazy_sort(LazySortConfig {
+            orderby_info: None,
+            ordering: ordering.clone(),
+            initial_window: 25.0,
+            shared_threshold: SharedThresholdMode::Disabled,
+            telemetry: None,
+        });
+
+        assert_eq!(plan.lazy_sort().map(|ls| ls.initial_window), Some(25.0));
+        assert_eq!(plan.properties().output_ordering(), ordering.as_ref());
     }
 }

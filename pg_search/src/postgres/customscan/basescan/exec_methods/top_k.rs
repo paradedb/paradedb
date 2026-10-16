@@ -15,17 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
+
+use arrow_array::{Float32Array, RecordBatch, UInt64Array};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_plan::ExecutionPlan;
+use futures::StreamExt;
+use tokio::runtime::Runtime;
 
 use crate::aggregate::exec::AggregationExec;
-use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::gucs::WorkMem;
-use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
-use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector};
-use crate::postgres::ParallelScanState;
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
+use crate::index::reader::index::{MAX_TOPK_FEATURES, TopKAuxiliaryCollector};
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
@@ -33,15 +37,25 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::parallel::checkout_segment_for_source;
-use crate::query::SearchQueryInput;
+use crate::postgres::heap::VisibilityChecker;
+use crate::scan::execution_plan::{
+    LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan, ScanState,
+    ScannerConfig, SharedThresholdMode, TopKSelectivity, UnsafeSendSync,
+};
 
-use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
+use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::index::SegmentId;
-use tantivy::{DocAddress, Score};
+
+/// Polls a stream for the next item synchronously using a tokio runtime.
+fn poll_next_sync<S: futures::Stream + Unpin>(
+    runtime: &Runtime,
+    stream: &mut S,
+) -> Option<S::Item> {
+    check_for_interrupts!();
+    runtime.block_on(async { stream.next().await })
+}
 
 struct PreparedAggregations {
     aggregations: Aggregations,
@@ -53,12 +67,6 @@ struct PreparedAggregations {
     mvcc_enabled: bool,
 }
 
-struct TopKCandidate {
-    ctid: u64,
-    score: Score,
-    doc_address: DocAddress,
-}
-
 pub struct TopKScanExecState {
     /// Resolved value of `LIMIT + OFFSET` (the K our scan must produce so PG's
     /// outer Limit node can apply OFFSET and return LIMIT). `Some` when both
@@ -67,23 +75,18 @@ pub struct TopKScanExecState {
     limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
-    // set during init
-    search_query_input: Option<SearchQueryInput>,
-    search_reader: Option<SearchIndexReader>,
-
-    // state tracking
-    candidates: std::vec::IntoIter<TopKCandidate>,
-    nresults: usize,
-    did_query: bool,
-    exhausted: bool,
-    found: usize,
-    offset: usize,
-    chunk_size: usize,
-    // If parallel, the segments which have been claimed by this worker.
-    claimed_segments: RefCell<Option<Vec<SegmentId>>>,
-    scale_factor: f64,
+    visibility_selectivity: TopKSelectivity,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
+
+    runtime: Option<Runtime>,
+    stream: Option<SendableRecordBatchStream>,
+    telemetry: Option<LazySortTelemetry>,
+    pending_aggregations: Option<(PreparedAggregations, AggregationLimitsGuard)>,
+    current_record_batch: Option<RecordBatch>,
+    current_batch_row_idx: usize,
+    did_query: bool,
+    found: usize,
 }
 
 impl TopKScanExecState {
@@ -96,24 +99,7 @@ impl TopKScanExecState {
             panic!("Cannot sort by more than {MAX_TOPK_FEATURES} features.");
         }
 
-        // the scale_factor to multiply the limit that the query asked for by
-        // calculated as (1 + (1 + n_dead) / (1 + n_live)) * limit_fetch_multiplier
-        // where n_dead and n_live are the number of dead and live tuples in the heaprel
-        // and limit_fetch_multiplier is a GUC
-        let scale_factor = unsafe {
-            let n_dead = direct_function_call::<i64>(
-                pg_sys::pg_stat_get_dead_tuples,
-                &[heaprelid.into_datum()],
-            )
-            .unwrap();
-            let n_live = direct_function_call::<i64>(
-                pg_sys::pg_stat_get_live_tuples,
-                &[heaprelid.into_datum()],
-            )
-            .unwrap();
-
-            1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
-        } * crate::gucs::limit_fetch_multiplier();
+        let visibility_selectivity = TopKSelectivity::from_heap_visibility(heaprelid);
 
         // Resolve K eagerly when both sides are static; otherwise leave it as
         // None and resolve in `init` from the LimitOffset carried on
@@ -121,102 +107,22 @@ impl TopKScanExecState {
         Self {
             limit: limit_offset.static_fetch(),
             orderby_info,
-            search_query_input: None,
-            search_reader: None,
-            candidates: Vec::new().into_iter(),
-            nresults: 0,
-            did_query: false,
-            exhausted: false,
-            found: 0,
-            offset: 0,
-            chunk_size: 0,
-            claimed_segments: RefCell::default(),
-            scale_factor,
+            visibility_selectivity,
             window_aggregates: Vec::new(),
+            runtime: None,
+            stream: None,
+            telemetry: None,
+            pending_aggregations: None,
+            current_record_batch: None,
+            current_batch_row_idx: 0,
+            did_query: false,
+            found: 0,
         }
     }
 
     fn limit(&self) -> usize {
         self.limit
             .expect("TopK limit must be resolved before query execution")
-    }
-
-    /// Produces an iterator of Segments to query.
-    ///
-    /// This method produces segments in three different modes:
-    /// 1. For non-parallel execution: emits all segments eagerly.
-    /// 2. For parallel execution, depending on whether this exec has been executed before (since
-    ///    being `reset`):
-    ///    a. 0th execution: lazily emits segments, so that this worker will finish querying
-    ///    one segment and adding it to the Collector before attempting to claim another. This
-    ///    allows all of the workers to load balance the work of searching the segments.
-    ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
-    ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
-    fn segments_to_query<'s>(
-        &'s self,
-        search_reader: &SearchIndexReader,
-        parallel_state: Option<*mut ParallelScanState>,
-    ) -> Box<dyn Iterator<Item = SegmentId> + 's> {
-        match (parallel_state, self.claimed_segments.borrow().clone()) {
-            (None, _) => {
-                // Not parallel: will search all segments.
-                let all_segments = search_reader.segment_ids();
-                Box::new(all_segments.into_iter().inspect(|_segment_id| {
-                    check_for_interrupts!();
-                }))
-            }
-            (Some(_), Some(claimed_segments)) => {
-                // Parallel, but we have already claimed our segments. Emit them again.
-                Box::new(claimed_segments.into_iter().inspect(|_segment_id| {
-                    check_for_interrupts!();
-                }))
-            }
-            (Some(parallel_state), None) => {
-                // Parallel, and we have not claimed our segments. Claim them, lazily, and then
-                // record that we have done so.
-                let mut claimed_segments = Vec::new();
-                Box::new(std::iter::from_fn(move || {
-                    check_for_interrupts!();
-                    let maybe_segment_id =
-                        unsafe { checkout_segment_for_source(parallel_state, 0) };
-                    let Some(segment_id) = maybe_segment_id else {
-                        // No more segments: record that we successfully claimed all segments, and
-                        // then conclude iteration.
-                        *self.claimed_segments.borrow_mut() =
-                            Some(std::mem::take(&mut claimed_segments));
-                        return None;
-                    };
-
-                    // We claimed a segment. record it, and then return it.
-                    claimed_segments.push(segment_id);
-                    Some(segment_id)
-                }))
-            }
-        }
-    }
-
-    /// In a parallel scan, contribute this participant's partial aggregate over
-    /// the segments it claimed and wait for the merged result; serially it is
-    /// already the whole result.
-    fn merge_across_participants(
-        &self,
-        state: &BaseScanState,
-        agg_result: IntermediateAggregationResults,
-    ) -> IntermediateAggregationResults {
-        let Some(parallel_state) = state.parallel_state() else {
-            return agg_result;
-        };
-        let segment_count = self
-            .claimed_segments
-            .borrow()
-            .as_ref()
-            .expect("Should have claimed segments while running.")
-            .len();
-        let parallel_state = unsafe { &mut *parallel_state };
-        parallel_state
-            .aggregation_append(agg_result, segment_count)
-            .expect("Failed to append aggregation result");
-        parallel_state.aggregation_wait()
     }
 
     fn prepare_aggregations(&self, state: &mut BaseScanState) -> Option<PreparedAggregations> {
@@ -312,6 +218,163 @@ impl TopKScanExecState {
             })
             .collect()
     }
+
+    fn create_lazy_sorted_stream(
+        &mut self,
+        state: &mut BaseScanState,
+    ) -> Option<SendableRecordBatchStream> {
+        if self.did_query {
+            return None;
+        }
+        self.did_query = true;
+
+        let prepared = self.prepare_aggregations(state);
+        let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
+        let agg_limits = AggregationLimitsGuard::new(
+            Some(WorkMem::Tantivy.bytes().try_into().unwrap()),
+            Some(bucket_limit),
+        );
+
+        let first_pull_aux_collector = prepared.as_ref().map(|prepared| {
+            let search_reader = state.search_reader.as_ref().unwrap();
+            let (aggregation_collector, vischeck) = prepared.aggregations.plan(
+                search_reader,
+                state.heaprel(),
+                prepared.mvcc_enabled,
+                agg_limits.clone(),
+                None,
+            );
+            TopKAuxiliaryCollector {
+                aggregation_collector,
+                vischeck,
+            }
+        });
+
+        self.pending_aggregations = prepared.map(|p| (p, agg_limits));
+
+        let telemetry: LazySortTelemetry =
+            Arc::new(Mutex::new(UnsafeSendSync(LazySortTelemetryState {
+                first_pull_aux_collector,
+                queries_executed: 0,
+                segment_info: Default::default(),
+                first_pull_aggregation: None,
+            })));
+        self.telemetry = Some(Arc::clone(&telemetry));
+
+        let search_reader = state.search_reader.as_ref().unwrap();
+        let index_rel = state.indexrel.as_ref().unwrap();
+        let heap_rel = state.heaprel.as_ref().unwrap();
+
+        let which_fast_fields = vec![WhichFastField::Ctid, WhichFastField::Score(None)];
+        let ffhelper = Arc::new(FFHelper::for_ctid(search_reader));
+        let visibility = state
+            .visibility_checker
+            .as_ref()
+            .expect("TopKScanExecState: visibility_checker should be initialized")
+            .clone()
+            .with_ffhelper(Arc::clone(&ffhelper))
+            .with_check_visibility(false);
+
+        let scanner_config = ScannerConfig {
+            which_fast_fields: which_fast_fields.clone(),
+            heap_relid: heap_rel.oid().to_u32(),
+            batch_size_hint: None,
+            score_needed: search_reader.need_scores(),
+            scan_mode: crate::scan::ScanMode::all(),
+        };
+
+        let state_partition = ScanState {
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config,
+            ffhelper: Arc::clone(&ffhelper),
+            visibility: Box::new(visibility) as Box<VisibilityChecker>,
+            reader: search_reader.clone(),
+        };
+
+        let lazy_sort = LazySortConfig {
+            orderby_info: self.orderby_info.clone(),
+            ordering: None,
+            initial_window: self
+                .visibility_selectivity
+                .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
+            shared_threshold: SharedThresholdMode::EnabledOnFirstPull,
+            telemetry: Some(telemetry),
+        };
+
+        let plan = PgSearchScanPlan::new(
+            Some(state_partition),
+            build_arrow_schema(&which_fast_fields),
+            state.search_query_input().clone(),
+            None,
+            Vec::new(),
+            None,
+            index_rel.oid().to_u32(),
+            None,
+            1,
+            state.parallel_state(),
+            None,
+        )
+        .with_table_alias(index_rel.name())
+        .with_lazy_sort(lazy_sort);
+
+        let task_ctx = Arc::new(TaskContext::default());
+        let stream = match plan.execute(0, task_ctx) {
+            Ok(stream) => stream,
+            Err(e) => {
+                pgrx::error!("Failed to execute TopK scan plan: {e}");
+            }
+        };
+        Some(stream)
+    }
+
+    fn drain_telemetry(&mut self, state: &mut BaseScanState) {
+        let Some(ref telemetry) = self.telemetry else {
+            return;
+        };
+        let (queries_delta, segment_info, first_pull_aggregation) = {
+            let mut guard = telemetry.lock().unwrap();
+            (
+                std::mem::take(&mut guard.0.queries_executed),
+                std::mem::take(&mut guard.0.segment_info),
+                guard.0.first_pull_aggregation.take(),
+            )
+        };
+
+        for _ in 0..queries_delta {
+            state.increment_query_count();
+        }
+        if !segment_info.is_empty() {
+            state.accumulate_segment_info(segment_info);
+        }
+
+        if let Some((prepared, agg_limits)) = self.pending_aggregations.take() {
+            let (agg_result, claimed_segment_count) =
+                first_pull_aggregation.expect("an aggregation request should produce a result");
+            let intermediate_results = if let Some(parallel_state) = state.parallel_state() {
+                let segment_count =
+                    claimed_segment_count.expect("Should have claimed segments while running.");
+                let parallel_state = unsafe { &mut *parallel_state };
+                parallel_state
+                    .aggregation_append(agg_result, segment_count)
+                    .expect("Failed to append aggregation result");
+
+                parallel_state.aggregation_wait()
+            } else {
+                agg_result
+            };
+
+            let search_reader = state.search_reader.as_ref().unwrap();
+            let index_info = AggIndexInfo {
+                created_by_version: search_reader.index_created_by_version(),
+                schema: search_reader.schema().clone(),
+            };
+            let window_aggregate_results =
+                self.finalize_aggregates(prepared, agg_limits, intermediate_results, &index_info);
+
+            state.window_aggregate_results = Some(window_aggregate_results);
+        }
+    }
 }
 
 impl ExecMethod for TopKScanExecState {
@@ -363,258 +426,100 @@ impl ExecMethod for TopKScanExecState {
         self.window_aggregates = state.window_aggregates.clone();
     }
 
-    ///
-    /// Query more results.
-    ///
-    /// Called either because:
-    /// * We've never run a query before (did_query=False).
-    /// * Some of the results that we returned were not visible, and so the `chunk_size`, or
-    ///   `offset` values have changed.
-    ///
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        self.did_query = true;
-
-        if self.found >= self.limit() || self.exhausted {
+        if self.found >= self.limit() {
             return false;
         }
 
-        // We track the total number of queries executed by Top K (for any of the above reasons).
-        state.increment_query_count();
-
-        // Calculate the limit for this query, and what the offset will be for the next query.
-        let local_limit =
-            (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
-        let next_offset = self.offset + local_limit;
-
-        let prepared = self.prepare_aggregations(state);
-
-        // Use the GUC for term aggregation bucket limits (single source of truth).
-        let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
-
-        let agg_limits = AggregationLimitsGuard::new(
-            Some(WorkMem::Tantivy.bytes().try_into().unwrap()),
-            Some(bucket_limit),
-        );
-
-        // Run the Top K (and optional aggregate) query.
-        let mut search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
-            let maybe_aux_collector = prepared.as_ref().map(|prepared| {
-                let search_reader = self.search_reader.as_ref().unwrap();
-                let (aggregation_collector, vischeck) = prepared.aggregations.plan(
-                    search_reader,
-                    state.heaprel(),
-                    prepared.mvcc_enabled,
-                    agg_limits.clone(),
-                    None,
-                );
-
-                TopKAuxiliaryCollector {
-                    aggregation_collector,
-                    vischeck,
-                }
-            });
-            // We are passing parallel_state because it contains the shared threshold. We only want
-            // to use the shared threshold on the first query, as additional queries will
-            // necessarily be below it.
-            let maybe_parallel_state = if state.query_count() == 1 {
-                state.parallel_state()
-            } else {
-                None
-            };
-            let mut top_k_search = self
-                .search_reader
-                .as_ref()
-                .unwrap()
-                .search_top_k_in_segments(
-                    self.segments_to_query(
-                        state.search_reader.as_ref().unwrap(),
-                        state.parallel_state(),
-                    ),
-                    orderby_info,
-                    local_limit,
-                    self.offset,
-                    maybe_aux_collector,
-                    maybe_parallel_state,
-                );
-            // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
-            // DSM once at ShutdownCustomScan; the leader merges at its own Shutdown.
-            if !top_k_search.segment_info.is_empty() {
-                state.accumulate_segment_info(std::mem::take(&mut top_k_search.segment_info));
-            }
-            top_k_search
-        } else {
-            self.search_reader
-                .as_ref()
-                .unwrap()
-                .search_top_k_unordered_in_segments(
-                    self.segments_to_query(
-                        state.search_reader.as_ref().unwrap(),
-                        state.parallel_state(),
-                    ),
-                    local_limit,
-                    self.offset,
-                )
-        };
-
-        // If aggregates were executed, publish their results in our state for projection during
-        // the scan.
-        if let Some(prepared) = prepared {
-            let agg_result = if self.orderby_info.is_some() {
-                // Ordered TopK: aggregation was piggybacked on the search via aux collector
-                search_results
-                    .aggregation_results
-                    .take()
-                    .expect("an aggregation request should produce a result")
-            } else {
-                // Unordered TopK: run a standalone aggregation query since the
-                // unordered path does not support aggregation collectors. In a
-                // parallel scan it covers this participant's segments, like the
-                // search did; the participants merge below.
-                let search_reader = self.search_reader.as_ref().unwrap();
-                let (aggregation_collector, vischeck) = prepared.aggregations.plan(
-                    search_reader,
-                    state.heaprel(),
-                    prepared.mvcc_enabled,
-                    agg_limits.clone(),
-                    None,
-                );
-                let segments = self.segments_to_query(
-                    state.search_reader.as_ref().unwrap(),
-                    state.parallel_state(),
-                );
-                if let Some(vischeck) = vischeck {
-                    search_reader.collect_segments(
-                        segments,
-                        MVCCFilterCollector::new(aggregation_collector, vischeck),
-                    )
-                } else {
-                    search_reader.collect_segments(segments, aggregation_collector)
-                }
-            };
-            let intermediate_results = self.merge_across_participants(state, agg_result);
-
-            let search_reader = state.search_reader.as_ref().unwrap();
-            let index_info = AggIndexInfo {
-                created_by_version: search_reader.index_created_by_version(),
-                schema: search_reader.schema().clone(),
-            };
-            let window_aggregate_results =
-                self.finalize_aggregates(prepared, agg_limits, intermediate_results, &index_info);
-
-            state.window_aggregate_results = Some(window_aggregate_results);
+        if self.runtime.is_none() {
+            self.runtime = Some(
+                tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("Failed to create tokio runtime for DataFusion stream execution"),
+            );
         }
 
-        // Record the offset to start from for the next query.
-        self.offset = next_offset;
-
-        // If we got fewer results than we requested, then the query is exhausted: there is no
-        // point executing further queries.
-        self.exhausted = search_results.results.len() < local_limit;
-
-        // Batch-resolve ctids across segments using FFHelper.
-        let raw_results = search_results.results;
-        let mut resolved_ctids = vec![0u64; raw_results.len()];
-        let mut seg_ctids_buffer = Vec::new();
-
-        let search_reader = self
-            .search_reader
-            .as_ref()
-            .expect("Search reader must be initialized");
-        let ffhelper = FFHelper::for_ctid(search_reader);
-        let num_segments = ffhelper.num_segments();
-
-        let doc_addresses = raw_results
-            .iter()
-            .enumerate()
-            .map(|(idx, (_, doc_addr))| (idx, *doc_addr));
-
-        for_each_segment(num_segments, doc_addresses, |seg_ord, rows| {
-            let doc_ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-            seg_ctids_buffer.resize(doc_ids.len(), None);
-            ffhelper
-                .ctid(seg_ord)
-                .as_u64s(&doc_ids, &mut seg_ctids_buffer);
-            for ((orig_idx, _), maybe_ctid) in rows.into_iter().zip(seg_ctids_buffer.drain(..)) {
-                resolved_ctids[orig_idx] = maybe_ctid.expect("All rows must have ctids.");
+        loop {
+            if let Some(stream) = &mut self.stream {
+                let runtime = self.runtime.as_ref().unwrap();
+                let polled = poll_next_sync(runtime, stream);
+                self.drain_telemetry(state);
+                match polled {
+                    Some(Ok(batch)) => {
+                        self.current_record_batch = Some(batch);
+                        self.current_batch_row_idx = 0;
+                        return true;
+                    }
+                    Some(Err(e)) => {
+                        pgrx::error!("Error polling TopK DataFusion stream: {e}");
+                    }
+                    None => {
+                        self.stream = None;
+                        return false;
+                    }
+                }
             }
-            Ok(())
-        })
-        .expect("segment iteration should succeed");
 
-        let candidates: Vec<TopKCandidate> = raw_results
-            .into_iter()
-            .zip(resolved_ctids)
-            .map(|((scored, doc_address), ctid)| TopKCandidate {
-                ctid,
-                score: scored.bm25,
-                doc_address,
-            })
-            .collect();
-
-        let num_candidates = candidates.len();
-        self.candidates = candidates.into_iter();
-
-        // But if we got any results at all, then the query was a success.
-        num_candidates > 0
+            match self.create_lazy_sorted_stream(state) {
+                Some(stream) => {
+                    self.stream = Some(stream);
+                }
+                None => {
+                    return false;
+                }
+            }
+        }
     }
 
     fn increment_visible(&mut self) {
         self.found += 1;
     }
 
-    fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
-        loop {
-            check_for_interrupts!();
+    fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
+        check_for_interrupts!();
 
-            match self.candidates.next() {
-                None if !self.did_query => {
-                    // we haven't even done a query yet, so this is our very first time in
-                    return ExecState::Eof;
-                }
-                None | Some(_) if self.found >= self.limit() => {
-                    // we found all the matching rows
-                    return ExecState::Eof;
-                }
-                Some(candidate) => {
-                    self.nresults += 1;
-                    return ExecState::FromHeap {
-                        ctid: candidate.ctid,
-                        score: candidate.score,
-                        doc_address: candidate.doc_address,
-                    };
-                }
-                None => {
-                    // Fall through to query more results.
-                }
-            }
+        if self.found >= self.limit() {
+            return ExecState::Eof;
+        }
 
-            // set the chunk size to the scaling factor times the limit
-            // on subsequent retries, multiply the chunk size by the scale factor
-            // but do not exceed the max chunk size
-            self.chunk_size = (self.chunk_size * crate::gucs::topk_retry_scale_factor() as usize)
-                .max(
-                    (self.limit() as f64
-                        * self.scale_factor
-                        * crate::gucs::topk_retry_scale_factor() as f64)
-                        as usize,
-                )
-                .min(crate::gucs::max_topk_chunk_size() as usize);
+        let record_batch = match self.current_record_batch.as_ref() {
+            Some(batch) => batch,
+            None => return ExecState::Eof,
+        };
 
-            // Then try querying again, and continue looping if we got more results.
-            if !self.query(state) {
-                return ExecState::Eof;
-            }
+        let row_idx = self.current_batch_row_idx;
+        if row_idx >= record_batch.num_rows() {
+            self.current_record_batch = None;
+            return ExecState::Eof;
+        }
+
+        self.current_batch_row_idx += 1;
+
+        let ctid_array = record_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("ctid column should be UInt64Array");
+        let score_array = record_batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .expect("score column should be Float32Array");
+
+        ExecState::FromHeap {
+            ctid: ctid_array.value(row_idx),
+            score: score_array.value(row_idx),
         }
     }
 
     fn reset(&mut self, state: &mut BaseScanState) {
-        // Reset state
-        self.claimed_segments.take();
         self.did_query = false;
-        self.exhausted = false;
-        self.search_query_input = Some(state.search_query_input().clone());
-        self.search_reader = state.search_reader.clone();
-        self.candidates = Vec::new().into_iter();
+        self.stream = None;
+        self.telemetry = None;
+        self.pending_aggregations = None;
+        self.current_record_batch = None;
+        self.current_batch_row_idx = 0;
+        self.found = 0;
 
         // Get window aggregates from state if available
         if let ExecMethodType::TopK {
@@ -623,10 +528,5 @@ impl ExecMethod for TopKScanExecState {
         {
             self.window_aggregates = window_aggregates.clone();
         }
-
-        // Reset counters - excluding nresults which tracks processed results
-        self.chunk_size = 0;
-        self.found = 0;
-        self.offset = 0;
     }
 }

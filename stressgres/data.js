@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792138182743,
+  "lastUpdate": 1792138199059,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -470628,6 +470628,106 @@ window.BENCHMARK_DATA = {
             "value": 45.46484375,
             "unit": "median mem",
             "extra": "avg mem: 44.59392781154534, max mem: 59.46484375, count: 59249"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792138190655,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5738072716973837, max cpu: 4.7524753, count: 59239"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.61980309635544, max mem: 21.65625, count: 59239"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5535745646580335, max cpu: 4.7690015, count: 59239"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.776993012415808, max mem: 20.77734375, count: 59239"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.407154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.189051108957969, max cpu: 23.426062, count: 59239"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.80846536382282, max mem: 21.8125, count: 59239"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.912709532571, max document_count: 10002.0, count: 59239"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.908877597529, max document_count: 10002.0, count: 59239"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59239"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.54945377568919, max cpu: 33.168808, count: 59239"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 45.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.61653890912237, max mem: 59.48828125, count: 59239"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.447440535925125, max cpu: 32.90891, count: 59239"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 45.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.62503257461301, max mem: 59.25390625, count: 59239"
           }
         ]
       }

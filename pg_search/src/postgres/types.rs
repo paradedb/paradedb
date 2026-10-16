@@ -1028,9 +1028,9 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::Date(PostgresDateTime::from(
-            val,
-        ))))
+        let pg_dt = PostgresDateTime::try_from(val)
+            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
+        Ok(TantivyValue(PdbOwnedValue::Date(pg_dt)))
     }
 }
 

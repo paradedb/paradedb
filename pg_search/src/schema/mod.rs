@@ -996,7 +996,7 @@ impl SearchField {
                         self.field_type
                     ),
                 };
-                let datetime = convert_pg_date_string(typeoid, &s);
+                let datetime = convert_pg_date_string(typeoid, &s)?;
                 *value = PdbOwnedValue::Date(datetime);
                 Ok(())
             }

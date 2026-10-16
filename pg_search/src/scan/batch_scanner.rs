@@ -96,7 +96,6 @@ fn ensure_column_fetched(
                 FieldCardinality::Scalar => {
                     column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
                 }
-                // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
                 FieldCardinality::List => {
                     column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
                 }

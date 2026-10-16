@@ -311,14 +311,13 @@ impl PgSearchTableProvider {
         }
         self.deferred_fetch_at_scan = crate::gucs::defer_column_fetch() == DeferredPlacement::Off;
         for wff in self.fields.iter_mut() {
-            // Scalar only: the packed deferred encoding carries one value per
-            // row, so a list column stays eager.
-            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+            // A list defers like a scalar: its doc address is what crosses the plan, and the
+            // decode point reads the whole list in one step.
             if let WhichFastField::Named {
                 name,
                 field_type,
-                cardinality: FieldCardinality::Scalar,
                 delivery,
+                ..
             } = wff
             {
                 let is_string_or_bytes = field_type.is_dictionary_storage();

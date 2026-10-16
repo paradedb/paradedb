@@ -29,7 +29,7 @@ from plan_hn_embeddings import write_json
 SUPERNOVA_REV = "695841a0fc29f8da303e8dccb80eb21cb732e280"
 DEFAULT_FILTERS = hn.DEFAULT_CONFIG.parent / "filters.toml"
 GT_SCHEMA = pa.schema([("query_id", pa.int32()), ("gt_ids", pa.list_(pa.string()))])
-CORPUS_PREFIX = "sampled/full/parquet/hn_items/"
+CORPUS_PREFIX = "sampled/full/parquet/hn/"
 
 
 def inventory(root, paths):
@@ -43,8 +43,8 @@ def inventory(root, paths):
     }
 
 
-def restore_dataset(store):
-    """Restore only the full corpus and its query/holdout fixtures."""
+def restore_dataset(store, *, corpus=True):
+    """Restore query/holdout fixtures and, optionally, the full corpus."""
     manifest = json.loads(store.fetch("manifest.json").read_text())
     if (
         manifest["format"] != 1
@@ -56,11 +56,15 @@ def restore_dataset(store):
         raise ValueError("Expected the assembled HN v1 cosine dataset")
     paths = []
     for relative, entry in manifest["artifacts"].items():
-        if relative.startswith(CORPUS_PREFIX) and relative.endswith(".parquet"):
+        if (
+            corpus
+            and relative.startswith(CORPUS_PREFIX)
+            and relative.endswith(".parquet")
+        ):
             paths.append(checked_file(store, relative, entry["sha256"]))
     for relative in ("queries/hn_queries.parquet", "queries/holdout.parquet"):
         checked_file(store, relative, manifest["artifacts"][relative]["sha256"])
-    if (
+    if corpus and (
         not paths
         or sum(pq.ParquetFile(p).metadata.num_rows for p in paths)
         != manifest["corpora"]["full"]["rows"]

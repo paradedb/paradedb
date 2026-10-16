@@ -7,6 +7,7 @@ on:
       - ".github/workflows/test-hn-preparation.yml"
       - ".github/workflows/generate-hn-embeddings.yml"
       - ".github/workflows/generate-hn-ground-truth.yml"
+      - ".github/workflows/benchmark-hn-vectors.yml"
       - "benchmarks/datasets/hn/**"
       - "benchmarks/scripts/**"
   workflow_dispatch:
@@ -57,6 +58,13 @@ jobs:
         run: |
           python -m pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -r benchmarks/scripts/requirements-hn-gt.txt
+
+      - name: Install pgvector for Heap Loader Tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "${POSTGRES_CONTAINER}" apt-get update
+          docker exec "${POSTGRES_CONTAINER}" apt-get install -y postgresql-18-pgvector
 
       - name: Test Dataset Preparation
         run: python -m unittest discover -s benchmarks/scripts -p 'test_*hn*.py'

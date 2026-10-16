@@ -1,4 +1,4 @@
-CREATE INDEX paradedb ON hn_items
+CREATE INDEX hn_items_bm25_idx ON hn_items
 USING paradedb (
     id,
     (type::pdb.literal),

@@ -319,7 +319,7 @@ def write_bucket(conn, work, output, sizes, bucket):
         if count:
             path = (
                 output
-                / f"sampled/{label}/parquet/hn_items/part-{bucket.removeprefix('bucket=')}.parquet"
+                / f"sampled/{label}/parquet/hn/part-{bucket.removeprefix('bucket=')}.parquet"
             )
             path.parent.mkdir(parents=True, exist_ok=True)
             conn.execute(

@@ -114,7 +114,7 @@ class HNAssemblyTests(unittest.TestCase):
                 conn.read_parquet(
                     str(
                         (output or self.output)
-                        / f"sampled/{label}/parquet/hn_items/*.parquet"
+                        / f"sampled/{label}/parquet/hn/*.parquet"
                     )
                 )
                 .order("id")

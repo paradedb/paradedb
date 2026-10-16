@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import tempfile
+import tomllib
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,7 +19,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from psycopg import sql
 
+import assemble_hn as assembly
 import ground_truth_hn as gt
+import pdbench_hn as bench
 import prepare_hn as hn
 from embed_hn import Store
 from plan_hn_embeddings import write_json
@@ -67,15 +70,17 @@ class HNGroundTruthTests(unittest.TestCase):
                 "emb": None,
             }
         )
+        types = {
+            "BIGINT": pa.int64(),
+            "BOOLEAN": pa.bool_(),
+            "VARCHAR": pa.string(),
+            "TIMESTAMPTZ": pa.timestamp("us", tz="UTC"),
+            "BIGINT[]": pa.list_(pa.int64()),
+            "INTEGER": pa.int32(),
+        }
         schema = pa.schema(
-            [
-                ("id", pa.int64()),
-                ("type", pa.string()),
-                ("by", pa.string()),
-                ("score", pa.int32()),
-                ("time", pa.timestamp("us", tz="UTC")),
-                ("emb", pa.list_(pa.float32())),
-            ]
+            [(name, types[kind]) for name, kind in assembly.COLUMNS.items()]
+            + [("emb", pa.list_(pa.float32()))]
         )
         corpus = cls.dataset.path(gt.CORPUS_PREFIX)
         corpus.mkdir(parents=True)
@@ -106,10 +111,10 @@ class HNGroundTruthTests(unittest.TestCase):
         )
         manifest = {
             "format": 1,
+            "source": {"archive_verified": True},
             "state": "assembled",
             "dataset": "hn",
             "version": "v1",
-            "source": {"archive_verified": True},
             "embedding": {"dimensions": 1536, "distance": "cosine"},
             "counts": {"query_rows": 3},
             "corpora": {"full": {"rows": 129, "vector_rows": 128}},
@@ -301,6 +306,98 @@ class HNGroundTruthTests(unittest.TestCase):
         pq.write_table(pa.Table.from_pylist(original[1:]), changed)
         with self.assertRaisesRegex(ValueError, "query IDs"):
             gt.convert_result(self.output, self.prepared, item, changed)
+
+    def pdbench_dataset(self):
+        """Copy the published corpus and GT artifacts into one consumer store."""
+        store = Store(self.work / "pdbench-dataset")
+        shutil.copytree(self.dataset.root, store.root, dirs_exist_ok=True)
+        shutil.copytree(
+            self.output / "queries", store.path("queries"), dirs_exist_ok=True
+        )
+        shutil.copytree(self.output / "ground_truth", store.path("ground_truth"))
+        return store
+
+    def test_pdbench_bundle_preserves_frozen_filters_and_profile(self):
+        """Use pdbench's existing paths and keep quoted equality predicates intact."""
+        store = self.pdbench_dataset()
+        output = self.work / "bundle"
+        binding = bench.prepare(store, output, corpus=True)
+        profile = tomllib.loads((output / "hn-full.toml").read_text())
+        self.assertEqual(profile["dataset"]["expected_rows"], 129)
+        self.assertEqual(profile["dataset"]["table"], "hn_items")
+        self.assertEqual(
+            profile["index"], {"training_sample_ratio": 0.32, "target_segment_count": 4}
+        )
+        self.assertNotIn("queries", profile["search"])
+        self.assertEqual(bench.read_bundle(output), binding)
+        for item in binding["filters"]:
+            query = output / "assets/hn/queries" / f"{item['name']}.sql"
+            self.assertIn(f"AND ({item['predicate']})", query.read_text())
+        (output / "assets/hn/index.sql").write_text("wrong index")
+        with self.assertRaisesRegex(ValueError, "Checksum mismatch"):
+            bench.read_bundle(output)
+
+    def test_pdbench_rejects_wrong_gt_corrupt_fixture_and_extra_corpus(self):
+        """Prevent benchmarking against a different dataset or an expanded glob."""
+        store = self.pdbench_dataset()
+        path = store.path("ground_truth/manifest.json")
+        manifest = json.loads(path.read_text())
+        changed = dict(manifest, dataset_manifest_sha256="different")
+        write_json(path, changed)
+        with self.assertRaisesRegex(ValueError, "Ground truth does not match"):
+            bench.prepare(store, self.work / "wrong-gt")
+        write_json(path, manifest)
+        extra = store.path(gt.CORPUS_PREFIX) / "unmanifested.parquet"
+        shutil.copyfile(next(store.path(gt.CORPUS_PREFIX).glob("part*")), extra)
+        with self.assertRaisesRegex(ValueError, "Unmanifested corpus"):
+            bench.prepare(store, self.work / "extra", corpus=True)
+        extra.unlink()
+        query = store.path("queries/hn_queries.parquet")
+        query.write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "Checksum mismatch"):
+            bench.prepare(store, self.work / "corrupt")
+
+    def test_pdbench_heap_load_and_schema_probe_are_safe(self):
+        """Load all native HN types, reject replacement and mismatched snapshot identity."""
+        store = self.pdbench_dataset()
+        output = self.work / "bundle"
+        binding = bench.prepare(store, output, corpus=True)
+        dsn = os.environ["HN_GT_DATABASE_URL"]
+        with psycopg.connect(dsn) as db:
+            if not db.execute(
+                "SELECT 1 FROM pg_available_extensions WHERE name='vector'"
+            ).fetchone():
+                self.skipTest("Install pgvector to exercise the real heap loader")
+        name = "hn_pdbench_" + self.work.name
+        with psycopg.connect(dsn, autocommit=True) as db:
+            db.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        isolated = psycopg.conninfo.make_conninfo(dsn, dbname=name)
+        try:
+            bench.load_heap(output, isolated)
+            with self.assertRaisesRegex(ValueError, "Refusing to replace"):
+                bench.load_heap(output, isolated)
+            with psycopg.connect(isolated) as db:
+                bench.verify_heap(binding, db)
+                schema = (
+                    (output / "assets/hn/create_table.sql")
+                    .read_text()
+                    .replace("{{ table }}", "pg_temp.pdbench_schema_probe")
+                    .replace("{{ dims }}", "1536")
+                )
+                db.execute(schema)
+                self.assertEqual(
+                    db.execute("SELECT count(*) FROM hn_items").fetchone()[0], 129
+                )
+                db.execute("UPDATE hn_dataset_identity SET manifest_sha256='wrong'")
+                with self.assertRaisesRegex(ValueError, "different dataset"):
+                    bench.verify_heap(binding, db)
+        finally:
+            with psycopg.connect(dsn, autocommit=True) as db:
+                db.execute(
+                    sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                        sql.Identifier(name)
+                    )
+                )
 
     def test_publication_is_immutable_and_bound_to_dataset(self):
         """Publish the marker last and reject conflicting GT or datasets."""

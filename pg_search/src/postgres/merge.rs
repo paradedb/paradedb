@@ -343,7 +343,8 @@ unsafe fn apply_immutable_backpressure(
         "small immutable segment backpressure for {}: high={high_watermark}, low={low_watermark}",
         index.name()
     );
-    loop {
+    let mut remaining = small_immutable_segment_count(index).saturating_sub(low_watermark);
+    while remaining > 0 {
         let count = small_immutable_segment_count(index);
         if count <= low_watermark {
             break;
@@ -351,7 +352,7 @@ unsafe fn apply_immutable_backpressure(
         check_for_interrupts!();
         let policy = LayeredMergePolicy::new(small_layers.clone()).with_immutable_merge_limits(
             LARGE_MERGE_THRESHOLD - 1,
-            (count - low_watermark + 1).min(64),
+            (count - low_watermark + 1).min(remaining + 1).min(64),
         );
         let metadata = MetaPage::open(index);
         let cleanup_lock = metadata.cleanup_lock_shared();
@@ -369,6 +370,7 @@ unsafe fn apply_immutable_backpressure(
         if merged == 0 {
             break;
         }
+        remaining = remaining.saturating_sub(merged);
     }
 }
 
@@ -626,6 +628,7 @@ pub(crate) unsafe fn merge_index(
         .expect("should be able to adjust merger pins");
 
     let ncandidates = merge_candidates.len();
+    let mut segment_reduction = 0;
     if ncandidates > 0 {
         // record all the segments the SearchIndexMerger can see, as those are the ones that
         // could be merged
@@ -658,6 +661,8 @@ pub(crate) unsafe fn merge_index(
             if merge_result.is_err() {
                 break;
             }
+            segment_reduction +=
+                candidate.0.len() - usize::from(merge_result.as_ref().unwrap().is_some());
             if mode == MergeMode::Background {
                 garbage_collect_index(indexrel, current_xid, next_xid);
             }
@@ -690,7 +695,7 @@ pub(crate) unsafe fn merge_index(
         drop(merge_lock);
     }
     drop(merge_pins);
-    ncandidates
+    segment_reduction
 }
 
 ///

@@ -107,8 +107,7 @@ async fn cleanup_lock_wait_cancelled_then_retried(database: Db) -> anyhow::Resul
         )
         .await?;
 
-    // An open search pins the index's cleanup-lock page, so VACUUM's ambulkdelete waits in
-    // LockBufferForCleanup and the timeout cancels it there.
+    // An open search holds cleanup admission, so VACUUM waits until the timeout cancels it.
     reader.execute("BEGIN").await?;
     reader
         .execute("DECLARE c CURSOR FOR SELECT id FROM cleanup_wait WHERE id @@@ paradedb.all()")
@@ -130,5 +129,100 @@ async fn cleanup_lock_wait_cancelled_then_retried(database: Db) -> anyhow::Resul
         .execute("DELETE FROM cleanup_wait WHERE id <= 200")
         .await?;
     vacuum.execute("VACUUM cleanup_wait").await?;
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn vacuum_admission_allows_existing_readers_to_finish(database: Db) -> anyhow::Result<()> {
+    use std::time::{Duration, Instant};
+
+    let mut observer = database.connection().await;
+    let mut reader = database.connection().await;
+    let mut vacuum = database.connection().await;
+    let mut late_reader = database.connection().await;
+    observer.execute(
+        "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE; \
+         CREATE TABLE cleanup_admission (id int PRIMARY KEY, body text) WITH (autovacuum_enabled=false); \
+         INSERT INTO cleanup_admission SELECT g, 'hello world' FROM generate_series(1,5000) g; \
+         CREATE INDEX cleanup_admission_idx ON cleanup_admission USING paradedb (id,body); \
+         DELETE FROM cleanup_admission WHERE id<=100",
+    ).await?;
+    reader.execute("SET statement_timeout='10s'; BEGIN; DECLARE c CURSOR FOR SELECT id FROM cleanup_admission WHERE id @@@ paradedb.all(); FETCH 1 FROM c").await?;
+    vacuum.execute("SET statement_timeout='10s'").await?;
+    late_reader.execute("SET statement_timeout='10s'").await?;
+    let vacuum_task = tokio::spawn(async move { vacuum.execute("VACUUM cleanup_admission").await });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT FROM pg_locks WHERE locktype='page' \
+             AND relation='cleanup_admission_idx'::regclass AND mode='ExclusiveLock' AND NOT granted)",
+        ).fetch_one(&mut observer).await?;
+        if queued {
+            break;
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "VACUUM did not queue for reader admission"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let late_task = tokio::spawn(async move {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM cleanup_admission WHERE id @@@ paradedb.all()",
+        )
+        .fetch_one(&mut late_reader)
+        .await
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT FROM pg_locks WHERE locktype='page' \
+             AND relation='cleanup_admission_idx'::regclass AND mode='ShareLock' AND NOT granted)",
+        )
+        .fetch_one(&mut observer)
+        .await?;
+        if queued {
+            break;
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "new reader bypassed queued VACUUM"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let nested: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM cleanup_admission WHERE id @@@ paradedb.all()")
+            .fetch_one(&mut reader)
+            .await?;
+    assert_eq!(nested, 4900);
+    let version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+        .fetch_one(&mut reader)
+        .await?;
+    reader
+        .execute(if version >= 160000 {
+            "SET debug_parallel_query=on"
+        } else {
+            "SET force_parallel_mode=on"
+        })
+        .await?;
+    reader.execute("SET paradedb.enable_custom_scan=false; SET paradedb.enable_aggregate_custom_scan=false; SET max_parallel_workers_per_gather=2; SET parallel_setup_cost=0; SET parallel_tuple_cost=0; SET min_parallel_table_scan_size=0; SET min_parallel_index_scan_size=0").await?;
+    let plan: Vec<String> = sqlx::query_scalar("EXPLAIN (ANALYZE, COSTS OFF) SELECT count(*) FROM cleanup_admission WHERE id @@@ paradedb.all()")
+        .fetch_all(&mut reader).await?;
+    assert!(
+        plan.iter().any(|line| line
+            .split_once("Workers Launched:")
+            .is_some_and(|(_, count)| count.trim().parse::<u32>().is_ok_and(|n| n > 0))),
+        "parallel reader was not exercised: {plan:?}"
+    );
+    reader.execute("FETCH 1 FROM c; COMMIT").await?;
+    vacuum_task.await??;
+    assert_eq!(late_task.await??, 4900);
+    let locks: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='page' AND relation='cleanup_admission_idx'::regclass")
+        .fetch_one(&mut observer).await?;
+    assert_eq!(locks, 0);
+    let passed: Option<bool> = sqlx::query_scalar("SELECT bool_and(passed) FROM pdb.verify_index('cleanup_admission_idx',heapallindexed=>true)")
+        .fetch_one(&mut observer).await?;
+    assert_eq!(passed, Some(true));
     Ok(())
 }

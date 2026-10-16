@@ -324,9 +324,11 @@ unsafe fn apply_immutable_backpressure(
     if small_immutable_segment_count(index) <= high_watermark {
         return;
     }
-    let small_layers = IndexLayerSizes::from(index)
-        .combined()
+    let options = index.options();
+    let small_layers = options
+        .foreground_layer_sizes()
         .into_iter()
+        .chain(options.background_layer_sizes())
         .filter(|size| MergeSlotVariant::for_size(*size) == MergeSlotVariant::Small)
         .collect::<Vec<_>>();
     if small_layers.is_empty() {
@@ -341,10 +343,16 @@ unsafe fn apply_immutable_backpressure(
         "small immutable segment backpressure for {}: high={high_watermark}, low={low_watermark}",
         index.name()
     );
-    while small_immutable_segment_count(index) > low_watermark {
+    loop {
+        let count = small_immutable_segment_count(index);
+        if count <= low_watermark {
+            break;
+        }
         check_for_interrupts!();
-        let policy = LayeredMergePolicy::new(small_layers.clone())
-            .with_immutable_merge_limits(LARGE_MERGE_THRESHOLD - 1, 64);
+        let policy = LayeredMergePolicy::new(small_layers.clone()).with_immutable_merge_limits(
+            LARGE_MERGE_THRESHOLD - 1,
+            (count - low_watermark + 1).min(64),
+        );
         let metadata = MetaPage::open(index);
         let cleanup_lock = metadata.cleanup_lock_shared();
         let merge_lock = metadata.acquire_merge_lock();
@@ -881,7 +889,7 @@ mod tests {
         Spi::run("ALTER INDEX backpressure_idx SET (max_small_segment_count=8)").unwrap();
         let index = PgSearchRelation::open(oid);
         apply_immutable_backpressure(&index, xid, xid);
-        assert!(small_immutable_segment_count(&index) <= 4);
+        assert_eq!(small_immutable_segment_count(&index), 4);
         drop(index);
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")

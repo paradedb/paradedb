@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{PgList, pg_sys};
+use crate::postgres::search_operator_relations::top_parent;
+use pgrx::pg_sys;
 
 /// Check if an RTE represents a plain table (not a view, subquery, etc.)
 /// Returns the relid if it's a plain relation (RELKIND_RELATION or RELKIND_MATVIEW).
@@ -74,65 +75,22 @@ pub unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_s
     })
 }
 
-/// Helper function to check if a Bitmapset is empty
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
-    bms_iter(bms).next().is_none()
-}
-
-/// Helper function to determine if we're dealing with a partitioned table setup
+/// Whether the relation is a partition, at any depth, of a partitioned table in `baserels`.
+///
+/// Partitioning expands one level at a time, so a table's `all_partrels` holds its direct
+/// partitions only: the leaves under a partitioned partition are reached through their parents.
 pub unsafe fn is_partitioned_table_setup(
     root: *mut pg_sys::PlannerInfo,
     rel_relids: *mut pg_sys::Bitmapset,
     baserels: *mut pg_sys::Bitmapset,
 ) -> bool {
-    // If the relation bitmap is empty, early return
-    if bms_is_empty(rel_relids) {
-        return false;
-    }
-
-    // Get the rtable for relkind checks
-    let rtable = (*(*root).parse).rtable;
-    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
-
-    // For each relation in baserels
-    for baserel_idx in bms_iter(baserels) {
-        // Skip invalid indices
-        if baserel_idx == 0 || baserel_idx as usize > rtable_list.len() {
-            // Out of bounds, skip this entry
-            continue;
-        }
-
-        // Get the RTE to check if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx, rtable);
-        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
-            continue;
-        }
-
-        // Access RelOptInfo safely using offset and read
-        if (*root).simple_rel_array.is_null() {
-            continue;
-        }
-
-        // This is a partitioned table, get its RelOptInfo to find partitions
-        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
-        if rel_info_ptr.is_null() {
-            continue;
-        }
-
-        let rel_info = &*rel_info_ptr;
-
-        // Check if it has partitions
-        if rel_info.all_partrels.is_null() {
-            continue;
-        }
-
-        // Check if any relation in rel_relids is among the partitions
-        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
-            return true;
-        }
-    }
-
-    false
+    bms_iter(rel_relids).any(|rti| {
+        top_parent(root, rti).is_some_and(|(table, rte)| {
+            table != rti
+                && (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE
+                && pg_sys::bms_is_member(table as i32, baserels)
+        })
+    })
 }
 
 /// Get the RangeTblEntry for the given index from the given array.

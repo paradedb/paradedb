@@ -77,6 +77,7 @@ use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
+use crate::postgres::search_operator_relations::top_parent;
 use crate::postgres::var::VarContext;
 use crate::postgres::{PgSearchRelation, rel_get_bm25_index};
 use crate::query::{PostgresExpression, SearchQueryInput};
@@ -579,4 +580,12 @@ pub fn deserialize_window_agg_placeholders(tlist: *mut pg_sys::List) -> Vec<Wind
         });
     }
     window_aggs
+}
+
+/// The planner's id for the partitioned table that `rti` is a partition of, shared by the scans
+/// of all its partitions: the address of the table's `RelOptInfo`, which no other relation in the
+/// plan has. `None` when `rti` is not a partition.
+pub unsafe fn window_agg_group(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> Option<u64> {
+    let (table, _) = top_parent(root, rti)?;
+    (table != rti).then(|| *(*root).simple_rel_array.add(table as usize) as u64)
 }

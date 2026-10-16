@@ -58,7 +58,7 @@ use crate::postgres::customscan::basescan::projections::snippet::{
 };
 use crate::postgres::customscan::basescan::projections::window_agg::{
     WindowAggregateInfo, deserialize_window_agg_placeholders,
-    resolve_window_aggregate_filters_at_plan_time,
+    resolve_window_aggregate_filters_at_plan_time, window_agg_group,
 };
 use crate::postgres::customscan::basescan::scan_state::{BasePlaceholders, BaseScanState};
 use crate::postgres::customscan::bitmap_intersection;
@@ -1444,6 +1444,14 @@ impl CustomScan for BaseScan {
                 builder
                     .custom_private_mut()
                     .set_window_aggregates(window_aggregates);
+
+                // A partition's scan answers with the aggregates over every partition.
+                let rti = builder
+                    .custom_private()
+                    .range_table_index()
+                    .expect("range table index should be set");
+                let group = window_agg_group(builder.args().root, rti);
+                builder.custom_private_mut().set_window_agg_group(group);
             }
 
             let private_data = builder.custom_private();

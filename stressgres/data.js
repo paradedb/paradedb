@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792118842106,
+  "lastUpdate": 1792118860535,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -469114,6 +469114,106 @@ window.BENCHMARK_DATA = {
             "value": 45.10546875,
             "unit": "median mem",
             "extra": "avg mem: 44.598934353371874, max mem: 59.10546875, count: 59240"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792118851949,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.641671640874269, max cpu: 4.745428, count: 59249"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.68404048749768, max mem: 21.703125, count: 59249"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.639951617897176, max cpu: 4.7904196, count: 59249"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.782042405251566, max mem: 20.82421875, count: 59249"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.411765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.194050507867791, max cpu: 33.549675, count: 59249"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.845845961007782, max mem: 21.85546875, count: 59249"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.92315482118, max document_count: 10002.0, count: 59249"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.934513662678, max document_count: 10002.0, count: 59249"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59249"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.631733,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.613936876712867, max cpu: 33.0546, count: 59249"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 45.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.603280421926954, max mem: 59.38671875, count: 59249"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.42344698353865, max cpu: 33.022114, count: 59249"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 45.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.59392781154534, max mem: 59.46484375, count: 59249"
           }
         ]
       }

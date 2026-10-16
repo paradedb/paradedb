@@ -158,6 +158,24 @@ fn type_object(names: Vec<Node>) -> Node {
     }))
 }
 
+// An explicit CREATE OR REPLACE also covers the suggested DROP for this object.
+// Keep the replace flag on the original node; comparison deliberately erases it.
+pub fn replacement_drop(statement: &ParsedStatement) -> Result<Option<String>, String> {
+    let replaces = match &statement.node.node {
+        Some(NodeEnum::CreateFunctionStmt(node)) => node.replace,
+        Some(NodeEnum::ViewStmt(node)) => node.replace,
+        Some(NodeEnum::DefineStmt(node)) => {
+            node.replace && node.kind == pb::ObjectType::ObjectAggregate as i32
+        }
+        _ => false,
+    };
+    if replaces {
+        Ok(removal(statement)?.map(|removal| removal.identity))
+    } else {
+        Ok(None)
+    }
+}
+
 fn removal(statement: &ParsedStatement) -> Result<Option<Removal>, String> {
     use pb::ObjectType as O;
     let unsupported = || {

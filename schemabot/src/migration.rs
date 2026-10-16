@@ -30,7 +30,12 @@ pub fn check(expected: &str, fragments: &[String]) -> Result<(), String> {
     // Parse each file separately: concatenation could hide its first statement
     // behind a trailing line comment in the previous fragment.
     for fragment in fragments {
-        actual.extend(statements(fragment)?.into_keys());
+        for statement in crate::sql::parse(fragment)? {
+            if let Some(drop) = crate::schema::replacement_drop(&statement)? {
+                actual.insert(drop);
+            }
+            actual.insert(statement.comparison);
+        }
     }
     let missing: Vec<_> = expected
         .iter()
@@ -177,5 +182,41 @@ mod tests {
         assert!(error.contains("1 required"));
         assert!(error.contains("CREATE TABLE u(x text);"));
         assert!(!error.contains("CREATE TABLE t"));
+    }
+
+    #[test]
+    fn explicit_replacements_cover_drop_and_matching_definition() {
+        for (drop, definition) in [
+            (
+                "DROP FUNCTION app.f(int)",
+                "CREATE FUNCTION app.f(x int) RETURNS int LANGUAGE sql AS $$SELECT x + 1$$",
+            ),
+            (
+                "DROP PROCEDURE app.p(int)",
+                "CREATE PROCEDURE app.p(x int) LANGUAGE sql AS $$SELECT x$$",
+            ),
+            ("DROP VIEW app.v", "CREATE VIEW app.v AS SELECT 2 AS n"),
+            (
+                "DROP AGGREGATE app.a(int)",
+                "CREATE AGGREGATE app.a(int) (SFUNC = int4pl, STYPE = int, INITCOND = '0')",
+            ),
+        ] {
+            let expected = format!("{drop}; {definition}");
+            let replacement = definition.replacen("CREATE", "CREATE OR REPLACE", 1);
+            check(&expected, std::slice::from_ref(&replacement)).unwrap();
+            // A plain CREATE still requires the explicit DROP.
+            assert!(check(&expected, &[definition.into()]).is_err());
+            // Replacement of another object or definition cannot cover this change.
+            assert!(check(&expected, &[replacement.replace("app.", "other.")]).is_err());
+            assert!(
+                check(
+                    &expected,
+                    &[replacement
+                        .replace("int", "bigint")
+                        .replace("SELECT 2", "SELECT 3")]
+                )
+                .is_err()
+            );
+        }
     }
 }

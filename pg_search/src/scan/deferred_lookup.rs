@@ -22,7 +22,8 @@
 //! `Utf8View` / `BinaryView` value. `TantivyFetchExec` takes State 0 to State 1 and
 //! `TantivyDecodeExec` takes State 1 to the value. The two run as separate nodes because
 //! a fast-field fetch wants doc order while a dictionary decode is random access either
-//! way, so a planner can place each where it costs least.
+//! way, so a planner can place each where it costs least. A list column skips State 1: one
+//! row of it holds many terms, so `TantivyDecodeExec` reads it from its doc address.
 
 use std::sync::Arc;
 

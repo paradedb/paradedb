@@ -200,6 +200,33 @@ impl FFHelper {
         ))
     }
 
+    /// The lists the multi-valued column at `field` holds for `ids`, decoded the way the scan
+    /// decodes an eager list column. `None` when the segment wrote no column for the field.
+    pub(crate) fn list_values(
+        &self,
+        segment_ord: SegmentOrdinal,
+        field: FFIndex,
+        ids: &[DocId],
+    ) -> Result<Option<ArrayRef>> {
+        let Some(field_type) = self
+            .inner()
+            .columns
+            .get(field)
+            .and_then(WhichFastField::field_type)
+            .copied()
+        else {
+            return Err(DataFusionError::Internal(format!(
+                "fast-field helper has no named column at index {field}"
+            )));
+        };
+        match self.column(segment_ord, field) {
+            FFType::Junk => Ok(None),
+            column => column
+                .decode_list_ords(column.fetch_array_values_or_ords_to_arrow(ids, field_type))
+                .map(Some),
+        }
+    }
+
     pub fn num_segments(&self) -> usize {
         self.0
             .as_ref()

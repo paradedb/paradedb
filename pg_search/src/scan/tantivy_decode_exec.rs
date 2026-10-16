@@ -18,9 +18,13 @@
 //! The dictionary-decode half of a deferred lookup.
 //!
 //! `TantivyDecodeExec` turns a deferred column's term ordinals (State 1) into the
-//! `Utf8View` / `BinaryView` values the rest of the plan expects. It never reads a fast-field
-//! column: a row that still carries a doc address is a planning error, because the fetch has
-//! its own node (`TantivyFetchExec`) or ran inside the scan.
+//! `Utf8View` / `BinaryView` values the rest of the plan expects. For a scalar column it never
+//! reads a fast-field column: a row that still carries a doc address is a planning error,
+//! because the fetch has its own node (`TantivyFetchExec`) or ran inside the scan.
+//!
+//! A list column is the exception. One row of it holds many terms, so a list has no ordinal
+//! state: it reaches this node as doc addresses, and each segment's lists are read and decoded
+//! here in one step, the way the scan reads an eager list.
 //!
 //! Dictionary lookups are random access whatever the row order, and an ordinal is far
 //! narrower than the string it names, so this node is the half of the lookup that can be
@@ -30,7 +34,7 @@ use std::sync::Arc;
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, FieldCardinality, ords_to_bytes_array, ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, for_each_segment, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
@@ -54,8 +58,8 @@ use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use tantivy::SegmentOrdinal;
 use tantivy::termdict::TermOrdinal;
+use tantivy::{DocAddress, DocId, SegmentOrdinal};
 
 pub struct TantivyDecodeExec {
     input: Arc<dyn ExecutionPlan>,
@@ -101,7 +105,7 @@ impl TantivyDecodeExec {
     }
 
     /// The deferred column at input index `col_idx` that a Top-K can rank by its term
-    /// ordinals. A list has none to rank by: one row holds many terms.
+    /// ordinals. A list has none to rank by.
     pub(crate) fn ordinal_sort_key(&self, col_idx: usize) -> Option<&PhysicalDeferredField> {
         self.deferred_fields
             .iter()
@@ -306,7 +310,12 @@ fn decode_batch(
     let mut columns = batch.columns().to_vec();
     for field in deferred_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        columns[field.col_idx] = decode_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
+        columns[field.col_idx] = match field.cardinality {
+            FieldCardinality::Scalar => {
+                decode_term_ordinals(ffhelper, field, &columns[field.col_idx])?
+            }
+            FieldCardinality::List => decode_lists(ffhelper, field, &columns[field.col_idx])?,
+        };
     }
     RecordBatch::try_new(schema.clone(), columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
@@ -314,8 +323,8 @@ fn decode_batch(
 
 /// Decodes a State 1 deferred column into a `Utf8View` / `BinaryView` array.
 ///
-/// Rows are grouped by segment for one bulk dictionary lookup per segment, and Arrow's
-/// `interleave` reassembles the original row order without copying the view buffers.
+/// Rows are grouped by segment for one bulk dictionary lookup per segment, and
+/// [`interleave_rows`] puts them back in their original order.
 fn decode_term_ordinals(
     ffhelper: &FFHelper,
     field: &PhysicalDeferredField,
@@ -350,17 +359,7 @@ fn decode_term_ordinals(
         }
     }
 
-    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
-    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
-
-    if !null_rows.is_empty() {
-        segment_arrays.push(new_null_array(&field.output_data_type(), 1));
-        let null_array_idx = segment_arrays.len() - 1;
-        for row in null_rows {
-            indices[row] = (null_array_idx, 0);
-        }
-    }
-
+    let mut segments: Vec<(ArrayRef, Vec<usize>)> = Vec::new();
     for (segment_ord, rows) in by_segment.into_iter().enumerate() {
         if rows.is_empty() {
             continue;
@@ -381,19 +380,89 @@ fn decode_term_ordinals(
                 )));
             }
         };
-        segment_arrays.push(array);
-        let array_idx = segment_arrays.len() - 1;
-        for (idx_within_segment, (row, _)) in rows.into_iter().enumerate() {
-            indices[row] = (array_idx, idx_within_segment);
+        segments.push((array, rows.into_iter().map(|(row, _)| row).collect()));
+    }
+    interleave_rows(&field.output_data_type(), num_rows, null_rows, segments)
+}
+
+/// Decodes a deferred list column from its doc addresses (State 0). A list has no ordinal
+/// state, so each segment's lists are read and decoded here in one step, the way the scan
+/// reads an eager list.
+fn decode_lists(
+    ffhelper: &FFHelper,
+    field: &PhysicalDeferredField,
+    column: &ArrayRef,
+) -> Result<ArrayRef> {
+    let deferred = DeferredColumn::try_new(column.as_ref())?;
+    let num_segments = ffhelper.num_segments();
+    let mut doc_addresses: Vec<(usize, DocAddress)> = Vec::new();
+    let mut null_rows: Vec<usize> = Vec::new();
+    for (row, value) in deferred.values().enumerate() {
+        match value {
+            DeferredValue::DocAddress(doc_address) => {
+                let segment_ord = doc_address.segment_ord;
+                if segment_ord as usize >= num_segments {
+                    return Err(DataFusionError::Execution(format!(
+                        "TantivyDecodeExec: column '{}' row {row} names segment {segment_ord}, but its index has {num_segments} segments",
+                        field.display_name
+                    )));
+                }
+                doc_addresses.push((row, doc_address));
+            }
+            DeferredValue::Null => null_rows.push(row),
+            DeferredValue::TermOrdinal { .. } => {
+                return Err(DataFusionError::Internal(format!(
+                    "TantivyDecodeExec: list column '{}' row {row} carries a term ordinal; a list is decoded from its doc address",
+                    field.display_name
+                )));
+            }
         }
     }
 
-    if segment_arrays.is_empty() {
-        return Ok(new_null_array(&field.output_data_type(), num_rows));
-    }
+    let output_type = field.output_data_type();
+    let mut segments: Vec<(ArrayRef, Vec<usize>)> = Vec::new();
+    for_each_segment(
+        num_segments,
+        doc_addresses.into_iter(),
+        |segment_ord, rows| {
+            let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+            let array = ffhelper
+                .list_values(segment_ord, field.canonical.ff_index, &ids)?
+                // No column in this segment: every row is a NULL list.
+                .unwrap_or_else(|| new_null_array(&output_type, ids.len()));
+            segments.push((array, rows.into_iter().map(|(row, _)| row).collect()));
+            Ok(())
+        },
+    )?;
+    interleave_rows(&output_type, column.len(), null_rows, segments)
+}
 
-    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
-        segment_arrays.iter().map(|a| a.as_ref()).collect();
-    interleave(&segment_arrays_refs, &indices)
-        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+/// Puts a decoded column back in input row order. Each of `segments` pairs an array with the
+/// input rows its values belong to, in order, and the rows in `null_rows` read as NULL. Arrow's
+/// `interleave` does it without copying the view buffers.
+fn interleave_rows(
+    data_type: &DataType,
+    num_rows: usize,
+    null_rows: Vec<usize>,
+    segments: Vec<(ArrayRef, Vec<usize>)>,
+) -> Result<ArrayRef> {
+    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(segments.len() + 1);
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+    if !null_rows.is_empty() {
+        arrays.push(new_null_array(data_type, 1));
+        for row in null_rows {
+            indices[row] = (0, 0);
+        }
+    }
+    for (array, rows) in segments {
+        for (idx_within_segment, row) in rows.into_iter().enumerate() {
+            indices[row] = (arrays.len(), idx_within_segment);
+        }
+        arrays.push(array);
+    }
+    if arrays.is_empty() {
+        return Ok(new_null_array(data_type, num_rows));
+    }
+    let arrays_refs: Vec<&dyn Array> = arrays.iter().map(|a| a.as_ref()).collect();
+    interleave(&arrays_refs, &indices).map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }

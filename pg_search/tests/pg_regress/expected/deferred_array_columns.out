@@ -1,0 +1,712 @@
+-- A list column (here `text[]`) that a DataFusion plan reads from the index leaves its scan
+-- as a doc address and is read and decoded once, at the point that consumes it, the way a
+-- string column is. One row of a list holds many terms, so a list has no term ordinal step:
+-- no fetch node takes it, `paradedb.defer_column_fetch` does not apply to it, and an
+-- aggregate groups it on its value. Each shape is checked again with
+-- `paradedb.defer_string_decode = off`, which reads every list in the scan; the rows must
+-- match. Both reads return an empty array as NULL: the columnar field holds no value for
+-- it, the same as for NULL.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO off;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_aggregate_custom_scan = on;
+DROP TABLE IF EXISTS dac_comments CASCADE;
+DROP TABLE IF EXISTS dac_posts CASCADE;
+CREATE TABLE dac_posts (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    tags TEXT[]
+);
+CREATE TABLE dac_comments (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER,
+    author TEXT,
+    labels TEXT[]
+);
+CREATE INDEX dac_posts_idx ON dac_posts USING paradedb (id, title, (tags::pdb.literal));
+CREATE INDEX dac_comments_idx ON dac_comments USING paradedb (id, post_id, (author::pdb.literal), (labels::pdb.literal));
+-- Two insert batches per table give each index two segments, so one batch above a join
+-- holds rows of both. Some arrays are NULL and some are empty.
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO dac_posts (title, tags)
+SELECT
+    CASE WHEN i % 3 = 0 THEN 'alpha post ' || i ELSE 'beta post ' || i END,
+    CASE WHEN i % 7 = 0 THEN NULL WHEN i % 5 = 0 THEN ARRAY[]::TEXT[] ELSE ARRAY['t' || (i % 4), 'all'] END
+FROM generate_series(1, 15) AS i;
+INSERT INTO dac_posts (title, tags)
+SELECT
+    CASE WHEN i % 3 = 0 THEN 'alpha post ' || i ELSE 'beta post ' || i END,
+    CASE WHEN i % 7 = 0 THEN NULL WHEN i % 5 = 0 THEN ARRAY[]::TEXT[] ELSE ARRAY['t' || (i % 4), 'all'] END
+FROM generate_series(16, 30) AS i;
+-- Three comments on each of posts 1 to 20; posts 21 to 30 have none.
+INSERT INTO dac_comments (post_id, author, labels)
+SELECT
+    (i - 1) % 20 + 1,
+    'author ' || (i % 4),
+    CASE WHEN i % 6 = 0 THEN NULL WHEN i % 9 = 0 THEN ARRAY[]::TEXT[] ELSE ARRAY['l' || (i % 3), 'c' || (i % 2)] END
+FROM generate_series(1, 30) AS i;
+INSERT INTO dac_comments (post_id, author, labels)
+SELECT
+    (i - 1) % 20 + 1,
+    'author ' || (i % 4),
+    CASE WHEN i % 6 = 0 THEN NULL WHEN i % 9 = 0 THEN ARRAY[]::TEXT[] ELSE ARRAY['l' || (i % 3), 'c' || (i % 2)] END
+FROM generate_series(31, 60) AS i;
+RESET paradedb.global_mutable_segment_rows;
+SHOW paradedb.defer_column_fetch;
+ paradedb.defer_column_fetch 
+-----------------------------
+ auto
+(1 row)
+
+SHOW paradedb.defer_string_decode;
+ paradedb.defer_string_decode 
+------------------------------
+ auto
+(1 row)
+
+-- =============================================================================
+-- An aggregate grouping on a list
+-- =============================================================================
+-- `id` is the primary key of the posts, so a comment meets at most one post: the labels
+-- cross the join as doc addresses and are read once, between the join and the aggregate.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: c.labels, (count(*))
+   Sort Key: c.labels
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: c.labels, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[labels@0 as labels], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[labels]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[labels@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+SELECT c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+ labels  | count 
+---------+-------
+ {l0,c1} |     2
+ {l1,c0} |     3
+ {l1,c1} |     3
+ {l2,c0} |     3
+ {l2,c1} |     3
+         |     4
+(6 rows)
+
+-- A post meets each of its comments, so its tags would be read once per comment above the
+-- join. The scan reads them once instead.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.tags, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY p.tags
+ORDER BY p.tags;
+                                                                                                                              QUERY PLAN                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.tags, (count(*))
+   Sort Key: p.tags
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.tags, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: tags
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[tags@0 as tags], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@0)], projection=[tags@0]
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT p.tags, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY p.tags
+ORDER BY p.tags;
+   tags   | count 
+----------+-------
+ {t0,all} |     3
+ {t1,all} |     3
+ {t2,all} |     6
+ {t3,all} |     3
+          |     3
+(5 rows)
+
+-- A string and a list at one decode point: the string is grouped on its term ordinals and
+-- decoded per group, the list beside it is grouped on its value.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: c.author, c.labels, (count(*))
+   Sort Key: c.author, c.labels
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: c.author, c.labels, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: author, labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[author@0 as author, labels@1 as labels], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[author]
+           :     AggregateExec: mode=Partial, gby=[author@0 as author, labels@1 as labels], aggr=[count(1) as agg_0]
+           :       TantivyDecodeExec: decode=[labels]
+           :         TantivyFetchExec: fetch=[author]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@2)], projection=[author@1, labels@2]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(20 rows)
+
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+  author  | labels  | count 
+----------+---------+-------
+ author 0 | {l1,c0} |     1
+ author 0 | {l2,c0} |     1
+ author 0 |         |     1
+ author 1 | {l1,c1} |     1
+ author 1 | {l2,c1} |     1
+ author 1 |         |     1
+ author 2 | {l1,c0} |     2
+ author 2 | {l2,c0} |     2
+ author 2 |         |     2
+ author 3 | {l0,c1} |     2
+ author 3 | {l1,c1} |     2
+ author 3 | {l2,c1} |     2
+(12 rows)
+
+-- Posts 21 to 30 have no comments, so their rows reach the decode with no doc address for
+-- the labels and read as NULL lists.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.labels, COUNT(*)
+FROM dac_posts p LEFT JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: c.labels, (count(*))
+   Sort Key: c.labels
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: c.labels, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[labels@0 as labels], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[labels]
+           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, post_id@1)], projection=[labels@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+SELECT c.labels, COUNT(*)
+FROM dac_posts p LEFT JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+ labels  | count 
+---------+-------
+ {l0,c1} |     2
+ {l1,c0} |     3
+ {l1,c1} |     3
+ {l2,c0} |     3
+ {l2,c1} |     3
+         |     8
+(6 rows)
+
+-- =============================================================================
+-- Shapes that unnest a list above the join
+-- =============================================================================
+-- pdb.agg terms on a list unnests it above the join, and the list is read just below.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}')
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha';
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}'::jsonb))
+   Backend: DataFusion
+   Indexes: dac_posts_idx (p), dac_comments_idx (c)
+   Aggregates: pdb.agg({"terms":{"field":"c.labels","order":{"_key":"asc"}}})
+   DataFusion Physical Plan: 
+     : CoalescePartitionsExec
+     :   ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :     UnionExec
+     :       ProjectionExec: expr=[NULL as __pdb_k0, 1 as __grouping_id, __pdb_m0@0 as __pdb_m0]
+     :         AggregateExec: mode=Single, gby=[], aggr=[count(1) as __pdb_m0]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, 0 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :         AggregateExec: mode=Single, gby=[c_1_labels@0 as __pdb_k0], aggr=[count(1) as __pdb_m0]
+     :           UnnestExec
+     :             TantivyDecodeExec: decode=[labels]
+     :               ProjectionExec: expr=[labels@0 as c_1_labels]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[labels@2]
+     :                   CooperativeExec
+     :                     PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                   CooperativeExec
+     :                     PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(26 rows)
+
+SELECT pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}')
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha';
+                                                                                                                agg                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, l
+FROM dac_posts p
+JOIN dac_comments c ON c.post_id = p.id
+CROSS JOIN LATERAL unnest(c.labels) AS l
+WHERE p.title ||| 'alpha'
+ORDER BY c.id, l
+LIMIT 8;
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: c.id, l.l
+   Relation Tree: (p INNER c) CROSS JOIN LATERAL UNNEST (labels)
+   Join Cond: c.post_id = p.id
+   Limit: 8
+   Order By: c.id asc, labels asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, c_1_labels@1 as col_2, ctid_1@0 as ctid_1]
+     :   SortExec: TopK(fetch=8), expr=[id@2 ASC NULLS LAST, c_1_labels@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, c], pruned=[p]
+     :       UnnestExec
+     :         TantivyDecodeExec: decode=[labels]
+     :           ProjectionExec: expr=[ctid_1@0 as ctid_1, labels@1 as c_1_labels, id@2 as id, ctid_0@3 as ctid_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@2)], projection=[ctid_1@2, labels@3, id@5, ctid_0@1]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT c.id, l
+FROM dac_posts p
+JOIN dac_comments c ON c.post_id = p.id
+CROSS JOIN LATERAL unnest(c.labels) AS l
+WHERE p.title ||| 'alpha'
+ORDER BY c.id, l
+LIMIT 8;
+ id | l  
+----+----
+  3 | c1
+  3 | l0
+ 15 | c1
+ 15 | l0
+ 23 | c1
+ 23 | l2
+ 26 | c0
+ 26 | l2
+(8 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT l, COUNT(*)
+FROM dac_posts p
+JOIN dac_comments c ON c.post_id = p.id
+CROSS JOIN LATERAL unnest(c.labels) AS l
+WHERE p.title ||| 'alpha'
+GROUP BY l
+ORDER BY l;
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: l.l, (count(*))
+   Sort Key: l.l
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: l.l, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[c_1_labels@0 as c_1_labels], aggr=[count(1) as agg_0]
+           :   UnnestExec
+           :     TantivyDecodeExec: decode=[labels]
+           :       ProjectionExec: expr=[labels@0 as c_1_labels]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[labels@1]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(19 rows)
+
+SELECT l, COUNT(*)
+FROM dac_posts p
+JOIN dac_comments c ON c.post_id = p.id
+CROSS JOIN LATERAL unnest(c.labels) AS l
+WHERE p.title ||| 'alpha'
+GROUP BY l
+ORDER BY l;
+ l  | count 
+----+-------
+ c0 |     6
+ c1 |     8
+ l0 |     2
+ l1 |     6
+ l2 |     6
+(5 rows)
+
+-- pdb.agg terms on a list inside a window over the join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}'::jsonb) OVER ()
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+ORDER BY c.id
+LIMIT 3;
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: c.id, (pdb.window_agg('pdb.agg(''{"terms":{"field":"c.labels","order":{"_key":"asc"}}}'') OVER ()'::text))
+   Relation Tree: p INNER c
+   Join Cond: c.post_id = p.id
+   Limit: 3
+   Order By: c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, window_agg_1@1 as col_2, get_field(__topk@0, c1) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(c_1.id, c_1.ctid_1, 3, [1]) ORDER BY [c_1.id ASC NULLS LAST] as __topk, pdb_agg({"terms":{"field":"c.labels","order":{"_key":"asc"}}}) as window_agg_1]
+     :         TantivyDecodeExec: decode=[labels]
+     :           VisibilityFilterExec: tables=[p, c], pruned=[p]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[id@4, ctid_1@2, labels@5, ctid_0@1]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT c.id, pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}'::jsonb) OVER ()
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+ORDER BY c.id
+LIMIT 3;
+ id |                                                                                                                agg                                                                                                                
+----+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  3 | {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+  6 | {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+  9 | {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+(3 rows)
+
+-- =============================================================================
+-- Settings
+-- =============================================================================
+-- A list has no fetch step, so pinning the fetch into the scan moves the string's fetch
+-- and leaves the list where it was.
+SET paradedb.defer_column_fetch = off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: c.author, c.labels, (count(*))
+   Sort Key: c.author, c.labels
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: c.author, c.labels, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: author, labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[author@0 as author, labels@1 as labels], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[author]
+           :     AggregateExec: mode=Partial, gby=[author@0 as author, labels@1 as labels], aggr=[count(1) as agg_0]
+           :       TantivyDecodeExec: decode=[labels]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@2)], projection=[author@1, labels@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=1, visibility=eager, query="all"
+(19 rows)
+
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+  author  | labels  | count 
+----------+---------+-------
+ author 0 | {l1,c0} |     1
+ author 0 | {l2,c0} |     1
+ author 0 |         |     1
+ author 1 | {l1,c1} |     1
+ author 1 | {l2,c1} |     1
+ author 1 |         |     1
+ author 2 | {l1,c0} |     2
+ author 2 | {l2,c0} |     2
+ author 2 |         |     2
+ author 3 | {l0,c1} |     2
+ author 3 | {l1,c1} |     2
+ author 3 | {l2,c1} |     2
+(12 rows)
+
+RESET paradedb.defer_column_fetch;
+-- With the decode never deferred, every list is read in the scan. The rows match the
+-- deferred reads above.
+SET paradedb.defer_string_decode = off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: c.labels, (count(*))
+   Sort Key: c.labels
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: c.labels, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[labels@0 as labels], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[labels@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+ labels  | count 
+---------+-------
+ {l0,c1} |     2
+ {l1,c0} |     3
+ {l1,c1} |     3
+ {l2,c0} |     3
+ {l2,c1} |     3
+         |     4
+(6 rows)
+
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+  author  | labels  | count 
+----------+---------+-------
+ author 0 | {l1,c0} |     1
+ author 0 | {l2,c0} |     1
+ author 0 |         |     1
+ author 1 | {l1,c1} |     1
+ author 1 | {l2,c1} |     1
+ author 1 |         |     1
+ author 2 | {l1,c0} |     2
+ author 2 | {l2,c0} |     2
+ author 2 |         |     2
+ author 3 | {l0,c1} |     2
+ author 3 | {l1,c1} |     2
+ author 3 | {l2,c1} |     2
+(12 rows)
+
+SELECT c.labels, COUNT(*)
+FROM dac_posts p LEFT JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.labels
+ORDER BY c.labels;
+ labels  | count 
+---------+-------
+ {l0,c1} |     2
+ {l1,c0} |     3
+ {l1,c1} |     3
+ {l2,c0} |     3
+ {l2,c1} |     3
+         |     8
+(6 rows)
+
+SELECT pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}')
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha';
+                                                                                                                agg                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+(1 row)
+
+SELECT c.id, l
+FROM dac_posts p
+JOIN dac_comments c ON c.post_id = p.id
+CROSS JOIN LATERAL unnest(c.labels) AS l
+WHERE p.title ||| 'alpha'
+ORDER BY c.id, l
+LIMIT 8;
+ id | l  
+----+----
+  3 | c1
+  3 | l0
+ 15 | c1
+ 15 | l0
+ 23 | c1
+ 23 | l2
+ 26 | c0
+ 26 | l2
+(8 rows)
+
+SELECT l, COUNT(*)
+FROM dac_posts p
+JOIN dac_comments c ON c.post_id = p.id
+CROSS JOIN LATERAL unnest(c.labels) AS l
+WHERE p.title ||| 'alpha'
+GROUP BY l
+ORDER BY l;
+ l  | count 
+----+-------
+ c0 |     6
+ c1 |     8
+ l0 |     2
+ l1 |     6
+ l2 |     6
+(5 rows)
+
+SELECT c.id, pdb.agg('{"terms": {"field": "c.labels", "order": {"_key": "asc"}}}'::jsonb) OVER ()
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+ORDER BY c.id
+LIMIT 3;
+ id |                                                                                                                agg                                                                                                                
+----+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  3 | {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+  6 | {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+  9 | {"buckets": [{"key": "c0", "doc_count": 6}, {"key": "c1", "doc_count": 8}, {"key": "l0", "doc_count": 2}, {"key": "l1", "doc_count": 6}, {"key": "l2", "doc_count": 6}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+(3 rows)
+
+RESET paradedb.defer_string_decode;
+-- =============================================================================
+-- MPP: the list is read in a worker's fragment
+-- =============================================================================
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: c.author, c.labels, (count(*))
+   Sort Key: c.author, c.labels
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: c.author, c.labels, (count(*))
+         Backend: DataFusion
+         Indexes: dac_posts_idx (p), dac_comments_idx (c)
+         Group By: author, labels
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[author@0 as author, labels@1 as labels], aggr=[count(1) as agg_0]
+           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([author@0, labels@1], 6), input_partitions=1
+           :     │   TantivyDecodeExec: decode=[author]
+           :     │     AggregateExec: mode=Partial, gby=[author@0 as author, labels@1 as labels], aggr=[count(1) as agg_0]
+           :     │       TantivyDecodeExec: decode=[labels]
+           :     │         TantivyFetchExec: fetch=[author]
+           :     │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@2)], projection=[author@1, labels@2]
+           :     │             CoalescePartitionsExec
+           :     │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │             DistributedLeafExec:
+           :     │               t0: PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     │               t1: PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     └──────────────────────────────────────────────────
+           :       ┌───── Stage 1 ── tasks=2, partitions=4
+           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :       │   DistributedLeafExec:
+           :       │     t0: PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       │     t1: PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       └──────────────────────────────────────────────────
+(37 rows)
+
+SELECT c.author, c.labels, COUNT(*)
+FROM dac_posts p JOIN dac_comments c ON c.post_id = p.id
+WHERE p.title ||| 'alpha'
+GROUP BY c.author, c.labels
+ORDER BY c.author, c.labels;
+  author  | labels  | count 
+----------+---------+-------
+ author 0 | {l1,c0} |     1
+ author 0 | {l2,c0} |     1
+ author 0 |         |     1
+ author 1 | {l1,c1} |     1
+ author 1 | {l2,c1} |     1
+ author 1 |         |     1
+ author 2 | {l1,c0} |     2
+ author 2 | {l2,c0} |     2
+ author 2 |         |     2
+ author 3 | {l0,c1} |     2
+ author 3 | {l1,c1} |     2
+ author 3 | {l2,c1} |     2
+(12 rows)
+
+RESET max_parallel_workers_per_gather;
+RESET max_parallel_workers;
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+DROP TABLE dac_comments;
+DROP TABLE dac_posts;

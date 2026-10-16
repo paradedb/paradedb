@@ -10,16 +10,18 @@
 
 SET paradedb.enable_join_custom_scan = on;
 
--- `path` is deliberately not in the index.
-CREATE TABLE issue_6576_s (id int PRIMARY KEY, title text, rating float8, path text);
+-- `path` is deliberately not in the index. `tags` is indexed for the LATERAL
+-- unnest cases.
+CREATE TABLE issue_6576_s (id int PRIMARY KEY, title text, rating float8, path text, tags text[]);
 INSERT INTO issue_6576_s
 SELECT g,
        CASE WHEN g % 3 = 0 THEN 'dragon ' || g ELSE 'other ' || g END,
        g % 100,
-       'p/' || g
+       'p/' || g,
+       ARRAY['t' || (g % 3), 'u' || (g % 5)]
 FROM generate_series(1, 5000) g;
 CREATE INDEX issue_6576_s_idx ON issue_6576_s
-USING bm25 (id, title, rating);
+USING bm25 (id, title, rating, (tags::pdb.literal));
 
 -- `note` is deliberately not in the index, and is NULL for some rows.
 CREATE TABLE issue_6576_e (id int PRIMARY KEY, u text, s_id int, note text);
@@ -134,6 +136,67 @@ SELECT DISTINCT 'x/' || s.path AS url
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
 LIMIT 5;
+
+-- 7) An expression over a non-columnar column and a LATERAL unnest column.
+--    The unnest column is an output of the scan, so Postgres can evaluate the
+--    expression after it. It must take the Join Scan.
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.path || ':' || t AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+
+SELECT s.id, s.path || ':' || t AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.path || ':' || t AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+SET paradedb.enable_join_custom_scan = on;
+
+--    The same, over the unnest column alone, with a result type that isn't
+--    Arrow-convertible.
+EXPLAIN (COSTS OFF)
+SELECT s.id, point(length(t), 1) AS p
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+
+SELECT s.id, point(length(t), 1) AS p
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, point(length(t), 1) AS p
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 8) A set-returning function in the SELECT list. Postgres can't evaluate it
+--    as a per-row projection after the scan, so it still declines.
+EXPLAIN (COSTS OFF)
+SELECT s.id, unnest(s.tags) AS tag
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.id LIMIT 5;
+
+EXPLAIN (COSTS OFF)
+SELECT s.id, regexp_split_to_table(s.path, '/') AS part
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.id LIMIT 5;
 
 RESET paradedb.enable_join_custom_scan;
 DROP TABLE issue_6576_s, issue_6576_e CASCADE;

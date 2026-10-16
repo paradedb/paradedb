@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792120397919,
+  "lastUpdate": 1792120416020,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -152526,6 +152526,106 @@ window.BENCHMARK_DATA = {
             "value": 55.60546875,
             "unit": "median mem",
             "extra": "avg mem: 55.58637821962684, max mem: 59.76953125, count: 59411"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792120406253,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.03996298165909473, max background_merging: 1.0, count: 59430"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.63524237518016, max cpu: 9.619239, count: 59430"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.37065001630069, max mem: 26.37109375, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.959842015922362, max cpu: 23.426062, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 53.75,
+            "unit": "median mem",
+            "extra": "avg mem: 51.756654099360595, max mem: 60.0390625, count: 59430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 69101,
+            "unit": "median block_count",
+            "extra": "avg block_count: 68275.6824499411, max block_count: 69101.0, count: 59430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.68076728924785, max segment_count: 106.0, count: 59430"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.99386067204963, max cpu: 33.68421, count: 59430"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 96.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.72926644266364, max mem: 96.65234375, count: 59430"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.277720712721931, max cpu: 9.4627905, count: 59430"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 58.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.3966920116103, max mem: 70.46484375, count: 59430"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.805379815990358, max cpu: 23.656975, count: 59430"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 55.75,
+            "unit": "median mem",
+            "extra": "avg mem: 55.725070921146724, max mem: 59.9140625, count: 59430"
           }
         ]
       }

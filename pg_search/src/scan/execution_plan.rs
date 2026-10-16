@@ -35,7 +35,10 @@ use arrow_schema::{DataType, SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, PhysicalSortExpr};
+use datafusion::physical_expr::{
+    DynamicFilterTracker, DynamicFilterTracking, EquivalenceProperties, PhysicalExpr,
+    PhysicalSortExpr,
+};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::expressions::{Column, DynamicFilterPhysicalExpr};
 use datafusion::physical_plan::filter_pushdown::{
@@ -1343,10 +1346,50 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             let mut pushdown_metric_recorded = false;
             let mut score_pushdown_metric_recorded = false;
+            // Rebuild `PreFilter`s only on the first batch or when an incomplete dynamic filter
+            // publishes a new expression. Reusing `pre_filters` across batches while filters are
+            // unchanged avoids re-walking the filter AST on every batch and preserves each
+            // `PreFilter`'s per-segment rewritten expression cache.
+            //
+            // `DynamicFilterTracking::classify` walks each filter tree once and subscribes only to
+            // still-incomplete `DynamicFilterPhysicalExpr`s: filters rewritten to static
+            // expressions by `try_dynamic_filter_pushdown` (`Static`) or already marked complete by
+            // a finished `HashJoinExec` build (`AllComplete`) produce no tracker, and
+            // `DynamicFilterTracker::changed` automatically drops subscriptions as filters complete.
+            let mut filter_trackers: Option<Vec<DynamicFilterTracker>> = None;
+            let mut pre_filters: Vec<PreFilter> = Vec::new();
+            let mut score_threshold: Option<Score> = None;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) =
-                    build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                if !dynamic_filters.is_empty() {
+                    // Subscribe (on the first batch) or poll `changed()` (on subsequent batches)
+                    // *before* calling `build_filters` so an update cannot land between reading
+                    // `current()` and recording the observed generation. Use `fold` rather than
+                    // `any` so every tracker advances its observed generation before `build_filters`
+                    // reads `current()` across all filters.
+                    let should_rebuild = match &mut filter_trackers {
+                        None => {
+                            filter_trackers = Some(
+                                dynamic_filters
+                                    .iter()
+                                    .filter_map(|df| match DynamicFilterTracking::classify(df) {
+                                        DynamicFilterTracking::Watching(tracker) => Some(tracker),
+                                        DynamicFilterTracking::Static
+                                        | DynamicFilterTracking::AllComplete => None,
+                                    })
+                                    .collect(),
+                            );
+                            true
+                        }
+                        Some(trackers) => trackers
+                            .iter_mut()
+                            .fold(false, |changed, tracker| changed | tracker.changed()),
+                    };
+                    if should_rebuild {
+                        (pre_filters, score_threshold) =
+                            build_filters(&dynamic_filters, &schema, score_column_schema_idx)?;
+                    }
+                }
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -1530,8 +1573,9 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// The threshold-containing expression may be top-level, so we need to allow for
 /// the rest of the expression to be applied.
 ///
-/// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
-/// from Top K) are picked up immediately.
+/// This is re-invoked whenever any `DynamicFilterTracker::changed()` reports an update so that
+/// tightening thresholds (e.g. from Top K) are picked up on the next batch while keeping
+/// per-segment expression caches intact across batches when the filter has not changed.
 ///
 /// Only filter predicates that can be lowered to fast-field or term-ordinal
 /// comparisons are retained. Anything else (unsupported types, non-comparison
@@ -1541,20 +1585,19 @@ fn build_filters(
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
     score_col_schema_idx: Option<usize>,
-) -> (Vec<PreFilter>, Option<Score>) {
+) -> datafusion::error::Result<(Vec<PreFilter>, Option<Score>)> {
     let mut filters = Vec::new();
     let mut score_threshold = None;
     for df in dynamic_filters {
         if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
-            if let Ok(current_expr) = dynamic.current() {
-                collect_filters(
-                    &current_expr,
-                    schema,
-                    &mut filters,
-                    score_col_schema_idx,
-                    &mut score_threshold,
-                );
-            }
+            let current_expr = dynamic.current()?;
+            collect_filters(
+                &current_expr,
+                schema,
+                &mut filters,
+                score_col_schema_idx,
+                &mut score_threshold,
+            )?;
         } else {
             collect_filters(
                 df,
@@ -1562,10 +1605,10 @@ fn build_filters(
                 &mut filters,
                 score_col_schema_idx,
                 &mut score_threshold,
-            );
+            )?;
         }
     }
-    (filters, score_threshold)
+    Ok((filters, score_threshold))
 }
 
 /// A wrapper that unsafely implements Send for a Stream.

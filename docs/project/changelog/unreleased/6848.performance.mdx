@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Significantly improved Join Scan performance for hash joins with larger build sides by applying `IN`-list dynamic filters against fast fields before heap visibility checks and column materialization.

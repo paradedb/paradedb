@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792119039256,
+  "lastUpdate": 1792119063059,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -372156,6 +372156,124 @@ window.BENCHMARK_DATA = {
             "value": 18.107692869805586,
             "unit": "median tps",
             "extra": "avg tps: 48.239243230130086, max tps: 1417.8946816188386, count: 57397"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792119039365,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 478.22345496386816,
+            "unit": "median tps",
+            "extra": "avg tps: 478.261414170621, max tps: 483.6928894904908, count: 57413"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 383.7698029643499,
+            "unit": "median tps",
+            "extra": "avg tps: 384.6229957968325, max tps: 397.66133728329027, count: 57413"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3667.2644912187957,
+            "unit": "median tps",
+            "extra": "avg tps: 3667.5152957267046, max tps: 4144.79864701019, count: 57413"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 475.4526282591515,
+            "unit": "median tps",
+            "extra": "avg tps: 475.41342052196677, max tps: 480.8859116233524, count: 57413"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3642.8670573646573,
+            "unit": "median tps",
+            "extra": "avg tps: 3645.056462667237, max tps: 3847.32496736092, count: 57413"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3659.9446578053685,
+            "unit": "median tps",
+            "extra": "avg tps: 3646.6343160453252, max tps: 3673.393878899487, count: 57413"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 189.9262021999458,
+            "unit": "median tps",
+            "extra": "avg tps: 189.96364376241468, max tps: 191.75671841176612, count: 57413"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 369.85967046206434,
+            "unit": "median tps",
+            "extra": "avg tps: 369.5900397725971, max tps: 371.0960471619998, count: 57413"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 565.744122836479,
+            "unit": "median tps",
+            "extra": "avg tps: 564.916856584267, max tps: 575.1560557418592, count: 57413"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 656.6492741820068,
+            "unit": "median tps",
+            "extra": "avg tps: 655.6502819774016, max tps: 659.9159686694269, count: 57413"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1314.8795428723906,
+            "unit": "median tps",
+            "extra": "avg tps: 1313.605460604696, max tps: 1324.9705175281674, count: 57413"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 493.6646651173244,
+            "unit": "median tps",
+            "extra": "avg tps: 493.3496616520562, max tps: 498.1604252558501, count: 57413"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 594.0711715216686,
+            "unit": "median tps",
+            "extra": "avg tps: 593.1336424947502, max tps: 597.0083744961642, count: 57413"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2516.994298128555,
+            "unit": "median tps",
+            "extra": "avg tps: 2518.6174494078177, max tps: 2593.7069631883614, count: 57413"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1904.265615828403,
+            "unit": "median tps",
+            "extra": "avg tps: 1909.8504196966462, max tps: 2108.922883582725, count: 57413"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.465653923263275,
+            "unit": "median tps",
+            "extra": "avg tps: 64.6529257567088, max tps: 1239.183477223188, count: 57413"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792110103297,
+  "lastUpdate": 1792110117475,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18206,6 +18206,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 374.6779772159378,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "113442152+devcool20@users.noreply.github.com",
+            "name": "Divyanshu Sharma",
+            "username": "devcool20"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "920e2dd64db1c099e5e7819cf23e719d794a2bc1",
+          "message": "fix: accumulate parallel worker buffer and WAL usage under MPP (#6789)\n\n### Summary\nFixes #6698 - Accumulate parallel worker buffer accesses and WAL usage\ninto leader query statistics under MPP query plans (`JoinScan` and\n`AggregateScan`).\n\n---\n\n### Problem & Root Cause\n\nUnder MPP query plans (`JoinScan` and `AggregateScan`), ParadeDB\nbypasses PostgreSQL's standard `Gather` / `GatherMerge` nodes and\nexecutes parallel worker tasks directly via `ParallelProcessBuilder`\n(`pg_search/src/parallel_worker/builder.rs`).\n\nPreviously, `ParallelProcessBuilder` did not implement PostgreSQL's\nparallel buffer instrumentation protocol:\n1. `ParallelProcessBuilder::build` did not allocate DSM `shm_toc`\nentries for `BufferUsage` or `WalUsage`.\n2. Worker entry points (`generic_parallel_worker_entry_point`,\n`mpp_launched_worker_agg`, `mpp_launched_worker_join`) never called\n`InstrStartParallelQuery()` at startup or `InstrEndParallelQuery()` at\nshutdown. Worker-side index and heap buffer reads incremented\nworker-local `pgBufferUsage`, which was discarded upon worker process\nexit.\n3. The leader never called `InstrAccumParallelQuery()` when workers\ndetached in `recv()` or when joining workers in `wait_for_finish()`.\n\nAs a result, `EXPLAIN (ANALYZE, BUFFERS)` and `pg_stat_statements`\nunderreported shared buffer counts by orders of magnitude under MPP\nplans, displaying only leader-side catalog and relation inspection.\n\n---\n\n### Why This Fix Was Chosen\n\nPostgreSQL instrumentation statistics (`pgBufferUsage`, `pgWalUsage`)\nare process-local globals. When background workers exit, their local\nmemory contexts are reclaimed by the operating system, meaning worker\nstatistics must be communicated across processes via Dynamic Shared\nMemory (DSM).\n\nWe chose this design because:\n1. **Canonical PostgreSQL Protocol Compatibility**: We allocate\n`nworkers * sizeof(BufferUsage)` and `nworkers * sizeof(WalUsage)` in\nthe DSM using PostgreSQL's standard TOC keys\n(`PARALLEL_KEY_BUFFER_USAGE` = `0xE000000000000004`,\n`PARALLEL_KEY_WAL_USAGE` = `0xE00000000000000A`), exactly mirroring\nPostgreSQL core (`src/backend/executor/execParallel.c`).\n2. **RAII Teardown Ordering**: By encapsulating `InstrEndParallelQuery`\nin a `WorkerStatsGuard` within `MessageQueueSender`, the worker's buffer\nand WAL diff is guaranteed to be flushed to DSM **before** the message\nqueue is detached. This ensures the leader never observes a detached\nqueue before the worker's metrics are written.\n3. **Idempotent Leader Accumulation**: Calling `accumulate_worker(i)` in\n`recv()`/`try_recv()` when workers detach and `accumulate_all_workers()`\nin `wait_for_finish()` ensures stats are accumulated promptly as workers\ncomplete, while remaining completely safe and idempotent if called\nmultiple times or during early query cancellation.\n\n---\n\n### Solution\n\n- **`pg_search/src/parallel_worker/mod.rs`**:\n- Defined canonical TOC keys `PARALLEL_KEY_BUFFER_USAGE` and\n`PARALLEL_KEY_WAL_USAGE`.\n- Added `WorkerStatsGuard` RAII struct that calls\n`InstrEndParallelQuery` on drop.\n- Updated `generic_parallel_worker_entry_point` to call\n`InstrStartParallelQuery()`, resolve TOC keys, and attach\n`WorkerStatsGuard` to `MessageQueueSender`.\n- **`pg_search/src/parallel_worker/mqueue.rs`**:\n- Added `_stats: Option<WorkerStatsGuard>` to `MessageQueueSender`\nplaced before `handle: MessageQueueHandle` to guarantee that stats flush\nto DSM before queue detachment.\n- **`pg_search/src/parallel_worker/builder.rs`**:\n- In `ParallelProcessBuilder::build`, estimated and allocated\nzero-initialized DSM chunks for `nworkers * sizeof(BufferUsage)` and\n`nworkers * sizeof(WalUsage)`.\n- Added `accumulated: Vec<bool>` to `ParallelProcessFinish` and\nimplemented idempotent `accumulate_worker(i)` and\n`accumulate_all_workers()`.\n- Integrated accumulation into `recv()`, `try_recv()`, and\n`wait_for_finish()` (before `DestroyParallelContext`).\n\n---\n\n### Before and After Demonstration\n\nTested on PostgreSQL 18.6 with `pg_search` over a multi-segment join\nquery (`mppc_test_multi` with 3 segments across 15,000 rows JOIN\n`mppc_categories` with 2 segments):\n\n```sql\nSET paradedb.enable_join_custom_scan = on;\nSET paradedb.mpp_min_rows = 0;\nSET max_parallel_workers_per_gather = 2;\nSET max_parallel_workers = 8;\nSET min_parallel_table_scan_size = 0;\nSET parallel_setup_cost = 0;\nSET parallel_tuple_cost = 0;\n\nEXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF)\nSELECT t.id, t.category_id, c.name\nFROM mppc_test_multi t\nJOIN mppc_categories c ON t.category_id = c.id\nWHERE t.message @@@ 'beer'\nORDER BY t.id\nLIMIT 25;\n```\n\n#### Before Fix\n```text\nCustom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)\n  ...\n  ┌───── Stage 2 ── tasks=2, partitions=2\n  │ SortExec: TopK(fetch=25), metrics=[output_rows={0:25, 1:25}]\n  │   VisibilityFilterExec: tables=[t, c], metrics=[ctids_fetched={0:10.00 K, 1:5.00 K}]\n  │     HashJoinExec: input_rows={0:5.00 K, 1:2.50 K}\n  │       ...\n  │       DistributedLeafExec:\n  │         t0: PgSearchScan: table=t, segments=3, rows_scanned={0:5.00 K}\n  │         t1: PgSearchScan: table=t, segments=3, rows_scanned={1:2.50 K}\n  └──────────────────────────────────────────────────\nBuffers: shared hit=138\n```\n*Worker buffer I/O (scanning 7,500 index rows and 15,000 CTIDs) was\ncompletely discarded; only 138 leader catalog hits were reported.*\n\n#### After Fix\n```text\nCustom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)\n  ...\nBuffers: shared hit=244\n```\n*All worker buffer hits and reads across all stages are accumulated into\nthe leader, matching standard PostgreSQL execution.*\n\n---\n\n### Testing\n\n- Added SQL regression test:\n`pg_search/tests/pg_regress/sql/issue_6698.sql` and expected output\n`pg_search/tests/pg_regress/expected/issue_6698.out`.\n- Verified code formatting with `cargo fmt --all -- --check`.\n- Verified whitespace with `git diff --cached --check` (0 trailing\nwhitespaces / clean LF line endings).\n- Added changelog fragment:\n`docs/project/changelog/unreleased/6698.stability.mdx`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-15T16:39:05-07:00",
+          "tree_id": "64398d58554c054acf1d302699e9eef67cb943b0",
+          "url": "https://github.com/paradedb/paradedb/commit/920e2dd64db1c099e5e7819cf23e719d794a2bc1"
+        },
+        "date": 1792110106646,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 530.7712817240497,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 511.3461053141623,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 140.46653422625272,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 254.39099972595812,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 375.9292836141064,
             "unit": "queries/s"
           }
         ]

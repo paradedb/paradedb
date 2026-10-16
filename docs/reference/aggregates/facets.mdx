@@ -122,5 +122,22 @@ await dbContext
 
 <Note>
   Faceted queries require that `pdb.agg` be used as a window function:
-  `pdb.agg() OVER ()`.
+  `pdb.agg() OVER ()` (or `pdb.combine_agg(pdb.agg(...)) OVER ()` in `GROUP BY`
+  queries).
 </Note>
+
+## Facets with `GROUP BY`
+
+In a `GROUP BY` query, a bare `pdb.agg(...)` computes an aggregation per group. To compute a single facet across all matching rows alongside grouped results, wrap `pdb.agg(...)` in `pdb.combine_agg(...) OVER ()`. Standard `OVER ()` window aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) over group columns or group aggregates are pushed down alongside it:
+
+```sql
+SELECT
+  in_stock,
+  COUNT(*) AS group_rows,
+  COUNT(*) OVER () AS total_groups,
+  pdb.combine_agg(pdb.agg('{"terms": {"field": "rating"}}')) OVER () AS ratings
+FROM mock_items
+WHERE description ||| 'shoes'
+GROUP BY in_stock
+ORDER BY in_stock;
+```

@@ -52,10 +52,67 @@ impl LimitOffset {
             return None;
         }
         let parse = unsafe { &*parse };
+        if parse.limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
+            return None;
+        }
 
         let limit = ParameterizedValue::<i64>::from_node(parse.limitCount)?;
         let offset = ParameterizedValue::<i64>::from_node(parse.limitOffset);
         Some(Self { limit, offset })
+    }
+
+    /// Parse a `LIMIT` or `OFFSET` bound for a scan planned at `UPPERREL_FINAL`
+    /// (where no PostgreSQL `Limit` node sits above the scan).
+    ///
+    /// Unlike [`Self::from_parse`] / [`Self::static_limit`] (which sit below
+    /// PostgreSQL's `Limit` node and can return `None` on non-constants or clamp
+    /// negatives to `0` while letting `ExecLimit` raise the error), a scan at
+    /// `UPPERREL_FINAL` must:
+    /// - treat `NULL` (`LIMIT ALL`, `LIMIT NULL`, `OFFSET NULL`) as `Ok(None)`,
+    /// - accept `Const` and extern `Param` bounds,
+    /// - reject other non-constant bounds (volatile expressions) with [`LimitBoundError::NonConstant`],
+    /// - reject negative static values with [`LimitBoundError::Negative`].
+    pub unsafe fn parse_bound(
+        node: *mut pg_sys::Node,
+        clause: LimitClauseKind,
+    ) -> Result<Option<ParameterizedValue<i64>>, LimitBoundError> {
+        if node.is_null() {
+            return Ok(None);
+        }
+        if let Some(const_node) = crate::nodecast!(Const, T_Const, node)
+            && (*const_node).constisnull
+        {
+            return Ok(None);
+        }
+        let pv = ParameterizedValue::<i64>::from_node(node)
+            .ok_or(LimitBoundError::NonConstant(clause))?;
+        if let Some(&val) = pv.static_value()
+            && val < 0
+        {
+            return Err(LimitBoundError::Negative(clause));
+        }
+        Ok(Some(pv))
+    }
+
+    /// Resolve a `LIMIT` or `OFFSET` bound at execution time against `estate`.
+    ///
+    /// A `NULL` parameter resolves to `Ok(None)` (`LIMIT NULL` is unbounded,
+    /// `OFFSET NULL` is `0`, matching PostgreSQL's `recompute_limits`).
+    /// A negative resolved value returns `Err("{clause} must not be negative")`.
+    pub fn resolve_bound(
+        bound: Option<&ParameterizedValue<i64>>,
+        estate: *mut pg_sys::EState,
+        clause: LimitClauseKind,
+    ) -> Result<Option<usize>, String> {
+        let Some(pv) = bound else {
+            return Ok(None);
+        };
+        let Some(val) = pv.resolve(estate) else {
+            return Ok(None);
+        };
+        let val = usize::try_from(val)
+            .map_err(|_| format!("{} must not be negative", clause.as_str()))?;
+        Ok(Some(val))
     }
 
     /// Extract LIMIT and OFFSET from the planner root, preferring PG's combined
@@ -71,30 +128,20 @@ impl LimitOffset {
             return None;
         }
         let root = unsafe { &*root };
-        let parse = root.parse;
-        if parse.is_null() {
-            return None;
+        let mut lo = Self::from_parse(root.parse)?;
+
+        if root.limit_tuples > -1.0 && lo.limit.static_value().is_some() {
+            let combined = root.limit_tuples as i64;
+            let offset_val = lo
+                .offset
+                .as_ref()
+                .and_then(|o| o.static_value())
+                .copied()
+                .unwrap_or(0);
+            lo.limit = ParameterizedValue::Static((combined - offset_val).max(0));
         }
 
-        if root.limit_tuples > -1.0 {
-            let limit_pv = ParameterizedValue::<i64>::from_node(unsafe { (*parse).limitCount });
-            let offset_pv = ParameterizedValue::<i64>::from_node(unsafe { (*parse).limitOffset });
-
-            if let (Some(ParameterizedValue::Static(_)), maybe_offset) = (&limit_pv, &offset_pv) {
-                let combined = root.limit_tuples as i64;
-                let offset_val = match offset_pv {
-                    Some(ParameterizedValue::Static(o)) => o,
-                    _ => 0,
-                };
-                let limit_val = (combined - offset_val).max(0);
-                return Some(Self {
-                    limit: ParameterizedValue::Static(limit_val),
-                    offset: maybe_offset.clone(),
-                });
-            }
-        }
-
-        Self::from_parse(parse)
+        Some(lo)
     }
 
     /// Returns true if either LIMIT or OFFSET is a Param (i.e., this came from
@@ -110,6 +157,13 @@ impl LimitOffset {
         let limit = self.static_limit()?;
         let offset = self.static_offset()?;
         Some(limit.saturating_add(offset))
+    }
+
+    pub fn fetch_display(&self) -> String {
+        match &self.offset {
+            None | Some(ParameterizedValue::Static(0)) => self.limit.to_string(),
+            Some(off) => format!("{} + {off}", self.limit),
+        }
     }
 
     /// Returns `LIMIT` only when statically known.
@@ -166,5 +220,87 @@ impl LimitOffset {
             o.resolve_mut(estate);
         }
         Some(self)
+    }
+
+    #[cfg(test)]
+    pub fn from_k(k: i64) -> Self {
+        Self {
+            limit: ParameterizedValue::Static(k),
+            offset: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitClauseKind {
+    Limit,
+    Offset,
+}
+
+impl LimitClauseKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Limit => "LIMIT",
+            Self::Offset => "OFFSET",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitBoundError {
+    NonConstant(LimitClauseKind),
+    Negative(LimitClauseKind),
+}
+
+impl LimitBoundError {
+    pub fn into_message(self, unsupported_context: &str) -> String {
+        match self {
+            Self::NonConstant(clause) => {
+                format!(
+                    "non-constant {} is not supported with {unsupported_context}",
+                    clause.as_str()
+                )
+            }
+            Self::Negative(clause) => format!("{} must not be negative", clause.as_str()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn limit_offset(
+        limit: ParameterizedValue<i64>,
+        offset: Option<ParameterizedValue<i64>>,
+    ) -> LimitOffset {
+        LimitOffset { limit, offset }
+    }
+
+    #[test]
+    fn fetch_display_reads_as_written() {
+        use ParameterizedValue::{Param, Static};
+
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, None).fetch_display(),
+            "$1"
+        );
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, Some(Static(10))).fetch_display(),
+            "$1 + 10"
+        );
+        assert_eq!(
+            limit_offset(Static(5), Some(Param { param_id: 2 })).fetch_display(),
+            "5 + $2"
+        );
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, Some(Param { param_id: 2 })).fetch_display(),
+            "$1 + $2"
+        );
+        // A static zero OFFSET is left out, as the EXPLAIN header leaves it out.
+        assert_eq!(
+            limit_offset(Param { param_id: 1 }, Some(Static(0))).fetch_display(),
+            "$1"
+        );
     }
 }

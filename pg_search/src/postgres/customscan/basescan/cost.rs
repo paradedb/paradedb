@@ -214,7 +214,57 @@ pub(super) fn topk_can_prune_for_method(
     }
 }
 
-/// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for a
+/// What the planner may ask the index about when estimating selectivity and drive cost.
+pub(super) enum EstimationQuery {
+    /// The query as written: it has no runtime expressions.
+    AsWritten,
+    /// A planning-only copy with runtime expressions folded through PostgreSQL's
+    /// `estimate_expression_value`. Execution still solves the written query.
+    Folded(Box<SearchQueryInput>),
+    Guess(f64),
+}
+
+impl EstimationQuery {
+    /// Classify the quals for both the selectivity and the drive-cost estimates.
+    ///
+    /// # Safety
+    /// `root` must point to a valid `PlannerInfo` for the duration of this call.
+    pub(super) unsafe fn decide(
+        quals: &Qual,
+        query: &SearchQueryInput,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> Self {
+        if quals.contains_external_var() {
+            // if the query has external vars (references to other relations which decide whether the rows in this
+            // relation are visible) then we end up returning *everything* from _this_ relation
+            return Self::Guess(FULL_RELATION_SELECTIVITY);
+        }
+        if !quals.contains_exprs() {
+            return Self::AsWritten;
+        }
+        if query.has_postgres_expressions()
+            && let Some(folded) = query.fold_for_estimation(root)
+        {
+            return Self::Folded(Box::new(folded));
+        }
+        // if the query has expressions then it's parameterized and we have to guess something
+        Self::Guess(PARAMETERIZED_SELECTIVITY)
+    }
+
+    /// `Ok`: the query to open the index with. `Err`: the selectivity to guess instead.
+    pub(super) fn resolve<'a>(
+        &'a self,
+        written: &'a SearchQueryInput,
+    ) -> Result<&'a SearchQueryInput, f64> {
+        match self {
+            Self::AsWritten => Ok(written),
+            Self::Folded(folded) => Ok(folded),
+            Self::Guess(selectivity) => Err(*selectivity),
+        }
+    }
+}
+
+/// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for an unfolded
 /// runtime-bound/correlated/external predicate (no resolved value to open a scorer for) or an open
 /// failure. Memoized so the index opens at most once per query.
 ///
@@ -222,17 +272,16 @@ pub(super) fn topk_can_prune_for_method(
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
 pub(super) unsafe fn costable_drive_cost(
     query: &SearchQueryInput,
+    estimation_query: &EstimationQuery,
     bm25_index: &PgSearchRelation,
     quals: &Qual,
     root: *mut pg_sys::PlannerInfo,
     cost_memo: &mut CostMemo,
 ) -> Option<u64> {
-    if quals.contains_exprs()
-        || quals.contains_external_var()
-        || quals.contains_correlated_param(root)
-    {
+    if quals.contains_correlated_param(root) {
         return None;
     }
+    let query = estimation_query.resolve(query).ok()?;
     cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone()))
 }
 

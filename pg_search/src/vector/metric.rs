@@ -32,7 +32,7 @@
 use crate::postgres::catalog::lookup_opfamily_name;
 use pgrx::{IntoDatum, direct_function_call, pg_sys};
 use serde::{Deserialize, Serialize};
-use tantivy::vector::Metric as TantivyMetric;
+use tantivy::schema::Metric as TantivyMetric;
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VectorMetric {

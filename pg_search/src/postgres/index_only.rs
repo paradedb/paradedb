@@ -18,6 +18,7 @@
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::catalog::OidExt;
+use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{FieldSource, pg_search_extension_installed};
 use crate::schema::SearchIndexSchema;
@@ -273,7 +274,7 @@ pub(super) extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i
 
         // A partitioned index has no physical storage to inspect. PostgreSQL asks each child
         // index separately whether it supports index-only scans.
-        if pg_sys::get_rel_relkind(indexrel.oid()) as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
+        if is_partitioned_index(indexrel.oid()) {
             return false;
         }
 

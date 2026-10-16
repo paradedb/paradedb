@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 from collections import Counter
+from functools import cache
 from pathlib import Path
 
 CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.DOTALL)
@@ -48,11 +49,27 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DOCS_ROOT = SCRIPT_DIR.parent.parent / "docs"
 OUTPUT_ROOT = SCRIPT_DIR / "verify"
 COVERAGE_PATH = SCRIPT_DIR / "docs_snippet_coverage.json"
+VERSION_SNIPPET = DOCS_ROOT / "snippets" / "version.mdx"
+
+
+@cache
+def current_docs_version():
+    """The release version that the deploy docs are pinned to."""
+    match = re.search(r'version = "([^"]+)"', VERSION_SNIPPET.read_text())
+    if not match:
+        raise ValueError(f"No version found in {VERSION_SNIPPET}")
+    return match[1]
 
 
 def fence_digest(info, body):
-    """Fingerprint a fence's language label and unchanged source."""
-    return hashlib.sha256((info + "\n" + body).encode()).hexdigest()
+    """Fingerprint a fence's language label and unchanged source.
+
+    The release process rewrites the current version into deploy examples
+    alongside docs/snippets/version.mdx, so it is masked out: a release bump
+    is not an edit that needs a new review.
+    """
+    normalized = body.replace(current_docs_version(), "{version}")
+    return hashlib.sha256((info + "\n" + normalized).encode()).hexdigest()
 
 
 def classify(info):

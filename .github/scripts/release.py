@@ -1296,6 +1296,18 @@ def _check_branch_fragment_identity(repo_root, all_fragments):
                     file=sys.stderr,
                 )
                 errors += 1
+        else:
+            print(
+                f"::error file={rel_path}::Fragment does not exist on origin/main. "
+                "Fragments on a release branch must keep the same filename as on main.",
+                file=sys.stderr,
+            )
+            print(
+                f"❌ {rel_path}: Does not exist on origin/main.\n"
+                "Do not rename fragment files when backporting to a release branch.",
+                file=sys.stderr,
+            )
+            errors += 1
     return errors
 
 

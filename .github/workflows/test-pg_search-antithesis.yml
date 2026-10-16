@@ -132,7 +132,7 @@ jobs:
       - name: Install Dependencies
         uses: paradedb/actions/apt-install@v14
         with:
-          packages: sudo git ca-certificates curl gnupg lsb-release binutils
+          packages: sudo git ca-certificates curl gnupg lsb-release binutils libicu-dev
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
@@ -389,6 +389,7 @@ jobs:
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
           description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
+          test_name: ${{ matrix.workload }}
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '360' }}

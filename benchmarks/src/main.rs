@@ -872,12 +872,12 @@ struct SelectedPoint {
     target: f64,
     value: String,
     recall: f64,
-    query: String,
+    query: Option<String>,
     /// False when no measured point reached the target.
     reached: bool,
 }
 
-/// For each target, the cheapest point that reaches it, or the cheapest tied for best recall.
+/// For each target, the cheapest point that reaches it, or the best recall without a latency query.
 ///
 /// Recall rises monotonically with these knobs, so the cheapest qualifying point is the
 /// lowest-recall one at or above the target -- which avoids having to order the swept values
@@ -898,7 +898,7 @@ fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
                 target: *target,
                 value: point.value.clone(),
                 recall: point.recall,
-                query: point.query.clone(),
+                query: (point.recall >= *target).then(|| point.query.clone()),
                 reached: point.recall >= *target,
             })
         })
@@ -1017,8 +1017,8 @@ struct SweepSummaryRow {
     reached: bool,
 }
 
-/// Replace each query that declares a sweep with one entry per recall target, so only the selected
-/// operating points are benchmarked for latency. Queries without a sweep pass through untouched.
+/// Replace each query that declares a sweep with one entry per reached recall target.
+/// Queries without a sweep pass through untouched.
 ///
 /// Returns the rows for the run's sweep summary; latency is joined on afterwards by
 /// [`write_sweep_summary`].
@@ -1066,7 +1066,7 @@ async fn expand_sweeps(
             if !selected.reached {
                 println!(
                     "  WARNING: no measured value reached {:.0}% recall for {}; \
-                     reporting the cheapest point with best measured recall ({:.4}).",
+                     skipping latency measurements (best measured recall: {:.4}).",
                     selected.target * 100.0,
                     query_item.query_type,
                     selected.recall
@@ -1080,11 +1080,13 @@ async fn expand_sweeps(
                 recall: selected.recall,
                 reached: selected.reached,
             });
-            expanded.push(BenchmarkQuery {
-                query_type: format!("{}@{}", query_item.query_type, selected.label),
-                query: selected.query,
-                is_mvcc_sensitive: query_item.is_mvcc_sensitive,
-            });
+            if let Some(query) = selected.query {
+                expanded.push(BenchmarkQuery {
+                    query_type: format!("{}@{}", query_item.query_type, selected.label),
+                    query,
+                    is_mvcc_sensitive: query_item.is_mvcc_sensitive,
+                });
+            }
         }
     }
     Ok((expanded, summary))
@@ -2239,7 +2241,7 @@ async fn execute_query_multiple_times(
         // VERBOSE because the JoinScan renderer only includes per-node `elapsed_compute`
         // timing for verbose EXPLAINs.
         let explain = format!(
-            "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) {measured_query}"
+            "EXPLAIN (ANALYZE, VERBOSE, COSTS ON, TIMING OFF, SUMMARY OFF) {measured_query}"
         );
         match sqlx::raw_sql(AssertSqlSafe(explain.as_str()))
             .fetch_all(&mut conn)
@@ -2417,21 +2419,25 @@ mod tests {
         assert_eq!(by_label["r99"].value, "0.8");
         assert!(selected.iter().all(|s| s.reached));
         // The selected point carries the query that produced it.
-        assert_eq!(by_label["r95"].query, "SET eps=0.3; SELECT 1");
+        assert_eq!(
+            by_label["r95"].query.as_deref(),
+            Some("SET eps=0.3; SELECT 1")
+        );
     }
 
     #[test]
-    fn falls_back_to_best_point_and_flags_unreached_target() {
+    fn unreached_targets_report_recall_without_a_latency_query() {
         let points = vec![point("0.1", 0.90), point("0.2", 0.94)];
         let selected = select_points(&points);
         let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
 
         assert!(by_label["r90"].reached);
-        // Nothing cleared 95% or 99%: report the best available, flagged so the caller can warn.
+        assert!(by_label["r90"].query.is_some());
         for label in ["r95", "r99"] {
             assert!(!by_label[label].reached, "{label} should be unreached");
             assert_eq!(by_label[label].value, "0.2");
             assert_eq!(by_label[label].recall, 0.94);
+            assert!(by_label[label].query.is_none());
         }
     }
 
@@ -2461,7 +2467,7 @@ mod tests {
         assert_eq!(by_label["r95"].value, "0.0075");
         assert_eq!(by_label["r99"].value, "0.05");
         assert_eq!(by_label["r99"].recall, 0.975);
-        assert_eq!(by_label["r99"].query, "SET eps=0.05; SELECT 1");
+        assert!(by_label["r99"].query.is_none());
         assert!(!by_label["r99"].reached);
     }
 

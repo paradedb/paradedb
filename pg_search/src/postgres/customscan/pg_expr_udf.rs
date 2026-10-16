@@ -43,15 +43,13 @@ use datafusion::logical_expr::{
 use pgrx::PgMemoryContexts;
 
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::debug_assert_single_document;
-use crate::postgres::types_arrow::pg_type_to_arrow;
+use crate::postgres::types_arrow::udf_pg_type_to_arrow;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use super::expr_eval::{InputVarInfo, PreparedPgExpr};
 use crate::postgres::types_arrow;
 use crate::schema::SearchFieldType;
-
-use crate::postgres::datetime::PostgresDateTime;
 
 /// Prefix for PgExprUdf names. UDF names follow the pattern `{PREFIX}{index}`.
 pub const PG_EXPR_UDF_PREFIX: &str = "pdb_eval_expr_";
@@ -170,7 +168,7 @@ impl PgExprUdf {
     /// can evaluate it, or `None` if unsupported. This is the single gate for
     /// whether an expression can be UDF-wrapped.
     pub fn get_result_type_to_arrow(oid: pg_sys::Oid) -> Option<DataType> {
-        pg_type_to_arrow(oid)
+        udf_pg_type_to_arrow(oid)
     }
 
     /// Hash the expression structure and constant values separately so UDF names
@@ -213,7 +211,7 @@ impl PgExprUdf {
 
     /// Rebuild derived fields after deserialization.
     pub fn fixup_after_deserialize(&mut self) {
-        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid)
+        self.return_type = types_arrow::udf_pg_type_to_arrow(self.result_type_oid)
             .expect("should always be a valid type");
     }
 
@@ -225,7 +223,7 @@ impl PgExprUdf {
         result_type_oid: pg_sys::Oid,
     ) -> Option<Self> {
         debug_assert_eq!(input_vars.len(), input_decodes.len());
-        let return_type = types_arrow::pg_type_to_arrow(result_type_oid)?;
+        let return_type = types_arrow::udf_pg_type_to_arrow(result_type_oid)?;
         let signature = Self::default_signature();
 
         Some(Self {
@@ -462,11 +460,6 @@ impl ScalarUDFImpl for PgExprUdf {
             pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
             pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
             pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
-            pg_sys::DATEOID        => |d| datetime_datum_to_pg_micros::<pgrx::datum::Date>(d)                  => TimestampMicrosecondBuilder::with_capacity(n),
-            pg_sys::TIMESTAMPOID   => |d| datetime_datum_to_pg_micros::<pgrx::datum::Timestamp>(d)             => TimestampMicrosecondBuilder::with_capacity(n),
-            pg_sys::TIMESTAMPTZOID => |d| datetime_datum_to_pg_micros::<pgrx::datum::TimestampWithTimeZone>(d) => TimestampMicrosecondBuilder::with_capacity(n),
-            pg_sys::TIMEOID        => |d| datetime_datum_to_pg_micros::<pgrx::datum::Time>(d)                  => TimestampMicrosecondBuilder::with_capacity(n),
-            pg_sys::TIMETZOID      => |d| datetime_datum_to_pg_micros::<pgrx::datum::TimeWithTimeZone>(d)      => TimestampMicrosecondBuilder::with_capacity(n),
             pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
                 use pgrx::FromDatum;
                 String::from_datum(d, false).expect("non-null TEXT datum")
@@ -480,21 +473,6 @@ impl ScalarUDFImpl for PgExprUdf {
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
-
-/// Decode a non-null datetime Datum of PG type `T` into the raw PG-epoch
-/// microseconds that `TimestampMicrosecond` arrays carry in pg_search (the
-/// inverse of `types_arrow::try_convert_timestamp_pg_micros_to_datum`).
-///
-/// # Safety
-/// `d` must be a valid, non-null Datum of type `T`.
-unsafe fn datetime_datum_to_pg_micros<T>(d: pg_sys::Datum) -> i64
-where
-    T: pgrx::FromDatum,
-    PostgresDateTime: From<T>,
-{
-    let value = T::from_datum(d, false).expect("non-null datetime datum");
-    PostgresDateTime::from(value).into_inner()
-}
 
 /// Build a TupleDescriptor matching the input variables.
 ///

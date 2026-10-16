@@ -26,8 +26,6 @@ use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
 use pgrx::{IntoDatum, PgBuiltInOids, PgOid, datum};
 
-use super::types::is_datetime_type;
-
 /// Convert an Arrow array slice into a Postgres `Datum`.
 ///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
@@ -605,16 +603,17 @@ pub fn datetime_to_pg_micros(datetime: tantivy::DateTime) -> i64 {
 /// Returns true if this PG type OID can be converted to an Arrow array
 /// by the `eval_expr_to_arrow!` macro. Used at planning time to decline JoinScan
 /// for unsupported expression result types, falling back to native PG.
-pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
-    pg_type_to_arrow(type_oid).is_some()
+pub fn is_expr_type_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
+    udf_pg_type_to_arrow(type_oid).is_some()
 }
 
-/// Arrow data type UDF OUTPUTS
+/// Arrow data type UDF OUTPUTS. Does nat handle datetime type as we do cannot apply arbitrary UDFs
+/// to datetimes as integers.
 ///
 /// KEEP IN SYNC with the `eval_expr_to_arrow!` arms in `invoke_with_args` on
 /// [`crate::postgres::customscan::pg_expr_udf::PgExprUdf`]
 /// — every OID accepted here must have a matching match arm there, and vice versa.
-pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> Option<DataType> {
+pub fn udf_pg_type_to_arrow(type_oid: pg_sys::Oid) -> Option<DataType> {
     match type_oid {
         pg_sys::BOOLOID => Some(DataType::Boolean),
         pg_sys::INT2OID => Some(DataType::Int16),
@@ -623,10 +622,6 @@ pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> Option<DataType> {
         pg_sys::FLOAT4OID => Some(DataType::Float32),
         pg_sys::FLOAT8OID => Some(DataType::Float64),
         pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => Some(DataType::Utf8),
-        _ if is_datetime_type(type_oid) => Some(DataType::Timestamp(
-            arrow_schema::TimeUnit::Microsecond,
-            None,
-        )),
         _ => None,
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792138199059,
+  "lastUpdate": 1792138339887,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -442778,6 +442778,58 @@ window.BENCHMARK_DATA = {
             "value": 37.40531424452615,
             "unit": "median tps",
             "extra": "avg tps: 58.157628710523916, max tps: 546.626622537244, count: 58817"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792138328754,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.7931349825857,
+            "unit": "median tps",
+            "extra": "avg tps: 55.0979172568769, max tps: 546.2906532783591, count: 58723"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.224521339640127,
+            "unit": "median tps",
+            "extra": "avg tps: 30.542224187421017, max tps: 370.4805540314397, count: 58723"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 73.01007830518265,
+            "unit": "median tps",
+            "extra": "avg tps: 135.8489452229359, max tps: 1286.6358637948824, count: 58723"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.106772163920724,
+            "unit": "median tps",
+            "extra": "avg tps: 29.110531239456897, max tps: 275.18063428839383, count: 58723"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.4524854687367,
+            "unit": "median tps",
+            "extra": "avg tps: 58.35735724475887, max tps: 558.6179420398071, count: 58723"
           }
         ]
       }

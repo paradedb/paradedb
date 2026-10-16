@@ -101,12 +101,12 @@ prost = "0.14.3"
 
 # Selects the BLAS backend tantivy's SuperKMeans clusterer runs on: Accelerate on macOS, OpenBLAS elsewhere.
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b00d38df9f2c925b8595369733fca91df491e1b6", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "5c84a3e27015c7b839c65ab53d87d28b7554af53", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b00d38df9f2c925b8595369733fca91df491e1b6", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "5c84a3e27015c7b839c65ab53d87d28b7554af53", features = [
   "openblas",
 ] }
 

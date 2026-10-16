@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792139723708,
+  "lastUpdate": 1792139740400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -152672,6 +152672,106 @@ window.BENCHMARK_DATA = {
             "value": 55.75,
             "unit": "median mem",
             "extra": "avg mem: 55.725070921146724, max mem: 59.9140625, count: 59430"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792139732049,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.03740329633366969, max background_merging: 1.0, count: 59460"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.740180406759267, max cpu: 9.619239, count: 59460"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.677519748044904, max mem: 27.48046875, count: 59460"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.660898848169819, max cpu: 14.194184, count: 59460"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 71.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 68.28921754120417, max mem: 71.96875, count: 59460"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67938,
+            "unit": "median block_count",
+            "extra": "avg block_count: 67134.63002018163, max block_count: 67938.0, count: 59460"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 75,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.50613858055836, max segment_count: 99.0, count: 59460"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.692005,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.069727200397153, max cpu: 33.7011, count: 59460"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 96.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 88.32205047248151, max mem: 96.1484375, count: 59460"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.216112388030153, max cpu: 28.249142, count: 59460"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 53.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.83713309104861, max mem: 57.95703125, count: 59460"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.736063,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8457839421212805, max cpu: 28.304668, count: 59460"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 59.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.96953722828372, max mem: 59.6640625, count: 59460"
           }
         ]
       }

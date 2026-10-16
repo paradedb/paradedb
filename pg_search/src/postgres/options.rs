@@ -48,10 +48,7 @@ use tokenizers::SearchTokenizer;
  * (because SearchIndexOptionsData is a postgres-allocated object) and use getters and setters
 */
 
-// We set the target segment count equal to the CPU count by default
-// However for machines with only a few CPUs, we set the target segment count to 4
-// to avoid cramming everything into a single segment
-const MIN_TARGET_SEGMENT_COUNT: usize = 4;
+const MAX_DEFAULT_TARGET_SEGMENT_COUNT: usize = 8;
 /// A partitioned build keeps one spill file buffer per partition open outside the worker budget,
 /// and every partition carries its own segments as the index grows, so a count in the thousands
 /// costs more than its pruning could pay back. The global GUC shares this bound.
@@ -436,7 +433,7 @@ impl BM25IndexOptions {
 
     pub fn target_segment_count(&self) -> usize {
         self.explicit_target_segment_count()
-            .unwrap_or(crate::available_parallelism().max(MIN_TARGET_SEGMENT_COUNT))
+            .unwrap_or(crate::available_parallelism().min(MAX_DEFAULT_TARGET_SEGMENT_COUNT))
     }
 
     /// The target the user asked for, by GUC or reloption, or `None` when the default applies.

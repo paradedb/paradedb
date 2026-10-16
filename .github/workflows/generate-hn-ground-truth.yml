@@ -83,18 +83,24 @@ jobs:
 
       - name: Check for Existing Ground Truth
         run: |
-          set -euo pipefail
-          existing=$(aws s3 ls "${DATASET_PREFIX}/ground_truth/manifest.json")
-          if [ -n "${existing}" ]; then
-            echo "Ground truth already exists at this immutable dataset version."
-            echo "GT_EXISTS=true" >> "${GITHUB_ENV}"
-          else
-            intent=$(aws s3 ls "${DATASET_PREFIX}/ground_truth/intent.json")
-            if [ -n "${intent}" ]; then
-              echo "::error::A previous GT publication is incomplete. Restore its recovery artifact and resume publish; do not recompute."
-              exit 1
-            fi
-          fi
+          python - <<'PYTHON'
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "benchmarks/scripts")
+          from embed_hn import Store
+
+          store = Store(Path(os.environ["WORK"]) / "preflight", os.environ["DATASET_PREFIX"])
+          if store.fetch("ground_truth/manifest.json", optional=True):
+              print("Ground truth already exists at this immutable dataset version.")
+              with open(os.environ["GITHUB_ENV"], "a") as stream:
+                  stream.write("GT_EXISTS=true\n")
+          elif store.fetch("ground_truth/intent.json", optional=True):
+              raise RuntimeError(
+                  "A previous GT publication is incomplete. Restore its recovery "
+                  "artifact and resume publish; do not recompute."
+              )
+          PYTHON
 
       - name: Restore Dataset and Freeze PostgreSQL Filters
         if: env.GT_EXISTS != 'true'

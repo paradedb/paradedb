@@ -95,12 +95,19 @@ jobs:
       - name: Check for Existing Request Plan
         if: inputs.action == 'prepare'
         run: |
-          set -euo pipefail
-          existing=$(aws s3 ls "${CACHE_PREFIX}/plan.json")
-          if [ -n "${existing}" ]; then
-            echo "Plan already exists; use advance with this preparation name."
-            echo "PREPARED=true" >> "${GITHUB_ENV}"
-          fi
+          python - <<'PYTHON'
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "benchmarks/scripts")
+          from embed_hn import Store
+
+          store = Store(Path(os.environ["WORK"]) / "cache", os.environ["CACHE_PREFIX"])
+          if store.fetch("plan.json", optional=True):
+              print("Plan already exists; use advance with this preparation name.")
+              with open(os.environ["GITHUB_ENV"], "a") as stream:
+                  stream.write("PREPARED=true\n")
+          PYTHON
 
       - name: Download and Extract Source
         if: inputs.action == 'assemble' || (inputs.action == 'prepare' && env.PREPARED != 'true')

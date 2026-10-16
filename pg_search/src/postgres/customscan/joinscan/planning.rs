@@ -873,10 +873,7 @@ unsafe fn collect_join_sources_join_rel(
     None
 }
 
-pub unsafe fn can_pg_project(
-    expr: *mut pg_sys::Node,
-    sources: &[&JoinSource],
-) -> Result<(), String> {
+pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<(), String> {
     if pg_sys::expression_returns_set(expr) {
         pgrx::debug1!("JoinScan declined Postgres projection: expression returns a set");
         return Err("target list expression returns a set".to_string());
@@ -903,7 +900,8 @@ pub unsafe fn can_pg_project(
         return Err("target list expression depends on a window function".to_string());
     }
 
-    let tables_str = sources
+    let tables_str = plan
+        .output_sources()
         .iter()
         .map(|s| source_table_name(s))
         .collect::<Vec<_>>()
@@ -932,7 +930,7 @@ pub unsafe fn can_pg_project(
             continue;
         }
 
-        if !sources.iter().any(|s| s.contains_rti(varno)) {
+        if !plan.output_rtis().contains(&varno) {
             pgrx::debug1!(
                 "JoinScan declined Postgres projection: expression depends on a relation \
                  (rti={}) not found in any source (tables: {})",
@@ -2537,13 +2535,13 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             );
         };
         if let Some(plan) = plan_for_pg_project_fallback {
-            match can_pg_project(expr, &plan.output_sources()) {
+            match can_pg_project(expr, plan) {
                 Ok(()) => return Ok(ResolvedExpr::PgProjected),
                 Err(reason) => {
                     debug();
                     return Err(JoinDeclineReason::new(format!(
                         "JoinScan not used: target list expression depends on '{col}' which is not columnar and cannot be projected \
-                        by posgres because {reason}",
+                        by Postgres because {reason}",
                     )));
                 }
             }
@@ -2570,13 +2568,13 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             );
         };
         if let Some(plan) = plan_for_pg_project_fallback {
-            match can_pg_project(expr, &plan.output_sources()) {
+            match can_pg_project(expr, plan) {
                 Ok(()) => return Ok(ResolvedExpr::PgProjected),
                 Err(reason) => {
                     debug();
                     return Err(JoinDeclineReason::new(format!(
                         "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow \
-                        conversion. This expression cannot be projected by postgres because {reason}",
+                        conversion. This expression cannot be projected by Postgres because {reason}",
                     )));
                 }
             }

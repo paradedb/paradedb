@@ -66,7 +66,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(name@2) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@3, name@5, name@1, ctid_1@2]
      :         CooperativeExec
@@ -346,7 +346,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@3 AS Utf8), supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(name@3, supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, name@1, ctid_1@2]
      :         CooperativeExec
@@ -487,7 +487,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=1), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) IS NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(name@2) IS NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@3, name@5, name@1, ctid_1@2]
      :         CooperativeExec
@@ -802,7 +802,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(name@2) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@3, name@5, name@1, ctid_1@2]
      :         CooperativeExec
@@ -870,7 +870,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_b92e4f1e(name@2) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@3, name@5, name@1, ctid_1@2]
      :         CooperativeExec
@@ -1074,7 +1074,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(name@2) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@3, name@5, name@1, ctid_1@2]
      :         CooperativeExec

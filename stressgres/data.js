@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792117953504,
+  "lastUpdate": 1792117974277,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -220104,6 +220104,124 @@ window.BENCHMARK_DATA = {
             "value": 43.640625,
             "unit": "median mem",
             "extra": "avg mem: 43.77973873598584, max mem: 47.640625, count: 59315"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792117942124,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.411765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.139697425124178, max cpu: 28.728182, count: 59296"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.14538264596263, max mem: 48.203125, count: 59296"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5938231551197655, max cpu: 28.304668, count: 59296"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.8091797929034, max mem: 32.8125, count: 59296"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.804292185014841, max cpu: 18.842003, count: 59296"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.88105167032768, max mem: 51.94140625, count: 59296"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 19826,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19907.025802752294, max block_count: 38017.0, count: 59296"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.514357353802609, max cpu: 4.685212, count: 59296"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.004535771805855, max mem: 28.0546875, count: 59296"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.672642336751213, max segment_count: 37.0, count: 59296"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.833831721453562, max cpu: 24.048098, count: 59296"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 47.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.71243324012159, max mem: 47.76171875, count: 59296"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7595444,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.798785565810182, max cpu: 28.290766, count: 118592"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.0431143384461, max mem: 58.83203125, count: 118592"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.407154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.050550851588532, max cpu: 23.656975, count: 59296"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.53823304111997, max mem: 48.33203125, count: 59296"
           }
         ]
       }

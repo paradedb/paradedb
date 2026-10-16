@@ -28,8 +28,11 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxi
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
+use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::{
+    WindowAggGroupKey, WindowAggregateInfo,
+};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
@@ -219,6 +222,51 @@ impl TopKScanExecState {
         parallel_state.aggregation_wait()
     }
 
+    /// The aggregates over every partition in `group`, each one's index searched with its own
+    /// query. Every participant of a parallel scan computes all of them, since the other
+    /// partitions' segments are not divided among the participants of this one.
+    fn aggregate_partitions(
+        state: &mut BaseScanState,
+        prepared: &PreparedAggregations,
+        agg_limits: &AggregationLimitsGuard,
+        group: WindowAggGroupKey,
+    ) -> IntermediateAggregationResults {
+        let visibility = AggregateType::resolve_visibility(prepared.combined_agg_types.iter());
+        let mut results = IntermediateAggregationResults::default();
+        for (rti, member) in group.members() {
+            let member = if rti == state.execution_rti {
+                &mut *state
+            } else {
+                // SAFETY: the members are scans of this execution, alive until it ends, and
+                // none of them is running while this one is.
+                let member = unsafe { &mut *member };
+                // A partition the Append has not reached yet has not opened its reader.
+                if member.custom_state().search_reader.is_none() {
+                    BaseScan::init_search_reader(member);
+                }
+                member.custom_state_mut()
+            };
+            let reader = member.search_reader.as_ref().unwrap();
+            let solve_mvcc =
+                visibility.resolve_filtering(member.indexrel(), member.search_query_input(), None);
+            let (collector, vischeck) = prepared.aggregations.plan(
+                reader,
+                member.heaprel(),
+                solve_mvcc,
+                agg_limits.clone(),
+                None,
+            );
+            let partition = match vischeck {
+                Some(vischeck) => reader.collect(MVCCFilterCollector::new(collector, vischeck)),
+                None => reader.collect(collector),
+            };
+            results
+                .merge_fruits(partition)
+                .expect("failed to merge the partitions' aggregates");
+        }
+        results
+    }
+
     fn prepare_aggregations(&self, state: &mut BaseScanState) -> Option<PreparedAggregations> {
         if self.window_aggregates.is_empty() || state.window_aggregate_results.is_some() {
             // There are no aggregates, or we already executed them and stashed their results.
@@ -386,6 +434,13 @@ impl ExecMethod for TopKScanExecState {
             (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
+        // The partitions of one table share their window aggregates; one scan computes them.
+        let group = state.window_agg_group;
+        if let Some(group) = group
+            && state.window_aggregate_results.is_none()
+        {
+            state.window_aggregate_results = group.results();
+        }
         let prepared = self.prepare_aggregations(state);
 
         // Use the GUC for term aggregation bucket limits (single source of truth).
@@ -398,7 +453,9 @@ impl ExecMethod for TopKScanExecState {
 
         // Run the Top K (and optional aggregate) query.
         let mut search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
-            let maybe_aux_collector = prepared.as_ref().map(|prepared| {
+            // A partition's aggregates also cover the partitions this search does not read.
+            let piggybacked = prepared.as_ref().filter(|_| group.is_none());
+            let maybe_aux_collector = piggybacked.map(|prepared| {
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let (aggregation_collector, vischeck) = prepared.aggregations.plan(
                     search_reader,
@@ -459,39 +516,43 @@ impl ExecMethod for TopKScanExecState {
         // If aggregates were executed, publish their results in our state for projection during
         // the scan.
         if let Some(prepared) = prepared {
-            let agg_result = if self.orderby_info.is_some() {
-                // Ordered TopK: aggregation was piggybacked on the search via aux collector
-                search_results
-                    .aggregation_results
-                    .take()
-                    .expect("an aggregation request should produce a result")
+            let intermediate_results = if let Some(group) = group {
+                Self::aggregate_partitions(state, &prepared, &agg_limits, group)
             } else {
-                // Unordered TopK: run a standalone aggregation query since the
-                // unordered path does not support aggregation collectors. In a
-                // parallel scan it covers this participant's segments, like the
-                // search did; the participants merge below.
-                let search_reader = self.search_reader.as_ref().unwrap();
-                let (aggregation_collector, vischeck) = prepared.aggregations.plan(
-                    search_reader,
-                    state.heaprel(),
-                    prepared.mvcc_enabled,
-                    agg_limits.clone(),
-                    None,
-                );
-                let segments = self.segments_to_query(
-                    state.search_reader.as_ref().unwrap(),
-                    state.parallel_state(),
-                );
-                if let Some(vischeck) = vischeck {
-                    search_reader.collect_segments(
-                        segments,
-                        MVCCFilterCollector::new(aggregation_collector, vischeck),
-                    )
+                let agg_result = if self.orderby_info.is_some() {
+                    // Ordered TopK: aggregation was piggybacked on the search via aux collector
+                    search_results
+                        .aggregation_results
+                        .take()
+                        .expect("an aggregation request should produce a result")
                 } else {
-                    search_reader.collect_segments(segments, aggregation_collector)
-                }
+                    // Unordered TopK: run a standalone aggregation query since the
+                    // unordered path does not support aggregation collectors. In a
+                    // parallel scan it covers this participant's segments, like the
+                    // search did; the participants merge below.
+                    let search_reader = self.search_reader.as_ref().unwrap();
+                    let (aggregation_collector, vischeck) = prepared.aggregations.plan(
+                        search_reader,
+                        state.heaprel(),
+                        prepared.mvcc_enabled,
+                        agg_limits.clone(),
+                        None,
+                    );
+                    let segments = self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state(),
+                    );
+                    if let Some(vischeck) = vischeck {
+                        search_reader.collect_segments(
+                            segments,
+                            MVCCFilterCollector::new(aggregation_collector, vischeck),
+                        )
+                    } else {
+                        search_reader.collect_segments(segments, aggregation_collector)
+                    }
+                };
+                self.merge_across_participants(state, agg_result)
             };
-            let intermediate_results = self.merge_across_participants(state, agg_result);
 
             let search_reader = state.search_reader.as_ref().unwrap();
             let index_info = AggIndexInfo {
@@ -501,6 +562,9 @@ impl ExecMethod for TopKScanExecState {
             let window_aggregate_results =
                 self.finalize_aggregates(prepared, agg_limits, intermediate_results, &index_info);
 
+            if let Some(group) = group {
+                group.set_results(Some(window_aggregate_results.clone()));
+            }
             state.window_aggregate_results = Some(window_aggregate_results);
         }
 

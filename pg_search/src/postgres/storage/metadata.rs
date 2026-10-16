@@ -99,6 +99,28 @@ pub struct MetaPage {
 
 const METAPAGE: pg_sys::BlockNumber = 0;
 
+struct CleanupAdmission {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+crate::impl_safe_drop!(CleanupAdmission, |self| {
+    if unsafe { crate::postgres::utils::IsTransactionState() } {
+        unsafe { pg_sys::LockRelease(&self.tag, self.mode, false) };
+    }
+});
+
+pub struct CleanupPin {
+    // Release the pin before admitting VACUUM.
+    _pin: PinnedBuffer,
+    _admission: CleanupAdmission,
+}
+
+pub struct CleanupBarrier {
+    _buffer: BufferMut,
+    _admission: CleanupAdmission,
+}
+
 impl MetaPage {
     pub unsafe fn init(indexrel: &PgSearchRelation) {
         let mut buffer = init_new_buffer(indexrel);
@@ -245,7 +267,7 @@ impl MetaPage {
         assert!(block_number_is_valid(self.data.merge_lock));
         MergePins {
             _merge_barrier: self.bman.pinned_buffer(self.data.merge_lock),
-            _cleanup_barrier: self.cleanup_lock_pinned(),
+            _cleanup_barrier: self.bman.pinned_buffer(self.cleanup_lock_blockno()),
         }
     }
 
@@ -344,9 +366,31 @@ impl MetaPage {
     const LEGACY_SETTINGS_START: pg_sys::BlockNumber = 4;
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-    pub fn cleanup_lock_pinned(&self) -> PinnedBuffer {
+    fn cleanup_admission(&self, mode: pg_sys::LOCKMODE) -> CleanupAdmission {
         let blockno = self.cleanup_lock_blockno();
-        self.bman.pinned_buffer(blockno)
+        let lock_id = unsafe {
+            (*self.bman.buffer_access().rel().as_ptr())
+                .rd_lockInfo
+                .lockRelId
+        };
+        let tag = pg_sys::LOCKTAG {
+            locktag_field1: lock_id.dbId.into(),
+            locktag_field2: lock_id.relId.into(),
+            locktag_field3: blockno,
+            locktag_field4: 0,
+            locktag_type: pg_sys::LockTagType::LOCKTAG_PAGE as u8,
+            locktag_lockmethodid: pg_sys::DEFAULT_LOCKMETHOD as u8,
+        };
+        unsafe { pg_sys::LockAcquire(&tag, mode, false, false) };
+        CleanupAdmission { tag, mode }
+    }
+
+    pub fn cleanup_lock_pinned(&self) -> CleanupPin {
+        let admission = self.cleanup_admission(pg_sys::ShareLock as pg_sys::LOCKMODE);
+        CleanupPin {
+            _pin: self.bman.pinned_buffer(admission.tag.locktag_field3),
+            _admission: admission,
+        }
     }
 
     fn cleanup_lock_blockno(&self) -> pg_sys::BlockNumber {
@@ -357,9 +401,14 @@ impl MetaPage {
         }
     }
 
-    pub fn cleanup_lock_for_cleanup(&mut self) -> BufferMut {
-        let blockno = self.cleanup_lock_blockno();
-        self.bman.get_buffer_for_cleanup(blockno)
+    pub fn cleanup_lock_for_cleanup(&mut self) -> CleanupBarrier {
+        let admission = self.cleanup_admission(pg_sys::ExclusiveLock as pg_sys::LOCKMODE);
+        CleanupBarrier {
+            _buffer: self
+                .bman
+                .get_buffer_for_cleanup(admission.tag.locktag_field3),
+            _admission: admission,
+        }
     }
 
     pub fn schema_bytes(&self) -> LinkedBytesList {

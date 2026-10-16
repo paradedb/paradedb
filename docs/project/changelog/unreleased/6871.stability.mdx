@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`pdb.agg()` as a window function over a partitioned table now returns the aggregate over every partition. With a `LIMIT` it returned the first partition's aggregate, and with an `ORDER BY` it failed with `window_agg placeholder should not be executed`. Top K now also reaches the partitions of a partition that is itself partitioned.

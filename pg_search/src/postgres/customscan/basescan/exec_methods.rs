@@ -21,16 +21,12 @@ pub(crate) mod top_k;
 
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use pgrx::pg_sys;
-use tantivy::{DocAddress, Score};
+use tantivy::Score;
 
 pub enum ExecState {
     /// Causes a tuple to be fetched from the heap, which will implicitly cause it to be visibility
     /// checked.
-    FromHeap {
-        ctid: u64,
-        score: Score,
-        doc_address: DocAddress,
-    },
+    FromHeap { ctid: u64, score: Score },
     /// Produces the given tuple directly.
     ///
     /// NOTE: A virtual tuple must already be MVCC-correct, as the consumer of ExecState does not

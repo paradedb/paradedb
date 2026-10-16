@@ -26,6 +26,7 @@ pub mod filter_passthrough_exec;
 pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization;
+pub mod lazy_sort;
 pub mod physical_codec;
 pub mod plan_walk;
 pub mod pre_filter;

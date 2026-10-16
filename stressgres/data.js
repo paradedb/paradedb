@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792118860535,
+  "lastUpdate": 1792119021119,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -441504,6 +441504,58 @@ window.BENCHMARK_DATA = {
             "value": 36.492024384150774,
             "unit": "median tps",
             "extra": "avg tps: 56.77698657969947, max tps: 525.6424087116337, count: 58729"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792119010404,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.51731284297767,
+            "unit": "median tps",
+            "extra": "avg tps: 54.31496608531748, max tps: 524.3266597036086, count: 58817"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.160560228395536,
+            "unit": "median tps",
+            "extra": "avg tps: 30.269085180447544, max tps: 365.59518874344053, count: 58817"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.53997065255848,
+            "unit": "median tps",
+            "extra": "avg tps: 131.07034514348894, max tps: 1126.9489833090172, count: 58817"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 18.944940899081104,
+            "unit": "median tps",
+            "extra": "avg tps: 28.733797538119855, max tps: 271.9147691771741, count: 58817"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.40531424452615,
+            "unit": "median tps",
+            "extra": "avg tps: 58.157628710523916, max tps: 546.626622537244, count: 58817"
           }
         ]
       }

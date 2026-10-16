@@ -193,9 +193,10 @@ pub unsafe fn extract_and_convert_window_functions(
 ) -> HashMap<usize, TargetList> {
     // Check Top K context requirement if enabled
     if window_aggregates::ONLY_ALLOW_TOP_K {
-        let has_limit = !(*parse).limitCount.is_null();
+        let has_limit = !(*parse).limitCount.is_null()
+            && (*parse).limitOption != pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES;
         if !has_limit {
-            // No LIMIT clause - return empty map so PostgreSQL handles all window functions
+            // No plain count LIMIT clause - return empty map so PostgreSQL handles all window functions
             return HashMap::new();
         }
     }

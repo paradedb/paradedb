@@ -664,6 +664,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
     if parse.is_null()
         || unsafe { (*parse).sortClause.is_null() }
         || unsafe { (*parse).limitCount.is_null() }
+        || unsafe { (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES }
     {
         return false;
     }

@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Added `pdb.combine_agg(pdb.agg(...)) OVER ()` (and accompanying `COUNT`, `SUM`, `AVG`, `MIN`, and `MAX` `OVER ()` window aggregate pushdown) to compute global facets and aggregates across all groups in `GROUP BY` queries (#6806).

@@ -19,7 +19,7 @@ INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
     ('foo', 3, 30);
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
 USING paradedb (id, txt, n);
--- Test 1: Window agg pushdown with GROUP BY/ORDER BY on grouping column (planner hook)
+-- Test 1: Window function with GROUP BY/ORDER BY on grouping column keeps native WindowAgg above Aggregate Scan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT n, SUM(n) OVER ()
 FROM issue_3827_t
@@ -27,12 +27,13 @@ WHERE id @@@ pdb.all()
 GROUP BY n
 ORDER BY n
 LIMIT 1;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: n, (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
-   ->  Result
-         Output: n, pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+   Output: n, (sum(n) OVER w1)
+   ->  WindowAgg
+         Output: n, sum(n) OVER w1
+         Window: w1 AS ()
          ->  Custom Scan (ParadeDB Aggregate Scan) on public.issue_3827_t
                Output: n
                Index: issue_3827_t_idx
@@ -41,7 +42,18 @@ LIMIT 1;
                  Group By: n
                  Limit: 1
                  Aggregate Definition: {"grouped":{"terms":{"field":"n","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(12 rows)
+(13 rows)
+
+SELECT n, SUM(n) OVER ()
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY n
+ORDER BY n
+LIMIT 1;
+ n | sum 
+---+-----
+ 1 |   6
+(1 row)
 
 -- Test 2: ORDER BY on grouped column is pushed into aggregate definition (planner-time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

@@ -49,8 +49,29 @@ impl WorkerStyle {
 enum TocKeys {
     MessageQueues = 1,
     UserStateLength = 2,
+    // `UserState` entries allocate consecutive keys starting at `UserState` (`3 + 2*i`),
+    // so fixed keys added after it must live in a high range to avoid collisions.
     UserState = 3,
+    BufferUsage = 0xE000_0000_0000_0004,
+    WalUsage = 0xE000_0000_0000_000A,
 }
+
+pub(crate) struct WorkerStatsGuard {
+    buf_usage: *mut pg_sys::BufferUsage,
+    wal_usage: *mut pg_sys::WalUsage,
+    worker_idx: usize,
+}
+
+crate::impl_safe_drop!(WorkerStatsGuard, |self| {
+    if !self.buf_usage.is_null() && !self.wal_usage.is_null() {
+        unsafe {
+            pg_sys::InstrEndParallelQuery(
+                self.buf_usage.add(self.worker_idx),
+                self.wal_usage.add(self.worker_idx),
+            );
+        }
+    }
+});
 
 impl From<TocKeys> for u64 {
     fn from(key: TocKeys) -> Self {
@@ -569,6 +590,10 @@ pub unsafe fn generic_parallel_worker_entry_point(
     toc: *mut pg_sys::shm_toc,
     mq_size: usize,
 ) -> (ParallelStateManager, MessageQueueSender) {
+    unsafe {
+        pg_sys::InstrStartParallelQuery();
+    }
+
     let mqueues_base = get_toc_entry(toc, TocKeys::MessageQueues)
         .map(|value| value.as_ptr())
         .expect("message queue should exist in toc");
@@ -578,8 +603,26 @@ pub unsafe fn generic_parallel_worker_entry_point(
         .add(pg_sys::ParallelWorkerNumber as usize * mq_size)
         .cast::<pg_sys::shm_mq>();
 
+    let buf_usage: *mut pg_sys::BufferUsage = get_toc_entry(toc, TocKeys::BufferUsage)
+        .map(|p| p.as_ptr().cast())
+        .unwrap_or(std::ptr::null_mut());
+    let wal_usage: *mut pg_sys::WalUsage = get_toc_entry(toc, TocKeys::WalUsage)
+        .map(|p| p.as_ptr().cast())
+        .unwrap_or(std::ptr::null_mut());
+
+    let worker_idx = unsafe { pg_sys::ParallelWorkerNumber };
+    let stats = if worker_idx >= 0 && !buf_usage.is_null() && !wal_usage.is_null() {
+        Some(WorkerStatsGuard {
+            buf_usage,
+            wal_usage,
+            worker_idx: worker_idx as usize,
+        })
+    } else {
+        None
+    };
+
     let state_manager = ParallelStateManager::new(toc, seg);
-    let mq_sender = MessageQueueSender::new(seg, mq);
+    let mq_sender = MessageQueueSender::new(seg, mq, stats);
     (state_manager, mq_sender)
 }
 

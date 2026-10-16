@@ -592,12 +592,16 @@ impl MVCCDirectory {
 
     /// Drop the pins that are held on the specified [`SegmentId`]s.
     ///
+    /// This includes the pages that the cached readers of their files keep pinned.
+    ///
     /// # Safety
     ///
     /// This does not remove the segments themselves from being accessible by Tantivy, which means
     /// that attempts to use these segments after dropping their pins will likely lead to incorrect
     /// behavior.  It is the callers responsibility to ensure this does not happen.
     pub(crate) unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> tantivy::Result<()> {
+        // Lock `readers` first, as `get_file_handle` does.
+        let mut readers = self.readers.lock();
         let all_entries = self.all_entries.lock();
         let mut pin_cushion = self.pin_cushion.lock();
         let pin_cushion = pin_cushion
@@ -608,6 +612,12 @@ impl MVCCDirectory {
                 TantivyError::SystemError(format!("segment {segment_id} not found in pin cushion"))
             })?;
             pin_cushion.remove(entry.pintest_blockno());
+
+            let (LoadedSegmentMetaEntry::Persisted { meta, .. }
+            | LoadedSegmentMetaEntry::Memory { meta, .. }) = entry;
+            for path in meta.get_component_paths() {
+                readers.remove(&path);
+            }
         }
 
         Ok(())

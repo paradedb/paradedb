@@ -5,11 +5,6 @@ ignore = [
   # Optional dependency of rust_decimal that we never enable, so it is in
   # Cargo.lock but unreachable from `cargo tree -i` on any target.
   "RUSTSEC-2026-0235",
-  # libduckdb-sys uses zip only in build_linked, excluded by our bundled feature.
-  # Revisit these extraction advisories if benchmarks stops enabling bundled.
-  "RUSTSEC-2026-0367",
-  "RUSTSEC-2026-0368",
-  "RUSTSEC-2026-0369",
 ]
 
 # Unmaintained crates are warnings, not failures.

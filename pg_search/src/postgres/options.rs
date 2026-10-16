@@ -434,8 +434,7 @@ impl BM25IndexOptions {
 
     pub fn target_segment_count(&self) -> usize {
         self.explicit_target_segment_count().unwrap_or_else(|| {
-            WorkerStyle::Query.max().max(MIN_TARGET_SEGMENT_COUNT)
-                * self.partition_by().len().max(1)
+            default_target_segment_count(WorkerStyle::Query.max(), self.partition_by().len())
         })
     }
 
@@ -1317,6 +1316,43 @@ fn parse_sort_key(input: &str) -> SortByField {
     SortByField::new(field_name, direction)
 }
 
+fn default_target_segment_count(query_workers: usize, partition_columns: usize) -> usize {
+    query_workers.max(MIN_TARGET_SEGMENT_COUNT) * partition_columns.max(1)
+}
+
+#[cfg(test)]
+mod target_segment_count_tests {
+    use super::default_target_segment_count;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::serial_unpartitioned(0, 0, 4)]
+    #[case::serial_one_partition_column(0, 1, 4)]
+    #[case::serial_two_partition_columns(0, 2, 8)]
+    #[case::two_workers_unpartitioned(2, 0, 4)]
+    #[case::two_workers_one_partition_column(2, 1, 4)]
+    #[case::two_workers_two_partition_columns(2, 2, 8)]
+    #[case::four_workers_unpartitioned(4, 0, 4)]
+    #[case::four_workers_one_partition_column(4, 1, 4)]
+    #[case::four_workers_two_partition_columns(4, 2, 8)]
+    #[case::eight_workers_unpartitioned(8, 0, 8)]
+    #[case::eight_workers_one_partition_column(8, 1, 8)]
+    #[case::eight_workers_two_partition_columns(8, 2, 16)]
+    #[case::sixteen_workers_unpartitioned(16, 0, 16)]
+    #[case::sixteen_workers_one_partition_column(16, 1, 16)]
+    #[case::sixteen_workers_two_partition_columns(16, 2, 32)]
+    fn test_default_target_segment_count(
+        #[case] workers: usize,
+        #[case] partition_columns: usize,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(
+            default_target_segment_count(workers, partition_columns),
+            expected
+        );
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
@@ -1327,56 +1363,42 @@ mod tests {
     #[pg_test]
     fn test_target_segment_count() {
         Spi::run("CREATE TABLE segment_target (id bigint, tenant_id bigint);").unwrap();
-
-        for (dimension, partition_option) in [
-            "",
-            " WITH (partition_by = 'id')",
-            " WITH (partition_by = 'id, tenant_id')",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            Spi::run(&format!(
-                "CREATE INDEX segment_target_idx ON segment_target USING paradedb (id, tenant_id){partition_option};"
-            ))
+        Spi::run(
+            "CREATE INDEX segment_target_idx ON segment_target USING paradedb (id, tenant_id)
+             WITH (partition_by = 'id, tenant_id');",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'segment_target_idx'::regclass::oid;")
+            .unwrap()
             .unwrap();
-            let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'segment_target_idx'::regclass::oid;")
-                .unwrap()
-                .unwrap();
-            let indexrel = PgSearchRelation::open(oid);
+        let indexrel = PgSearchRelation::open(oid);
+        Spi::run("SET max_parallel_workers_per_gather = 2;").unwrap();
+        assert_eq!(indexrel.options().target_segment_count(), 8);
+        Spi::run("SET max_parallel_workers_per_gather = 8;").unwrap();
+        assert_eq!(indexrel.options().target_segment_count(), 16);
+        drop(indexrel);
 
-            for (workers, expected) in [
-                (0, [4, 4, 8]),
-                (2, [4, 4, 8]),
-                (4, [4, 4, 8]),
-                (8, [8, 8, 16]),
-                (16, [16, 16, 32]),
-            ] {
-                Spi::run(&format!("SET max_parallel_workers_per_gather = {workers};")).unwrap();
-                assert_eq!(
-                    indexrel.options().target_segment_count(),
-                    expected[dimension]
-                );
-            }
-
-            drop(indexrel);
-
-            Spi::run("ALTER INDEX segment_target_idx SET (target_segment_count = 3);").unwrap();
-            let indexrel = PgSearchRelation::open(oid);
-            for (global_target, expected) in [(c"7", 7), (c"0", 3)] {
-                unsafe {
-                    pg_sys::SetConfigOption(
-                        c"paradedb.global_target_segment_count".as_ptr(),
-                        global_target.as_ptr(),
-                        pg_sys::GucContext::PGC_SIGHUP,
-                        pg_sys::GucSource::PGC_S_FILE,
-                    );
-                }
-                assert_eq!(indexrel.options().target_segment_count(), expected);
-            }
-            drop(indexrel);
-            Spi::run("DROP INDEX segment_target_idx;").unwrap();
+        Spi::run("ALTER INDEX segment_target_idx SET (target_segment_count = 3);").unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        assert_eq!(indexrel.options().target_segment_count(), 3);
+        unsafe {
+            pg_sys::SetConfigOption(
+                c"paradedb.global_target_segment_count".as_ptr(),
+                c"7".as_ptr(),
+                pg_sys::GucContext::PGC_SIGHUP,
+                pg_sys::GucSource::PGC_S_FILE,
+            );
         }
+        assert_eq!(indexrel.options().target_segment_count(), 7);
+        unsafe {
+            pg_sys::SetConfigOption(
+                c"paradedb.global_target_segment_count".as_ptr(),
+                c"0".as_ptr(),
+                pg_sys::GucContext::PGC_SIGHUP,
+                pg_sys::GucSource::PGC_S_FILE,
+            );
+        }
+        assert_eq!(indexrel.options().target_segment_count(), 3);
     }
 
     #[pg_test]

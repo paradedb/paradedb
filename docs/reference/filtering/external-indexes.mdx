@@ -165,6 +165,69 @@ Custom Scan (ParadeDB Base Scan) on mock_items_geo
         Index Cond: (location <@ '<(50,20),4>'::circle)
 ```
 
+## Hierarchical Queries with `ltree`
+
+<Warning>
+  Direct indexing of `ltree` columns inside the ParadeDB index (`USING paradedb
+  (..., path)`) is deprecated and will be removed in a future release. We
+  recommend creating a dedicated PostgreSQL GiST index on the `ltree` column
+  alongside the ParadeDB index instead.
+</Warning>
+
+Hierarchical path filtering with PostgreSQL's `ltree` extension is best handled by creating a standard PostgreSQL GiST index on the `ltree` column alongside your ParadeDB index:
+
+```sql
+DROP TABLE IF EXISTS documents;
+
+CREATE TABLE documents (
+  id BIGINT PRIMARY KEY,
+  content TEXT,
+  path LTREE
+);
+
+INSERT INTO documents (id, content, path) VALUES
+  (1, 'Introduction to astrophysics and cosmology', 'Top.Science.Astronomy'),
+  (2, 'Advanced quantum mechanics and particle physics', 'Top.Science.Physics'),
+  (3, 'Marine biology and ocean ecosystem studies', 'Top.Science.Biology');
+
+-- ParadeDB index for text search
+CREATE INDEX documents_search_idx ON documents
+USING paradedb (id, content);
+
+-- Standard PostgreSQL GiST index for hierarchical queries
+CREATE INDEX documents_path_idx ON documents
+USING gist (path);
+```
+
+When you query both fields with `AND`, ParadeDB uses bitmap intersection to combine the text search matches with the GiST index candidates:
+
+```sql
+SELECT id, content
+FROM documents
+WHERE content ||| 'astrophysics'
+  AND path <@ 'Top.Science.Astronomy'
+ORDER BY id
+LIMIT 10;
+```
+
+```text
+Custom Scan (ParadeDB Base Scan) on documents
+  Index: documents_search_idx
+  ...
+  ->  Bitmap Index Scan on documents_path_idx
+        Index Cond: (path <@ 'Top.Science.Astronomy'::ltree)
+```
+
+### Benefits of External GiST Indexes for `ltree`
+
+- **Full Operator Coverage:** In-index facet pushdown only supported the descendant operator `<@`. An external GiST index supports the entire `gist_ltree_ops` family:
+  - `<@` (descendant of or equal to)
+  - `@>` (ancestor of or equal to)
+  - `~` (`lquery` regex pattern matching, e.g. `'*.Astronomy.*{1}'`)
+  - `?` (array matching with `lquery[]`)
+  - `@` (`ltxtquery` full-text search over tree paths)
+- **Standard PostgreSQL Semantics:** Preserves native GiST indexing behavior and compatibility with existing PostgreSQL tooling and dump/restore workflows.
+
 ## Limitations
 
 This is an optimization, so ParadeDB will fall back to regular row-by-row filtering when the safer or cheaper path is to avoid the extra index.

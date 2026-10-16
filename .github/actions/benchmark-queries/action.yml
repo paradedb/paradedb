@@ -56,18 +56,6 @@ runs:
           -c "DROP EXTENSION IF EXISTS pg_search;" \
           -c "CREATE EXTENSION pg_search;"
 
-    - name: Pin benchmark segment target after snapshot restore
-      working-directory: pg_search/
-      shell: bash
-      env:
-        TARGET_SEGMENT_COUNT: ${{ inputs.dataset == 'stackoverflow' && '48' || '0' }}
-      run: |
-        psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-          -v ON_ERROR_STOP=1 \
-          -c "ALTER SYSTEM SET paradedb.global_target_segment_count = ${TARGET_SEGMENT_COUNT};"
-        cargo pgrx stop pg${{ env.pg_version }}
-        cargo pgrx start pg${{ env.pg_version }}
-
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash

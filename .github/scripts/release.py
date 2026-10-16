@@ -4,7 +4,7 @@
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
 - Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
-- Registers new versions in docs navigation, snippets, and installation examples
+- Registers new versions in docs navigation and installation examples
 """
 
 # pylint: disable=too-many-lines,fixme
@@ -459,13 +459,15 @@ def render_changelog(version, headers_map, grouped, extras):
 
 def format_changelog_item(item_str):
     """Ensure changelog item starts with a bullet point."""
-    formatted_lines = []
-    for i, line in enumerate(item_str.strip().splitlines()):
-        if i == 0 and not line.strip().startswith("-"):
-            formatted_lines.append(f"- {line}")
-        else:
-            formatted_lines.append(line)
-    return "\n".join(formatted_lines)
+    lines = item_str.strip().splitlines()
+    if not lines:
+        return ""
+    if lines[0].lstrip().startswith("-"):
+        return "\n".join(lines)
+    return "\n".join(
+        f"- {line}" if i == 0 else (f"  {line}" if line.strip() else "")
+        for i, line in enumerate(lines)
+    )
 
 
 def semver_key(page_str):
@@ -641,14 +643,8 @@ def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None
         return False
 
 
-def update_version_snippet(repo_root, clean_ver):
-    """Update the shared version snippet and current installation examples."""
-    snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
-    snippet_file.parent.mkdir(parents=True, exist_ok=True)
-    content = f'export const version = "{clean_ver}";\n'
-    with open(snippet_file, "w", encoding="utf-8") as f:
-        f.write(content)
-    print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
+def update_docs_version_examples(repo_root, clean_ver):
+    """Update current installation and upgrade examples in docs."""
     update_installation_version(repo_root, clean_ver)
     update_kubernetes_version(repo_root, clean_ver)
     update_digitalocean_version(repo_root, clean_ver)
@@ -748,7 +744,7 @@ def assemble_changelog_files(
 
     if not preserve_fragments:
         if is_latest:
-            update_version_snippet(repo_root, clean_ver)
+            update_docs_version_examples(repo_root, clean_ver)
         for fpath in files:
             print(f"Removing consumed fragment: {fpath.name}")
             fpath.unlink()
@@ -929,7 +925,7 @@ def handle_changelog_command(args, repo_root):
         if docs_json.exists():
             update_docs_json(docs_json, clean_ver, args.is_latest, repo_root=repo_root)
         if args.is_latest:
-            update_version_snippet(repo_root, clean_ver)
+            update_docs_version_examples(repo_root, clean_ver)
         return
 
     assemble_changelog_files(
@@ -1480,7 +1476,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs navigation, version snippet, and installation examples",
+        help="Only update docs navigation and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",

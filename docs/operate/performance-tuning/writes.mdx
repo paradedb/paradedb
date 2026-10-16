@@ -40,6 +40,7 @@ small segments before continuing. This uses the background merger's size classif
 The default trigger is the greater of 256 small immutable segments or four times `target_segment_count`.
 One writer per index merges bounded batches toward half that threshold; other writers under pressure wait for the
 small merge slot. Pressure is checked at statement cleanup and between segment flushes during bulk writes.
+Each helper's work is bounded by the backlog it observes on entry, so new writes cannot prolong its assistance indefinitely.
 
 Set a per-index threshold with `ALTER INDEX search_idx SET (max_small_segment_count = 256);`.
 

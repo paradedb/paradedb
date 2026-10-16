@@ -148,9 +148,8 @@ pub mod window_func;
 pub use self::build::{CtidColumn, ScoreColumn};
 use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
-    can_pg_project, collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling,
-    extract_orderby, get_score_func_rti, order_by_columns_are_fast_fields,
-    pathkey_uses_scores_from_source,
+    collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
+    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
 use self::window_func::{
@@ -235,37 +234,15 @@ enum JoinPathDecline {
     },
 }
 
-/// Human-readable PG type name (e.g., "jsonb", "integer").
-pub unsafe fn format_type_name(type_oid: pg_sys::Oid) -> String {
-    let c_str = pg_sys::format_type_be(type_oid);
-    if c_str.is_null() {
-        return format!("OID {}", type_oid);
-    }
-    std::ffi::CStr::from_ptr(c_str)
-        .to_string_lossy()
-        .into_owned()
-}
-
 /// Specific reason a `JoinPathDecline::Warn` was raised. Wraps a specific
 /// warning message and any optional details (e.g., unsupported join types)
 /// to be emitted as a planner warning.
 #[derive(Clone, Debug)]
 pub enum JoinDeclineReason {
     ContainsAggregate,
-    ContainsVolatile,
-    NonColumnar {
-        col: String,
-    },
-    NotArrowConvertable {
-        type_oid: pg_sys::Oid,
-    },
     Message {
         message: String,
         details: Option<Vec<String>>,
-    },
-    PgCantProject {
-        message: String,
-        original: Option<Box<JoinDeclineReason>>,
     },
 }
 
@@ -293,52 +270,6 @@ impl JoinDeclineReason {
         }
     }
 
-    pub fn with_original_reason(self, original: Self) -> Self {
-        match self {
-            Self::PgCantProject { message, .. } => Self::PgCantProject {
-                message,
-                original: Some(Box::new(original)),
-            },
-            _ => unreachable!("should only be callable on a PgCantProject decline"),
-        }
-    }
-
-    pub fn pg_cant_project(message: impl Into<String>) -> Self {
-        Self::PgCantProject {
-            message: message.into(),
-            original: None,
-        }
-    }
-
-    fn planner_warning_message(&self) -> String {
-        match self {
-            Self::ContainsAggregate => {
-                   "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.".to_string()
-            }
-            Self::ContainsVolatile => {"JoinScan not used: target list expression contains a volatile function".to_string()},
-            Self::NonColumnar { col } => {
-                    format!(
-                        "JoinScan not used: target list expression depends on '{col}' which is not columnar",
-                    )
-            }
-            Self::NotArrowConvertable { type_oid } => {
-                let type_name = unsafe { format_type_name(*type_oid) };
-                    format!(
-                        "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
-                    )
-            }
-            Self::PgCantProject { message, original } => {
-                match original {
-                    Some(orig) => format!("{}; {message}", orig.planner_warning_message()),
-                    None => message.clone(),
-                }
-            }
-            Self::Message { message, ..} => {
-                message.clone()
-            }
-        }
-    }
-
     fn emit(&self, aliases: &[String]) {
         if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
             return;
@@ -353,7 +284,9 @@ impl JoinDeclineReason {
                     // the joinscan to propose itself even when aggregates are present.
                     return;
                 }
-                JoinScan::add_planner_warning(self.planner_warning_message(), aliases);
+                JoinScan::add_planner_warning(
+                   "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.".to_string(),
+                     aliases);
             }
             Self::Message { message, details } => {
                 if let Some(details) = details {
@@ -362,19 +295,7 @@ impl JoinDeclineReason {
                     JoinScan::add_planner_warning(message, aliases);
                 }
             }
-            _ => {
-                JoinScan::add_planner_warning(self.planner_warning_message(), aliases);
-            }
         }
-    }
-}
-
-/// A JoinDeclineReason, along with an optional error message. The message is intended to be passed
-/// to `pgrx::debug!` call should the callsite not choose to provide some reason-specific fallback
-pub struct JoinDeclineWithErrorMessage(pub JoinDeclineReason, pub Option<String>);
-impl JoinDeclineWithErrorMessage {
-    pub fn new(reason_message: String, error_message: Option<String>) -> Self {
-        Self(JoinDeclineReason::new(reason_message), error_message)
     }
 }
 
@@ -734,31 +655,16 @@ impl JoinScan {
                 };
                 window_aggs.push(window_agg);
             } else {
-                match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
-                    Err(JoinDeclineWithErrorMessage(reason, message)) => match reason {
-                        JoinDeclineReason::NonColumnar { .. }
-                        | JoinDeclineReason::NotArrowConvertable { .. } => {
-                            match can_pg_project(check_expr, &plan.output_sources()) {
-                                Err(JoinDeclineWithErrorMessage(pg_reason, pg_message)) => {
-                                    if let Some(full_msg) = match (message, pg_message) {
-                                        (Some(m1), Some(m2)) => Some(format!("{m1}; {m2}")),
-                                        (Some(m), None) | (None, Some(m)) => Some(m),
-                                        _ => None,
-                                    } {
-                                        pgrx::debug1!("{full_msg}");
-                                    }
-                                    return Err(pg_reason.with_original_reason(reason));
-                                }
-                                Ok(()) => pg_projected_resnos.push(te.resno as pg_sys::AttrNumber),
-                            }
-                        }
-                        _ => {
-                            if let Some(m) = message {
-                                pgrx::debug1!("{m}");
-                            }
-                            return Err(reason);
-                        }
-                    },
+                match planning::resolve_target_entry_expr(
+                    check_expr,
+                    &all_sources,
+                    root,
+                    Some(plan),
+                ) {
+                    Err(reason) => return Err(reason),
+                    Ok(planning::ResolvedExpr::PgProjected) => {
+                        pg_projected_resnos.push(te.resno);
+                    }
                     Ok(planning::ResolvedExpr::Expression { window_deps, .. })
                         if !window_deps.is_empty() =>
                     {
@@ -2273,12 +2179,8 @@ unsafe fn build_output_projection(
         let scan_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
-            && let Ok(resolved) = planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
-                .map_err(|e| {
-                    if let Some(msg) = e.1 {
-                        pgrx::debug1!("{msg}")
-                    }
-                })
+            && let Ok(resolved) =
+                planning::resolve_target_entry_expr(scan_expr, &all_sources, root, None)
         {
             resolved_entries[scan_idx] = Some(resolved);
         }
@@ -2358,7 +2260,7 @@ unsafe fn build_output_projection(
                             field_name: field_name.clone(),
                         }
                     }
-                    None => info.into(),
+                    Some(planning::ResolvedExpr::PgProjected) | None => info.into(),
                 }
             })
             .collect(),

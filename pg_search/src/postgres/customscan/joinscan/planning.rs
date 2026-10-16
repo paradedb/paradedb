@@ -23,6 +23,7 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
+use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
     JoinSource, JoinSourceCandidate, JoinType, RelNode, UnnestNode,
@@ -32,9 +33,7 @@ use super::predicate::{
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
 use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
-use super::{JoinDeclineReason, JoinDeclineWithErrorMessage};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
-use crate::postgres::customscan::joinscan::format_type_name;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
 
@@ -875,14 +874,10 @@ unsafe fn collect_join_sources_join_rel(
 pub unsafe fn can_pg_project(
     expr: *mut pg_sys::Node,
     sources: &[&JoinSource],
-) -> Result<(), JoinDeclineWithErrorMessage> {
+) -> Result<(), String> {
     if pg_sys::expression_returns_set(expr) {
-        return Err(JoinDeclineWithErrorMessage(
-            JoinDeclineReason::pg_cant_project(
-                "JoinScan declined Postgres projection: Expression returns a set",
-            ),
-            None,
-        ));
+        pgrx::debug1!("JoinScan declined Postgres projection: expression returns a set");
+        return Err("target list expression returns a set".to_string());
     }
 
     let mut deps = ExprDeps {
@@ -893,21 +888,17 @@ pub unsafe fn can_pg_project(
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
 
     if !deps.score_rtis.is_empty() {
-        return Err(JoinDeclineWithErrorMessage(
-            JoinDeclineReason::pg_cant_project(
-                "JoinScan declined Postgres projection: Expression depends on a score function",
-            ),
-            None,
-        ));
+        pgrx::debug1!(
+            "JoinScan declined Postgres projection: expression depends on a score function"
+        );
+        return Err("target list expression depends on a score function".to_string());
     }
 
     if !deps.window_funcs.is_empty() {
-        return Err(JoinDeclineWithErrorMessage(
-            JoinDeclineReason::pg_cant_project(
-                "JoinScan declined Postgres projection: Expression depends on a window function",
-            ),
-            None,
-        ));
+        pgrx::debug1!(
+            "JoinScan declined Postgres projection: expression depends on a window function"
+        );
+        return Err("target list expression depends on a window function".to_string());
     }
 
     let tables_str = sources
@@ -922,31 +913,31 @@ pub unsafe fn can_pg_project(
         let varattno = (*var_ptr).varattno;
 
         if varattno <= 0 {
-            let msg = format!(
-                "JoinScan declined Postgres projection: Invalid varattno ({varattno}) found"
+            pgrx::debug1!(
+                "JoinScan declined Postgres projection: expression depends on a system column \
+                 or whole-row reference (rti={}, attno={}) (tables: {})",
+                varno,
+                varattno,
+                tables_str
             );
-            return Err(JoinDeclineWithErrorMessage(
-                JoinDeclineReason::pg_cant_project(
-                    "JoinScan declined Postgres projection: Invalid varattno found",
-                ),
-                Some(msg),
-            ));
+            return Err(
+                "target list expression depends on a system column or whole-row reference"
+                    .to_string(),
+            );
         }
 
         if !seen.insert((varno, varattno)) {
             continue;
         }
 
-        if sources.iter().find(|s| s.contains_rti(varno)).is_none() {
-            let msg = format!(
+        if !sources.iter().any(|s| s.contains_rti(varno)) {
+            pgrx::debug1!(
                 "JoinScan declined Postgres projection: expression depends on a relation \
                  (rti={}) not found in any source (tables: {})",
-                varno, tables_str
+                varno,
+                tables_str
             );
-            return Err(JoinDeclineWithErrorMessage::new(
-                "JoinScan not used: expression depends on a relation outside the join".to_string(),
-                Some(msg),
-            ));
+            return Err("target list references a relation outside the join".to_string());
         }
     }
     Ok(())
@@ -2179,7 +2170,9 @@ pub(crate) enum ResolvedExpr {
         attno: pg_sys::AttrNumber,
     },
     /// Score function (existing behavior)
-    Score { rti: pg_sys::Index },
+    Score {
+        rti: pg_sys::Index,
+    },
     /// An indexed expression that matched via find_matching_fast_field.
     /// Handled by existing machinery — does NOT need the UDF path.
     IndexedExpression {
@@ -2200,11 +2193,23 @@ pub(crate) enum ResolvedExpr {
         /// records them stamps the owning target entry's resno.
         window_deps: Vec<WindowAgg>,
     },
+    PgProjected,
 }
 
 // ---------------------------------------------------------------------------
 // Diagnostic helpers for DISTINCT expression decline messages
 // ---------------------------------------------------------------------------
+
+/// Human-readable PG type name (e.g., "jsonb", "integer").
+unsafe fn format_type_name(type_oid: pg_sys::Oid) -> String {
+    let c_str = pg_sys::format_type_be(type_oid);
+    if c_str.is_null() {
+        return format!("OID {}", type_oid);
+    }
+    std::ffi::CStr::from_ptr(c_str)
+        .to_string_lossy()
+        .into_owned()
+}
 
 /// Get table name from a source's heap relation OID.
 unsafe fn source_table_name(source: &JoinSource) -> String {
@@ -2344,7 +2349,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     sources: &[&JoinSource],
     root: *mut pg_sys::PlannerInfo,
-) -> Result<ResolvedExpr, JoinDeclineWithErrorMessage> {
+    plan_for_pg_project_fallback: Option<&RelNode>,
+) -> Result<ResolvedExpr, JoinDeclineReason> {
     let tables_str = sources
         .iter()
         .map(|s| source_table_name(s))
@@ -2360,9 +2366,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)))
         };
         if !is_fast {
-            return Err(JoinDeclineWithErrorMessage::new(
-                "JoinScan not used: target list column is not columnar".to_string(),
-                None,
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: target list column is not columnar",
             ));
         }
         return Ok(ResolvedExpr::Column {
@@ -2376,9 +2381,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         if sources.iter().any(|s| s.contains_rti(rti)) {
             return Ok(ResolvedExpr::Score { rti });
         }
-        return Err(JoinDeclineWithErrorMessage::new(
-            "JoinScan not used: score function references a relation outside the join".to_string(),
-            None,
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: score function references a relation outside the join",
         ));
     }
 
@@ -2400,25 +2404,23 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 4: General expression (or constant).
     if pg_sys::contain_agg_clause(expr) {
-        let msg = format!(
+        pgrx::debug1!(
             "JoinScan declined: target list expression contains an aggregate \
              function (tables: {})",
             tables_str
         );
-        return Err(JoinDeclineWithErrorMessage::new(
-            "JoinScan not used: target list expression contains an aggregate function".to_string(),
-            Some(msg),
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: target list expression contains an aggregate function",
         ));
     }
     if pg_sys::contain_volatile_functions(expr) {
-        let msg = format!(
+        pgrx::debug1!(
             "JoinScan declined: target list expression contains a volatile \
              function (tables: {})",
             tables_str
         );
-        return Err(JoinDeclineWithErrorMessage(
-            JoinDeclineReason::ContainsVolatile,
-            Some(msg),
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: target list expression contains a volatile function",
         ));
     }
 
@@ -2440,14 +2442,11 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             match extract_window_agg(*wf, sources, parse, WindowAggId::nested(0, ordinal)) {
                 Ok(wa) => window_deps.push(wa),
                 Err(e) => {
-                    return Err(JoinDeclineWithErrorMessage::new(
-                        format!(
-                            "JoinScan declined: window function in target list \
+                    return Err(JoinDeclineReason::new(format!(
+                        "JoinScan declined: window function in target list \
                          expression cannot be absorbed: {} (tables: {})",
-                            e, tables_str
-                        ),
-                        None,
-                    ));
+                        e, tables_str
+                    )));
                 }
             }
         }
@@ -2456,21 +2455,21 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     // Verify score RTIs reference relations in the join
     for score_rti in deps.score_rtis {
         if !sources.iter().any(|s| s.contains_rti(score_rti)) {
-            let msg = format!(
+            pgrx::debug1!(
                 "JoinScan declined: expression depends on score for relation \
                  (rti={}) not found in any source (tables: {})",
-                score_rti, tables_str
+                score_rti,
+                tables_str
             );
-            return Err(JoinDeclineWithErrorMessage::new(
-                "JoinScan not used: score function references a relation outside the join"
-                    .to_string(),
-                Some(msg),
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: score function references a relation outside the join",
             ));
         }
     }
 
     let mut input_vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let mut non_fast_col_info = None;
     for var_ptr in deps.vars {
         let varno = (*var_ptr).varno as pg_sys::Index;
         let varattno = (*var_ptr).varattno;
@@ -2487,16 +2486,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 let td = hr.tuple_desc();
                 if resolve_fast_field(varattno as i32, &td, &ir).is_none() {
                     let col = column_name_for_var(sources, varno, varattno);
-                    let err_msg = format!(
-                        "JoinScan declined: expression depends on '{}' \
-                         which is not columnar (rti={}, attno={}, heaprelid={}) \
-                         (tables: {})",
-                        col, varno, varattno, source.scan_info.heaprelid, tables_str
-                    );
-                    return Err(JoinDeclineWithErrorMessage(
-                        JoinDeclineReason::NonColumnar { col },
-                        Some(err_msg),
-                    ));
+                    non_fast_col_info = Some((col, varno, varattno, source.scan_info.heaprelid));
+                    break;
                 }
                 input_vars.push(InputVarInfo {
                     rti: varno,
@@ -2513,18 +2504,49 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                     )
                     .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
                 if !is_lateral_unnest {
-                    let err_msg = format!(
+                    pgrx::debug1!(
                         "JoinScan declined: expression depends on column \
                          (rti={}, attno={}) not found in any source (tables: {})",
-                        varno, varattno, tables_str
+                        varno,
+                        varattno,
+                        tables_str
                     );
-                    return Err(JoinDeclineWithErrorMessage::new(
-                        "JoinScan not used: target list references a relation outside the join"
-                            .to_string(),
-                        Some(err_msg),
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: target list references a relation outside the join",
                     ));
                 }
             }
+        }
+    }
+    if let Some((col, varno, varattno, heaprelid)) = non_fast_col_info {
+        let debug = || {
+            pgrx::debug1!(
+                "JoinScan declined: expression depends on '{}' \
+                which is not columnar (rti={}, attno={}, heaprelid={}) \
+                (tables: {})",
+                col,
+                varno,
+                varattno,
+                heaprelid,
+                tables_str
+            );
+        };
+        if let Some(plan) = plan_for_pg_project_fallback {
+            match can_pg_project(expr, &plan.output_sources()) {
+                Ok(()) => return Ok(ResolvedExpr::PgProjected),
+                Err(reason) => {
+                    debug();
+                    return Err(JoinDeclineReason::new(format!(
+                        "JoinScan not used: target list expression depends on '{col}' which is not columnar and cannot be projected \
+                        by posgres because {reason}",
+                    )));
+                }
+            }
+        } else {
+            debug();
+            return Err(JoinDeclineReason::new(format!(
+                "JoinScan not used: target list expression depends on '{col}' which is not columnar",
+            )));
         }
     }
 
@@ -2532,18 +2554,33 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     if !crate::postgres::types_arrow::is_arrow_convertible(result_type) {
         let type_name = format_type_name(result_type);
-        let err_msg = format!(
-            "JoinScan declined: target list expression returns type '{}' \
-             (OID {}) which is not supported for Arrow conversion \
-             (tables: {})",
-            type_name, result_type, tables_str
-        );
-        return Err(JoinDeclineWithErrorMessage(
-            JoinDeclineReason::NotArrowConvertable {
-                type_oid: result_type,
-            },
-            Some(err_msg),
-        ));
+        let debug = || {
+            pgrx::debug1!(
+                "JoinScan declined: target list expression returns type '{}' \
+                (OID {}) which is not supported for Arrow conversion \
+                (tables: {})",
+                type_name,
+                result_type,
+                tables_str
+            );
+        };
+        if let Some(plan) = plan_for_pg_project_fallback {
+            match can_pg_project(expr, &plan.output_sources()) {
+                Ok(()) => return Ok(ResolvedExpr::PgProjected),
+                Err(reason) => {
+                    debug();
+                    return Err(JoinDeclineReason::new(format!(
+                        "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow \
+                        conversion. This expression cannot be projected by postgres because {reason}",
+                    )));
+                }
+            }
+        } else {
+            debug();
+            return Err(JoinDeclineReason::new(format!(
+                "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+            )));
+        }
     }
 
     Ok(ResolvedExpr::Expression {
@@ -2577,13 +2614,11 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .find(|te| (**te).ressortgroupref == tle_ref)?;
 
         let expr = strip_wrappers((*te).expr as *mut pg_sys::Node);
-        let resolved = resolve_target_entry_expr(expr, sources, root)
-            .map_err(|e| {
-                if let Some(msg) = e.1 {
-                    pgrx::debug1!("{msg}")
-                }
-            })
-            .ok()?;
+        let resolved = resolve_target_entry_expr(expr, sources, root, None).ok()?;
+        assert!(
+            !matches!(resolved, ResolvedExpr::PgProjected),
+            "distinct columns can never be postgres projected"
+        );
         entries.push(resolved);
     }
 

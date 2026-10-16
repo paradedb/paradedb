@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792117974277,
+  "lastUpdate": 1792117989524,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -405514,6 +405514,88 @@ window.BENCHMARK_DATA = {
             "value": 658.8905416067782,
             "unit": "median tps",
             "extra": "avg tps: 658.1819971852228, max tps: 674.2942860738291, count: 54927"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792117921350,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 583.7599355023652,
+            "unit": "median tps",
+            "extra": "avg tps: 586.9537696467355, max tps: 657.9403460019478, count: 54899"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 538.8043186900848,
+            "unit": "median tps",
+            "extra": "avg tps: 541.8323274488146, max tps: 594.1255441963959, count: 54899"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 200.877160448235,
+            "unit": "median tps",
+            "extra": "avg tps: 201.51502089803327, max tps: 216.40442711748616, count: 54899"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 596.9725817300764,
+            "unit": "median tps",
+            "extra": "avg tps: 599.7791646761335, max tps: 673.4798072780286, count: 54899"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 421.21129225161826,
+            "unit": "median tps",
+            "extra": "avg tps: 422.4440571806334, max tps: 453.6588458915976, count: 54899"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.633296050738833,
+            "unit": "median tps",
+            "extra": "avg tps: 14.628677699899173, max tps: 14.869651445853533, count: 54899"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 744.8679980045644,
+            "unit": "median tps",
+            "extra": "avg tps: 745.977779993079, max tps: 798.4223365867928, count: 54899"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 757.1790772796727,
+            "unit": "median tps",
+            "extra": "avg tps: 758.3834905929244, max tps: 816.4181450008008, count: 54899"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 320.1854885681458,
+            "unit": "median tps",
+            "extra": "avg tps: 321.0675475553025, max tps: 343.3716597336207, count: 54899"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 600.8364088225946,
+            "unit": "median tps",
+            "extra": "avg tps: 605.5160968767534, max tps: 678.7572200316023, count: 54899"
           }
         ]
       }

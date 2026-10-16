@@ -1,292 +1,43 @@
-# workflows/benchmark-pg_search-stressgres.yml
-#
-# Benchmark pg_search (Stressgres)
-# Run our Stressgres stress testing tool against pg_search on the
-# testing suites specified in stressgres/suites/.
-
 name: Benchmark pg_search (Stressgres)
-
-# Run Stressgres nightly on main, on labeled PRs, or manually.
 on:
-  schedule:
-    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
-  pull_request:
-    types: [labeled]
   workflow_dispatch:
-    inputs:
-      commit:
-        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
-        required: false
-        default: ""
-      use_benchmarks_from_ref:
-        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used."
-        required: false
-        type: boolean
-        default: false
-
 permissions:
-  actions: write
-  contents: write
-  deployments: write
-  pull-requests: write
-
-# We don't specify a concurrency group here, as we want all jobs to complete.
-
+  contents: read
 jobs:
-  benchmark-pg_search-stressgres:
-    name: Stressgres (${{ matrix.suite }})
-    strategy:
-      fail-fast: false
-      max-parallel: 4 # Avoid exhausting regional capacity for the large bare-metal benchmark runners
-      matrix:
-        suite:
-          - background-merge.toml
-          - bulk-update-merge-pressure.toml
-          - logical-replication-fsm-merge-race.toml
-          - logical-replication-mixed-workload.toml
-          - logical-replication-multi-subscriber.toml
-          - partitioned-table.toml
-          - single-node-planner-paths.toml
-          - wide-table.toml
+  diagnose:
+    name: Diagnose immutable segment accumulation
+    timeout-minutes: 50
     runs-on:
-      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
+      - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
-      # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
-      # using EBS would cause
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmarks') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
-    env:
-      pg_version: 18
-
+      - extras=s3-cache
     steps:
-      # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
-      # removes the label once the job has started, so it can be applied again if needed.
-      - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr edit "${PR_NUMBER}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --remove-label benchmarks \
-            --remove-label benchmark-stressgres || true
-
-      - name: Determine Ref to Benchmark
-        id: determine-ref
-        env:
-          INPUTS_COMMIT: ${{ inputs.commit }}
-        run: |
-          # If a specific commit was provided via workflow_dispatch, use that.
-          # For pull_request events, benchmark the PR merge commit (github.sha),
-          # which exists in the base repo even for forks.
-          # Otherwise, default to main.
-          if [ -n "${INPUTS_COMMIT}" ]; then
-            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from workflow_dispatch input: ${INPUTS_COMMIT}"
-          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from pull_request event: ${GITHUB_SHA}"
-          else
-            echo "ref=main" >> "$GITHUB_OUTPUT"
-            echo "Determined ref as default: main"
-          fi
-
-      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+      - uses: runs-on/action@v2
+      - uses: ./.github/actions/setup-pg-search-build-environment
         with:
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 1
-
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
-
-      - name: Derive Short Commit
-        id: commit_info
+          pg_version: 18
+          cache_prefix_key: v2-benchmarks-rust-cache
+          extra_packages: lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld gdb postgresql-contrib-18
+      - name: Build failed revision
         run: |
-          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
-          echo "Deriving short commit: $short_commit"
-
-      - name: Fetch the Latest Composite Actions
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository }}
-          path: actions-temp
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 1
-          ref: main
-
-      - name: Copy latest actions into place
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        run: cp -rv actions-temp/.github/actions .github/
-
-      - name: Cleanup temporary checkout
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        run: rm -rf actions-temp
-
-      # Nightly and default manual runs use the latest benchmark code from main.
-      - name: Fetch latest benchmark code, suites
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        uses: ./.github/actions/benchmarks-from-main
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve git ref to PR
-        id: pr_label
-        uses: actions/github-script@v9
-        env:
-          # ← Set this to whatever ref you’re resolving:
-          # • a SHA:            ${{ github.sha }}
-          # • a branch name:    ${{ github.ref_name }}
-          # • a tag:            ${{ github.ref_name }}
-          # • a PR number:      e.g. “123”
-          TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          result-encoding: string
-          script: |
-            const { owner, repo } = context.repo;
-            const ref = process.env.TARGET_REF;
-
-            let pr = null;
-
-            // If the ref is purely numeric, treat it as a PR number
-            if (/^\d+$/.test(ref)) {
-              try {
-                const { data } = await github.rest.pulls.get({
-                  owner,
-                  repo,
-                  pull_number: parseInt(ref, 10)
-                });
-                pr = data;
-              } catch (e) {
-                // not a valid PR number → fall through
-              }
-            }
-
-            // Otherwise, try to find any PR associated with this commit SHA
-            if (!pr) {
-              const res = await github.request(
-                'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
-                {
-                  owner,
-                  repo,
-                  commit_sha: ref,
-                  headers: {
-                    accept: 'application/vnd.github.groot-preview+json'
-                  }
-                }
-              );
-              if (res.data.length) {
-                pr = res.data[0];
-              }
-            }
-
-            // Return “PR #123: Title” or the raw ref
-            return pr
-              ? `PR #${pr.number}: ${pr.title}`
-              : ref;
-
-      - name: Running for ${{ steps.pr_label.outputs.result }}
-        env:
-          STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
-        run: echo "${STEP_PR_LABEL_RESULT}"
-
-      - name: Set Up pg_search Build Environment
-        uses: ./.github/actions/setup-pg-search-build-environment
-        with:
-          pg_version: ${{ env.pg_version }}
-          cache_prefix_key: "v2-benchmarks-rust-cache"
-          cache_save: "true"
-          cache_on_failure: "true"
-          extra_packages: >-
-            lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld gdb
-
-      - name: Enable Crash Dumps
-        run: ./.github/scripts/setup_crashdumps.sh
-
-      - name: Compile and Install pg_search
-        run: >-
-          cargo pgrx install -p pg_search --sudo --release
-          --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
-          --features=pg${{ env.pg_version }} --no-default-features
-
-      - name: Start PostgreSQL
-        working-directory: pg_search/
-        run: cargo pgrx start pg${{ env.pg_version }}
-
-      - name: Configure PostgreSQL settings and machine settings
-        working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
-        run: |
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM RESET ALL;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET shared_preload_libraries = pg_search;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET maintenance_work_mem = '12GB';"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET shared_buffers = '12GB';"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_worker_processes = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_maintenance_workers = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_wal_size = '100GB';"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET huge_pages = on;"
-          sudo sysctl -w vm.nr_hugepages=10000
-
-      - name: Restart Postgres
-        working-directory: pg_search/
-        run: |
-          cargo pgrx stop pg${{ env.pg_version }}
-          cargo pgrx start pg${{ env.pg_version }}
-
-      - name: Install pg_search
-        working-directory: pg_search/
-        run: |
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
-
-      - name: Restart Postgres
-        working-directory: pg_search/
-        run: |
-          cargo pgrx stop pg${{ env.pg_version }}
-          cargo pgrx start pg${{ env.pg_version }}
-
-      - name: Install the Stressgres CLI tool
-        working-directory: stressgres/
-        run: CARGO_TARGET_DIR=../target/ cargo install --path .
-
-      # Each suite is its own matrix job, so a failure never skips later topologies.
-      - name: Benchmark ${{ matrix.suite }}
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: ${{ matrix.suite }}
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-
-      - name: Print Crashdump Stacktrace
+          cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
+          CARGO_TARGET_DIR=target cargo install --path stressgres
+      - name: Reproduce with 16 writers
+        run: python3 .github/scripts/diagnose_stressgres.py 16
+      - name: Preserve 16-writer evidence
         if: always()
-        env:
-          PG_VERSION: ${{ env.pg_version }}
-        run: ./.github/scripts/render_crashdump.sh
-
-  notify-slack-on-failure:
-    name: Notify Slack on Failure
-    needs: [benchmark-pg_search-stressgres]
-    if: always() && needs.benchmark-pg_search-stressgres.result == 'failure' && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-    steps:
-      - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v14
+        uses: actions/upload-artifact@v4
         with:
-          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
-          job_results: ${{ toJSON(needs) }}
-          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
-          title: "${{ github.workflow }} Failed"
+          name: stressgres-16-writers
+          path: diagnostics/16/
+      - name: Control with 4 writers
+        run: python3 .github/scripts/diagnose_stressgres.py 4
+      - name: Preserve 4-writer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stressgres-4-writers
+          path: diagnostics/4/

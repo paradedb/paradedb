@@ -318,13 +318,11 @@ unsafe fn apply_immutable_backpressure(
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
 ) {
-    let Some(high_watermark) = index.options().max_small_segment_count() else {
-        return;
-    };
+    let options = index.options();
+    let high_watermark = 256.max(4 * options.target_segment_count());
     if small_immutable_segment_count(index) <= high_watermark {
         return;
     }
-    let options = index.options();
     let small_layers = options
         .foreground_layer_sizes()
         .into_iter()
@@ -338,7 +336,7 @@ unsafe fn apply_immutable_backpressure(
     // Serialize helpers with the small background worker, before taking buffer locks or pins.
     let slot = MergeSlot::new(index.oid(), MergeSlotVariant::Small);
     let _slot = AdvisoryLock::lock_session(slot.key());
-    let low_watermark = (high_watermark / 2).max(index.options().target_segment_count());
+    let low_watermark = high_watermark / 2;
     pgrx::debug1!(
         "small immutable segment backpressure for {}: high={high_watermark}, low={low_watermark}",
         index.name()
@@ -867,11 +865,13 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_immutable_backpressure_drains_small_segments_without_background_worker() {
-        Spi::run("CREATE TABLE backpressure (id bigint, body text);
+        Spi::run(
+            "CREATE TABLE backpressure (id bigint, body text);
             CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
-            WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0', max_small_segment_count=8);")
-            .unwrap();
-        for id in 0..40 {
+            WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0');",
+        )
+        .unwrap();
+        for id in 0..320 {
             Spi::run(&format!(
                 "INSERT INTO backpressure VALUES ({id}, 'beer wine cheese')"
             ))
@@ -881,24 +881,24 @@ mod tests {
             .unwrap()
             .unwrap();
         let index = PgSearchRelation::open(oid);
-        assert_eq!(small_immutable_segment_count(&index), 40);
+        assert_eq!(small_immutable_segment_count(&index), 320);
         drop(index);
 
         Spi::run("ALTER INDEX backpressure_idx SET (background_layer_sizes='100mb,1gb')").unwrap();
         let index = PgSearchRelation::open(oid);
         let xid = pg_sys::GetCurrentFullTransactionId();
         apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 40);
+        assert_eq!(small_immutable_segment_count(&index), 320);
         drop(index);
 
-        Spi::run("ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100mb', max_small_segment_count=-1)").unwrap();
+        Spi::run("ALTER INDEX backpressure_idx SET (target_segment_count=128, background_layer_sizes='1kb,10kb,100mb')").unwrap();
         let index = PgSearchRelation::open(oid);
         apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 40);
+        assert_eq!(small_immutable_segment_count(&index), 320);
         let bytes = MetaPage::open(&index).segment_metas().list(None)[0].byte_size();
         drop(index);
 
-        Spi::run(&format!("ALTER INDEX backpressure_idx SET (target_segment_count=16, max_small_segment_count=32, background_layer_sizes='{} bytes,{} bytes,100mb')", bytes / 2, bytes * 2)).unwrap();
+        Spi::run(&format!("ALTER INDEX backpressure_idx SET (target_segment_count=16, background_layer_sizes='{} bytes,{} bytes,100mb')", bytes / 2, bytes * 32)).unwrap();
         let index = PgSearchRelation::open(oid);
         assert!(
             IndexLayerSizes::from(&index)
@@ -907,12 +907,12 @@ mod tests {
                 .all(|size| *size < bytes)
         );
         apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 16);
+        assert_eq!(small_immutable_segment_count(&index), 128);
         drop(index);
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
                 .unwrap(),
-            Some(40)
+            Some(320)
         );
         assert_eq!(Spi::get_one::<bool>("SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)").unwrap(), Some(true));
     }

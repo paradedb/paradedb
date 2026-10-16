@@ -246,7 +246,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         //
         // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
         // scans have finished too
-        drop(metadata.cleanup_lock_for_cleanup());
+        drop(metadata.cleanup_lock_for_vacuum());
         metadata.increment_ambulkdelete_epoch();
     }
 

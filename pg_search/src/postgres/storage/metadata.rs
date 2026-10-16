@@ -385,7 +385,7 @@ impl MetaPage {
         CleanupAdmission { tag, mode }
     }
 
-    pub fn cleanup_lock_pinned(&self) -> CleanupPin {
+    pub fn cleanup_lock_for_reader(&self) -> CleanupPin {
         let admission = self.cleanup_admission(pg_sys::ShareLock as pg_sys::LOCKMODE);
         CleanupPin {
             _pin: self.bman.pinned_buffer(admission.tag.locktag_field3),
@@ -401,7 +401,7 @@ impl MetaPage {
         }
     }
 
-    pub fn cleanup_lock_for_cleanup(&mut self) -> CleanupBarrier {
+    pub fn cleanup_lock_for_vacuum(&mut self) -> CleanupBarrier {
         let admission = self.cleanup_admission(pg_sys::ExclusiveLock as pg_sys::LOCKMODE);
         CleanupBarrier {
             _buffer: self
@@ -565,7 +565,7 @@ mod tests {
         assert!(unsafe { merge_lock.merge_list().list().is_empty() });
         let sentinel = metadata.pin_ambulkdelete_sentinel();
         drop(merge_lock);
-        drop(metadata.cleanup_lock_for_cleanup());
+        drop(metadata.cleanup_lock_for_vacuum());
         drop(sentinel);
         assert_eq!(unsafe { pg_sys::InterruptHoldoffCount }, 0);
     }

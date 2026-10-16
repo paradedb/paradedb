@@ -664,7 +664,7 @@ impl SearchIndexReader {
         let _metadata = io_stats.as_ref().map(|stats| stats.external("Metadata"));
         #[cfg(any(test, feature = "pg_test"))]
         test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
+        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_for_reader());
 
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;

@@ -29,12 +29,14 @@ use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
+    scalar_datum_to_tantivy_value, unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 
-use pgrx::{PgMemoryContexts, pg_guard, pg_sys};
+use pgrx::{PgBuiltInOids, PgMemoryContexts, PgOid, pg_guard, pg_sys};
 use tantivy::TantivyDocument;
 use tantivy::index::SegmentId;
 
@@ -64,6 +66,7 @@ impl InsertModeImmutable {
 pub struct InsertModeMutable {
     ctids: Vec<u64>,
     row_limit: usize,
+    date_fields: Vec<(SearchField, CategorizedFieldData)>,
 }
 
 pub enum InsertMode {
@@ -99,10 +102,24 @@ impl InsertState {
             pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
         );
 
+        let schema = indexrel.schema()?;
+        let date_fields: Vec<(SearchField, CategorizedFieldData)> = schema
+            .categorized_fields()
+            .iter()
+            .filter(|(_, cat)| {
+                matches!(
+                    cat.base_oid,
+                    PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID)
+                )
+            })
+            .cloned()
+            .collect();
+
         let mode = if let Some(row_limit) = indexrel.options().mutable_segment_rows() {
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
                 row_limit: row_limit.into(),
+                date_fields,
             })
         } else {
             InsertMode::Immutable(InsertModeImmutable::new(indexrel)?)
@@ -296,6 +313,18 @@ unsafe fn insert(
             cxt.reset();
         }),
         InsertMode::Mutable(mode) => {
+            if !mode.date_fields.is_empty() {
+                state.per_row_context.switch_to(|cxt| {
+                    validate_date_fields(
+                        &mode.date_fields,
+                        values,
+                        isnull,
+                        state.index_created_by_version,
+                    );
+                    cxt.reset();
+                });
+            }
+
             if mode.ctids.len() < mode.row_limit {
                 mode.ctids.push(ctid);
                 return;
@@ -317,6 +346,48 @@ unsafe fn insert(
         }
         InsertMode::Completed => {
             panic!("aminsertcleanup was already called.");
+        }
+    }
+}
+
+unsafe fn validate_date_fields(
+    date_fields: &[(SearchField, CategorizedFieldData)],
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    created_by_version: Option<Version>,
+) {
+    let unpacked_composites = CompositeSlotValues::from_composites(
+        collect_composites_for_unpacking(date_fields.iter().map(|(_, cat)| cat), values, isnull),
+    );
+
+    for (field, categorized) in date_fields {
+        let (datum, is_null) = get_field_value(
+            &categorized.source,
+            categorized.attno,
+            values,
+            isnull,
+            &unpacked_composites,
+        );
+        if is_null {
+            continue;
+        }
+
+        let actual_datum = unwrap_alias_datum(datum, categorized.pg_type);
+
+        if categorized.is_array {
+            if let Err(e) = TantivyValue::try_from_datum_array(actual_datum, categorized.base_oid) {
+                panic!("could not parse field `{}`: {e}", field.field_name());
+            }
+        } else {
+            let res = scalar_datum_to_tantivy_value(
+                actual_datum,
+                field.field_type(),
+                categorized.base_oid,
+                created_by_version,
+            );
+            if let Err(e) = res {
+                panic!("could not parse field `{}`: {e}", field.field_name());
+            }
         }
     }
 }

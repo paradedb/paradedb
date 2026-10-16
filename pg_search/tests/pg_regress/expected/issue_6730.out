@@ -5,14 +5,14 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE issue_6730_build (id serial PRIMARY KEY, d date);
 INSERT INTO issue_6730_build (d) VALUES ('294277-01-01');
 CREATE INDEX issue_6730_build_idx ON issue_6730_build USING paradedb (id, d);
-ERROR:  could not parse field `d`: date 294277-01-01 is out of range: out of range
+ERROR:  could not parse field `d`: Could not generate datetime datum
 -- 2. Clean table with index: inserting far date fails immediately and does not poison searches.
 CREATE TABLE issue_6730_insert (id serial PRIMARY KEY, d date);
 CREATE INDEX issue_6730_insert_idx ON issue_6730_insert USING paradedb (id, d);
 INSERT INTO issue_6730_insert (d) VALUES ('2024-01-01');
 -- Mutable insert of out-of-range date fails.
 INSERT INTO issue_6730_insert (d) VALUES ('294277-01-01');
-ERROR:  could not parse field `d`: date 294277-01-01 is out of range: out of range
+ERROR:  could not parse field `d`: Could not generate datetime datum
 -- The table remains clean and searchable; subsequent search succeeds.
 SELECT id, d FROM issue_6730_insert WHERE id @@@ pdb.all() ORDER BY id;
  id |     d      
@@ -26,7 +26,7 @@ CREATE INDEX issue_6730_immutable_idx ON issue_6730_immutable
 USING paradedb (id, d) WITH (mutable_segment_rows = 0);
 INSERT INTO issue_6730_immutable (d) VALUES ('2024-01-01');
 INSERT INTO issue_6730_immutable (d) VALUES ('294277-01-01');
-ERROR:  could not parse field `d`: date 294277-01-01 is out of range: out of range
+ERROR:  could not parse field `d`: Could not generate datetime datum
 SELECT id, d FROM issue_6730_immutable WHERE id @@@ pdb.all() ORDER BY id;
  id |     d      
 ----+------------

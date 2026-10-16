@@ -147,7 +147,7 @@ Columns specified in `partition_by` must meet the following constraints:
 
 ## Performance Tuning
 
-By default, `target_segment_count` is `max(4, max_parallel_workers_per_gather) * max(1, len(partition_by))`, where `len(partition_by)` is the number of partitioning columns. For example, with 8 parallel workers and two partitioning columns, the target is 16 segments. An explicit index option or global setting overrides this default and is not multiplied by the number of partitioning columns. When using `partition_by`, we recommend setting `target_segment_count` to 2–4X the CPU core count (or parallel worker count).
+When using `partition_by`, we recommend setting `target_segment_count` to 2–4X the parallel worker count. By default, `CREATE INDEX` sets `target_segment_count` equal to 2X `max_parallel_workers_per_gather`. 
 
 Over-partitioning creates narrower value ranges per segment, allowing queries to prune more non-matching data and helping the planner align partition boundaries across tables during parallel joins. However, creating too many segments increases per-segment scan and metadata overhead. Sizing `target_segment_count` to 2–4X CPU cores strikes a practical balance between pruning granularity and resource usage.
 

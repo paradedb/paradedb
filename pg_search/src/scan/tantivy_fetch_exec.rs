@@ -367,17 +367,20 @@ fn fetch_term_ordinals(
     Ok(deferred.with_term_ordinals(resolved))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use crate::index::fast_fields_helper::CanonicalColumn;
     use crate::scan::deferred_encode::deferred_field;
     use arrow_schema::Schema;
     use datafusion::physical_plan::empty::EmptyExec;
+    use pgrx::prelude::*;
 
     /// A fetch resolves one term per row, so a list must be refused rather than cut down to
-    /// the first of its values.
-    #[test]
+    /// the first of its values. Runs in the server because the node owns fast-field readers,
+    /// which link against it.
+    #[pg_test]
     fn a_fetch_refuses_a_list() {
         let input: Arc<dyn ExecutionPlan> =
             Arc::new(EmptyExec::new(Arc::new(Schema::new(vec![deferred_field(

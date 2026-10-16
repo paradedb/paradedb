@@ -65,6 +65,7 @@ jobs:
         run: |
           docker exec "${POSTGRES_CONTAINER}" apt-get update
           docker exec "${POSTGRES_CONTAINER}" apt-get install -y postgresql-18-pgvector
+          docker exec "${POSTGRES_CONTAINER}" psql -U postgres -d postgres -c 'CREATE EXTENSION vector;'
 
       - name: Test Dataset Preparation
         run: python -m unittest discover -s benchmarks/scripts -p 'test_*hn*.py'

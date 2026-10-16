@@ -265,10 +265,11 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
 // ============================================================================
 
 /// The integers that a field holds: the values of an `I64` or a `U64` field, or the bounds of
-/// the ranges in an `int4range` or an `int8range` field. Dates and times are stored in `I64`
-/// fields too, but they are not numbers.
+/// the ranges in an `int4range` or an `int8range` field, which are stored as `I64` values. Dates
+/// and times are stored in `I64` fields too, but they are not numbers.
 #[derive(Clone, Copy)]
 enum IntDomain {
+    I32,
     I64,
     U64,
 }
@@ -281,7 +282,8 @@ impl IntDomain {
             SearchFieldType::I64(oid) if !is_datetime_type(*oid) => Some(Self::I64),
             SearchFieldType::U64(_) => Some(Self::U64),
             SearchFieldType::Range(oid) => match (*oid).try_into() {
-                Ok(BuiltinOid::INT4RANGEOID | BuiltinOid::INT8RANGEOID) => Some(Self::I64),
+                Ok(BuiltinOid::INT4RANGEOID) => Some(Self::I32),
+                Ok(BuiltinOid::INT8RANGEOID) => Some(Self::I64),
                 _ => None,
             },
             _ => None,
@@ -290,6 +292,7 @@ impl IntDomain {
 
     fn min(self) -> i128 {
         match self {
+            Self::I32 => i32::MIN.into(),
             Self::I64 => i64::MIN.into(),
             Self::U64 => u64::MIN.into(),
         }
@@ -297,6 +300,7 @@ impl IntDomain {
 
     fn max(self) -> i128 {
         match self {
+            Self::I32 => i32::MAX.into(),
             Self::I64 => i64::MAX.into(),
             Self::U64 => u64::MAX.into(),
         }
@@ -305,7 +309,9 @@ impl IntDomain {
     /// `n`, an integer of the domain, as a value of the field's type.
     fn value(self, n: i128) -> PdbOwnedValue {
         match self {
-            Self::I64 => PdbOwnedValue::I64(i64::try_from(n).expect("n should fit an i64")),
+            Self::I32 | Self::I64 => {
+                PdbOwnedValue::I64(i64::try_from(n).expect("n should fit an i64"))
+            }
             Self::U64 => PdbOwnedValue::U64(u64::try_from(n).expect("n should fit a u64")),
         }
     }
@@ -315,7 +321,7 @@ impl IntDomain {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Clamped {
     /// Below every integer of the field. Holds the smallest one.
-    BelowMin(PdbOwnedValue),
+    Below(PdbOwnedValue),
     /// Equal to this integer.
     Exact(PdbOwnedValue),
     /// Above this integer and below the next one of the field, if there is one.
@@ -327,63 +333,37 @@ pub enum Clamped {
 /// number. `None` if the field does not hold integers or `value` is not a number.
 pub fn clamp_to_int_domain(value: &PdbOwnedValue, field_type: &SearchFieldType) -> Option<Clamped> {
     let domain = IntDomain::of(field_type)?;
-    let (floor, exact) = floor_of(value)?;
-    Some(if floor < domain.min() {
-        Clamped::BelowMin(domain.value(domain.min()))
-    } else if exact && floor <= domain.max() {
-        Clamped::Exact(domain.value(floor))
+    let decimal = value_to_decimal(value).ok()?;
+    Some(if decimal < Decimal::from(domain.min()) {
+        Clamped::Below(domain.value(domain.min()))
+    } else if decimal > Decimal::from(domain.max()) {
+        Clamped::Above(domain.value(domain.max()))
     } else {
-        Clamped::Above(domain.value(floor.min(domain.max())))
+        match floor_of(&decimal) {
+            (floor, true) => Clamped::Exact(domain.value(floor)),
+            (floor, false) => Clamped::Above(domain.value(floor)),
+        }
     })
 }
 
-/// The largest integer not above `value` and whether it equals `value`, if `value` is a number.
-/// It saturates at the edges of the `i128` range, which lie beyond the range of every field.
-fn floor_of(value: &PdbOwnedValue) -> Option<(i128, bool)> {
-    match value {
-        PdbOwnedValue::I64(n) => Some(((*n).into(), true)),
-        PdbOwnedValue::U64(n) => Some(((*n).into(), true)),
-        PdbOwnedValue::F64(f) => Some(float_floor(*f)),
-        PdbOwnedValue::Str(s) => decimal_floor(s.trim()),
-        _ => None,
-    }
-}
-
-fn float_floor(f: f64) -> (i128, bool) {
-    if f.is_nan() {
-        return (i128::MAX, false);
-    }
-    // `as` saturates, which puts an infinity beyond every integer.
-    (f.floor() as i128, f.floor() == f)
-}
-
-/// A string is read exactly, as Postgres reads a `numeric`, because an `f64` cannot hold every
-/// integer near the edges of the `i64` and `u64` ranges.
-fn decimal_floor(s: &str) -> Option<(i128, bool)> {
-    // `Decimal` reads what Postgres reads as a `numeric`, but it reads an empty string or a bare
-    // exponent as zero, so `f64` checks the syntax too.
-    let float = s.parse::<f64>().ok()?;
-    let decimal = Decimal::from_str(s).ok()?;
+/// The largest integer not above `decimal`, which lies between the smallest and the largest
+/// integers of a field, and whether it equals `decimal`.
+fn floor_of(decimal: &Decimal) -> (i128, bool) {
     let mut digits = Vec::new();
-    // NaN and the infinities have no digits, and an integer part of more than 38 digits may not
-    // fit an `i128`.
-    let Some((negative, exponent)) = decimal
+    let (negative, exponent) = decimal
         .read_parts_into(&mut digits)
-        .filter(|&(_, exponent)| exponent <= 38)
-    else {
-        return Some(float_floor(float));
-    };
-    // `s` is `±0.d1d2... × 10^exponent`, so its first `exponent` digits are its integer part.
+        .expect("a number between two integers is finite");
+    // `decimal` is `±0.d1d2... × 10^exponent`, so its first `exponent` digits are its integer part.
     let integer_len = usize::try_from(exponent).unwrap_or(0);
     let integer = (0..integer_len).fold(0_i128, |integer, i| {
         integer * 10 + i128::from(digits.get(i).copied().unwrap_or(0))
     });
     let fractional = digits.len() > integer_len;
-    Some(match (negative, fractional) {
+    match (negative, fractional) {
         (false, _) => (integer, !fractional),
         (true, false) => (-integer, true),
         (true, true) => (-integer - 1, false),
-    })
+    }
 }
 
 /// Clamp the bounds of a range on an integer field to integers of the field's type. A bound
@@ -405,16 +385,35 @@ pub fn clamp_int_bounds(
     let lower = match (clamp(&lower)?, lower) {
         (Some(Clamped::Exact(n)), Bound::Included(_)) => Bound::Included(n),
         (Some(Clamped::Exact(n) | Clamped::Above(n)), _) => Bound::Excluded(n),
-        (Some(Clamped::BelowMin(min)), _) => Bound::Included(min),
+        (Some(Clamped::Below(min)), _) => Bound::Included(min),
         (None, lower) => lower,
     };
     // An upper bound above `n` and below the next integer admits the integers up to `n`.
     let upper = match (clamp(&upper)?, upper) {
         (Some(Clamped::Exact(n)), Bound::Excluded(_)) => Bound::Excluded(n),
         (Some(Clamped::Exact(n) | Clamped::Above(n)), _) => Bound::Included(n),
-        (Some(Clamped::BelowMin(min)), _) => Bound::Excluded(min),
+        (Some(Clamped::Below(min)), _) => Bound::Excluded(min),
         (None, upper) => upper,
     };
+    Ok((lower, upper))
+}
+
+/// Clamp the bounds of a range on an `int4range` or an `int8range` field as [`clamp_int_bounds`]
+/// does. Canonical bounds of the field's ranges include their lower end, and no integer of the
+/// field follows the largest one to be included, so a range whose lower bound admits no integer
+/// becomes the empty `[max, max)`.
+pub fn clamp_int_range_bounds(
+    field_type: &SearchFieldType,
+    lower: Bound<PdbOwnedValue>,
+    upper: Bound<PdbOwnedValue>,
+) -> Result<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>)> {
+    let (lower, upper) = clamp_int_bounds(field_type, lower, upper)?;
+    if let Some(domain) = IntDomain::of(field_type) {
+        let max = domain.value(domain.max());
+        if matches!(&lower, Bound::Excluded(n) if *n == max) {
+            return Ok((Bound::Included(max.clone()), Bound::Excluded(max)));
+        }
+    }
     Ok((lower, upper))
 }
 
@@ -423,7 +422,7 @@ pub fn clamp_int_bounds(
 pub fn is_outside_int_domain(value: &PdbOwnedValue, field_type: &SearchFieldType) -> bool {
     matches!(
         clamp_to_int_domain(value, field_type),
-        Some(Clamped::BelowMin(_) | Clamped::Above(_))
+        Some(Clamped::Below(_) | Clamped::Above(_))
     )
 }
 
@@ -485,8 +484,8 @@ pub fn numeric_bound_to_bytes(
 /// Convert a value for range field queries based on the range element type.
 ///
 /// Range fields are indexed with specific element types:
-/// - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → unchanged, `RangeField` clamps the value to
-///   the integers when it compares the value with a bound
+/// - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → a number that equals an integer, such as
+///   `5.0` or `"5"`, becomes an I64; a range holds no other number
 /// - NUMRANGEOID: indexed as hex-encoded sortable bytes → convert to hex string
 /// - Date/time ranges: use datetime conversion (handled elsewhere)
 ///
@@ -506,6 +505,13 @@ pub fn convert_value_for_range_field(
 
     // Convert based on the range's element type
     match oid.try_into() {
+        Ok(BuiltinOid::INT4RANGEOID) | Ok(BuiltinOid::INT8RANGEOID) => {
+            // Integer ranges: a number that equals an integer becomes an i64
+            match clamp_to_int_domain(&value, field_type) {
+                Some(Clamped::Exact(n)) => n,
+                _ => value,
+            }
+        }
         Ok(BuiltinOid::NUMRANGEOID) => {
             // Numeric ranges are indexed as hex-encoded sortable bytes
             // Use numeric_value_to_hex_string for JSON storage
@@ -559,7 +565,7 @@ pub fn convert_value_for_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Clamped::{Above, BelowMin, Exact};
+    use Clamped::{Above, Below, Exact};
     use rstest::rstest;
     use std::ops::Bound::{Excluded, Included, Unbounded};
 
@@ -692,6 +698,8 @@ mod tests {
     const INT8: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::INT8OID);
     const OID: SearchFieldType = SearchFieldType::U64(pgrx::pg_sys::OIDOID);
     const TIMESTAMP: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::TIMESTAMPOID);
+    const INT4RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT4RANGEOID);
+    const INT8RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT8RANGEOID);
     const HUGE: &str = "100000000000000000000000000000000000000000";
 
     #[rstest]
@@ -700,7 +708,7 @@ mod tests {
     #[case::u64_above_max(INT8, uint(1 << 63), Above(int(i64::MAX)))]
     #[case::string_at_max(INT8, text("9223372036854775807"), Exact(int(i64::MAX)))]
     #[case::string_at_min(INT8, text(" -9223372036854775808 "), Exact(int(i64::MIN)))]
-    #[case::string_below_min(INT8, text("-9223372036854775809"), BelowMin(int(i64::MIN)))]
+    #[case::string_below_min(INT8, text("-9223372036854775809"), Below(int(i64::MIN)))]
     #[case::exponent(INT8, text("1e3"), Exact(int(1000)))]
     #[case::exponent_above_max(INT8, text("1e19"), Above(int(i64::MAX)))]
     #[case::trailing_zeros(INT8, text("5.000"), Exact(int(5)))]
@@ -709,26 +717,31 @@ mod tests {
     #[case::small_negative_fraction(INT8, text("-0.001"), Above(int(-1)))]
     #[case::fraction_below_max(INT8, text("9223372036854775806.5"), Above(int(i64::MAX - 1)))]
     #[case::fraction_above_max(INT8, text("9223372036854775807.5"), Above(int(i64::MAX)))]
-    #[case::fraction_below_min(INT8, text("-9223372036854775808.5"), BelowMin(int(i64::MIN)))]
+    #[case::fraction_below_min(INT8, text("-9223372036854775808.5"), Below(int(i64::MIN)))]
     #[case::long_fraction(INT8, text("123456789012345678.5"), Above(int(123456789012345678)))]
     // `i64::MAX as f64` rounds up to 2^63.
     #[case::float_above_max(INT8, float(i64::MAX as f64), Above(int(i64::MAX)))]
-    #[case::float_below_min(INT8, float(-1e19), BelowMin(int(i64::MIN)))]
+    #[case::float_below_min(INT8, float(-1e19), Below(int(i64::MIN)))]
     #[case::beyond_i128(INT8, text(HUGE), Above(int(i64::MAX)))]
-    #[case::beyond_i128_negative(INT8, text(&format!("-{HUGE}")), BelowMin(int(i64::MIN)))]
+    #[case::beyond_i128_negative(INT8, text(&format!("-{HUGE}")), Below(int(i64::MIN)))]
     #[case::huge_exponent(INT8, text("1e400"), Above(int(i64::MAX)))]
     #[case::tiny_exponent(INT8, text("1e-400"), Above(int(0)))]
     #[case::tiny_negative_exponent(INT8, text("-1e-400"), Above(int(-1)))]
     #[case::infinity(INT8, text("Infinity"), Above(int(i64::MAX)))]
-    #[case::negative_infinity(INT8, float(f64::NEG_INFINITY), BelowMin(int(i64::MIN)))]
+    #[case::negative_infinity(INT8, float(f64::NEG_INFINITY), Below(int(i64::MIN)))]
     #[case::nan(INT8, text("NaN"), Above(int(i64::MAX)))]
     #[case::float_nan(INT8, float(f64::NAN), Above(int(i64::MAX)))]
-    #[case::u64_negative(OID, int(-1), BelowMin(uint(0)))]
-    #[case::u64_negative_fraction(OID, text("-0.5"), BelowMin(uint(0)))]
+    #[case::u64_negative(OID, int(-1), Below(uint(0)))]
+    #[case::u64_negative_fraction(OID, text("-0.5"), Below(uint(0)))]
     #[case::u64_fraction(OID, float(0.5), Above(uint(0)))]
     #[case::u64_at_max(OID, uint(u64::MAX), Exact(uint(u64::MAX)))]
     #[case::u64_fraction_above_max(OID, text("18446744073709551615.5"), Above(uint(u64::MAX)))]
     #[case::u64_above_max(OID, text("2e19"), Above(uint(u64::MAX)))]
+    #[case::int8range(INT8RANGE, text("5.0"), Exact(int(5)))]
+    #[case::int8range_above_max(INT8RANGE, uint(1 << 63), Above(int(i64::MAX)))]
+    #[case::int4range(INT4RANGE, int(i32::MAX.into()), Exact(int(i32::MAX.into())))]
+    #[case::int4range_above_max(INT4RANGE, int(3_000_000_000), Above(int(i32::MAX.into())))]
+    #[case::int4range_below_min(INT4RANGE, float(-3e9), Below(int(i32::MIN.into())))]
     fn test_clamp_to_int_domain(
         #[case] field_type: SearchFieldType,
         #[case] value: PdbOwnedValue,
@@ -738,8 +751,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::empty(INT8, text(""))]
-    #[case::bare_exponent(INT8, text("e5"))]
     #[case::word(INT8, text("abc"))]
     #[case::date(INT8, text("2024-01-01"))]
     #[case::beyond_numeric(INT8, text("1e200000"))]
@@ -798,10 +809,37 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::int8range(INT8RANGE, Excluded(int(i64::MAX)), int(i64::MAX))]
+    #[case::int8range_above_max(INT8RANGE, Included(uint(1 << 63)), int(i64::MAX))]
+    #[case::int8range_nan(INT8RANGE, Included(text("NaN")), int(i64::MAX))]
+    #[case::int4range(INT4RANGE, Excluded(int(i32::MAX.into())), int(i32::MAX.into()))]
+    #[case::int4range_above_max(INT4RANGE, Included(text("3e9")), int(i32::MAX.into()))]
+    fn clamp_int_range_bounds_empty_above_max(
+        #[case] field_type: SearchFieldType,
+        #[case] lower: Bound<PdbOwnedValue>,
+        #[case] max: PdbOwnedValue,
+        #[values(Unbounded, Included(int(5)), Excluded(text("1e30")))] upper: Bound<PdbOwnedValue>,
+    ) {
+        assert_eq!(
+            clamp_int_range_bounds(&field_type, lower, upper).unwrap(),
+            (Included(max.clone()), Excluded(max))
+        );
+    }
+
+    #[test]
+    fn clamp_int_range_bounds_keeps_other_bounds() {
+        let bounds = (Excluded(int(i64::MAX - 1)), Excluded(int(i64::MIN)));
+        assert_eq!(
+            clamp_int_range_bounds(&INT8RANGE, bounds.0.clone(), bounds.1.clone()).unwrap(),
+            bounds
+        );
+    }
+
     #[test]
     fn clamp_int_bounds_rejects_non_numbers() {
         assert!(clamp_int_bounds(&INT8, Included(text("abc")), Unbounded).is_err());
-        assert!(clamp_int_bounds(&OID, Unbounded, Excluded(text(""))).is_err());
+        assert!(clamp_int_bounds(&OID, Unbounded, Excluded(text("1-2"))).is_err());
     }
 
     #[rstest]

@@ -672,12 +672,9 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?,
-            pdb::Query::RangeTerm { value } => Box::new(range_term(
-                &field,
-                schema,
-                index_created_by_version,
-                &value,
-            )?),
+            pdb::Query::RangeTerm { value } => {
+                range_term(&field, schema, index_created_by_version, &value)?
+            }
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
@@ -964,7 +961,7 @@ fn range_within(
     let (lower_bound, upper_bound) =
         check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
 
-    let range_field = RangeField::new(search_field.field(), search_field.field_type());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1123,14 +1120,19 @@ fn range_term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<BooleanQuery> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
 
+    // A number that no integer equals lies in no range of an integer range field.
+    if is_outside_int_domain(value, &search_field.field_type()) {
+        return Ok(Box::new(EmptyQuery));
+    }
+
     // Convert numeric values to appropriate types based on range field type.
     // Range fields are indexed as JSON with specific element types:
-    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → unchanged, clamped by `RangeField`
+    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
     // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
     // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(
@@ -1139,7 +1141,7 @@ fn range_term(
         index_created_by_version,
     );
 
-    let range_field = RangeField::new(search_field.field(), search_field.field_type());
+    let range_field = RangeField::new(search_field.field());
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1233,10 +1235,10 @@ fn range_term(
         ),
     ]);
 
-    Ok(BooleanQuery::new(vec![
+    Ok(Box::new(BooleanQuery::new(vec![
         (Occur::Must, Box::new(satisfies_lower_bound)),
         (Occur::Must, Box::new(satisfies_upper_bound)),
-    ]))
+    ])))
 }
 
 fn range_intersects(
@@ -1253,7 +1255,7 @@ fn range_intersects(
 
     let (lower_bound, upper_bound) =
         check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
-    let range_field = RangeField::new(search_field.field(), search_field.field_type());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1425,7 +1427,7 @@ fn range_contains(
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) =
         check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
-    let range_field = RangeField::new(search_field.field(), search_field.field_type());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];

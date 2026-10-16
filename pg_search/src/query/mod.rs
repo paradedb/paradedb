@@ -1077,8 +1077,15 @@ fn check_range_bounds(
     // to match the indexed format (see SortableDecimal in range.rs)
     let lower_bound = convert_numrange_bound(typeoid, lower_bound, index_created_by_version);
     let upper_bound = convert_numrange_bound(typeoid, upper_bound, index_created_by_version);
-    let lower_bound = convert_int_range_bound(typeoid, lower_bound);
-    let upper_bound = convert_int_range_bound(typeoid, upper_bound);
+    // The ranges in an INT4RANGEOID or INT8RANGEOID field hold integers, so the bounds become the
+    // integer bounds that admit the same integers
+    let (lower_bound, upper_bound) = match typeoid {
+        PgOid::BuiltIn(PgBuiltInOids::INT4RANGEOID | PgBuiltInOids::INT8RANGEOID) => {
+            let field_type = crate::schema::SearchFieldType::Range(typeoid.value());
+            numeric::clamp_int_range_bounds(&field_type, lower_bound, upper_bound)?
+        }
+        _ => (lower_bound, upper_bound),
+    };
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized, unless it is the maximum, which has no next value
@@ -1270,24 +1277,6 @@ fn convert_numrange_bound(
         }
         Bound::Unbounded => Bound::Unbounded,
     }
-}
-
-/// Convert a number that equals an integer, such as `2.0` or `"2"`, in an INT4RANGEOID or
-/// INT8RANGEOID bound to an I64, so that it is canonicalized like one.
-fn convert_int_range_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
-    if !matches!(
-        typeoid,
-        PgOid::BuiltIn(PgBuiltInOids::INT4RANGEOID | PgBuiltInOids::INT8RANGEOID)
-    ) {
-        return bound;
-    }
-    let field_type = crate::schema::SearchFieldType::Range(typeoid.value());
-    numeric::map_bound(bound, |value| {
-        match numeric::clamp_to_int_domain(&value, &field_type) {
-            Some(numeric::Clamped::Exact(n)) => n,
-            _ => value,
-        }
-    })
 }
 
 fn coerce_bound_to_field_type(

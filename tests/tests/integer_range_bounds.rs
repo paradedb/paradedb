@@ -385,7 +385,8 @@ fn segment_pruning_with_a_term_beyond_the_maximum(mut conn: PgConnection) {
 
 #[rstest]
 fn int_range_fields(mut conn: PgConnection) {
-    // The plain copy holds the ranges as numrange, which can contain values beyond bigint.
+    // The ranges hold integers, so a query range holds the integers between its bounds, and one
+    // that holds none is the empty range.
     r#"
     CREATE TABLE ranges (id SERIAL PRIMARY KEY, r8 INT8RANGE, r4 INT4RANGE);
     INSERT INTO ranges (r8, r4) VALUES
@@ -400,8 +401,7 @@ fn int_range_fields(mut conn: PgConnection) {
         ('[1,9223372036854775807)', '[1,2147483647)'),
         ('[9223372036854775807,)', '[2147483647,)');
     CREATE INDEX ranges_idx ON ranges USING paradedb (id, r8, r4);
-    CREATE TABLE ranges_plain AS
-    SELECT id, r8::text::numrange AS r8, r4::text::numrange AS r4 FROM ranges;
+    CREATE TABLE ranges_plain AS SELECT * FROM ranges;
     "#
     .execute(&mut conn);
 
@@ -409,134 +409,154 @@ fn int_range_fields(mut conn: PgConnection) {
         &mut conn,
         "ranges",
         &[
-            // Values at and beyond the edges of bigint.
-            (
-                r#"id @@@ '{"range_term":{"field":"r8","value":18000000000000000000}}'::jsonb"#,
-                "r8 @> 18000000000000000000::numeric",
-                3,
-            ),
-            (
-                r#"id @@@ '{"range_term":{"field":"r8","value":-10000000000000000000}}'::jsonb"#,
-                "r8 @> -10000000000000000000::numeric",
-                2,
-            ),
-            (
-                "r8 @@@ pdb.range_term(18000000000000000000::numeric)",
-                "r8 @> 18000000000000000000::numeric",
-                3,
-            ),
-            (
-                "r8 @@@ pdb.range_term(-9223372036854775809::numeric)",
-                "r8 @> -9223372036854775809::numeric",
-                2,
-            ),
+            // A value lies in the ranges that hold the integer it equals.
             (
                 r#"id @@@ '{"range_term":{"field":"r8","value":9223372036854775807}}'::jsonb"#,
-                "r8 @> 9223372036854775807::numeric",
+                "r8 @> 9223372036854775807::bigint",
                 3,
             ),
             (
                 r#"id @@@ '{"range_term":{"field":"r8","value":-9223372036854775808}}'::jsonb"#,
-                "r8 @> -9223372036854775808::numeric",
+                "r8 @> (-9223372036854775808)::bigint",
                 3,
             ),
             (
-                "r4 @@@ pdb.range_term(18000000000000000000::numeric)",
-                "r4 @> 18000000000000000000::numeric",
-                3,
+                r#"id @@@ '{"range_term":{"field":"r8","value":5.0}}'::jsonb"#,
+                "r8 @> 5::bigint",
+                4,
             ),
             (
-                r#"id @@@ '{"range_term":{"field":"r4","value":-10000000000000000000}}'::jsonb"#,
-                "r4 @> -10000000000000000000::numeric",
-                2,
+                r#"id @@@ '{"range_term":{"field":"r4","value":"2147483647"}}'::jsonb"#,
+                "r4 @> 2147483647",
+                3,
             ),
-            // Values and bounds with a fractional part, or NaN.
+            // No range holds a value that no integer equals: one with a fractional part, NaN, or
+            // one beyond the integers of the field.
             (
                 r#"id @@@ '{"range_term":{"field":"r8","value":2.5}}'::jsonb"#,
-                "r8 @> 2.5::numeric",
-                5,
+                "false",
+                0,
             ),
             (
                 r#"id @@@ '{"range_term":{"field":"r4","value":"-2.5"}}'::jsonb"#,
-                "r4 @> -2.5::numeric",
-                3,
+                "false",
+                0,
+            ),
+            ("r8 @@@ pdb.range_term('NaN'::numeric)", "false", 0),
+            (
+                "r8 @@@ pdb.range_term(18000000000000000000::numeric)",
+                "false",
+                0,
             ),
             (
-                "r8 @@@ pdb.range_term('NaN'::numeric)",
-                "r8 @> 'NaN'::numeric",
-                3,
+                "r8 @@@ pdb.range_term(-9223372036854775809::numeric)",
+                "false",
+                0,
             ),
             (
-                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"included":2.5},"upper_bound":{"included":2.7}}}'::jsonb"#,
-                "r8 && numrange(2.5, 2.7, '[]')",
-                5,
+                r#"id @@@ '{"range_term":{"field":"r4","value":3000000000}}'::jsonb"#,
+                "false",
+                0,
             ),
-            (
-                r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":{"included":0.5},"upper_bound":{"included":10.5}}}'::jsonb"#,
-                "numrange(0.5, 10.5, '[]') @> r8",
-                2,
-            ),
-            (
-                r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"included":"1e19"},"upper_bound":null}}'::jsonb"#,
-                "r8 @> numrange(1e19, NULL)",
-                3,
-            ),
-            (
-                r#"id @@@ '{"range_within":{"field":"r4","lower_bound":{"included":2.5},"upper_bound":{"included":2.7}}}'::jsonb"#,
-                "r4 @> numrange(2.5, 2.7, '[]')",
-                5,
-            ),
-            // A bound that equals an integer, written as a float or a string, acts as the integer
-            // does in an int8range or an int4range.
+            // A bound that equals an integer, written as a float or a string, acts as the integer.
             (
                 r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"excluded":4.0},"upper_bound":null}}'::jsonb"#,
-                "r8::text::int8range && int8range(4, NULL, '()')",
+                "r8 && int8range(4, NULL, '()')",
                 5,
             ),
             (
                 r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":null,"upper_bound":{"included":"4"}}}'::jsonb"#,
-                "int8range(NULL, 4, '(]') @> r8::text::int8range",
+                "int8range(NULL, 4, '(]') @> r8",
                 4,
             ),
             (
                 r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"excluded":"4.0"},"upper_bound":null}}'::jsonb"#,
-                "r8::text::int8range @> int8range(4, NULL, '()')",
+                "r8 @> int8range(4, NULL, '()')",
                 2,
             ),
             (
                 r#"id @@@ '{"range_intersects":{"field":"r4","lower_bound":{"excluded":4.0},"upper_bound":null}}'::jsonb"#,
-                "r4::text::int4range && int4range(4, NULL, '()')",
+                "r4 && int4range(4, NULL, '()')",
                 5,
             ),
-            // JSON range bounds beyond the edges of bigint.
+            // A bound with a fractional part admits the integers on its side of it.
             (
-                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"included":18000000000000000000},"upper_bound":null}}'::jsonb"#,
-                "r8 && numrange(18000000000000000000, NULL)",
+                r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":{"included":0.5},"upper_bound":{"included":10.5}}}'::jsonb"#,
+                "int8range(1, 10, '[]') @> r8",
+                2,
+            ),
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"included":2.5},"upper_bound":{"included":2.7}}}'::jsonb"#,
+                "r8 && 'empty'::int8range",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range_within":{"field":"r4","lower_bound":{"included":2.5},"upper_bound":{"included":2.7}}}'::jsonb"#,
+                "r4 @> 'empty'::int4range",
+                9,
+            ),
+            // No integer of the field lies above its largest one, so such a range is empty.
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"excluded":9223372036854775807},"upper_bound":null}}'::jsonb"#,
+                "r8 && 'empty'::int8range",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"excluded":9223372036854775806},"upper_bound":null}}'::jsonb"#,
+                "r8 && int8range(9223372036854775806, NULL, '()')",
                 3,
             ),
             (
+                r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"excluded":9223372036854775807},"upper_bound":null}}'::jsonb"#,
+                "r8 @> 'empty'::int8range",
+                9,
+            ),
+            (
+                r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":{"excluded":9223372036854775807},"upper_bound":null}}'::jsonb"#,
+                "'empty'::int8range @> r8",
+                1,
+            ),
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":{"included":18000000000000000000},"upper_bound":null}}'::jsonb"#,
+                "r8 && 'empty'::int8range",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"included":"NaN"},"upper_bound":null}}'::jsonb"#,
+                "r8 @> 'empty'::int8range",
+                9,
+            ),
+            (
+                r#"id @@@ '{"range_intersects":{"field":"r4","lower_bound":{"excluded":2147483647},"upper_bound":null}}'::jsonb"#,
+                "r4 && 'empty'::int4range",
+                0,
+            ),
+            (
+                r#"id @@@ '{"range_within":{"field":"r4","lower_bound":{"included":3000000000},"upper_bound":null}}'::jsonb"#,
+                "r4 @> 'empty'::int4range",
+                9,
+            ),
+            // A bound beyond the edges of bigint admits the integers up to the edge. No range of
+            // the field ends with the largest integer included, so an upper bound of it acts as
+            // one excluding it or as an unbounded one.
+            (
                 r#"id @@@ '{"range_intersects":{"field":"r8","lower_bound":null,"upper_bound":{"included":-10000000000000000000}}}'::jsonb"#,
-                "r8 && numrange(NULL, -10000000000000000000, '[]')",
+                "r8 && int8range(NULL, -9223372036854775808, '()')",
                 2,
             ),
             (
                 r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":{"included":-10000000000000000000},"upper_bound":{"included":18000000000000000000}}}'::jsonb"#,
-                "numrange(-10000000000000000000, 18000000000000000000, '[]') @> r8",
+                "int8range(-9223372036854775808, 9223372036854775807) @> r8",
                 5,
             ),
             (
-                r#"id @@@ '{"range_contains":{"field":"r8","lower_bound":{"included":18000000000000000000},"upper_bound":null}}'::jsonb"#,
-                "numrange(18000000000000000000, NULL) @> r8",
-                1,
-            ),
-            (
                 r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"included":-10000000000000000000},"upper_bound":{"included":-5}}}'::jsonb"#,
-                "r8 @> numrange(-10000000000000000000, -5, '[]')",
-                2,
+                "r8 @> int8range(-9223372036854775808, -5, '[]')",
+                3,
             ),
             (
                 r#"id @@@ '{"range_within":{"field":"r8","lower_bound":{"included":5},"upper_bound":{"included":20000000000000000000}}}'::jsonb"#,
-                "r8 @> numrange(5, 20000000000000000000, '[]')",
+                "r8 @> int8range(5, NULL)",
                 2,
             ),
         ],

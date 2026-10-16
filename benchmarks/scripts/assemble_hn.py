@@ -388,7 +388,7 @@ def assemble(
     cache,
     output,
     *,
-    labels=("full", "1m", "10m"),
+    labels=("full",),
     workers=4,
     memory_limit="4GB",
 ):
@@ -502,7 +502,7 @@ def main():
     parser.add_argument("--cache-s3-prefix")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--s3-prefix")
-    parser.add_argument("--sizes", nargs="+", default=["full", "1m", "10m"])
+    parser.add_argument("--sizes", nargs="+", default=["full"])
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--memory-limit", default="4GB")
     args = parser.parse_args()

@@ -188,7 +188,7 @@ jobs:
           python benchmarks/scripts/assemble_hn.py assemble \
             --source "${WORK}/data.csv" --cache-directory "${WORK}/cache" \
             --cache-s3-prefix "${CACHE_PREFIX}" --output "${WORK}/dataset" \
-            --sizes full 1m 10m --workers 4 --memory-limit 4GB
+            --sizes full --workers 4 --memory-limit 4GB
           python benchmarks/scripts/assemble_hn.py publish \
             --output "${WORK}/dataset" --s3-prefix "${DATASET_PREFIX}"
 

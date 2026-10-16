@@ -169,8 +169,7 @@ cache. No OpenAI calls are made by this step:
 uv run benchmarks/scripts/assemble_hn.py assemble \
   --source /path/to/extracted/data.csv \
   --cache-directory /path/to/hn-v1-embeddings \
-  --output /path/to/hn-v1-dataset \
-  --sizes full 1m 10m
+  --output /path/to/hn-v1-dataset
 ```
 
 Add `--cache-s3-prefix
@@ -189,12 +188,16 @@ exactly `id` (int32) and `emb`, matching pdbench's loader. The separate
 `queries/holdout.parquet` maps query IDs back to source HN IDs and input hashes.
 Held-out rows are excluded before sampling; no source CSV or database is mutated.
 
-Samples have exact row counts. They use the first N corpus IDs ordered by SHA-256
-of `"<sampling_seed>:<hn_id>"`, then numeric HN ID, with the seed from `config.toml`.
-Thus `1m` is a subset of `10m`, both are subsets of `full`, and all share the same
-query fixture. Empty-text rows participate in sampling. The manifest records
-both row and vector counts for each size. Custom positive sizes such as `100k`
-are supported; a requested size larger than the available corpus fails.
+By default, assembly produces only `full`: every source row except the 1,000
+held-out queries. This is the corpus used by the CI preparation workflow.
+
+Optional smaller corpora can be requested explicitly with `--sizes`, for example
+`--sizes full 100k` for local checks. Samples have exact row counts and use the
+first N corpus IDs ordered by SHA-256 of `"<sampling_seed>:<hn_id>"`, then numeric
+HN ID, with the seed from `config.toml`. Smaller samples are subsets of larger
+ones, and all share the same query fixture. Empty-text rows participate in
+sampling. The manifest records both row and vector counts for each size; a size
+larger than the available corpus fails.
 
 Assembly uses hash partitions and a disk-backed DuckDB database with a default
 4 GB memory limit. It temporarily holds downloaded cache shards and partitioned
@@ -240,7 +243,7 @@ Use the manual **Generate HN Embeddings** workflow with a preparation name such 
    four batches and 20 million input tokens for this cache. Set lower limits if
    other jobs share the project's Batch quota, or raise them within that quota.
 4. Choose `assemble` with the same preparation name to download the source/cache,
-   build `full`, `1m`, and `10m` corpora and the query fixture, and publish the
+   build the full corpus and the query fixture, and publish the
    assembled dataset. This requires read/write access to the dataset prefix, no
    OpenAI key, and makes no paid embedding requests.
 

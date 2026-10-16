@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792138339887,
+  "lastUpdate": 1792138359804,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -452948,6 +452948,94 @@ window.BENCHMARK_DATA = {
             "value": 48.53515625,
             "unit": "median mem",
             "extra": "avg mem: 49.176401686055904, max mem: 56.53515625, count: 58817"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792138348461,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 50.9296875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 48.96127688469595, max partition_index_size:MB: 64.5234375, count: 58723"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.2251324440661, max cpu: 38.28514, count: 58723"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.193567615648895, max mem: 58.62890625, count: 58723"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.879805389181165, max cpu: 37.944664, count: 58723"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.045206879651076, max mem: 75.09765625, count: 58723"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.908139226980198, max cpu: 28.152493, count: 58723"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.34302253801747, max mem: 43.35546875, count: 58723"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.901678753349938, max cpu: 37.944664, count: 58723"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.379626594349745, max mem: 61.86328125, count: 58723"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.152812642350543, max cpu: 32.95733, count: 58723"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.80221275894879, max mem: 55.1796875, count: 58723"
           }
         ]
       }

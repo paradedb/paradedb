@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792137322296,
+  "lastUpdate": 1792137338665,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -406616,6 +406616,88 @@ window.BENCHMARK_DATA = {
             "value": 600.8364088225946,
             "unit": "median tps",
             "extra": "avg tps: 605.5160968767534, max tps: 678.7572200316023, count: 54899"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792137265879,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 536.9833769041032,
+            "unit": "median tps",
+            "extra": "avg tps: 534.7211877996302, max tps: 649.0286869747337, count: 55298"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 555.1858868530626,
+            "unit": "median tps",
+            "extra": "avg tps: 555.0660184849029, max tps: 598.1590595632322, count: 55298"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 204.12380053568316,
+            "unit": "median tps",
+            "extra": "avg tps: 204.0746719629161, max tps: 214.3573565860656, count: 55298"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 614.96929523116,
+            "unit": "median tps",
+            "extra": "avg tps: 614.1167606895758, max tps: 661.2738716643053, count: 55298"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 415.93514463613894,
+            "unit": "median tps",
+            "extra": "avg tps: 415.76504224417357, max tps: 441.9746697513034, count: 55298"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.694930657202761,
+            "unit": "median tps",
+            "extra": "avg tps: 14.701461328471893, max tps: 15.26865038326709, count: 55298"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 743.8822719328446,
+            "unit": "median tps",
+            "extra": "avg tps: 742.5610345510853, max tps: 771.5315748804553, count: 55298"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 767.4416856908954,
+            "unit": "median tps",
+            "extra": "avg tps: 766.5668829687793, max tps: 793.2058938442036, count: 55298"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 330.947897017027,
+            "unit": "median tps",
+            "extra": "avg tps: 330.9658241124496, max tps: 346.53399560270316, count: 55298"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 655.3211237627129,
+            "unit": "median tps",
+            "extra": "avg tps: 654.1265385580375, max tps: 674.6978663232632, count: 55298"
           }
         ]
       }

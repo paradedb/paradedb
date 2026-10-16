@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792053642922,
+  "lastUpdate": 1792117932134,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -175022,6 +175022,64 @@ window.BENCHMARK_DATA = {
             "value": 22.606679574329064,
             "unit": "median tps",
             "extra": "avg tps: 22.341222611733475, max tps: 34.53691965628029, count: 59315"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792117919841,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 164.23138788648887,
+            "unit": "median tps",
+            "extra": "avg tps: 162.36457904659397, max tps: 169.83293816927184, count: 59296"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 522.5357790873494,
+            "unit": "median tps",
+            "extra": "avg tps: 561.7163912587968, max tps: 5474.521339662544, count: 59296"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1000.9127257801629,
+            "unit": "median tps",
+            "extra": "avg tps: 958.9234380722033, max tps: 1066.233208059362, count: 59296"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 213.391269301939,
+            "unit": "median tps",
+            "extra": "avg tps: 210.7254191835364, max tps: 221.71054291212943, count: 59296"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 253.13104817802235,
+            "unit": "median tps",
+            "extra": "avg tps: 335.2246588753985, max tps: 2466.307450943824, count: 118592"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 23.7005607381841,
+            "unit": "median tps",
+            "extra": "avg tps: 23.430670539336145, max tps: 35.306909548075794, count: 59296"
           }
         ]
       }

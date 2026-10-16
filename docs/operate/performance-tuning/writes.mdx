@@ -41,9 +41,7 @@ The default trigger is the greater of 256 small immutable segments or four times
 One writer per index merges bounded batches toward half that threshold; other writers under pressure wait for the
 small merge slot. Pressure is checked at statement cleanup and between segment flushes during bulk writes.
 
-```sql
-ALTER INDEX search_idx SET (max_small_segment_count = 256);
-```
+Set a per-index threshold with `ALTER INDEX search_idx SET (max_small_segment_count = 256);`.
 
 Positive values are floored at twice `target_segment_count`. Use `0` for the automatic threshold or `-1` to disable
 immutable-segment backpressure. Mutable-segment backpressure is unaffected.

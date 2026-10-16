@@ -877,17 +877,30 @@ mod tests {
         assert_eq!(small_immutable_segment_count(&index), 40);
         drop(index);
 
-        Spi::run("ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100mb', max_small_segment_count=-1)").unwrap();
+        Spi::run("ALTER INDEX backpressure_idx SET (background_layer_sizes='100mb,1gb')").unwrap();
         let index = PgSearchRelation::open(oid);
         let xid = pg_sys::GetCurrentFullTransactionId();
         apply_immutable_backpressure(&index, xid, xid);
         assert_eq!(small_immutable_segment_count(&index), 40);
         drop(index);
 
-        Spi::run("ALTER INDEX backpressure_idx SET (max_small_segment_count=8)").unwrap();
+        Spi::run("ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100mb', max_small_segment_count=-1)").unwrap();
         let index = PgSearchRelation::open(oid);
         apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 4);
+        assert_eq!(small_immutable_segment_count(&index), 40);
+        let bytes = MetaPage::open(&index).segment_metas().list(None)[0].byte_size();
+        drop(index);
+
+        Spi::run(&format!("ALTER INDEX backpressure_idx SET (target_segment_count=16, max_small_segment_count=32, background_layer_sizes='{} bytes,{} bytes,100mb')", bytes / 2, bytes * 2)).unwrap();
+        let index = PgSearchRelation::open(oid);
+        assert!(
+            IndexLayerSizes::from(&index)
+                .combined()
+                .iter()
+                .all(|size| *size < bytes)
+        );
+        apply_immutable_backpressure(&index, xid, xid);
+        assert_eq!(small_immutable_segment_count(&index), 16);
         drop(index);
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")

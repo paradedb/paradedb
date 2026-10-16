@@ -348,6 +348,10 @@ impl PrivateData {
         &self.window_aggregates
     }
 
+    pub fn window_agg_group(&self) -> Option<u64> {
+        self.window_agg_group
+    }
+
     pub fn use_sorted_path(&self) -> bool {
         self.use_sorted_path
     }

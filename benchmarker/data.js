@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792115218015,
+  "lastUpdate": 1792173151239,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -17474,6 +17474,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.029,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd54eef3faacd3853a8b9e8d32f4c3ad871cbad7",
+          "message": "fix: Centralize pg->arrow type mappings (#6767)\n\n# Ticket(s) Closed\n\n- Closes #6577\n\n## What\nThe change in `v0.26.0` to have join scan hook at `UPPERREL_FINAL`\ncaused datetime type casts to start failing now that they were running\nin datafusion. This fixes that. As part of this, we realized we can\ncentralize the handling of pg->arrow type mapping. The \"tantivy arrow\ntype\" handling was only necessary for `PgExprUdf` signature computation,\nwhich we can remove by just having the signature be variadic_any.\n\n`PgExprUdf::get_result_type_to_arrow` and `is_arrow_convertible` now\nreference `pg_type_to_arrow`. `pg_type_to_tantivy_arrow` is now dead\ncode and has been removed. The datum->arrow mapping\n`PgExprUdf::invoke_with_args` has been updated to match\n`pg_type_to_arrow`, and the comments for both of those functions have\nbeen updated to call out the need to stay in sync with the other.\n\n## Tests\n- New regression test covering casts for each datetime type",
+          "timestamp": "2026-10-16T11:09:12-06:00",
+          "tree_id": "da0fd22607c65dc783e8b092abfcce064dd499e1",
+          "url": "https://github.com/paradedb/paradedb/commit/fd54eef3faacd3853a8b9e8d32f4c3ad871cbad7"
+        },
+        "date": 1792173140444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.687,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.064,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.287,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.125,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.654,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.331,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 1.746,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.71,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.203,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.88,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.175,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.002,
             "unit": "ms"
           }
         ]

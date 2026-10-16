@@ -620,10 +620,17 @@ mod tests {
             Err(DateTimeConversionError::OutOfRange)
         ));
 
-        // Extreme future date: day count multiplied by ONE_DAY_MICROS overflows i64.
-        let extreme_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MAX) };
+        // Extreme future date: finite day count multiplied by ONE_DAY_MICROS overflows i64.
+        let extreme_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MAX - 1) };
         assert!(matches!(
             PostgresDateTime::try_from(extreme_date),
+            Err(DateTimeConversionError::FieldOverflow)
+        ));
+
+        // Extreme past date: finite day count multiplied by ONE_DAY_MICROS underflows i64.
+        let extreme_past_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MIN + 1) };
+        assert!(matches!(
+            PostgresDateTime::try_from(extreme_past_date),
             Err(DateTimeConversionError::FieldOverflow)
         ));
     }

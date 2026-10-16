@@ -2017,8 +2017,8 @@ LIMIT 3;
 
 -- Test 27f: SQL window aggregates over a JOIN with a parameterized LIMIT.
 -- In a generic plan the fetch is not known at planning, so the Top-K
--- aggregate node cannot be used: JoinScan still engages and computes the
--- window aggregates in a DataFusion window node instead.
+-- aggregate carries it as unbound text and execution binds it once the
+-- parameter resolves. The window aggregates stay in the Top-K aggregate node.
 SET plan_cache_mode = force_generic_plan;
 PREPARE window_join_param_limit(int) AS
 SELECT
@@ -2034,8 +2034,8 @@ ORDER BY r.score DESC
 LIMIT $1;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE window_join_param_limit(3);
-                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, r.score, (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('sum(score) OVER ()'::text)), ((r.score + pdb.window_agg('count(*) OVER ()'::text)))
    Relation Tree: p INNER r
@@ -2043,11 +2043,11 @@ EXECUTE window_join_param_limit(3);
    Limit: $1
    Order By: r.score desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, score@3 as col_2, window_agg_1@4 as col_3, window_agg_2@5 as col_4, score@3 + window_agg_1@4 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: expr=[score@3 DESC], preserve_partitioning=[false]
-     :     WindowAggExec: wdw=[window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, get_field(__topk@0, c1) + window_agg_1@1 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, $1, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, sum(r_1.score) as window_agg_2]
      :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, ctid_0@0, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -2063,7 +2063,160 @@ EXECUTE window_join_param_limit(3);
 (3 rows)
 
 DEALLOCATE window_join_param_limit;
+-- A pdb.agg() window has no Postgres fallback, so a generic plan must stay on
+-- the Top-K aggregate path. Plain EXPLAIN shows k as the unbound
+-- `LIMIT + OFFSET` text; each EXECUTE binds its own values on the one plan.
+PREPARE pdb_agg_join_param_fetch(int, int) AS
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT $1 OFFSET $2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE pdb_agg_join_param_fetch(2, 1);
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text)), r.id
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: $1
+   Offset: $2
+   Order By: r.score desc, r.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, $1 + $2, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
+     :       VisibilityFilterExec: tables=[p, r]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+EXECUTE pdb_agg_join_param_fetch(2, 1);
+ id | score |    avg_score     
+----+-------+------------------
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(2 rows)
+
+EXECUTE pdb_agg_join_param_fetch(3, 0);
+ id | score |    avg_score     
+----+-------+------------------
+  1 |    95 | {"value": 80.25}
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(3 rows)
+
+-- The same rows as with the values written in.
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT 2 OFFSET 1;
+ id | score |    avg_score     
+----+-------+------------------
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(2 rows)
+
+DEALLOCATE pdb_agg_join_param_fetch;
+-- OFFSET alone parameterized: k is the static LIMIT plus the bound OFFSET.
+PREPARE pdb_agg_join_param_offset(int) AS
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT 2 OFFSET $1;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE pdb_agg_join_param_offset(1);
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text)), r.id
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Offset: $1
+   Order By: r.score desc, r.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, 2 + $1, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
+     :       VisibilityFilterExec: tables=[p, r]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+EXECUTE pdb_agg_join_param_offset(1);
+ id | score |    avg_score     
+----+-------+------------------
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(2 rows)
+
+DEALLOCATE pdb_agg_join_param_offset;
 RESET plan_cache_mode;
+-- A pdb.agg() window in a subquery without a LIMIT of its own: JoinScan does
+-- not require a LIMIT in a subquery, but the Top-K aggregate that computes a
+-- pdb.agg() needs one, so JoinScan declines and the query errors.
+EXPLAIN (COSTS OFF)
+SELECT * FROM (
+    SELECT
+        p.id,
+        pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+LIMIT 5;
+WARNING:  JoinScan not used: pdb.agg(...) window functions require a LIMIT (tables: p, r)
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  WindowAgg
+         Window: w1 AS ()
+         ->  Hash Join
+               Hash Cond: (r.product_id = p.id)
+               ->  Seq Scan on product_reviews r
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on products p
+                           Table: products
+                           Index: products_idx
+                           Exec Method: ColumnarExecState
+                           Columnar: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(14 rows)
+
+SELECT * FROM (
+    SELECT
+        p.id,
+        pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+LIMIT 5;
+WARNING:  JoinScan not used: pdb.agg(...) window functions require a LIMIT (tables: p, r)
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 -- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
 -- folds into the Top-K aggregate (distinct_topk_as_agg), and the window
 -- aggregates sit beside it in the same node. The window frame is the join
@@ -2847,6 +3000,332 @@ LIMIT 5;
   4 | HP Spectre  | HP     | {"buckets": [{"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (4 rows)
 
+-- Test 41a: Single-table GROUP BY with pdb.combine_agg(pdb.agg(...)) OVER ()
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock;
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: in_stock, (count(*)), (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('pdb.combine_agg(pdb.agg(''{"terms":{"field":"brand","order":{"_key":"asc"}}}'')) OVER ()'::text))
+   Backend: DataFusion
+   Indexes: products_idx (products)
+   Group By: in_stock
+   Aggregates: COUNT(*), COUNT(*) OVER (), pdb.combine_agg(pdb.agg({"terms":{"field":"brand","order":{"_key":"asc"}}})) OVER ()
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as in_stock, get_field(__topk@0, c1) as agg_0, win_0@1 as win_0, win_1@2 as win_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(products_0.in_stock, agg_0, 18446744073709551615, []) ORDER BY [products_0.in_stock ASC NULLS LAST] as __topk, count(1) as win_0, pdb_combine_agg({"terms":{"field":"brand","order":{"_key":"asc"}}}) as win_1]
+     :       AggregateExec: mode=Single, gby=[in_stock@0 as in_stock], aggr=[count(1) as agg_0, pdb_precombine_agg({"terms":{"field":"brand","order":{"_key":"asc"}}}) as precombine_1]
+     :         CooperativeExec
+     :           PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
+
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock;
+ in_stock | group_rows | total_groups |                                                                                    brands                                                                                    
+----------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ t        |          4 |            1 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(1 row)
+
+-- Test 41b: JOIN + GROUP BY + ORDER BY + LIMIT with pdb.combine_agg(pdb.agg(...)) OVER ()
+-- and SQL window aggregates over groups
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.id, (count(*)), (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('sum(count(*)) OVER ()'::text)), (pdb.window_agg('pdb.combine_agg(pdb.agg(''{"aggs":{"avg_score":{"avg":{"field":"score"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}'')) OVER ()'::text))
+   Backend: DataFusion
+   Indexes: products_idx (p), product_reviews_idx (r)
+   Group By: id
+   Aggregates: COUNT(*), COUNT(*) OVER (), SUM(COUNT(*)) OVER (), pdb.combine_agg(pdb.agg({"aggs":{"avg_score":{"avg":{"field":"score"}}},"terms":{"field":"brand","order":{"_key":"asc"}}})) OVER ()
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as id, get_field(__topk@0, c1) as agg_0, win_0@1 as win_0, win_1@2 as win_1, win_2@3 as win_2]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, agg_0, 2, []) ORDER BY [agg_0 DESC NULLS FIRST, p_0.id ASC NULLS LAST] as __topk, count(1) as win_0, sum(agg_0) as win_1, pdb_combine_agg({"aggs":{"avg_score":{"avg":{"field":"score"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}) as win_2]
+     :       AggregateExec: mode=Single, gby=[id@0 as id], aggr=[count(1) as agg_0, pdb_precombine_agg({"aggs":{"avg_score":{"avg":{"field":"score"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}) as precombine_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0, brand@1, score@3]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, eager=[brand], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+ id | review_count | total_product_groups | total_reviews |                                                                                                                by_brand                                                                                                                 
+----+--------------+----------------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 |            2 |                    3 |             4 | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
+  3 |            1 |                    3 |             4 | {"buckets": [{"key": "ASUS", "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0}
+(2 rows)
+
+-- Prepared statement with parameterized LIMIT $1 OFFSET $2 under generic plan
+BEGIN;
+SET LOCAL plan_cache_mode = 'force_generic_plan';
+PREPARE combine_agg_limit(int, int) AS
+SELECT
+    brand,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY brand
+LIMIT $1 OFFSET $2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE combine_agg_limit(2, 0);
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: brand, (count(*)), (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('pdb.combine_agg(pdb.agg(''{"terms":{"field":"brand","order":{"_key":"asc"}}}'')) OVER ()'::text))
+   Backend: DataFusion
+   Indexes: products_idx (products)
+   Group By: brand
+   Aggregates: COUNT(*), COUNT(*) OVER (), pdb.combine_agg(pdb.agg({"terms":{"field":"brand","order":{"_key":"asc"}}})) OVER ()
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as brand, get_field(__topk@0, c1) as agg_0, win_0@1 as win_0, win_1@2 as win_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(products_0.brand, agg_0, $1 + $2, []) ORDER BY [products_0.brand ASC NULLS LAST] as __topk, count(1) as win_0, pdb_combine_agg({"terms":{"field":"brand","order":{"_key":"asc"}}}) as win_1]
+     :       AggregateExec: mode=Single, gby=[brand@0 as brand], aggr=[count(1) as agg_0, pdb_precombine_agg({"terms":{"field":"brand","order":{"_key":"asc"}}}) as precombine_1]
+     :         CooperativeExec
+     :           PgSearchScan: table=products, segments=1, eager=[brand], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
+
+EXECUTE combine_agg_limit(2, 0);
+ brand | group_rows | total_groups |                                                                                    brands                                                                                    
+-------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ASUS  |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ Apple |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(2 rows)
+
+EXECUTE combine_agg_limit(2, 1);
+ brand | group_rows | total_groups |                                                                                    brands                                                                                    
+-------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Apple |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ HP    |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(2 rows)
+
+EXECUTE combine_agg_limit(NULL, 0);
+ brand  | group_rows | total_groups |                                                                                    brands                                                                                    
+--------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ASUS   |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ Apple  |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ HP     |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+ Lenovo |          1 |            4 | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0}
+(4 rows)
+
+DEALLOCATE combine_agg_limit;
+COMMIT;
+-- LIMIT ALL and LIMIT NULL with pdb.combine_agg
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER () AS total
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT ALL;
+ in_stock | group_rows |     total      
+----------+------------+----------------
+ t        |          4 | {"value": 4.0}
+(1 row)
+
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER () AS total
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT NULL;
+ in_stock | group_rows |     total      
+----------+------------+----------------
+ t        |          4 | {"value": 4.0}
+(1 row)
+
+-- WITH TIES fallback to PostgreSQL for GROUP BY Top-K and BaseScan Top-K
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: brand, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Sort
+         Output: brand, (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: (pdb.agg_fn('COUNT(*)'::text))
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+               Output: brand, pdb.agg_fn('COUNT(*)'::text)
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: brand
+                 Aggregate Definition: {"grouped":{"terms":{"field":"brand","order":{"_count":"asc"},"segment_size":65000,"size":65000}}}
+(12 rows)
+
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+ brand  | cnt 
+--------+-----
+ ASUS   |   1
+ Apple  |   1
+ HP     |   1
+ Lenovo |   1
+(4 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
+FETCH FIRST 1 ROWS WITH TIES;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: in_stock
+   ->  Sort
+         Output: in_stock
+         Sort Key: products.in_stock DESC
+         ->  Custom Scan (ParadeDB Base Scan) on public.products
+               Output: in_stock
+               Table: products
+               Index: products_idx
+               Worker Selection: Cost model
+               Exec Method: ColumnarExecState
+               Columnar: in_stock
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(14 rows)
+
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
+FETCH FIRST 1 ROWS WITH TIES;
+ in_stock 
+----------
+ t
+ t
+ t
+ t
+(4 rows)
+
+-- Test 41c: Validation errors for invalid pdb.combine_agg / pdb.agg OVER () usage
+-- Bare pdb.agg() OVER () in a GROUP BY query must suggest pdb.combine_agg
+SELECT in_stock, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock;
+ERROR:  `pdb.agg()` cannot be used directly as a window function in a `GROUP BY` or aggregate query. Use `pdb.combine_agg(pdb.agg(...)) OVER ()` instead.
+-- Bare pdb.agg() OVER () combined with an aggregate function without GROUP BY
+SELECT COUNT(*), pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description ||| 'laptop';
+ERROR:  `pdb.agg() OVER ()` cannot be combined with aggregate functions without a `GROUP BY` clause. Remove `OVER ()` to use `pdb.agg()` as an aggregate function, or add a `GROUP BY` clause with `pdb.combine_agg(pdb.agg(...)) OVER ()`.
+-- pdb.combine_agg without OVER ()
+SELECT in_stock, pdb.combine_agg('{"avg": {"field": "rating"}}'::jsonb)
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock;
+ERROR:  `pdb.combine_agg()` must be used as a window function: `pdb.combine_agg(pdb.agg(...)) OVER ()`
+-- pdb.combine_agg OVER () without GROUP BY
+SELECT pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop';
+ERROR:  `pdb.combine_agg(pdb.agg(...)) OVER ()` requires a `GROUP BY` clause. For queries without `GROUP BY`, use `pdb.agg(...) OVER ()` directly.
+-- pdb.combine_agg OVER () with HAVING
+SELECT in_stock, COUNT(*), pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+HAVING COUNT(*) > 1;
+ERROR:  `HAVING` is not supported in queries using `pdb.combine_agg(pdb.agg(...)) OVER ()`
+-- Negative LIMIT / OFFSET with pdb.combine_agg must error
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT -1;
+ERROR:  Cannot execute pdb.combine_agg: LIMIT must not be negative
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+OFFSET -1;
+ERROR:  Cannot execute pdb.combine_agg: OFFSET must not be negative
+-- FETCH FIRST ... WITH TIES with pdb.combine_agg must error
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+FETCH FIRST 1 ROWS WITH TIES;
+ERROR:  Cannot execute pdb.combine_agg: `FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`
 -- Cleanup
 DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;

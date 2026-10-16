@@ -197,7 +197,7 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
 /// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
-/// a window query with a static fetch may take that path regardless.
+/// a window query with a LIMIT takes that path regardless.
 static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
@@ -348,7 +348,7 @@ pub fn vector_stats() -> bool {
 /// ignores the target and uses the nprobe path above
 /// `APS_MAX_DIM` (128) dimensions, where the estimate is unreliable.
 static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> =
-    GucSetting::<f64>::new(tantivy::vector::ivf::DEFAULT_ROUTER_RECALL as f64);
+    GucSetting::<f64>::new(tantivy::vector::DEFAULT_ROUTER_RECALL as f64);
 
 /// Returns the stacked IVF router's recall target.
 pub fn vector_router_recall_target() -> f32 {
@@ -672,7 +672,7 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
-        c"Recall target for the stacked IVF router's (vector_router = 'ivf') centroid ranking in vector ORDER BY queries",
+        c"Recall target for the IVF router's centroid ranking in vector ORDER BY queries",
         c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
         &VECTOR_ROUTER_RECALL_TARGET,
         0.000001,
@@ -684,7 +684,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
         c"Recall target for each segment's cluster scan in vector ORDER BY queries",
-        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with the stacked IVF router, and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
@@ -694,7 +694,7 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.max_scan_levels",
-        c"Maximum quantized vector layers scored before exact rerank",
+        c"Maximum quantized vector layers scored before exact scoring",
         c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
         &VECTOR_MAX_SCAN_LEVELS,
         0,
@@ -706,7 +706,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_stats",
         c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
-        c"Adds the Segment Info block with per-segment probe, layer, rerank, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
         &VECTOR_STATS,
         GucContext::Userset,
         GucFlags::default(),

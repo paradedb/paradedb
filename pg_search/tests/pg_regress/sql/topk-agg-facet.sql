@@ -1091,8 +1091,8 @@ LIMIT 3;
 
 -- Test 27f: SQL window aggregates over a JOIN with a parameterized LIMIT.
 -- In a generic plan the fetch is not known at planning, so the Top-K
--- aggregate node cannot be used: JoinScan still engages and computes the
--- window aggregates in a DataFusion window node instead.
+-- aggregate carries it as unbound text and execution binds it once the
+-- parameter resolves. The window aggregates stay in the Top-K aggregate node.
 SET plan_cache_mode = force_generic_plan;
 
 PREPARE window_join_param_limit(int) AS
@@ -1115,7 +1115,83 @@ EXECUTE window_join_param_limit(3);
 
 DEALLOCATE window_join_param_limit;
 
+-- A pdb.agg() window has no Postgres fallback, so a generic plan must stay on
+-- the Top-K aggregate path. Plain EXPLAIN shows k as the unbound
+-- `LIMIT + OFFSET` text; each EXECUTE binds its own values on the one plan.
+PREPARE pdb_agg_join_param_fetch(int, int) AS
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT $1 OFFSET $2;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE pdb_agg_join_param_fetch(2, 1);
+
+EXECUTE pdb_agg_join_param_fetch(2, 1);
+EXECUTE pdb_agg_join_param_fetch(3, 0);
+
+-- The same rows as with the values written in.
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT 2 OFFSET 1;
+
+DEALLOCATE pdb_agg_join_param_fetch;
+
+-- OFFSET alone parameterized: k is the static LIMIT plus the bound OFFSET.
+PREPARE pdb_agg_join_param_offset(int) AS
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT 2 OFFSET $1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE pdb_agg_join_param_offset(1);
+
+EXECUTE pdb_agg_join_param_offset(1);
+
+DEALLOCATE pdb_agg_join_param_offset;
+
 RESET plan_cache_mode;
+
+-- A pdb.agg() window in a subquery without a LIMIT of its own: JoinScan does
+-- not require a LIMIT in a subquery, but the Top-K aggregate that computes a
+-- pdb.agg() needs one, so JoinScan declines and the query errors.
+EXPLAIN (COSTS OFF)
+SELECT * FROM (
+    SELECT
+        p.id,
+        pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+LIMIT 5;
+
+SELECT * FROM (
+    SELECT
+        p.id,
+        pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+LIMIT 5;
 
 -- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
 -- folds into the Top-K aggregate (distinct_topk_as_agg), and the window
@@ -1514,6 +1590,202 @@ FROM products
 WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
+
+-- Test 41a: Single-table GROUP BY with pdb.combine_agg(pdb.agg(...)) OVER ()
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock;
+
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock;
+
+-- Test 41b: JOIN + GROUP BY + ORDER BY + LIMIT with pdb.combine_agg(pdb.agg(...)) OVER ()
+-- and SQL window aggregates over groups
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+
+SELECT
+    p.id,
+    COUNT(*) AS review_count,
+    COUNT(*) OVER () AS total_product_groups,
+    SUM(COUNT(*)) OVER () AS total_reviews,
+    pdb.combine_agg(pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}}
+        }
+    }'::jsonb)) OVER () AS by_brand
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+GROUP BY p.id
+ORDER BY review_count DESC, p.id ASC
+LIMIT 2;
+
+-- Prepared statement with parameterized LIMIT $1 OFFSET $2 under generic plan
+BEGIN;
+SET LOCAL plan_cache_mode = 'force_generic_plan';
+
+PREPARE combine_agg_limit(int, int) AS
+SELECT
+    brand,
+    COUNT(*) AS group_rows,
+    COUNT(*) OVER () AS total_groups,
+    pdb.combine_agg(pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) OVER () AS brands
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY brand
+LIMIT $1 OFFSET $2;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE combine_agg_limit(2, 0);
+
+EXECUTE combine_agg_limit(2, 0);
+EXECUTE combine_agg_limit(2, 1);
+EXECUTE combine_agg_limit(NULL, 0);
+
+DEALLOCATE combine_agg_limit;
+COMMIT;
+
+-- LIMIT ALL and LIMIT NULL with pdb.combine_agg
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER () AS total
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT ALL;
+
+SELECT
+    in_stock,
+    COUNT(*) AS group_rows,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER () AS total
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT NULL;
+
+-- WITH TIES fallback to PostgreSQL for GROUP BY Top-K and BaseScan Top-K
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+
+SELECT brand, COUNT(*) AS cnt
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY brand
+ORDER BY COUNT(*) ASC
+FETCH FIRST 1 ROWS WITH TIES;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
+FETCH FIRST 1 ROWS WITH TIES;
+
+SELECT in_stock
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY in_stock DESC
+FETCH FIRST 1 ROWS WITH TIES;
+
+-- Test 41c: Validation errors for invalid pdb.combine_agg / pdb.agg OVER () usage
+-- Bare pdb.agg() OVER () in a GROUP BY query must suggest pdb.combine_agg
+SELECT in_stock, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock;
+
+-- Bare pdb.agg() OVER () combined with an aggregate function without GROUP BY
+SELECT COUNT(*), pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description ||| 'laptop';
+
+-- pdb.combine_agg without OVER ()
+SELECT in_stock, pdb.combine_agg('{"avg": {"field": "rating"}}'::jsonb)
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock;
+
+-- pdb.combine_agg OVER () without GROUP BY
+SELECT pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop';
+
+-- pdb.combine_agg OVER () with HAVING
+SELECT in_stock, COUNT(*), pdb.combine_agg(pdb.agg('{"avg": {"field": "rating"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+HAVING COUNT(*) > 1;
+
+-- Negative LIMIT / OFFSET with pdb.combine_agg must error
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+LIMIT -1;
+
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+OFFSET -1;
+
+-- FETCH FIRST ... WITH TIES with pdb.combine_agg must error
+SELECT
+    in_stock,
+    pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}'::jsonb)) OVER ()
+FROM products
+WHERE description ||| 'laptop'
+GROUP BY in_stock
+ORDER BY in_stock
+FETCH FIRST 1 ROWS WITH TIES;
 
 -- Cleanup
 DROP TABLE product_reviews CASCADE;

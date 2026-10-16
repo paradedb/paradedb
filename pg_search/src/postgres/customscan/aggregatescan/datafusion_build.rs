@@ -26,7 +26,7 @@
 
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{CompareOp, FilterExpr};
-use crate::api::operator::expr_contains_search_predicate;
+use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
@@ -39,6 +39,7 @@ use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
     wrap_with_semi_anti,
 };
+use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
     ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
@@ -46,7 +47,7 @@ use crate::postgres::customscan::pullup::{
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
-    has_leaky_heap_filter,
+    has_leaky_heap_filter, optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::node::NodeExt;
@@ -397,12 +398,6 @@ pub unsafe fn extract_join_tree_from_parse(
         &mut multi_table_clauses,
     )?;
 
-    let predicates = plan.search_predicates();
-    crate::postgres::customscan::joinscan::build::assign_tagged_queries(
-        plan.sources_mut(),
-        &predicates,
-    );
-
     Ok((plan, multi_table_clauses))
 }
 
@@ -644,7 +639,7 @@ unsafe fn build_scan_node(
     if !classified.search_ri.is_empty() {
         let context = PlannerContext::from_planner(root);
         let mut state = QualExtractState::default();
-        let qual = extract_quals(
+        let mut qual = extract_quals(
             &context,
             rti,
             classified.search_ri.as_ptr().cast(),
@@ -663,6 +658,7 @@ unsafe fn build_scan_node(
             );
             "a WHERE predicate cannot be pushed into the scan".to_string()
         })?;
+        optimize_quals_with_heap_expr(&mut qual);
         let query = SearchQueryInput::from(&qual);
         candidate = candidate.with_query(query);
         if state.uses_our_operator {
@@ -1478,6 +1474,7 @@ pub enum FilterExprBuildContext<'a> {
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     },
     Filter {
+        root: *mut pg_sys::PlannerInfo,
         sources: &'a [JoinAggSource],
         plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
@@ -1509,6 +1506,14 @@ impl FilterExpr {
     pub fn from_pg_node(node: *mut pg_sys::Node, ctx: &FilterExprBuildContext<'_>) -> Option<Self> {
         if node.is_null() {
             return None;
+        }
+
+        if unsafe { SearchPredicate::from_node(node) }.is_some() {
+            // Search predicates are row-level, so they only make sense in FILTER.
+            let FilterExprBuildContext::Filter { root, plan, .. } = ctx else {
+                return None;
+            };
+            return unsafe { Self::search_tag(*root, plan, node) };
         }
 
         let tag = unsafe { (*node).type_ };
@@ -1685,6 +1690,35 @@ impl FilterExpr {
             }
             _ => None,
         }
+    }
+
+    unsafe fn search_tag(
+        root: *mut pg_sys::PlannerInfo,
+        plan: &RelNode,
+        node: *mut pg_sys::Node,
+    ) -> Option<Self> {
+        // Must reference exactly one relation (the lhs Var, ctid and row args all share it).
+        let rtis = node.collect_rtis();
+        if rtis.len() != 1 {
+            return None;
+        }
+        let rti = *rtis.iter().next()?;
+
+        let source = plan
+            .output_sources()
+            .into_iter()
+            .find(|s| s.contains_rti(rti))?;
+        let pred = unsafe { extract_single_table_predicate(root, rti, &source.scan_info, node) }?;
+        // Tagged queries compile via `SearchIndexReader::compile_match_weight`,
+        // which does not thread an `ExprContext` for per-row heap filter evaluation.
+        if pred.query.has_heap_filters() {
+            return None;
+        }
+
+        Some(Self::SearchTag {
+            plan_position: source.plan_position,
+            predicate: Box::new(pred),
+        })
     }
 }
 
@@ -2160,7 +2194,9 @@ fn collect_filter_column_refs(expr: &FilterExpr) -> Vec<(usize, &str)> {
         | FilterExpr::LitInt(_)
         | FilterExpr::LitFloat(_)
         | FilterExpr::LitBool(_)
-        | FilterExpr::LitString(_) => {}
+        | FilterExpr::LitString(_)
+        // Tag columns are synthesized by the scan, not read from fast fields.
+        | FilterExpr::SearchTag { .. } => {}
     }
     refs
 }

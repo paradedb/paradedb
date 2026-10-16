@@ -45,6 +45,8 @@ impl ParallelProcessBuilder {
 
             let state_entries = process.state_values();
             let nmq_bytes = pg_sys::mul_size(mq_size, nworkers);
+            let nbuffer_bytes = pg_sys::mul_size(size_of::<pg_sys::BufferUsage>(), nworkers);
+            let nwal_bytes = pg_sys::mul_size(size_of::<pg_sys::WalUsage>(), nworkers);
 
             pg_sys::EnterParallelMode();
             let pcxt = NonNull::new_unchecked(pg_sys::CreateParallelContext(
@@ -69,6 +71,12 @@ impl ParallelProcessBuilder {
                 estimate_keys(pcxt.as_ptr(), 1);
                 estimate_chunk(pcxt.as_ptr(), entry.size_of());
             }
+
+            // for buffer and WAL usage
+            estimate_keys(pcxt.as_ptr(), 1);
+            estimate_chunk(pcxt.as_ptr(), nbuffer_bytes);
+            estimate_keys(pcxt.as_ptr(), 1);
+            estimate_chunk(pcxt.as_ptr(), nwal_bytes);
 
             // initialize shared memory
             pg_sys::InitializeParallelDSM(pcxt.as_ptr());
@@ -127,6 +135,26 @@ impl ParallelProcessBuilder {
                 mq_start_address,
             );
 
+            // allocate buffer usage array
+            let buf_usage = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nbuffer_bytes)
+                as *mut pg_sys::BufferUsage;
+            std::ptr::write_bytes(buf_usage, 0, nworkers);
+            pg_sys::shm_toc_insert(
+                (*pcxt.as_ptr()).toc,
+                TocKeys::BufferUsage.into(),
+                buf_usage.cast(),
+            );
+
+            // allocate WAL usage array
+            let wal_usage =
+                pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nwal_bytes) as *mut pg_sys::WalUsage;
+            std::ptr::write_bytes(wal_usage, 0, nworkers);
+            pg_sys::shm_toc_insert(
+                (*pcxt.as_ptr()).toc,
+                TocKeys::WalUsage.into(),
+                wal_usage.cast(),
+            );
+
             Some(ParallelProcessLauncher {
                 pcxt,
                 mq_handles: mq_receivers,
@@ -134,6 +162,8 @@ impl ParallelProcessBuilder {
                     (*pcxt.as_ptr()).toc,
                     (*pcxt.as_ptr()).seg,
                 ),
+                buf_usage,
+                wal_usage,
             })
         }
     }
@@ -143,6 +173,8 @@ pub struct ParallelProcessLauncher {
     pcxt: NonNull<pg_sys::ParallelContext>,
     state_manager: ParallelStateManager,
     mq_handles: Vec<MessageQueueReceiver>,
+    buf_usage: *mut pg_sys::BufferUsage,
+    wal_usage: *mut pg_sys::WalUsage,
 }
 
 impl ParallelProcessLauncher {
@@ -183,6 +215,17 @@ impl ParallelProcessLauncher {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WorkerQueueState {
+    /// Waiting for a message or detach from this worker.
+    Active,
+    /// Received the worker's single message, but the worker has not yet detached or exited,
+    /// so its `WorkerStatsGuard` may not have flushed buffer/WAL usage to DSM yet.
+    MessageReceived,
+    /// The worker has detached or exited and its buffer/WAL usage has been accumulated.
+    Accumulated,
+}
+
 #[repr(transparent)]
 pub struct ParallelProcessAttach {
     launcher: ParallelProcessLauncher,
@@ -194,7 +237,7 @@ impl ParallelProcessAttach {
             let nqueues = self.launcher.mq_handles.len();
             Some(ParallelProcessFinish {
                 launcher: self.launcher,
-                done_queues: vec![false; nqueues],
+                worker_states: vec![WorkerQueueState::Active; nqueues],
             })
         }
     }
@@ -202,10 +245,31 @@ impl ParallelProcessAttach {
 
 pub struct ParallelProcessFinish {
     launcher: ParallelProcessLauncher,
-    done_queues: Vec<bool>,
+    worker_states: Vec<WorkerQueueState>,
 }
 
 impl ParallelProcessFinish {
+    unsafe fn accumulate_worker(&mut self, i: usize) {
+        if i < self.worker_states.len() && self.worker_states[i] != WorkerQueueState::Accumulated {
+            self.worker_states[i] = WorkerQueueState::Accumulated;
+            if !self.launcher.buf_usage.is_null() && !self.launcher.wal_usage.is_null() {
+                pg_sys::InstrAccumParallelQuery(
+                    self.launcher.buf_usage.add(i),
+                    self.launcher.wal_usage.add(i),
+                );
+            }
+        }
+    }
+
+    fn accumulate_all_workers(&mut self) {
+        let nlaunched = self.launched_workers();
+        for i in 0..nlaunched {
+            unsafe {
+                self.accumulate_worker(i);
+            }
+        }
+    }
+
     pub fn launched_workers(&self) -> usize {
         unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
     }
@@ -236,21 +300,27 @@ impl ParallelProcessFinish {
         loop {
             check_for_interrupts!();
 
-            if self.done_queues.iter().take(nlaunched).all(|&done| done) {
+            if self
+                .worker_states
+                .iter()
+                .take(nlaunched)
+                .all(|&state| state != WorkerQueueState::Active)
+            {
                 break;
             }
 
-            for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
-                if self.done_queues[i] {
+            for i in 0..nlaunched {
+                if self.worker_states[i] != WorkerQueueState::Active {
                     continue;
                 }
-                match receiver.recv() {
+                let res = self.launcher.mq_handles[i].recv();
+                match res {
                     Ok(message) => {
                         messages.push((i, message));
-                        self.done_queues[i] = true;
+                        self.worker_states[i] = WorkerQueueState::MessageReceived;
                     }
                     Err(_) => {
-                        self.done_queues[i] = true;
+                        unsafe { self.accumulate_worker(i) };
                     }
                 }
             }
@@ -273,24 +343,31 @@ impl ParallelProcessFinish {
         let nlaunched = unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize };
         let mut messages = Vec::with_capacity(nlaunched);
 
-        for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
-            if self.done_queues[i] {
+        for i in 0..nlaunched {
+            if self.worker_states[i] != WorkerQueueState::Active {
                 continue;
             }
-            match receiver.try_recv() {
+            let res = self.launcher.mq_handles[i].try_recv();
+            match res {
                 Ok(Some(message)) => {
                     messages.push((i, message));
-                    self.done_queues[i] = true;
+                    self.worker_states[i] = WorkerQueueState::MessageReceived;
                 }
                 Ok(None) => {}
                 Err(_) => {
-                    self.done_queues[i] = true;
+                    unsafe { self.accumulate_worker(i) };
                 }
             }
         }
 
         // all message queues are detached
-        if messages.is_empty() && self.done_queues.iter().take(nlaunched).all(|&done| done) {
+        if messages.is_empty()
+            && self
+                .worker_states
+                .iter()
+                .take(nlaunched)
+                .all(|&state| state != WorkerQueueState::Active)
+        {
             return None;
         }
 
@@ -302,9 +379,12 @@ impl ParallelProcessFinish {
             let pcxt = self.launcher.pcxt.as_ptr();
 
             let messages = self.recv().unwrap_or_default();
-            drop(self.launcher);
 
             pg_sys::WaitForParallelWorkersToFinish(pcxt);
+            self.accumulate_all_workers();
+
+            drop(self.launcher);
+
             pg_sys::DestroyParallelContext(pcxt);
             pg_sys::ExitParallelMode();
 

@@ -32,7 +32,7 @@ use anyhow::Result;
 use pgrx::*;
 use tantivy::Index;
 use tantivy::schema::Schema;
-use tantivy::vector::VectorOptions;
+use tantivy::schema::VectorOptions;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(

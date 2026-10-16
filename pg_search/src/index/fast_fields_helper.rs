@@ -570,7 +570,7 @@ pub enum FieldDelivery {
 /// Arrow models a list as `DataType::List` wrapping the element field rather
 /// than as a parallel set of types, and this follows that: the element type
 /// stays in `field_type` and the nesting is recorded here.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub enum FieldCardinality {
     Scalar,
     List,
@@ -578,7 +578,7 @@ pub enum FieldCardinality {
 
 impl FieldCardinality {
     /// Wrap an element type in this cardinality's Arrow representation.
-    fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
+    pub(crate) fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
         match self {
             FieldCardinality::Scalar => element,
             FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
@@ -696,22 +696,11 @@ impl WhichFastField {
                 ..
             } => cardinality.wrap(field_type.arrow_data_type()),
             WhichFastField::Junk(_) => DataType::Null,
+            // One packed word per row, a list as much as a scalar: see `deferred_encode`.
             WhichFastField::Named {
-                cardinality: FieldCardinality::Scalar,
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_data_type(),
-            // The deferred encoding carries one value per row, so nothing can decode a
-            // deferred list yet. Fail here rather than in the scanner's downcast.
-            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
-            WhichFastField::Named {
-                name,
-                cardinality: FieldCardinality::List,
-                delivery: FieldDelivery::Deferred,
-                ..
-            } => panic!(
-                "list column `{name}` cannot be deferred: the deferred encoding is scalar only"
-            ),
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }
@@ -785,14 +774,11 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     use std::sync::Arc;
 
     // A deferred column is a plain `UInt64` to Arrow; its field's metadata is what marks it.
-    // Only a scalar column can be deferred, so a deferred list falls through to
-    // `arrow_data_type` and is rejected there.
     let fields: Vec<Field> = which_fast_fields
         .iter()
         .map(|wff| match wff {
             WhichFastField::Named {
                 name,
-                cardinality: FieldCardinality::Scalar,
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_field(name),
@@ -1142,7 +1128,7 @@ mod tests {
     }
 
     /// The Arrow type each `(cardinality, delivery)` pair reports, and `to_eager` changing
-    /// only the delivery axis. The fourth pair has its own test below.
+    /// only the delivery axis.
     #[test]
     fn named_axes_arrow_data_type() {
         use FieldCardinality::{List, Scalar};
@@ -1157,12 +1143,11 @@ mod tests {
             text_field(List, Eager).arrow_data_type(),
             DataType::List(list_item_field(DataType::Utf8View))
         );
-        assert_eq!(
-            text_field(Scalar, Deferred).arrow_data_type(),
-            crate::scan::deferred_encode::deferred_data_type()
-        );
-
         for cardinality in [Scalar, List] {
+            assert_eq!(
+                text_field(cardinality, Deferred).arrow_data_type(),
+                crate::scan::deferred_encode::deferred_data_type()
+            );
             assert_eq!(
                 text_field(cardinality, Deferred).to_eager(),
                 text_field(cardinality, Eager)
@@ -1171,16 +1156,20 @@ mod tests {
         assert_eq!(WhichFastField::Ctid.to_eager(), WhichFastField::Ctid);
     }
 
+    /// A deferred list is marked in the schema the same way a deferred scalar is, which is
+    /// what the late materialization rule and the decode look for.
     #[test]
-    #[should_panic(expected = "cannot be deferred")]
-    fn deferred_list_is_rejected() {
-        text_field(FieldCardinality::List, FieldDelivery::Deferred).arrow_data_type();
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot be deferred")]
-    fn build_arrow_schema_rejects_deferred_list() {
-        build_arrow_schema(&[text_field(FieldCardinality::List, FieldDelivery::Deferred)]);
+    fn build_arrow_schema_marks_a_deferred_list() {
+        let schema = build_arrow_schema(&[
+            text_field(FieldCardinality::List, FieldDelivery::Deferred),
+            text_field(FieldCardinality::List, FieldDelivery::Eager),
+        ]);
+        assert!(crate::scan::deferred_encode::is_deferred_field(
+            schema.field(0)
+        ));
+        assert!(!crate::scan::deferred_encode::is_deferred_field(
+            schema.field(1)
+        ));
     }
 
     /// The helper opens a segment's fast fields only when a value is actually read from that

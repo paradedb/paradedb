@@ -731,7 +731,7 @@ fn rewrite(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
+    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FieldCardinality};
     use crate::query::SearchQueryInput;
     use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
@@ -894,6 +894,7 @@ mod tests {
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: CanonicalColumn {
                     indexrelid,
                     ff_index: 1,
@@ -1053,6 +1054,7 @@ mod tests {
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: canonical.clone(),
                 heap_rti: 1,
                 rebuild: None,
@@ -1084,6 +1086,7 @@ mod tests {
                     col_idx: 0,
                     display_name: "title".into(),
                     is_bytes: false,
+                    cardinality: FieldCardinality::Scalar,
                     canonical: canonical.clone(),
                     heap_rti: 1,
                     rebuild: None,

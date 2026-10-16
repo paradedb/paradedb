@@ -428,14 +428,15 @@ impl PgSearchTableProvider {
             if let WhichFastField::Named {
                 name,
                 field_type,
+                cardinality,
                 delivery: FieldDelivery::Deferred,
-                ..
             } = wff
             {
                 let is_bytes = field_type.is_bytes_storage();
                 deferred.push(DeferredField {
                     name: name.clone(),
                     is_bytes,
+                    cardinality: *cardinality,
                     canonical: CanonicalColumn {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,

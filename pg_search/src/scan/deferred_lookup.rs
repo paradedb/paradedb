@@ -27,7 +27,9 @@
 use std::sync::Arc;
 
 use crate::api::{HashMap, HashSet};
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{
+    CanonicalColumn, FFHelper, FieldCardinality, WhichFastField,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
@@ -60,6 +62,10 @@ pub struct PhysicalDeferredField {
     /// A human-readable name used purely for `EXPLAIN` formatting
     pub display_name: String,
     pub is_bytes: bool,
+    /// See [`DeferredField`].
+    ///
+    /// [`DeferredField`]: crate::scan::late_materialization::DeferredField
+    pub cardinality: FieldCardinality,
     pub canonical: CanonicalColumn,
     /// The range table index of the scan this column comes from. See [`DeferredField`].
     ///
@@ -71,12 +77,19 @@ pub struct PhysicalDeferredField {
 
 impl PhysicalDeferredField {
     pub fn output_data_type(&self) -> DataType {
-        if self.is_bytes {
-            DataType::BinaryView
-        } else {
-            DataType::Utf8View
-        }
+        decoded_data_type(self.is_bytes, self.cardinality)
     }
+}
+
+/// The type a deferred column decodes to. The logical plan's view of a decoded column and
+/// the decode node's output both read it here, because DataFusion requires an extension
+/// node's physical schema to match its logical one, and a list type includes its item field.
+pub(crate) fn decoded_data_type(is_bytes: bool, cardinality: FieldCardinality) -> DataType {
+    cardinality.wrap(if is_bytes {
+        DataType::BinaryView
+    } else {
+        DataType::Utf8View
+    })
 }
 
 /// The fast-field helper that reads a deferred column's index.

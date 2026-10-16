@@ -421,7 +421,7 @@ fn dictionary_terms(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -
 mod tests {
     use super::*;
     use crate::api::HashMap;
-    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
+    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FieldCardinality};
     use crate::query::SearchQueryInput;
     use crate::scan::deferred_encode::{deferred_data_type, deferred_field};
     use crate::scan::late_materialization::DeferredField;
@@ -456,6 +456,7 @@ mod tests {
             vec![DeferredField {
                 name: "category".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: canonical(),
                 heap_rti,
                 rebuild: None,
@@ -481,6 +482,7 @@ mod tests {
                     col_idx: 1,
                     display_name: "category".into(),
                     is_bytes: false,
+                    cardinality: FieldCardinality::Scalar,
                     canonical: canonical(),
                     heap_rti,
                     rebuild: None,

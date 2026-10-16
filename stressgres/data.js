@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792138359804,
+  "lastUpdate": 1792138379493,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -372796,6 +372796,124 @@ window.BENCHMARK_DATA = {
             "value": 30.465653923263275,
             "unit": "median tps",
             "extra": "avg tps: 64.6529257567088, max tps: 1239.183477223188, count: 57413"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e0e1164a08a4e8e16bdf04ff0a02137895abc26d",
+          "message": "chore: Fixes for the `0.26.2` release. (#6865)\n\nThe `0.26.2` release failed to sync its changes back to `main`, and\nconsequently failed to create the Release object.\n\nFixes:\n- Sync `0.26.2` release artifacts\n(`pg_search/sql/pg_search--0.26.1--0.26.2.sql`,\n`docs/project/changelog/0.26.2.mdx`, `docs/docs.json`, and deployment\ndoc versions) to `main` and remove consumed `unreleased` fragments.\n- Fix `format_changelog_item` in `.github/scripts/release.py` (and\n`docs/project/changelog/0.26.2.mdx`) to indent continuation lines of\nmulti-line bullet items by 2 spaces so generated changelogs pass\n`prettier`.\n- Move `Create GitHub Release` immediately after `Create Tag` in\n`.github/workflows/publish-github-release.yml` so post-release branch\nsync steps cannot block release creation after a tag is pushed.\n- Remove the unused `docs/snippets/version.mdx` file and updated\n`.github/scripts/extract_code_snippets.py`,\n`.github/scripts/release.py`, and\n`.github/workflows/publish-github-release.yml` to use `docs/docs.json`\ndirectly.\n- Updated `SchemaBot` to include newly added or modified versioned\nupgrade scripts (`pg_search/sql/pg_search--*--*.sql`) alongside\n`pg_search/sql/unreleased/*.sql`.\n\nAdditionally, I manually added `paradedb-github-bot` to the bypass list\nof the `Require a pull request before merging` repository ruleset on\n`main`.",
+          "timestamp": "2026-10-16T05:16:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e0e1164a08a4e8e16bdf04ff0a02137895abc26d"
+        },
+        "date": 1792138369479,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 498.8713588271035,
+            "unit": "median tps",
+            "extra": "avg tps: 498.40045129226525, max tps: 503.1542931914514, count: 57385"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 392.81207524308775,
+            "unit": "median tps",
+            "extra": "avg tps: 392.8524057279354, max tps: 403.13638148730325, count: 57385"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3682.198594421732,
+            "unit": "median tps",
+            "extra": "avg tps: 3682.8711023302208, max tps: 4408.074366579873, count: 57385"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 494.0593877692177,
+            "unit": "median tps",
+            "extra": "avg tps: 493.4407171788601, max tps: 497.4168179944969, count: 57385"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3648.9896248023165,
+            "unit": "median tps",
+            "extra": "avg tps: 3643.5327677096666, max tps: 3803.4230440169104, count: 57385"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3684.686672676883,
+            "unit": "median tps",
+            "extra": "avg tps: 3679.354048564662, max tps: 3724.865017181265, count: 57385"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 192.83963387810363,
+            "unit": "median tps",
+            "extra": "avg tps: 192.6162892957091, max tps: 193.64679850903934, count: 57385"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 370.24399401905566,
+            "unit": "median tps",
+            "extra": "avg tps: 369.18976372878524, max tps: 372.00928567056553, count: 57385"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 595.3427654428206,
+            "unit": "median tps",
+            "extra": "avg tps: 592.8862534334368, max tps: 597.2974073499134, count: 57385"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 698.7586478488321,
+            "unit": "median tps",
+            "extra": "avg tps: 696.4062757162853, max tps: 699.7400323754174, count: 57385"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1495.2687004153602,
+            "unit": "median tps",
+            "extra": "avg tps: 1493.2797516969133, max tps: 1501.6414101676078, count: 57385"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 513.1264233949413,
+            "unit": "median tps",
+            "extra": "avg tps: 512.6250977492548, max tps: 517.7796378434, count: 57385"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 631.6506761288998,
+            "unit": "median tps",
+            "extra": "avg tps: 630.5865291970807, max tps: 632.8404937574206, count: 57385"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2527.3615478330435,
+            "unit": "median tps",
+            "extra": "avg tps: 2520.8184297178664, max tps: 2570.6213602659795, count: 57385"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2064.0992213633517,
+            "unit": "median tps",
+            "extra": "avg tps: 2064.978587409218, max tps: 2146.7474507650663, count: 57385"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.259756275103047,
+            "unit": "median tps",
+            "extra": "avg tps: 59.737494365140506, max tps: 1490.1752744157766, count: 57385"
           }
         ]
       }

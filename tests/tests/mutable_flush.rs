@@ -47,13 +47,14 @@ async fn mutable_flush_batches_without_holding_a_transaction(database: Db) -> Re
                AND a.backend_type = 'background merger for public.batch_flush_idx' \
                AND a.wait_event_type = 'Extension'",
         ).fetch_optional(&mut conn).await?;
-        if let Some(state) = waiting {
-            assert_eq!(state, (true, true, true));
+        // Activity and xmin are snapshotted before the live wait event and locks are read.
+        // A transaction ending between those reads can produce a mixed observation.
+        if waiting == Some((true, true, true)) {
             break;
         }
         anyhow::ensure!(
             Instant::now() < deadline,
-            "never observed a collection window"
+            "never observed a collection window without transaction, xmin, or index locks: {waiting:?}"
         );
         conn.execute("INSERT INTO batch_flush VALUES (1, 'batch') ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body").await?;
         async_std::task::sleep(Duration::from_millis(5)).await;

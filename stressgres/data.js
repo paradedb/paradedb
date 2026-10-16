@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792119083386,
+  "lastUpdate": 1792120397919,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111230,6 +111230,52 @@ window.BENCHMARK_DATA = {
             "value": 3460.064686085818,
             "unit": "median tps",
             "extra": "avg tps: 3349.218289030926, max tps: 3607.7169707890685, count: 59411"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "19790ff4fd768a74dfe639b45a0571758e39fb25",
+          "message": "perf: Ensure that `InList` dynamic filters are applied (#6848)\n\n## What\n\nFix lost `InList` dynamic filter applications when we decide not to push\nthem down to Tantivy.\n\n## Why\n\nAbove the threshold where we will not bother to push an `InList` down\ninto Tantivy, but below the threshold where `HashJoin` will switch to\nusing a `HashExpr` for the dynamic filter, we were discarding the\n`InList` rather than applying it using Arrow.\n\nWe always want to apply dynamic filters if we can, because we are able\nto do so before visibility checking, and before loading any of the other\ncolumns. Both of these are particularly relevant to aggregates, because\nthey will frequently happen eagerly.\n\n## Tests\n\nOn the benchmarks split out by #6847:\n* `80%` faster `join_aggregate_topk_count_high_selectivity -\nhash_partitioned`\n* `65%` faster `join_aggregate_topk_count_medium_selectivity -\nrange_partitioned`",
+          "timestamp": "2026-10-16T00:18:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/19790ff4fd768a74dfe639b45a0571758e39fb25"
+        },
+        "date": 1792120387098,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2119.49167635035,
+            "unit": "median tps",
+            "extra": "avg tps: 2121.6313617175383, max tps: 2203.825031204642, count: 59430"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.759241030316507,
+            "unit": "median tps",
+            "extra": "avg tps: 2.988776615101619, max tps: 4.989640844479449, count: 59430"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 398.6133923852136,
+            "unit": "median tps",
+            "extra": "avg tps: 377.9277645494866, max tps: 718.7248696416217, count: 59430"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3438.268839199977,
+            "unit": "median tps",
+            "extra": "avg tps: 3331.4420949429473, max tps: 3580.8148300092525, count: 59430"
           }
         ]
       }

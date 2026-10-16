@@ -25,6 +25,7 @@ mod vector_cost;
 pub use planner::postgres::customscan::basescan::{missing_scan_error, projections};
 mod scan_state;
 pub mod telemetry;
+mod window_agg_groups;
 
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
@@ -62,6 +63,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
     resolve_window_aggregate_filters_at_plan_time, window_agg_group,
 };
 use crate::postgres::customscan::basescan::scan_state::{BasePlaceholders, BaseScanState};
+use crate::postgres::customscan::basescan::window_agg_groups::WindowAggGroupKey;
 use crate::postgres::customscan::bitmap_intersection;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, restrict_info,
@@ -1690,6 +1692,10 @@ impl CustomScan for BaseScan {
         // Store window aggregates in the scan state
         let window_aggs = builder.custom_private().window_aggregates().clone();
         builder.custom_state().window_aggregates = window_aggs;
+        builder.custom_state().window_agg_group = builder
+            .custom_private()
+            .window_agg_group()
+            .map(WindowAggGroupKey::planned);
 
         // store our query into our custom state too
         let base_query = builder
@@ -2044,6 +2050,13 @@ impl CustomScan for BaseScan {
 
             let custom_state = state.custom_state_mut();
             custom_state.runtime_context = custom_state.init_expr_context(estate);
+
+            // A partition's scan joins the scans of the other partitions of its table.
+            let member: *mut CustomScanStateWrapper<Self> = state;
+            let rti = state.custom_state().execution_rti;
+            if let Some(group) = state.custom_state_mut().window_agg_group.as_mut() {
+                group.join(estate, rti, member);
+            }
         }
         let begin_ns = begin_start.elapsed().as_nanos() as u64;
         let custom_state = state.custom_state_mut();

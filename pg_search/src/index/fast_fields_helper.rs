@@ -232,6 +232,14 @@ impl FFHelper {
             .as_ref()
             .map_or(0, |inner| inner.segment_caches.len())
     }
+
+    /// Whether this helper reads a named column at `field`. A helper rebuilt for one lookup
+    /// lays out only the columns that lookup reads, with `Junk` in the gaps.
+    pub(crate) fn lays_out(&self, field: FFIndex) -> bool {
+        self.0.as_ref().is_some_and(|inner| {
+            matches!(inner.columns.get(field), Some(WhichFastField::Named { .. }))
+        })
+    }
 }
 
 /// A macro to fetch values for the given ids into an Arrow array.

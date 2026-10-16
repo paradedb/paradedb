@@ -169,15 +169,18 @@ pub(crate) fn rebuild_missing_ffhelpers(
     context: LookupRebuildContext,
 ) -> Result<()> {
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
-    // lines up by construction); they rebuild only on a worker whose fragment has that scan
-    // behind a network boundary.
+    // lines up by construction); they rebuild on a worker whose fragment has that scan behind
+    // a network boundary. A helper a fetch below already rebuilt is kept only if it lays the
+    // column out: the fetch's covers the columns it fetches, and a list is never one of them.
     let mut rebuild_indexes: HashSet<u32> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
         }
-        let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
-        if scan_is_elsewhere {
+        let has_column = ffhelpers
+            .get(&f.canonical.indexrelid)
+            .is_some_and(|helper| helper.lays_out(f.canonical.ff_index));
+        if !has_column {
             rebuild_indexes.insert(f.canonical.indexrelid);
         }
     }
@@ -234,4 +237,71 @@ pub(crate) fn preserved_ordering(
         }
     }
     eq_props
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use arrow_array::{Array, ListArray, StringViewArray};
+    use pgrx::prelude::*;
+
+    /// A fetch below a decode rebuilds its helper for the columns it fetches, and a list is
+    /// never one of them. A decode that also reads a list must not take that helper as it is,
+    /// or the list reads as a column the segment does not have and every row comes back NULL.
+    #[pg_test]
+    fn a_reused_helper_that_misses_a_column_is_rebuilt() {
+        Spi::run(
+            "CREATE TABLE lookup_rebuild (id bigint PRIMARY KEY, title text, tags text[]);
+             CREATE INDEX lookup_rebuild_idx ON lookup_rebuild
+             USING paradedb (id, (title::pdb.literal), (tags::pdb.literal));
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO lookup_rebuild VALUES (1, 'a', ARRAY['x', 'y']);
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = crate::index::reader::index::test_support::open_index("lookup_rebuild_idx");
+        let indexrelid = index_rel.oid().to_u32();
+        let schema = index_rel.schema().unwrap();
+        let field = |ff_index: usize, name: &str, cardinality| PhysicalDeferredField {
+            col_idx: ff_index,
+            display_name: name.into(),
+            is_bytes: false,
+            cardinality,
+            canonical: CanonicalColumn {
+                indexrelid,
+                ff_index,
+            },
+            heap_rti: 1,
+            rebuild: Some(DeferredLookupRebuild {
+                field_name: name.into(),
+                field_type: schema.search_field(name).unwrap().field_type(),
+                source_idx: None,
+            }),
+        };
+        let title = field(1, "title", FieldCardinality::Scalar);
+        let tags = field(2, "tags", FieldCardinality::List);
+        let context = LookupRebuildContext {
+            parallel_state: None,
+        };
+
+        let mut ffhelpers = HashMap::default();
+        rebuild_missing_ffhelpers(std::slice::from_ref(&title), &mut ffhelpers, context).unwrap();
+        let fetch_helper = Arc::clone(&ffhelpers[&indexrelid]);
+        assert!(fetch_helper.lays_out(1) && !fetch_helper.lays_out(2));
+
+        rebuild_missing_ffhelpers(&[title, tags], &mut ffhelpers, context).unwrap();
+        let decode_helper = &ffhelpers[&indexrelid];
+        assert!(decode_helper.lays_out(1) && decode_helper.lays_out(2));
+        assert!(!Arc::ptr_eq(decode_helper, &fetch_helper));
+
+        let lists = decode_helper
+            .list_values(0, 2, &[0])
+            .unwrap()
+            .expect("the segment has the column");
+        let list = lists.as_any().downcast_ref::<ListArray>().unwrap();
+        let terms = list.value(0);
+        let terms = terms.as_any().downcast_ref::<StringViewArray>().unwrap();
+        assert_eq!(terms.iter().flatten().collect::<Vec<_>>(), ["x", "y"]);
+    }
 }

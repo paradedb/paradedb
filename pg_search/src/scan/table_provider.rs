@@ -450,7 +450,9 @@ impl PgSearchTableProvider {
                         field_type: *field_type,
                         source_idx: self.source_idx,
                     }),
-                    fetch_at_scan: self.deferred_fetch_at_scan,
+                    // A list has no term ordinals for the scan to resolve.
+                    fetch_at_scan: self.deferred_fetch_at_scan
+                        && *cardinality == FieldCardinality::Scalar,
                 });
             }
         }

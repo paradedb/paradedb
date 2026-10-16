@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, ords_to_bytes_array, ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
@@ -98,6 +98,14 @@ impl TantivyDecodeExec {
 
     pub fn deferred_fields(&self) -> &[PhysicalDeferredField] {
         &self.deferred_fields
+    }
+
+    /// The deferred column at input index `col_idx` that a Top-K can rank by its term
+    /// ordinals. A list has none to rank by: one row holds many terms.
+    pub(crate) fn ordinal_sort_key(&self, col_idx: usize) -> Option<&PhysicalDeferredField> {
+        self.deferred_fields
+            .iter()
+            .find(|d| d.col_idx == col_idx && d.cardinality == FieldCardinality::Scalar)
     }
 
     pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {

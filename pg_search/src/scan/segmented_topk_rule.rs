@@ -253,10 +253,7 @@ fn try_inject_below_lookup(
             let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
                 if let Some(col) = expr.expr.downcast_ref::<Column>() {
                     if let Some(physical_idx) = resolve_physical_index(col, &input_schema) {
-                        lookup
-                            .deferred_fields()
-                            .iter()
-                            .any(|d| d.col_idx == physical_idx)
+                        lookup.ordinal_sort_key(physical_idx).is_some()
                     } else {
                         false
                     }
@@ -278,10 +275,7 @@ fn try_inject_below_lookup(
                 for expr in &sort_exprs {
                     if let Some(col) = expr.expr.downcast_ref::<Column>()
                         && let Some(lookup_idx) = resolve_physical_index(col, &input_schema)
-                        && let Some(field) = lookup
-                            .deferred_fields()
-                            .iter()
-                            .find(|d| d.col_idx == lookup_idx)
+                        && let Some(field) = lookup.ordinal_sort_key(lookup_idx)
                     {
                         let sort_col_idx =
                             resolve_physical_index(col, &stk_schema).ok_or_else(|| {

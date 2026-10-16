@@ -22,6 +22,7 @@ use std::rc::Rc;
 
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
+use crate::parallel_worker::WorkerStyle;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -49,7 +50,6 @@ use tokenizers::SearchTokenizer;
 */
 
 const MIN_TARGET_SEGMENT_COUNT: usize = 4;
-const MAX_DEFAULT_TARGET_SEGMENT_COUNT: usize = 8;
 /// A partitioned build keeps one spill file buffer per partition open outside the worker budget,
 /// and every partition carries its own segments as the index grows, so a count in the thousands
 /// costs more than its pruning could pay back. The global GUC shares this bound.
@@ -433,10 +433,10 @@ impl BM25IndexOptions {
     }
 
     pub fn target_segment_count(&self) -> usize {
-        self.explicit_target_segment_count().unwrap_or(
-            crate::available_parallelism()
-                .clamp(MIN_TARGET_SEGMENT_COUNT, MAX_DEFAULT_TARGET_SEGMENT_COUNT),
-        )
+        self.explicit_target_segment_count().unwrap_or_else(|| {
+            WorkerStyle::Query.max().max(MIN_TARGET_SEGMENT_COUNT)
+                * self.partition_by().len().max(1)
+        })
     }
 
     /// The target the user asked for, by GUC or reloption, or `None` when the default applies.
@@ -1321,7 +1321,63 @@ fn parse_sort_key(input: &str) -> SortByField {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::rel::PgSearchRelation;
     use pgrx::pg_test;
+
+    #[pg_test]
+    fn test_target_segment_count() {
+        Spi::run("CREATE TABLE segment_target (id bigint, tenant_id bigint);").unwrap();
+
+        for (dimension, partition_option) in [
+            "",
+            " WITH (partition_by = 'id')",
+            " WITH (partition_by = 'id, tenant_id')",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            Spi::run(&format!(
+                "CREATE INDEX segment_target_idx ON segment_target USING paradedb (id, tenant_id){partition_option};"
+            ))
+            .unwrap();
+            let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'segment_target_idx'::regclass::oid;")
+                .unwrap()
+                .unwrap();
+            let indexrel = PgSearchRelation::open(oid);
+
+            for (workers, expected) in [
+                (0, [4, 4, 8]),
+                (2, [4, 4, 8]),
+                (4, [4, 4, 8]),
+                (8, [8, 8, 16]),
+                (16, [16, 16, 32]),
+            ] {
+                Spi::run(&format!("SET max_parallel_workers_per_gather = {workers};")).unwrap();
+                assert_eq!(
+                    indexrel.options().target_segment_count(),
+                    expected[dimension]
+                );
+            }
+
+            drop(indexrel);
+
+            Spi::run("ALTER INDEX segment_target_idx SET (target_segment_count = 3);").unwrap();
+            let indexrel = PgSearchRelation::open(oid);
+            for (global_target, expected) in [(c"7", 7), (c"0", 3)] {
+                unsafe {
+                    pg_sys::SetConfigOption(
+                        c"paradedb.global_target_segment_count".as_ptr(),
+                        global_target.as_ptr(),
+                        pg_sys::GucContext::PGC_SIGHUP,
+                        pg_sys::GucSource::PGC_S_FILE,
+                    );
+                }
+                assert_eq!(indexrel.options().target_segment_count(), expected);
+            }
+            drop(indexrel);
+            Spi::run("DROP INDEX segment_target_idx;").unwrap();
+        }
+    }
 
     #[pg_test]
     #[should_panic(expected = "NULLS FIRST or NULLS LAST is required")]

@@ -2,6 +2,8 @@
 
 This directory contains schemas, indexes, and queries for benchmarking ParadeDB on the Stack Overflow dataset, against best practice Postgres indexes.
 
+CI pins `paradedb.global_target_segment_count = 48` after each heap snapshot restore to preserve the historical segment target across changes to extension defaults or snapshot settings. This overrides the 32-segment targets in `indexes/bm25.sql`, which apply to local runs without a global override.
+
 ## Comparison Strategy
 
 Queries are split into three families with different comparison strategies:

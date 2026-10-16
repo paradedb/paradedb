@@ -85,9 +85,9 @@ pub unsafe fn is_partitioned_table_setup(
     baserels: *mut pg_sys::Bitmapset,
 ) -> bool {
     bms_iter(rel_relids).any(|rti| {
-        top_parent(root, rti).is_some_and(|(table, rte)| {
+        top_parent(root, rti).is_some_and(|(table, _)| {
             table != rti
-                && (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE
+                && rte_is_partitioned(root, table)
                 && pg_sys::bms_is_member(table as i32, baserels)
         })
     })

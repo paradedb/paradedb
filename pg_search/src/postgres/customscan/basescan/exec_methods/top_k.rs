@@ -80,12 +80,14 @@ pub struct TopKScanExecState {
     window_aggregates: Vec<WindowAggregateInfo>,
 
     runtime: Option<Runtime>,
+    plan: Option<PgSearchScanPlan>,
     stream: Option<SendableRecordBatchStream>,
     telemetry: Option<LazySortTelemetry>,
     pending_aggregations: Option<(PreparedAggregations, AggregationLimitsGuard)>,
     current_record_batch: Option<RecordBatch>,
     current_batch_row_idx: usize,
     did_query: bool,
+    forwarded_queries: usize,
     found: usize,
 }
 
@@ -127,12 +129,14 @@ impl TopKScanExecState {
             scale_factor,
             window_aggregates: Vec::new(),
             runtime: None,
+            plan: None,
             stream: None,
             telemetry: None,
             pending_aggregations: None,
             current_record_batch: None,
             current_batch_row_idx: 0,
             did_query: false,
+            forwarded_queries: 0,
             found: 0,
         }
     }
@@ -272,7 +276,6 @@ impl TopKScanExecState {
         let telemetry: LazySortTelemetry =
             Arc::new(Mutex::new(UnsafeSendSync(LazySortTelemetryState {
                 first_pull_aux_collector,
-                queries_executed: 0,
                 segment_info: Default::default(),
                 first_pull_aggregation: None,
             })));
@@ -334,28 +337,39 @@ impl TopKScanExecState {
         .with_lazy_sort_telemetry(telemetry);
 
         let task_ctx = Arc::new(TaskContext::default());
-        match plan.execute(0, task_ctx) {
-            Ok(stream) => Some(stream),
+        let stream = match plan.execute(0, task_ctx) {
+            Ok(stream) => stream,
             Err(e) => {
                 pgrx::error!("Failed to execute TopK scan plan: {e}");
             }
-        }
+        };
+        self.plan = Some(plan);
+        Some(stream)
     }
 
     fn drain_telemetry(&mut self, state: &mut BaseScanState) {
         let Some(ref telemetry) = self.telemetry else {
             return;
         };
-        let (queries_executed, segment_info, first_pull_aggregation) = {
+        let total_queries = self
+            .plan
+            .as_ref()
+            .and_then(|p| p.metrics())
+            .and_then(|m| m.sum_by_name("queries"))
+            .map(|v| v.as_usize())
+            .unwrap_or(0);
+        let queries_delta = total_queries.saturating_sub(self.forwarded_queries);
+        self.forwarded_queries = total_queries;
+
+        let (segment_info, first_pull_aggregation) = {
             let mut guard = telemetry.lock().unwrap();
             (
-                std::mem::replace(&mut guard.0.queries_executed, 0),
                 std::mem::take(&mut guard.0.segment_info),
                 guard.0.first_pull_aggregation.take(),
             )
         };
 
-        for _ in 0..queries_executed {
+        for _ in 0..queries_delta {
             state.increment_query_count();
         }
         if !segment_info.is_empty() {
@@ -528,11 +542,13 @@ impl ExecMethod for TopKScanExecState {
 
     fn reset(&mut self, state: &mut BaseScanState) {
         self.did_query = false;
+        self.plan = None;
         self.stream = None;
         self.telemetry = None;
         self.pending_aggregations = None;
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
+        self.forwarded_queries = 0;
         self.found = 0;
 
         // Get window aggregates from state if available

@@ -195,6 +195,14 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to enable or disable `RankJoinExec` (NRA Rank Join) for top-K scored joins.
+static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Minimum estimated matching rows on both join inputs required before `RankJoinRule`
+/// replaces a one-pass `HashJoinExec` with `RankJoinExec`. Set to 0 in tests to bypass
+/// the row-count and window-depth floor.
+static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
 /// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
 /// a window query with a LIMIT takes that path regardless.
@@ -804,6 +812,28 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
+        c"paradedb.enable_rank_join",
+        c"Enable RankJoinExec (NRA Rank Join) for top-K scored joins",
+        c"When enabled, top-K joins ordered by a monotonic combination of BM25 scores \
+          from both join inputs use RankJoinExec with lazy score-ordered scan streams.",
+        &ENABLE_RANK_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.rank_join_min_rows",
+        c"Minimum estimated matching rows on both join inputs for RankJoinExec",
+        c"Minimum estimated matching rows on both join inputs before RankJoinRule replaces \
+          a one-pass HashJoinExec with RankJoinExec. Set to 0 to bypass the size floor.",
+        &RANK_JOIN_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
         c"paradedb.joinscan_force_topk_as_agg",
         c"Force JoinScan to compute ORDER BY + LIMIT with the topk_as_agg aggregate",
         c"Development switch. When enabled, JoinScan runs its Top K through the \
@@ -1206,6 +1236,14 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_rank_join() -> bool {
+    ENABLE_RANK_JOIN.get()
+}
+
+pub fn rank_join_min_rows() -> usize {
+    RANK_JOIN_MIN_ROWS.get().max(0) as usize
 }
 
 pub fn joinscan_force_topk_as_agg() -> bool {

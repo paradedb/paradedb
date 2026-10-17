@@ -128,7 +128,6 @@ pub struct LazySortConfig {
 #[derive(Default)]
 pub struct LazySortTelemetryState {
     pub first_pull_aux_collector: Option<TopKAuxiliaryCollector>,
-    pub queries_executed: usize,
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
     pub first_pull_aggregation: Option<(IntermediateAggregationResults, Option<usize>)>,
 }
@@ -425,6 +424,12 @@ impl PgSearchScanPlan {
         self
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn with_estimated_rows_for_test(mut self, rows: u64) -> Self {
+        self.planner_estimated_rows = rows;
+        self
+    }
+
     /// Configures this scan to execute iterative, expanding-window Top-K pulls via
     /// `SearchIndexReader::search_top_k_in_segments` instead of streaming segment-by-segment.
     pub fn with_lazy_sort(mut self, lazy_sort: LazySortConfig) -> Self {
@@ -637,6 +642,28 @@ impl PgSearchScanPlan {
     /// partitions the way `partition_statistics` divides it.
     pub fn planner_estimated_rows(&self) -> u64 {
         self.planner_estimated_rows
+    }
+
+    /// Total number of documents in the index (or `planner_estimated_rows` if uninitialized in tests).
+    pub fn total_docs(&self) -> u64 {
+        let state_guard = self.state.lock().unwrap();
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => scan_state
+                .0
+                .reader
+                .total_docs()
+                .max(self.planner_estimated_rows),
+            ExecutionState::Consumed | ExecutionState::Uninitialized => self.planner_estimated_rows,
+        }
+    }
+
+    pub fn resolved_query(&self) -> &SearchQueryInput {
+        &self.resolved_query
+    }
+
+    pub fn scan_mode(&self) -> &crate::scan::ScanMode {
+        &self.scan_mode
     }
 
     pub fn deferred_fields(&self) -> &[DeferredField] {
@@ -1427,6 +1454,10 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
+        let queries = self
+            .lazy_sort
+            .is_some()
+            .then(|| MetricBuilder::new(&self.metrics).counter("queries", target_partition));
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
@@ -1651,9 +1682,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                     };
 
+                    if let Some(ref counter) = queries {
+                        counter.add(1);
+                    }
+
                     if let Some(ref telemetry) = lazy_sort_telemetry {
                         let mut guard = telemetry.lock().unwrap();
-                        guard.0.queries_executed += 1;
                         if !top_k_search.segment_info.is_empty() {
                             guard
                                 .0

@@ -551,11 +551,13 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     let mut physical_rules =
         datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
     let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+    let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
     let pos = physical_rules
         .iter()
         .position(|r| r.name() == "EnsureRequirements")
         .expect("EnsureRequirements physical optimizer rule not found");
     physical_rules.insert(pos, co_partitioned_rule);
+    physical_rules.insert(pos + 1, rank_join_rule);
     builder = builder.with_physical_optimizer_rules(physical_rules);
 
     // Placement reads the final join sides and modes, so it follows the co-partitioning

@@ -67,7 +67,7 @@ use crate::api::{MvccVisibility, SortDirection, agg_funcoid};
 use crate::gucs;
 use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, RelNode};
 
-use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
+use crate::aggregate::is_null_sentinel;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
@@ -2795,18 +2795,9 @@ unsafe fn group_key_to_datum(
     expected_typoid: pg_sys::Oid,
     original_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
-    // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
-    // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
-    // Bool uses string sentinels for both MIN and MAX.
-    // DateTime columns don't have a missing sentinel (NULLs are excluded).
-    let is_null_sentinel = match &key.0 {
-        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
-        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-        PdbOwnedValue::U64(v) => *v == u64::MAX,
-        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
-        _ => false,
-    };
-    if is_null_sentinel {
+    // A `GROUP BY` level keys its NULL group with a string sentinel whatever the column type
+    // (see `set_missing_on_terms`), so a number is always a value.
+    if matches!(&key.0, PdbOwnedValue::Str(s) if is_null_sentinel(s)) {
         return None;
     }
 

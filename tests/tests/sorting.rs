@@ -311,3 +311,68 @@ fn sort_partitioned_early_cutoff(mut conn: PgConnection) {
         &serde_json::from_str::<Value>("0").unwrap()
     );
 }
+
+#[rstest]
+fn parallel_topk_idle_workers_skip_reader_startup(mut conn: PgConnection) {
+    r#"
+        CREATE EXTENSION IF NOT EXISTS vector;
+        SET paradedb.global_mutable_segment_rows = 0;
+        CREATE TABLE idle_topk (id bigint PRIMARY KEY, title text, emb vector(3));
+        CREATE INDEX idle_topk_idx ON idle_topk USING bm25
+            (id, title, emb vector_cosine_ops)
+            WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0');
+    "#
+    .execute(&mut conn);
+    for batch in 0..8 {
+        format!(
+            "INSERT INTO idle_topk SELECT g, 'year', ARRAY[g::real,10000,1]::vector(3) \
+             FROM generate_series({}, {}) g",
+            batch * 1000 + 1,
+            (batch + 1) * 1000,
+        )
+        .execute(&mut conn);
+    }
+    r#"
+        ANALYZE idle_topk;
+        SET max_parallel_workers_per_gather = 7;
+        SET parallel_setup_cost = 0;
+        SET parallel_tuple_cost = 0;
+    "#
+    .execute(&mut conn);
+    let query = "SELECT id FROM idle_topk WHERE title @@@ 'year' \
+                 ORDER BY emb <=> '[1,0,0]'::vector(3) LIMIT 10";
+    let actual: Vec<(i64,)> = query.fetch(&mut conn);
+    assert_eq!(
+        actual,
+        (7991..=8000).rev().map(|id| (id,)).collect::<Vec<_>>()
+    );
+
+    let (plan,): (Value,) =
+        format!("EXPLAIN (ANALYZE, BUFFERS, VERBOSE, TIMING OFF, FORMAT JSON) {query}")
+            .fetch_one(&mut conn);
+    let mut scans = Vec::new();
+    collect_custom_scan_nodes(plan.pointer("/0/Plan").unwrap(), &mut scans);
+    assert_eq!(scans.len(), 1, "{plan:#}");
+    assert_eq!(scans[0]["Parallel Aware"], true, "{plan:#}");
+    let participants: Value =
+        serde_json::from_str(scans[0]["Parallel Workers"].as_str().unwrap()).unwrap();
+    if let Some(workers) = scans[0]["Workers"].as_array() {
+        for worker in workers {
+            let number = worker["Worker Number"].as_u64().unwrap().to_string();
+            if participants.get(&number).is_none() {
+                assert_eq!(worker["Actual Rows"], 0.0, "{plan:#}");
+                assert_eq!(worker["Shared Hit Blocks"], 0, "{plan:#}");
+            }
+        }
+    }
+
+    "SET parallel_leader_participation = off".execute(&mut conn);
+    let actual: Vec<(i64,)> = query.fetch(&mut conn);
+    assert_eq!(
+        actual,
+        (7991..=8000).rev().map(|id| (id,)).collect::<Vec<_>>()
+    );
+    let mut all: Vec<(i64,)> = query.replace("LIMIT 10", "LIMIT 8000").fetch(&mut conn);
+    all.sort_unstable();
+    assert_eq!(all, (1..=8000).map(|id| (id,)).collect::<Vec<_>>());
+}

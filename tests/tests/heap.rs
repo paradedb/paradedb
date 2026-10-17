@@ -23,6 +23,79 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 #[rstest]
+#[case::vacuumed_toast(false)]
+#[case::old_snapshot(true)]
+fn mutable_merge_defers_recently_dead_toast(database: Db, #[case] same_database: bool) {
+    let mut conn = block_on(database.connection());
+    let other_database = block_on(Db::new());
+    let mut old = block_on(if same_database {
+        database.connection()
+    } else {
+        other_database.connection()
+    });
+    r#"
+        CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+        CREATE TABLE toast_merge (id int PRIMARY KEY, message text)
+            WITH (autovacuum_enabled = false, toast.autovacuum_enabled = false);
+        ALTER TABLE toast_merge ALTER COLUMN message SET STORAGE EXTERNAL;
+        CREATE INDEX toast_merge_idx ON toast_merge USING paradedb (id, message)
+            WITH (mutable_segment_rows = 100, target_segment_count = 1,
+                  layer_sizes = '0', background_layer_sizes = '0');
+        INSERT INTO toast_merge
+            SELECT i, 'token ' || repeat(md5(i::text), 1000) FROM generate_series(1, 2) i;
+    "#
+    .execute(&mut conn);
+    let (toast_relation,): (String,) =
+        "SELECT reltoastrelid::regclass::text FROM pg_class WHERE oid = 'toast_merge'::regclass"
+            .fetch_one(&mut conn);
+    "BEGIN ISOLATION LEVEL REPEATABLE READ".execute(&mut old);
+    let _: (i64,) = "SELECT txid_current()".fetch_one(&mut old);
+
+    "DELETE FROM toast_merge WHERE id = 1".execute(&mut conn);
+    format!("VACUUM {toast_relation}").execute(&mut conn);
+    let (toast_values,): (i64,) = format!("SELECT count(DISTINCT chunk_id) FROM {toast_relation}")
+        .fetch_one(if same_database { &mut old } else { &mut conn });
+    assert_eq!(toast_values, if same_database { 2 } else { 1 });
+
+    "ALTER INDEX toast_merge_idx SET (mutable_segment_rows = 0, layer_sizes = '100mb')"
+        .execute(&mut conn);
+    let (global_target,): (String,) =
+        "SHOW paradedb.global_target_segment_count".fetch_one(&mut conn);
+    let target = global_target.parse::<i32>().unwrap().max(1);
+    for id in 3..=target + 3 {
+        format!("INSERT INTO toast_merge VALUES ({id}, 'token newest')").execute(&mut conn);
+    }
+    let (mutable,): (i64,) =
+        "SELECT count(*) FROM paradedb.index_info('toast_merge_idx') WHERE mutable"
+            .fetch_one(&mut conn);
+    assert_eq!(mutable, 1, "the deferred input must remain visible");
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM toast_merge WHERE message ||| 'token' ORDER BY id".fetch(&mut conn);
+    assert_eq!(rows, (2..=target + 3).map(|id| (id,)).collect::<Vec<_>>());
+    if same_database {
+        let rows: Vec<(i32,)> =
+            "SELECT id FROM toast_merge WHERE message ||| 'token' ORDER BY id".fetch(&mut old);
+        assert_eq!(rows, vec![(1,), (2,)]);
+    }
+
+    "ROLLBACK".execute(&mut old);
+    "VACUUM toast_merge".execute(&mut conn);
+    for id in target + 4..=2 * target + 4 {
+        format!("INSERT INTO toast_merge VALUES ({id}, 'token newest')").execute(&mut conn);
+    }
+    let (mutable,): (i64,) =
+        "SELECT count(*) FROM paradedb.index_info('toast_merge_idx') WHERE mutable"
+            .fetch_one(&mut conn);
+    assert_eq!(mutable, 0, "merging must resume after VACUUM");
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM toast_merge WHERE message ||| 'token' ORDER BY id".fetch(&mut conn);
+    assert_eq!(
+        rows,
+        (2..=2 * target + 4).map(|id| (id,)).collect::<Vec<_>>()
+    );
+}
+
+#[rstest]
 fn mvcc_heap_filter(mut conn: PgConnection) {
     r#"
         CALL paradedb.create_paradedb_test_table(table_name => 'heap_and_clauses_table', schema_name => 'public');

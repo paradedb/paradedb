@@ -408,6 +408,45 @@ ORDER BY p.id, t
 LIMIT 5;
 
 -- =====================================================================
+-- TEST 10b: CROSS JOIN LATERAL unnest on a table pruned by an Anti Join
+-- with chained LATERAL unnests and window aggregate (topk_as_agg)
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    COUNT(*) OVER (),
+    t AS tag,
+    c AS category,
+    r AS region
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+JOIN jlu_stores s ON p.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+CROSS JOIN LATERAL unnest(p.categories) AS c
+CROSS JOIN LATERAL unnest(s.regions) AS r
+WHERE p.title ||| 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, s.id, t, c, r
+LIMIT 5 OFFSET 1;
+
+SELECT
+    p.id,
+    p.title,
+    COUNT(*) OVER (),
+    t AS tag,
+    c AS category,
+    r AS region
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+JOIN jlu_stores s ON p.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+CROSS JOIN LATERAL unnest(p.categories) AS c
+CROSS JOIN LATERAL unnest(s.regions) AS r
+WHERE p.title ||| 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, s.id, t, c, r
+LIMIT 5 OFFSET 1;
+
+-- =====================================================================
 -- TEST 11: SELECT DISTINCT with CROSS JOIN LATERAL unnest + LIMIT
 -- =====================================================================
 EXPLAIN (COSTS OFF)

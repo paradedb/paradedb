@@ -253,7 +253,7 @@ WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
 -- users split points, and each votes partition is placed by its own range.
 -- =====================================================================
 CREATE TABLE sp_votes (id bigserial PRIMARY KEY, post_id bigint, kind text);
-CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, (kind::pdb.literal)) WITH (partition_by = 'post_id', target_segment_count = 4);
+CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, (kind::pdb.literal)) WITH (background_layer_sizes = '0', partition_by = 'post_id', target_segment_count = 4);
 INSERT INTO sp_votes (post_id, kind)
 SELECT 1 + ((g * 31) % 10000), CASE WHEN g <= 10000 THEN 'up' ELSE 'down' END
 FROM generate_series(1, 20000) g;

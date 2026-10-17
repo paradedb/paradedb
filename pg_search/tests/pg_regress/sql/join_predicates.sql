@@ -298,9 +298,9 @@ CREATE TABLE qgen_products (
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
 -- Note: age must be columnar for the join key
-CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, (name::pdb.literal), age);
+CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, (name::pdb.literal), age) WITH (background_layer_sizes = '0');
 
-CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, (name::pdb.literal), age);
+CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, (name::pdb.literal), age) WITH (background_layer_sizes = '0');
 
 -- Insert sample value first
 INSERT INTO qgen_users (uuid, name, color, age, quantity, price, rating) 
@@ -412,6 +412,9 @@ DROP INDEX IF EXISTS suppliers_bm25_idx;
 CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value);
+
+ANALYZE products;
+ANALYZE suppliers;
 
 -- Test case: Search predicate AND multi-table predicate (both columns are fast fields)
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value

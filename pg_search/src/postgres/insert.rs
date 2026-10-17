@@ -23,7 +23,9 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::IsLogicalWorker;
 use crate::postgres::composite::CompositeSlotValues;
-use crate::postgres::merge::{MergeStyle, do_merge};
+use crate::postgres::merge::{
+    MergeSlotVariant, MergeStyle, do_merge, try_launch_background_merger,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
@@ -377,6 +379,8 @@ pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
                 Some(pg_sys::ReadNextFullTransactionId()),
             )
             .expect("should be able to merge");
+        } else if !state.indexrel.options().background_layer_sizes().is_empty() {
+            try_launch_background_merger(&state.indexrel, MergeSlotVariant::Mutable);
         }
     }
 }

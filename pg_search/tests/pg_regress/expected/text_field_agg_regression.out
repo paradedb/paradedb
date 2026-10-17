@@ -36,8 +36,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Limit
    Output: name, (pdb.agg_fn('COUNT'::text))
    ->  Sort
@@ -50,7 +50,7 @@ LIMIT 5;
                  Applies to Aggregates: COUNT(name)
                  Group By: name
                  Limit: 5
-                 Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"name","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
+                 Aggregate Definition: {"grouped":{"terms":{"field":"name","segment_size":65000,"size":65000}}}
 (13 rows)
 
 SELECT name AS value

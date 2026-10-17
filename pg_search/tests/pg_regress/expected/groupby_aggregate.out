@@ -737,7 +737,7 @@ ORDER BY COUNT(category) DESC;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            Applies to Aggregates: COUNT(category)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (10 rows)
 
 SELECT category
@@ -980,7 +980,7 @@ ORDER BY COUNT(category) DESC;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            Applies to Aggregates: COUNT(category)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (10 rows)
 
 SELECT category

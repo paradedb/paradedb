@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792223625213,
+  "lastUpdate": 1792223641438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -437676,6 +437676,280 @@ window.BENCHMARK_DATA = {
             "value": 22.01171875,
             "unit": "median mem",
             "extra": "avg mem: 21.945641399779376, max mem: 22.01171875, count: 55298"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fa7c743237bafd2e5fa96f19ea311bc98be384a4",
+          "message": "feat: stream IVF training by bumping tantivy to TrainingSource (#6795)\n\n# Ticket(s) Closed\n\n- N/A. Picks up\n[paradedb/tantivy#318](https://github.com/paradedb/tantivy/pull/318) and\n[paradedb/superkmeans-rs#24](https://github.com/paradedb/superkmeans-rs/pull/24),\nboth merged.\n\n## What\n\nBumps tantivy to `101c4337` (tantivy#318) and `superkmeans-rs` to\n`ced81ac6` (superkmeans-rs#24). IVF merges now train within a memory\nlimit instead of decoding the whole training sample up front. pg_search\nsets that limit from `maintenance_work_mem`.\n\n## Why\n\nSince #6802, pg_search uses tantivy's built-in `SuperKMeansClusterer`.\nBefore tantivy#318, a merge decoded its entire training sample into one\nmatrix. At the default `training_sample_ratio` of 0.32 that's about 1.6\nGB for SIFT-10M, and it was the merge's peak memory, with no relation to\nany Postgres setting. CREATE INDEX and VACUUM already budget their\nmemory with `maintenance_work_mem`, so the clusterer should use the same\nbudget.\n\n## How\n\n- **tantivy#318.** The clusterer reads vectors through a replayable\n`VectorSource` and sizes everything it holds from a memory limit:\n- Train and assign read vectors into batches the clusterer owns, so the\nsource keeps no decoded rows.\n- The meso step keeps as much of the sample decoded as the limit allows\nand streams only the remainder on each pass. A sample that fits is read\nonce.\n- The fine step either regroups a fully kept sample in place, or reads\nmeso clusters back in groups that fit the limit. Reads are in storage\norder, with merged block reads.\n- The limit changes how the sample is read, not the centroids. A tantivy\ntest checks that different limits produce bit-identical centroids.\n- The `paradedb::ivf_build` log line reports `train_reads`,\n`assign_reads` and `encode_reads` separately.\n- **superkmeans-rs#24.** Adds the streaming k-means API tantivy uses. It\nalso skips the meso rotation when pruning can't engage, and normalizes\nangular centroids that skip k-means.\n- **`set_ivf_clusterer`** (`pg_search/src/index/mod.rs`) passes\n`maintenance_work_mem` (kB, converted to bytes) as the clusterer's\nmemory limit. It also builds the clusterer with\n`SuperKMeansClusterer::new()` instead of `default()`.\n- **Pins:**\n- The workspace's `tantivy`, `tantivy-common` and\n`tantivy-tokenizer-api` move to `101c4337`.\n- pg_search's own `superkmeans-rs` dependency only selects the BLAS\nbackend (Accelerate or OpenBLAS) for tantivy's copy. It moves to\n`ced81ac6`, the same commit tantivy pins. Cargo shares features only\nbetween identical sources, so this keeps one superkmeans build with BLAS\nenabled. `cargo tree -i superkmeans-rs` shows a single 0.3.0.\n  - `nix/pg_search.nix` gets the regenerated `cargoHash`.\n\n## Tests\n\n- `cargo check -p pg_search --all-targets` passes.\n- `cargo test -p pg_search --lib vector` passes: 17 tests.\n- tantivy#318: `vector::` (244 tests) and `vector_memory` pass,\nincluding the streaming, prefix-cache, grouped-read and limit-invariance\ntests for `SuperKMeansClusterer`.\n- Cohere-1M (768d), `maintenance_work_mem = 1638MB`, 2 cores, 4 GB\ncontainer. CREATE INDEX finalize, from pdbench, on images built from\nearlier commits of this branch:\n\n  | Build | Finalize | Disk read | Peak memory |\n  |---|---|---|---|\n| v0.26.0, in-memory training (3 runs) | 354–423s | 6.6–7.2 GB | 2.7–3.0\nGB |\n| Streaming, before grouped reads and the prefix cache (3 runs) |\n332–383s | 8.4–10.3 GB | 3.3–3.4 GB |\n  | Streaming, grouped fine reads | 358s | 8.3 GB | 4.16 GB |\n| Streaming, prefix cache and owned batches | 362s | 4.2 GB | 3.08 GB |\n\nTraining and assign take about 105s, down from about 150s. The 983 MB\nsample is read once, and the meso passes and fine step run at about 200%\nCPU with no reads. Total time hasn't moved. Before training, about 70s\ngoes to building the initial segments. After assign, about 190s goes to\nthe encode/write tail, which writes about 14.6 GB at 60–70% CPU and\nlooks write-bound. Neither part is changed here.\n- Still to run: SIFT-10M, where the sample doesn't fit in\n`maintenance_work_mem`, comparing build time, reads and peak memory with\n`main`. The new per-phase read counts in the `ivf_build` log will show\nthe cost of re-reading the sample.\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-17T03:02:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/fa7c743237bafd2e5fa96f19ea311bc98be384a4"
+        },
+        "date": 1792223580981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.210959037663451, max cpu: 14.04193, count: 55249"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 46.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.325815993275896, max mem: 46.3984375, count: 55249"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1031329218589976, max cpu: 4.685212, count: 55249"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.08364758298793, max mem: 21.0859375, count: 55249"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.701230540476086, max cpu: 32.892807, count: 55249"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 45.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.321967365925175, max mem: 45.42578125, count: 55249"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.266011692230998, max cpu: 14.028252, count: 55249"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - mem",
+            "value": 44.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.23153685473945, max mem: 44.31640625, count: 55249"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.650851016731955, max cpu: 9.375, count: 55249"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 28.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.968225669242884, max mem: 28.96875, count: 55249"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 822,
+            "unit": "median pages",
+            "extra": "avg pages: 829.0801281471158, max pages: 1148.0, count: 55249"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 6.421875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 6.477188501149342, max relation_size:MB: 8.96875, count: 55249"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 4,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 4.517203931292874, max segment_count: 11.0, count: 55249"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.964031820506268, max cpu: 4.6647234, count: 55249"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 20.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.519870410550418, max mem: 20.5234375, count: 55249"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.6354423,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.067837385283666, max cpu: 4.6354423, count: 55249"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 20.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.5190004853029, max mem: 20.5234375, count: 55249"
+          },
+          {
+            "name": "JoinScan - Subscriber - cpu",
+            "value": 9.320388,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.006236907958435, max cpu: 18.740849, count: 55249"
+          },
+          {
+            "name": "JoinScan - Subscriber - mem",
+            "value": 73.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 72.92854282430451, max mem: 73.296875, count: 55249"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.22573834622461, max cpu: 14.069371, count: 55249"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - mem",
+            "value": 43.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.774463536670346, max mem: 43.8046875, count: 55249"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.89285901874166, max cpu: 14.117648, count: 55249"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 41.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.891643117974986, max mem: 43.4453125, count: 55249"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.319491698689575, max cpu: 32.542374, count: 55249"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - mem",
+            "value": 43.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.12991814614292, max mem: 43.19921875, count: 55249"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.404790353399306, max cpu: 9.458128, count: 55249"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - mem",
+            "value": 40.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.17438070146066, max mem: 42.0546875, count: 55249"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.31388778539095, max cpu: 9.458128, count: 55249"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 40.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.32517648792286, max mem: 42.0546875, count: 55249"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5434940836696756, max cpu: 14.131501, count: 55249"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - mem",
+            "value": 43.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.359151721071875, max mem: 43.36328125, count: 55249"
+          },
+          {
+            "name": "Rotate join keys - Publisher - cpu",
+            "value": 4.613167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.812212755842086, max cpu: 4.6354423, count: 55249"
+          },
+          {
+            "name": "Rotate join keys - Publisher - mem",
+            "value": 21.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.208634008081596, max mem: 21.2109375, count: 55249"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00011692421000761891, max replication_lag:MB: 0.0522613525390625, count: 55249"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.2743600184704515, max cpu: 9.43489, count: 55249"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 43.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.384558784435015, max mem: 43.5078125, count: 55249"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.596505137488937, max cpu: 4.703577, count: 55249"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 21.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.146140795534762, max mem: 21.1484375, count: 55249"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.428931646984309, max cpu: 4.692082, count: 55249"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 21.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.27112722062843, max mem: 21.2734375, count: 55249"
+          },
+          {
+            "name": "Update joined rows - Publisher - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.084774158808305, max cpu: 4.6875, count: 55249"
+          },
+          {
+            "name": "Update joined rows - Publisher - mem",
+            "value": 21.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.117814773796812, max mem: 21.1484375, count: 55249"
           }
         ]
       }

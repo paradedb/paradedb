@@ -74,6 +74,20 @@ WHERE vector_format = 'ivf';
  t
 (1 row)
 
+-- ...routed by a stacked router whose bottom level holds at most the
+-- segment's centroids; flat segments have no router.
+SELECT bool_and(CASE WHEN vector_format = 'ivf'
+                     THEN vector_router = 'stacked'
+                          AND cardinality(vector_router_levels) >= 1
+                          AND vector_router_levels[1] <= vector_num_centroids
+                     ELSE vector_router IS NULL AND vector_router_levels IS NULL
+                END) AS router_levels_reported
+FROM paradedb.vector_info('remerge_idx', 'vec');
+ router_levels_reported 
+------------------------
+ t
+(1 row)
+
 -- Wave 2: make the IVF segment a merge SOURCE. The layer must
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus
 -- must overfill the extended layer, which the extra 35000 rows guarantee.

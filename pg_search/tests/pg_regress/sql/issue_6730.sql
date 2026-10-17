@@ -32,7 +32,15 @@ CREATE INDEX issue_6730_boundary_idx ON issue_6730_boundary USING paradedb (id, 
 INSERT INTO issue_6730_boundary (d) VALUES ('294276-12-31');
 SELECT count(*) FROM issue_6730_boundary WHERE id @@@ pdb.all();
 
+-- 5. Date array field: inserting out-of-range date in array fails cleanly and preserves table searchability.
+CREATE TABLE issue_6730_array (id serial PRIMARY KEY, dates date[]);
+CREATE INDEX issue_6730_array_idx ON issue_6730_array USING paradedb (id, dates);
+INSERT INTO issue_6730_array (dates) VALUES ('{2024-01-01}');
+INSERT INTO issue_6730_array (dates) VALUES ('{294277-01-01}');
+SELECT count(*) FROM issue_6730_array WHERE id @@@ pdb.all();
+
 DROP TABLE issue_6730_build;
 DROP TABLE issue_6730_insert;
 DROP TABLE issue_6730_immutable;
 DROP TABLE issue_6730_boundary;
+DROP TABLE issue_6730_array;

@@ -43,7 +43,20 @@ SELECT count(*) FROM issue_6730_boundary WHERE id @@@ pdb.all();
      1
 (1 row)
 
+-- 5. Date array field: inserting out-of-range date in array fails cleanly and preserves table searchability.
+CREATE TABLE issue_6730_array (id serial PRIMARY KEY, dates date[]);
+CREATE INDEX issue_6730_array_idx ON issue_6730_array USING paradedb (id, dates);
+INSERT INTO issue_6730_array (dates) VALUES ('{2024-01-01}');
+INSERT INTO issue_6730_array (dates) VALUES ('{294277-01-01}');
+ERROR:  could not parse field `dates`: Could not generate datetime datum
+SELECT count(*) FROM issue_6730_array WHERE id @@@ pdb.all();
+ count 
+-------
+     1
+(1 row)
+
 DROP TABLE issue_6730_build;
 DROP TABLE issue_6730_insert;
 DROP TABLE issue_6730_immutable;
 DROP TABLE issue_6730_boundary;
+DROP TABLE issue_6730_array;

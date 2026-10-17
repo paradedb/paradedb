@@ -126,6 +126,7 @@ $query$, 3) AS only_system_columns;
 CREATE TEMP TABLE system_columns_old_ctid AS SELECT ctid AS old_ctid FROM system_columns_a WHERE id = 2;
 UPDATE system_columns_a SET note = 'updated' WHERE id = 2;
 VACUUM (FREEZE, TRUNCATE false) system_columns_a;
+SET paradedb.enable_join_custom_scan = off;
 SELECT a.ctid <> old.old_ctid AS updated_tuple_moved
 FROM system_columns_a a CROSS JOIN system_columns_old_ctid old WHERE a.id = 2;
 

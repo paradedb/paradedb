@@ -394,8 +394,14 @@ pub unsafe fn do_merge(
 
         // The foreground merge only covers the foreground layers, so the background layers still
         // need a merger.
-        if needs_background_merge {
-            try_launch_background_merger(index, largest_layer_size);
+        if needs_mutable_merge {
+            try_launch_background_merger(index, MergeSlotVariant::Mutable);
+        }
+        if needs_immutable_merge {
+            try_launch_background_merger(
+                index,
+                MergeSlot::for_layer_size(index.oid(), largest_layer_size).variant(),
+            );
         }
     }
 

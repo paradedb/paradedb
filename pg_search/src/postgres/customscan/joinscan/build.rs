@@ -574,11 +574,8 @@ impl JoinSource {
         if attno == 0 {
             return true;
         }
-        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
-            return true;
-        }
         if attno < 0 {
-            return false;
+            return attno > pg_sys::FirstLowInvalidHeapAttributeNumber as pg_sys::AttrNumber;
         }
         let heaprel = PgSearchRelation::open(self.scan_info.heaprelid);
         let tupdesc = heaprel.tuple_desc();

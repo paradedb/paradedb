@@ -53,6 +53,23 @@ pub enum PdbOwnedValue {
     IpAddr(Ipv6Addr),
 }
 
+/// Collapse IEEE signed zero to `+0.0`.
+///
+/// PostgreSQL treats `+0` and `-0` as the same value. Tantivy stores an `f64` term by its
+/// monotonic bit mapping, and that mapping keeps the sign bit, so the two zeros become
+/// different index terms. `NaN == 0.0` is false, and so is every nonzero value, so NaN
+/// payloads and infinities pass through with their bits unchanged. PostgreSQL also equates
+/// every NaN with every other NaN; this function does not, because that is a separate
+/// equality rule from signed zero.
+///
+/// Indexes already built can still contain a `-0` term. A `created_by_version` gate cannot
+/// tell those apart from indexes this same binary creates, so queries always use `+0` and
+/// an index that stored `-0` needs `REINDEX`.
+#[inline]
+pub(crate) fn canonical_signed_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
+}
+
 impl Eq for PdbOwnedValue {}
 
 /// Agrees with the derived `PartialEq`: a float hashes by value, so `0.0` and
@@ -67,7 +84,7 @@ impl Hash for PdbOwnedValue {
             PdbOwnedValue::PreTokStr(v) => v.text.hash(state),
             PdbOwnedValue::U64(v) => v.hash(state),
             PdbOwnedValue::I64(v) => v.hash(state),
-            PdbOwnedValue::F64(v) => (if *v == 0.0 { 0.0f64 } else { *v }).to_bits().hash(state),
+            PdbOwnedValue::F64(v) => canonical_signed_zero(*v).to_bits().hash(state),
             PdbOwnedValue::Bool(v) => v.hash(state),
             PdbOwnedValue::Date(v) => v.hash(state),
             PdbOwnedValue::Facet(v) => v.hash(state),
@@ -124,7 +141,11 @@ impl PdbOwnedValue {
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         use tantivy::columnar::MonotonicallyMappableToU64;
         match (self, other) {
-            (Self::F64(a), Self::F64(b)) => a.to_u64().cmp(&b.to_u64()),
+            // Same `+0` the term and the indexed value use. Comparing the raw bits would
+            // place a `-0` query below a segment whose minimum is `+0` and prune it.
+            (Self::F64(a), Self::F64(b)) => canonical_signed_zero(*a)
+                .to_u64()
+                .cmp(&canonical_signed_zero(*b).to_u64()),
             (Self::I64(a), Self::U64(b)) => (*a as i128).cmp(&(*b as i128)),
             (Self::U64(a), Self::I64(b)) => (*a as i128).cmp(&(*b as i128)),
             _ => {
@@ -181,7 +202,7 @@ impl PdbOwnedValue {
             PdbOwnedValue::PreTokStr(val) => OwnedValue::PreTokStr(val),
             PdbOwnedValue::U64(val) => OwnedValue::U64(val),
             PdbOwnedValue::I64(val) => OwnedValue::I64(val),
-            PdbOwnedValue::F64(val) => OwnedValue::F64(val),
+            PdbOwnedValue::F64(val) => OwnedValue::F64(canonical_signed_zero(val)),
             PdbOwnedValue::Bool(val) => OwnedValue::Bool(val),
             PdbOwnedValue::Facet(val) => OwnedValue::Facet(val),
             PdbOwnedValue::Bytes(val) => OwnedValue::Bytes(val),
@@ -649,11 +670,42 @@ mod tests {
         for pair in ordered.windows(2) {
             assert_eq!(pair[0].total_cmp(&pair[1]), Ordering::Less, "{pair:?}");
         }
+        assert_eq!(
+            PdbOwnedValue::F64(-0.0).total_cmp(&PdbOwnedValue::F64(0.0)),
+            Ordering::Equal
+        );
         // Non-numeric variants fall through to the derived order.
         assert_eq!(
             PdbOwnedValue::Str("a".into()).total_cmp(&PdbOwnedValue::Str("b".into())),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn canonical_signed_zero_collapses_only_signed_zero() {
+        assert_eq!(canonical_signed_zero(-0.0).to_bits(), 0.0f64.to_bits());
+        assert_eq!(canonical_signed_zero(0.0).to_bits(), 0.0f64.to_bits());
+        assert_eq!(canonical_signed_zero(1.5).to_bits(), 1.5f64.to_bits());
+        assert_eq!(canonical_signed_zero(-1.5).to_bits(), (-1.5f64).to_bits());
+        assert_eq!(
+            canonical_signed_zero(f64::INFINITY).to_bits(),
+            f64::INFINITY.to_bits()
+        );
+        assert_eq!(
+            canonical_signed_zero(f64::NEG_INFINITY).to_bits(),
+            f64::NEG_INFINITY.to_bits()
+        );
+        let nan = f64::from_bits(0x7ff8_0000_0000_0001);
+        assert_eq!(canonical_signed_zero(nan).to_bits(), nan.to_bits());
+
+        match PdbOwnedValue::F64(-0.0).into_tantivy_value(None) {
+            OwnedValue::F64(value) => assert_eq!(value.to_bits(), 0.0f64.to_bits()),
+            other => panic!("expected F64, got {other:?}"),
+        }
+        match PdbOwnedValue::F64(nan).into_tantivy_value(None) {
+            OwnedValue::F64(value) => assert_eq!(value.to_bits(), nan.to_bits()),
+            other => panic!("expected F64, got {other:?}"),
+        }
     }
 
     // Round-trips a value through `exact_scalar_wire` and `postcard`, the way a partition split

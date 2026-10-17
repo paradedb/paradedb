@@ -28,7 +28,7 @@ use std::ops::Bound;
 use std::str::FromStr;
 
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pdb_owned_value::{PdbOwnedValue, canonical_signed_zero};
 use crate::schema::SearchFieldType;
 use anyhow::Result;
 use decimal_bytes::Decimal;
@@ -218,9 +218,10 @@ pub fn string_to_json_numeric(value: PdbOwnedValue) -> PdbOwnedValue {
         }
     }
 
-    // For decimal values, scientific notation, or fallback, use F64
+    // For decimal values, scientific notation, or fallback, use F64.
+    // Integer text such as "-0" is handled above and becomes I64(0).
     if let Ok(f) = trimmed.parse::<f64>() {
-        return PdbOwnedValue::F64(f);
+        return PdbOwnedValue::F64(canonical_signed_zero(f));
     }
 
     value
@@ -279,7 +280,7 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
     if let PdbOwnedValue::Str(s) = &value
         && let Ok(f) = s.parse::<f64>()
     {
-        return PdbOwnedValue::F64(f);
+        return PdbOwnedValue::F64(canonical_signed_zero(f));
     }
     value
 }
@@ -493,6 +494,31 @@ mod tests {
             string_to_json_numeric(PdbOwnedValue::Str("1e10".to_string())),
             PdbOwnedValue::F64(1e10)
         );
+    }
+
+    #[test]
+    fn signed_zero_strings_become_positive_zero() {
+        match string_to_f64(PdbOwnedValue::Str("-0".into())) {
+            PdbOwnedValue::F64(value) => assert_eq!(value.to_bits(), 0.0f64.to_bits()),
+            other => panic!("expected F64, got {other:?}"),
+        }
+        match string_to_f64(PdbOwnedValue::Str("-0.0".into())) {
+            PdbOwnedValue::F64(value) => assert_eq!(value.to_bits(), 0.0f64.to_bits()),
+            other => panic!("expected F64, got {other:?}"),
+        }
+        match string_to_f64(PdbOwnedValue::Str("1.5".into())) {
+            PdbOwnedValue::F64(value) => assert_eq!(value.to_bits(), 1.5f64.to_bits()),
+            other => panic!("expected F64, got {other:?}"),
+        }
+        // A plain integer "-0" is i64 0. A decimal "-0.0" stays f64, with the sign cleared.
+        assert_eq!(
+            string_to_json_numeric(PdbOwnedValue::Str("-0".into())),
+            PdbOwnedValue::I64(0)
+        );
+        match string_to_json_numeric(PdbOwnedValue::Str("-0.0".into())) {
+            PdbOwnedValue::F64(value) => assert_eq!(value.to_bits(), 0.0f64.to_bits()),
+            other => panic!("expected F64, got {other:?}"),
+        }
     }
 
     #[test]

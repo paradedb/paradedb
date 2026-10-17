@@ -39,7 +39,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::customscan::explain::{ExplainFormat, format_for_explain};
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pdb_owned_value::{PdbOwnedValue, canonical_signed_zero};
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::pdb_query::pdb;
@@ -1766,7 +1766,7 @@ fn value_to_json_term(
             term.append_type_and_fast_value(*value);
         }
         PdbOwnedValue::F64(value) => {
-            term.append_type_and_fast_value(*value);
+            term.append_type_and_fast_value(canonical_signed_zero(*value));
         }
         PdbOwnedValue::Bool(value) => {
             term.append_type_and_fast_value(*value);
@@ -1837,7 +1837,7 @@ pub fn value_to_term(
             }
         }
         PdbOwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
-        PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
+        PdbOwnedValue::F64(f64) => Term::from_field_f64(field, canonical_signed_zero(*f64)),
         PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
         PdbOwnedValue::Date(date) => {
             if index_created_by_version.stores_datetimes_in_i64() {

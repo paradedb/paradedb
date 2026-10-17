@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pdb_owned_value::{PdbOwnedValue, canonical_signed_zero};
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
@@ -2275,6 +2275,7 @@ pub(super) fn parse_tantivy_query(
         if index_created_by_version.stores_datetimes_in_i64() {
             rewrite_timestamp_literals(&mut ast, schema);
         }
+        rewrite_signed_zero_literals(&mut ast, schema);
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
         Ok(parsed_query)
     } else {
@@ -2283,6 +2284,7 @@ pub(super) fn parse_tantivy_query(
         if index_created_by_version.stores_datetimes_in_i64() {
             rewrite_timestamp_literals(&mut ast, schema);
         }
+        rewrite_signed_zero_literals(&mut ast, schema);
         let parsed_query = parser
             .build_query_from_user_input_ast(ast)
             .map_err(|err| QueryError::ParseError(err, query_string.to_string()))?;
@@ -2302,6 +2304,85 @@ pub(super) fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &Search
         }
         UserInputAst::Boost(inner, _) => rewrite_timestamp_literals(inner, schema),
         UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema),
+    }
+}
+
+/// Rewrite a negative-zero phrase to `0` on `f64` fields.
+///
+/// Tantivy's query parser turns the phrase into an `f64` with `f64::from_str` and never
+/// calls [`value_to_term`]. A leading `-` on a bare number is a negative literal, not `NOT`,
+/// so `field:-0` arrives here as the phrase `"-0"`. Text fields are left alone: their `-0`
+/// is a token, not a float. JSON fields are left alone too; Tantivy already normalizes an
+/// integer-valued JSON number, including both zeros, to `i64` `0`.
+fn rewrite_signed_zero_literals(ast: &mut UserInputAst, schema: &SearchIndexSchema) {
+    match ast {
+        UserInputAst::Clause(children) => {
+            for (_, child) in children {
+                rewrite_signed_zero_literals(child, schema);
+            }
+        }
+        UserInputAst::Boost(inner, _) => rewrite_signed_zero_literals(inner, schema),
+        UserInputAst::Leaf(leaf) => rewrite_signed_zero_leaf(leaf, schema),
+    }
+}
+
+fn rewrite_signed_zero_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
+    match leaf {
+        UserInputLeaf::Literal(lit) => {
+            // A prefix or slop is not a complete numeric literal.
+            if lit.prefix || lit.slop > 0 {
+                return;
+            }
+            if let Some(field_name) = &lit.field_name
+                && field_stores_f64(schema, field_name)
+            {
+                canonicalize_negative_zero_phrase(&mut lit.phrase);
+            }
+        }
+        UserInputLeaf::Range {
+            field: Some(name),
+            lower,
+            upper,
+        } if field_stores_f64(schema, name) => {
+            canonicalize_negative_zero_bound(lower);
+            canonicalize_negative_zero_bound(upper);
+        }
+        UserInputLeaf::Set {
+            field: Some(name),
+            elements,
+        } if field_stores_f64(schema, name) => {
+            for element in elements {
+                canonicalize_negative_zero_phrase(element);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn field_stores_f64(schema: &SearchIndexSchema, field_name: &str) -> bool {
+    matches!(
+        schema
+            .search_field(field_name)
+            .map(|field| field.field_type()),
+        Some(SearchFieldType::F64(_))
+    )
+}
+
+fn canonicalize_negative_zero_phrase(phrase: &mut String) {
+    let Ok(value) = phrase.trim().parse::<f64>() else {
+        return;
+    };
+    if canonical_signed_zero(value).to_bits() != value.to_bits() {
+        *phrase = "0".to_string();
+    }
+}
+
+fn canonicalize_negative_zero_bound(bound: &mut UserInputBound) {
+    match bound {
+        UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
+            canonicalize_negative_zero_phrase(phrase);
+        }
+        UserInputBound::Unbounded => {}
     }
 }
 

@@ -16,7 +16,7 @@ FROM generate_series(1, 256) g;
 CREATE INDEX training_ratio_idx ON training_ratio_options
 USING paradedb (id, vec vector_l2_ops)
 WITH (target_segment_count = 1, mutable_segment_rows = 0,
-      vector_fields = '{"vec":{"quantization":false}}');
+      quantization = '0');
 -- Sampling and leaf size are independent settings.
 ALTER INDEX training_ratio_idx SET (max_leaf_size = 20, training_sample_ratio = 0.25);
 SELECT reloptions @> ARRAY['max_leaf_size=20', 'training_sample_ratio=0.25']

@@ -138,6 +138,18 @@ pub enum VectorQuantizationConfig {
 }
 
 impl VectorQuantizationConfig {
+    pub fn parse(value: &str) -> Result<Self> {
+        if value.trim() == "0" {
+            return Ok(Self::Enabled(false));
+        }
+        let layers = serde_json::from_str::<Vec<u8>>(value).map_err(|_| {
+            anyhow::anyhow!("quantization must be 0 or an array of layer widths, such as [1,1]")
+        })?;
+        let config = Self::Explicit { layers };
+        config.validate()?;
+        Ok(config)
+    }
+
     /// Returns the enabled layer widths.
     pub fn layers(&self) -> Option<Vec<u8>> {
         match self {
@@ -306,28 +318,6 @@ impl SearchFieldConfig {
         match config {
             SearchFieldConfig::Date { .. } => Ok(config),
             _ => Err(anyhow::anyhow!("Expected Date configuration")),
-        }
-    }
-
-    /// Parses a vector-field configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the JSON shape or quantization schedule is invalid.
-    pub fn vector_from_json(value: serde_json::Value) -> Result<Self> {
-        let config: Self = serde_json::from_value(json!({
-            "Vector": value
-        }))?;
-        match &config {
-            SearchFieldConfig::Vector {
-                quantization: Some(quantization),
-                ..
-            } => {
-                quantization.validate()?;
-                Ok(config)
-            }
-            SearchFieldConfig::Vector { .. } => Ok(config),
-            _ => Err(anyhow::anyhow!("Expected Vector configuration")),
         }
     }
 
@@ -793,64 +783,49 @@ mod tests {
     }
 
     #[test]
-    fn vector_quantization_accepts_default_and_explicit_schedules() {
-        let omitted = SearchFieldConfig::vector_from_json(json!({})).unwrap();
-        assert_eq!(omitted.clone().quantization_layers(), None);
+    fn vector_quantization_defaults_and_schedules() {
         assert_eq!(
-            omitted
-                .clone()
-                .resolve_vector_defaults(MIN_QUANTIZATION_DIMENSIONS)
-                .quantization_layers(),
+            SearchFieldConfig::default_vector(MIN_QUANTIZATION_DIMENSIONS).quantization_layers(),
             Some(vec![1, 1])
         );
         assert_eq!(
-            omitted
-                .resolve_vector_defaults(MIN_QUANTIZATION_DIMENSIONS - 1)
+            SearchFieldConfig::default_vector(MIN_QUANTIZATION_DIMENSIONS - 1)
                 .quantization_layers(),
             None
         );
-
-        let defaults = SearchFieldConfig::vector_from_json(json!({
-            "quantization": true
-        }))
-        .unwrap();
-        assert_eq!(defaults.quantization_layers(), Some(vec![1, 1]));
-
-        let disabled = SearchFieldConfig::vector_from_json(json!({
-            "quantization": false
-        }))
-        .unwrap();
-        assert_eq!(disabled.quantization_layers(), None);
-
-        let explicit = SearchFieldConfig::vector_from_json(json!({
-            "quantization": { "layers": [1, 4, 3] }
-        }))
-        .unwrap();
-        assert_eq!(explicit.quantization_layers(), Some(vec![1, 4, 3]));
+        for (value, expected) in [
+            ("0", None),
+            (" 0 ", None),
+            ("[1,1]", Some(vec![1, 1])),
+            ("[1,4,3]", Some(vec![1, 4, 3])),
+            ("[4,1]", Some(vec![4, 1])),
+            (" [ 2 ] ", Some(vec![2])),
+        ] {
+            assert_eq!(
+                VectorQuantizationConfig::parse(value).unwrap().layers(),
+                expected
+            );
+        }
     }
 
     #[test]
-    fn vector_quantization_validates_layer_count_width_and_order() {
-        let too_many = SearchFieldConfig::vector_from_json(json!({
-            "quantization": { "layers": [1, 1, 1, 1] }
-        }))
-        .unwrap_err();
-        assert!(
-            too_many
-                .to_string()
-                .contains("layer count 4 must be in 1..=3")
-        );
-
-        let grid_first = SearchFieldConfig::vector_from_json(json!({
-            "quantization": { "layers": [4, 1] }
-        }))
-        .unwrap();
-        assert_eq!(grid_first.quantization_layers(), Some(vec![4, 1]));
-
-        let wide = SearchFieldConfig::vector_from_json(json!({
-            "quantization": { "layers": [1, 5] }
-        }))
-        .unwrap_err();
-        assert!(wide.to_string().contains("supported range is 1..=4"));
+    fn vector_quantization_rejects_invalid_schedules() {
+        for value in [
+            "",
+            "1",
+            "true",
+            "false",
+            "[]",
+            "[0,0]",
+            "[1,0]",
+            "[5]",
+            "[-1]",
+            "[1,1,1,1]",
+            "[1.5]",
+            "[1,]",
+            r#"{"layers":[1,1]}"#,
+        ] {
+            assert!(VectorQuantizationConfig::parse(value).is_err(), "{value}");
+        }
     }
 }

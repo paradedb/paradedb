@@ -1,5 +1,6 @@
 click==8.3.0
 duckdb==1.4.3
+httpx2==2.13.1
 numpy==2.3.4
 openai==3.31.0
 psycopg[binary]==3.2.10

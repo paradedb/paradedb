@@ -28,6 +28,7 @@ class FakeFiles:
     def __init__(self):
         self.contents = {}
         self.with_streaming_response = self
+        self.fail_after_line = None
 
     def create(self, *, file, purpose):
         """Capture the exact submitted JSONL payload."""
@@ -39,7 +40,16 @@ class FakeFiles:
     def content(self, file_id):
         """Provide the SDK's streaming response interface."""
         response = io.StringIO(self.contents[file_id])
-        response.iter_lines = lambda: iter(response)
+
+        def lines():
+            for line in response:
+                yield line
+                if self.fail_after_line:
+                    error = self.fail_after_line
+                    self.fail_after_line = None
+                    raise error
+
+        response.iter_lines = lines
         return response
 
 
@@ -319,6 +329,69 @@ class HNEmbeddingTests(unittest.TestCase):
         self.assertEqual(
             sum(part["rows"] for part in progress["parts"]), len(requests) - 1
         )
+
+    def test_streaming_disconnect_retries_without_duplicate_vectors_or_submissions(
+        self,
+    ):
+        """Restart a partially consumed output file without repeating paid requests."""
+        embed.BatchRunner(self.store, self.client).advance()
+        for batch_id in self.client.jobs:
+            self.client.complete(batch_id)
+        self.client.files.fail_after_line = embed.httpx2.RemoteProtocolError(
+            "peer closed connection without sending complete message body"
+        )
+        with (
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep") as sleep,
+            patch(
+                "sys.argv",
+                [
+                    "embed_hn.py",
+                    "advance",
+                    "--directory",
+                    str(self.directory),
+                    "--max-seconds",
+                    "60",
+                ],
+            ),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        sleep.assert_called_once()
+        self.assertEqual(self.client.create_calls, len(self.plan["units"]))
+        manifest = json.loads((self.directory / "embeddings.json").read_text())
+        hashes = [
+            row["input_sha256"]
+            for part in manifest["parts"]
+            for row in pq.read_table(self.directory / part["path"]).to_pylist()
+        ]
+        self.assertEqual(len(hashes), self.plan["counts"]["unique_inputs"])
+        self.assertEqual(len(set(hashes)), len(hashes))
+
+    def test_streaming_retry_stops_at_deadline_and_preserves_checkpoint(self):
+        """Leave incomplete downloads unpublished when there is no retry time left."""
+        embed.BatchRunner(self.store, self.client).advance()
+        for batch_id in self.client.jobs:
+            self.client.complete(batch_id)
+        before = (self.directory / "state.json").read_bytes()
+        self.client.files.fail_after_line = embed.httpx2.ReadTimeout("read timed out")
+        with (
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep") as sleep,
+            patch(
+                "sys.argv",
+                ["embed_hn.py", "advance", "--directory", str(self.directory)],
+            ),
+            self.assertRaises(embed.httpx2.ReadTimeout),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        sleep.assert_not_called()
+        self.assertEqual((self.directory / "state.json").read_bytes(), before)
+        self.assertFalse((self.directory / "embeddings.json").exists())
+        self.assertEqual(list((self.directory / "vectors").glob("*.parquet")), [])
+        self.assertTrue(embed.BatchRunner(self.store, self.client).advance())
+        self.assertEqual(self.client.create_calls, len(self.plan["units"]))
 
     def test_lost_create_response_is_recovered_by_metadata(self):
         """Recover an accepted job without making a second paid create call."""

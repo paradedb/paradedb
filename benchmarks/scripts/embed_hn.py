@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["duckdb==1.4.3", "pyarrow==21.0.0", "tiktoken==0.12.0", "openai==3.31.0"]
+# dependencies = [
+#   "duckdb==1.4.3", "pyarrow==21.0.0", "tiktoken==0.12.0",
+#   "openai==3.31.0", "httpx2==2.13.1",
+# ]
 # ///
 """Submit and collect resumable HN embedding batches, with optional S3 checkpoints."""
 
@@ -20,6 +23,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+import httpx2
 import openai
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -519,13 +523,40 @@ def main():
             runner = BatchRunner(store, client)
             deadline = time.monotonic() + args.max_seconds
             while True:
+                rows = sum(
+                    part["rows"]
+                    for progress in runner.state["units"].values()
+                    for part in progress["parts"]
+                )
+                completed = sum(
+                    len(
+                        runner.state["units"]
+                        .get(unit["sha256"], {})
+                        .get("completed", [])
+                    )
+                    == unit["requests"]
+                    for unit in runner.plan["units"]
+                )
+                print(
+                    f"Embedding progress: {completed}/{len(runner.plan['units'])} "
+                    f"request files collected; {rows:,}/"
+                    f"{runner.plan['counts']['unique_inputs']:,} vectors saved",
+                    flush=True,
+                )
                 try:
                     complete = runner.advance(
                         args.max_active, args.max_pending_tokens, args.max_attempts
                     )
-                except openai.RateLimitError:
+                except (
+                    openai.RateLimitError,
+                    openai.APIConnectionError,
+                    httpx2.TimeoutException,
+                    httpx2.NetworkError,
+                    httpx2.RemoteProtocolError,
+                ) as error:
                     print(
-                        "Batch queue rate limited; retrying from the saved checkpoint",
+                        f"Transient {type(error).__name__}; "
+                        "retrying from the saved checkpoint",
                         flush=True,
                     )
                     if time.monotonic() >= deadline:

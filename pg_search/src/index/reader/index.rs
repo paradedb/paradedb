@@ -1665,10 +1665,14 @@ impl SearchIndexReader {
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
                 let max_scan_levels = crate::gucs::vector_max_scan_levels();
+                let quantized_recall = crate::gucs::vector_quantized_recall();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
+                        cluster_stats: crate::gucs::vector_cluster_stats(),
+                        quantized_recall,
+                        min_probe_clusters: crate::gucs::vector_cluster_min_probe(),
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         router_recall_target: crate::gucs::vector_router_recall_target(),
                         recall_target: crate::gucs::vector_recall_target(),

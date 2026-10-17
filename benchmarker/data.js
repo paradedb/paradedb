@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792202120473,
+  "lastUpdate": 1792202136391,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -19194,6 +19194,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 374.5406570588257,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e756ed4bdef0109d91554755ca21a0fa23385826",
+          "message": "perf: size default segments by query parallelism and partition keys (#6874)\n\nSize automatic segment targets as max(4, max_parallel_workers_per_gather) * max(1, len(partition_by)), preserving explicit target overrides. Update documentation and test coverage.\n\nUpgrade the benchmark DuckDB dependency to resolve ZIP audit failures and refresh the Nix Cargo hash. All PR checks pass, including PostgreSQL 15–18, upgrade tests, lint, docs, and coverage.",
+          "timestamp": "2026-10-16T18:12:42-07:00",
+          "tree_id": "d0218f07eaa2b1405ac439b5e822ba45dfbede45",
+          "url": "https://github.com/paradedb/paradedb/commit/e756ed4bdef0109d91554755ca21a0fa23385826"
+        },
+        "date": 1792202124862,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 529.0005149266996,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 506.9692719570114,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 136.49626956345267,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 248.89195023879552,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 373.0637006124347,
             "unit": "queries/s"
           }
         ]

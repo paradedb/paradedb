@@ -334,6 +334,13 @@ pub enum Clamped {
 pub fn clamp_to_int_domain(value: &PdbOwnedValue, field_type: &SearchFieldType) -> Option<Clamped> {
     let domain = IntDomain::of(field_type)?;
     let decimal = value_to_decimal(value).ok()?;
+    // `Decimal` reads a string with no digits, such as "" or "-", as zero, but it is not a number.
+    // The check is on zero because `NaN` and `Infinity` have no digits either.
+    if decimal.is_zero()
+        && matches!(value, PdbOwnedValue::Str(s) if !s.contains(|c: char| c.is_ascii_digit()))
+    {
+        return None;
+    }
     Some(if decimal < Decimal::from(domain.min()) {
         Clamped::Below(domain.value(domain.min()))
     } else if decimal > Decimal::from(domain.max()) {
@@ -712,6 +719,9 @@ mod tests {
     #[case::exponent(INT8, text("1e3"), Exact(int(1000)))]
     #[case::exponent_above_max(INT8, text("1e19"), Above(int(i64::MAX)))]
     #[case::trailing_zeros(INT8, text("5.000"), Exact(int(5)))]
+    #[case::zero(INT8, int(0), Exact(int(0)))]
+    #[case::zero_string(INT8, text("-0.0"), Exact(int(0)))]
+    #[case::exponent_only(INT8, text("e5"), Exact(int(0)))]
     #[case::fraction(INT8, float(2.5), Above(int(2)))]
     #[case::negative_fraction(INT8, float(-2.5), Above(int(-3)))]
     #[case::small_negative_fraction(INT8, text("-0.001"), Above(int(-1)))]
@@ -728,6 +738,7 @@ mod tests {
     #[case::tiny_exponent(INT8, text("1e-400"), Above(int(0)))]
     #[case::tiny_negative_exponent(INT8, text("-1e-400"), Above(int(-1)))]
     #[case::infinity(INT8, text("Infinity"), Above(int(i64::MAX)))]
+    #[case::negative_infinity_string(INT8, text("-inf"), Below(int(i64::MIN)))]
     #[case::negative_infinity(INT8, float(f64::NEG_INFINITY), Below(int(i64::MIN)))]
     #[case::nan(INT8, text("NaN"), Above(int(i64::MAX)))]
     #[case::float_nan(INT8, float(f64::NAN), Above(int(i64::MAX)))]
@@ -752,6 +763,11 @@ mod tests {
 
     #[rstest]
     #[case::word(INT8, text("abc"))]
+    #[case::empty(INT8, text(""))]
+    #[case::blank(INT8, text(" "))]
+    #[case::minus(INT8, text("-"))]
+    #[case::plus(INT8, text("+"))]
+    #[case::point(INT8, text("."))]
     #[case::date(INT8, text("2024-01-01"))]
     #[case::beyond_numeric(INT8, text("1e200000"))]
     #[case::bool(INT8, PdbOwnedValue::Bool(true))]

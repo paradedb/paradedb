@@ -564,7 +564,10 @@ fn int_range_fields(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn non_numeric_bound_on_an_integer_field(mut conn: PgConnection) {
+fn non_numeric_bound_on_an_integer_field(
+    mut conn: PgConnection,
+    #[values("abc", "", " ", "-")] bound: &str,
+) {
     r#"
     CREATE TABLE words (id SERIAL PRIMARY KEY, x BIGINT);
     INSERT INTO words (x) VALUES (1);
@@ -572,8 +575,10 @@ fn non_numeric_bound_on_an_integer_field(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let result = r#"SELECT id FROM words WHERE id @@@ '{"range":{"field":"x","lower_bound":{"included":"abc"},"upper_bound":null}}'::jsonb"#
-        .fetch_result::<(i32,)>(&mut conn);
+    let result = format!(
+        r#"SELECT id FROM words WHERE id @@@ '{{"range":{{"field":"x","lower_bound":{{"included":"{bound}"}},"upper_bound":null}}}}'::jsonb"#
+    )
+    .fetch_result::<(i32,)>(&mut conn);
     let error = result.expect_err("a bound that is not a number should be an error");
     assert!(error.to_string().contains("is not a number"), "{error}");
 }

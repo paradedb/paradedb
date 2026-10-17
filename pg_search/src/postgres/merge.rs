@@ -489,57 +489,66 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     } else {
         None
     };
-    loop {
+    let mut wake_registration = mutable_slot
+        .as_ref()
+        .map(|_| crate::postgres::mutable_wakeup::Registration::new(args.index_oid()));
+    'work: loop {
         check_for_interrupts!();
         if BackgroundWorker::sighup_received() {
             pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
         }
         if mutable_slot.is_some() {
-            let collect = BackgroundWorker::transaction(|| {
-                if VacuumSignal::new(args.index_oid()).wants_cancel() {
-                    return None;
+            let mut deadline = None;
+            loop {
+                pg_sys::ResetLatch(pg_sys::MyLatch);
+                let collect = BackgroundWorker::transaction(|| {
+                    if VacuumSignal::new(args.index_oid()).wants_cancel() {
+                        return None;
+                    }
+                    let index = PgSearchRelation::try_open(
+                        args.index_oid(),
+                        pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                    )?;
+                    if !index.is_valid() || index.options().background_layer_sizes().is_empty() {
+                        return None;
+                    }
+                    let metadata = MetaPage::open(&index);
+                    let frozen = metadata.segment_metas().list(None).iter().any(|entry| {
+                        entry.visible()
+                            && matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if content.frozen)
+                    });
+                    Some(!frozen)
+                });
+                let Some(collect) = collect else {
+                    break 'work;
+                };
+                if !collect {
+                    break;
                 }
-                let index = PgSearchRelation::try_open(
-                    args.index_oid(),
-                    pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-                )?;
-                if !index.is_valid() || index.options().background_layer_sizes().is_empty() {
-                    return None;
+                let deadline =
+                    deadline.get_or_insert_with(|| Instant::now() + MUTABLE_FLUSH_INTERVAL);
+                if Instant::now() >= *deadline {
+                    break;
                 }
-                let metadata = MetaPage::open(&index);
-                Some(!metadata.segment_metas().list(None).iter().any(|entry| {
-                    entry.visible()
-                        && matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if content.frozen)
-                }))
-            });
-            let Some(collect) = collect else {
-                break;
-            };
-            if collect {
                 assert!(
                     !pg_sys::IsTransactionState()
                         && (*pg_sys::MyProc).xmin == pg_sys::InvalidTransactionId,
                     "mutable collection must not retain a transaction or xmin"
                 );
-                // Keep only the worker slot while collecting; latch wakeups do not extend the deadline.
-                let deadline = Instant::now() + MUTABLE_FLUSH_INTERVAL;
-                while Instant::now() < deadline {
-                    pg_sys::ResetLatch(pg_sys::MyLatch);
-                    check_for_interrupts!();
-                    if BackgroundWorker::sighup_received() {
-                        pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
-                    }
-                    pg_sys::WaitLatch(
-                        pg_sys::MyLatch,
-                        (pg_sys::WL_LATCH_SET | pg_sys::WL_TIMEOUT | pg_sys::WL_EXIT_ON_PM_DEATH)
-                            as i32,
-                        deadline
-                            .saturating_duration_since(Instant::now())
-                            .as_millis()
-                            .max(1) as _,
-                        pg_sys::PG_WAIT_EXTENSION,
-                    );
+                check_for_interrupts!();
+                if BackgroundWorker::sighup_received() {
+                    pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
                 }
+                pg_sys::WaitLatch(
+                    pg_sys::MyLatch,
+                    (pg_sys::WL_LATCH_SET | pg_sys::WL_TIMEOUT | pg_sys::WL_EXIT_ON_PM_DEATH)
+                        as i32,
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as _,
+                    pg_sys::PG_WAIT_EXTENSION,
+                );
             }
         }
         let merged = BackgroundWorker::transaction(|| {
@@ -643,6 +652,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             drop(merge_lock);
             if !pending {
                 // Recheck after releasing ownership so a concurrent append cannot lose its wakeup.
+                drop(wake_registration.take());
                 drop(mutable_slot.take());
                 let merge_lock = metadata.acquire_merge_lock();
                 let appended = has_unclaimed_mutable_segments(&metadata, &merge_lock, false);
@@ -658,6 +668,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             break;
         }
     }
+    drop(wake_registration);
     BackgroundWorker::transaction(|| drop(mutable_slot));
 }
 

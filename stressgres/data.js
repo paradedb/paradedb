@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792224509736,
+  "lastUpdate": 1792224527504,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -472142,6 +472142,106 @@ window.BENCHMARK_DATA = {
             "value": 45.25390625,
             "unit": "median mem",
             "extra": "avg mem: 44.62503257461301, max mem: 59.25390625, count: 59239"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fa7c743237bafd2e5fa96f19ea311bc98be384a4",
+          "message": "feat: stream IVF training by bumping tantivy to TrainingSource (#6795)\n\n# Ticket(s) Closed\n\n- N/A. Picks up\n[paradedb/tantivy#318](https://github.com/paradedb/tantivy/pull/318) and\n[paradedb/superkmeans-rs#24](https://github.com/paradedb/superkmeans-rs/pull/24),\nboth merged.\n\n## What\n\nBumps tantivy to `101c4337` (tantivy#318) and `superkmeans-rs` to\n`ced81ac6` (superkmeans-rs#24). IVF merges now train within a memory\nlimit instead of decoding the whole training sample up front. pg_search\nsets that limit from `maintenance_work_mem`.\n\n## Why\n\nSince #6802, pg_search uses tantivy's built-in `SuperKMeansClusterer`.\nBefore tantivy#318, a merge decoded its entire training sample into one\nmatrix. At the default `training_sample_ratio` of 0.32 that's about 1.6\nGB for SIFT-10M, and it was the merge's peak memory, with no relation to\nany Postgres setting. CREATE INDEX and VACUUM already budget their\nmemory with `maintenance_work_mem`, so the clusterer should use the same\nbudget.\n\n## How\n\n- **tantivy#318.** The clusterer reads vectors through a replayable\n`VectorSource` and sizes everything it holds from a memory limit:\n- Train and assign read vectors into batches the clusterer owns, so the\nsource keeps no decoded rows.\n- The meso step keeps as much of the sample decoded as the limit allows\nand streams only the remainder on each pass. A sample that fits is read\nonce.\n- The fine step either regroups a fully kept sample in place, or reads\nmeso clusters back in groups that fit the limit. Reads are in storage\norder, with merged block reads.\n- The limit changes how the sample is read, not the centroids. A tantivy\ntest checks that different limits produce bit-identical centroids.\n- The `paradedb::ivf_build` log line reports `train_reads`,\n`assign_reads` and `encode_reads` separately.\n- **superkmeans-rs#24.** Adds the streaming k-means API tantivy uses. It\nalso skips the meso rotation when pruning can't engage, and normalizes\nangular centroids that skip k-means.\n- **`set_ivf_clusterer`** (`pg_search/src/index/mod.rs`) passes\n`maintenance_work_mem` (kB, converted to bytes) as the clusterer's\nmemory limit. It also builds the clusterer with\n`SuperKMeansClusterer::new()` instead of `default()`.\n- **Pins:**\n- The workspace's `tantivy`, `tantivy-common` and\n`tantivy-tokenizer-api` move to `101c4337`.\n- pg_search's own `superkmeans-rs` dependency only selects the BLAS\nbackend (Accelerate or OpenBLAS) for tantivy's copy. It moves to\n`ced81ac6`, the same commit tantivy pins. Cargo shares features only\nbetween identical sources, so this keeps one superkmeans build with BLAS\nenabled. `cargo tree -i superkmeans-rs` shows a single 0.3.0.\n  - `nix/pg_search.nix` gets the regenerated `cargoHash`.\n\n## Tests\n\n- `cargo check -p pg_search --all-targets` passes.\n- `cargo test -p pg_search --lib vector` passes: 17 tests.\n- tantivy#318: `vector::` (244 tests) and `vector_memory` pass,\nincluding the streaming, prefix-cache, grouped-read and limit-invariance\ntests for `SuperKMeansClusterer`.\n- Cohere-1M (768d), `maintenance_work_mem = 1638MB`, 2 cores, 4 GB\ncontainer. CREATE INDEX finalize, from pdbench, on images built from\nearlier commits of this branch:\n\n  | Build | Finalize | Disk read | Peak memory |\n  |---|---|---|---|\n| v0.26.0, in-memory training (3 runs) | 354–423s | 6.6–7.2 GB | 2.7–3.0\nGB |\n| Streaming, before grouped reads and the prefix cache (3 runs) |\n332–383s | 8.4–10.3 GB | 3.3–3.4 GB |\n  | Streaming, grouped fine reads | 358s | 8.3 GB | 4.16 GB |\n| Streaming, prefix cache and owned batches | 362s | 4.2 GB | 3.08 GB |\n\nTraining and assign take about 105s, down from about 150s. The 983 MB\nsample is read once, and the meso passes and fine step run at about 200%\nCPU with no reads. Total time hasn't moved. Before training, about 70s\ngoes to building the initial segments. After assign, about 190s goes to\nthe encode/write tail, which writes about 14.6 GB at 60–70% CPU and\nlooks write-bound. Neither part is changed here.\n- Still to run: SIFT-10M, where the sample doesn't fit in\n`maintenance_work_mem`, comparing build time, reads and peak memory with\n`main`. The new per-phase read counts in the `ivf_build` log will show\nthe cost of re-reading the sample.\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-17T03:02:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/fa7c743237bafd2e5fa96f19ea311bc98be384a4"
+        },
+        "date": 1792224517301,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.373899036501627, max cpu: 4.712813, count: 59211"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.274121230641267, max mem: 20.29296875, count: 59211"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.168518314233403, max cpu: 4.7737446, count: 59211"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 19.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.659000227998177, max mem: 19.66796875, count: 59211"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.027279591644852, max cpu: 32.796486, count: 59211"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.368119284212394, max mem: 22.44921875, count: 59211"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.909526946007, max document_count: 10002.0, count: 59211"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.929996115587, max document_count: 10002.0, count: 59211"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59211"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.445808305975333, max cpu: 32.65306, count: 59211"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 46.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.48893047744507, max mem: 60.109375, count: 59211"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.443804,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.36831953446546, max cpu: 32.876713, count: 59211"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 45.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.56980247283022, max mem: 59.48828125, count: 59211"
           }
         ]
       }

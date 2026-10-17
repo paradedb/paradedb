@@ -47,6 +47,7 @@ use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterEx
 use crate::scan::CtidResolver;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
+use crate::scan::rank_join_exec::RankJoinExec;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
@@ -61,6 +62,7 @@ const TAG_VISIBILITY_FILTER: u8 = 4;
 const TAG_TANTIVY_FETCH: u8 = 5;
 const TAG_SEGMENTED_TOPK: u8 = 6;
 const TAG_TANTIVY_DECODE: u8 = 7;
+const TAG_RANK_JOIN: u8 = 8;
 
 /// [`PhysicalExtensionCodec`] for the `pg_search` custom execs, carrying the runtime context a
 /// worker needs to rebuild them. Encode is context-free (the leader serializes the recipe);
@@ -150,6 +152,9 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     proto_converter,
                 )
             }
+            TAG_RANK_JOIN => {
+                RankJoinExec::decode_for_dispatch(payload, inputs, ctx, proto_converter)
+            }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
             ))),
@@ -185,6 +190,11 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
             buf.extend_from_slice(&topk.encode_for_dispatch(proto_converter)?);
+            return Ok(());
+        }
+        if let Some(rank_join) = node.downcast_ref::<RankJoinExec>() {
+            buf.push(TAG_RANK_JOIN);
+            buf.extend_from_slice(&rank_join.encode_for_dispatch(proto_converter)?);
             return Ok(());
         }
         Err(DataFusionError::NotImplemented(format!(

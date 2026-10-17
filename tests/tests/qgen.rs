@@ -1909,3 +1909,133 @@ async fn generated_pdb_agg_single_table(database: Db) {
         ))?;
     });
 }
+
+/// Property test for top-K scored and fast-field-ordered joins comparing `HashJoinExec`
+/// (`paradedb.enable_rank_join = off`) against `RankJoinExec` (`paradedb.enable_rank_join = on`,
+/// `paradedb.rank_join_min_rows = 0`).
+#[rstest]
+#[tokio::test]
+async fn generated_rank_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 40), ("products", 40), ("orders", 40)];
+    let all_tables: Vec<String> = tables_and_sizes
+        .iter()
+        .map(|(table, _)| table.to_string())
+        .collect();
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let where_columns = columns_named(vec!["name", "color"]);
+    let join_key_columns = columns_named(vec!["id", "age"]);
+
+    let join_and_where_strategy = (2..=all_tables.len()).prop_flat_map(move |num_tables| {
+        let joined = all_tables[..num_tables].to_vec();
+        let table_wheres: Vec<_> = joined
+            .iter()
+            .map(|t| arb_wheres(vec![t.clone()], &where_columns).boxed())
+            .collect();
+        (
+            arb_joins(Just(JoinType::Inner), joined.clone(), &join_key_columns),
+            table_wheres,
+            arb_joinscan_order_parts(joined, false),
+        )
+    });
+
+    proptest!(qgen_proptest_config(), |(
+        (join, table_wheres, mut order_parts) in join_and_where_strategy,
+        disjunctive in proptest::bool::ANY,
+        scored_tables in prop_oneof![Just(0usize), Just(1usize), Just(usize::MAX)],
+        descending in proptest::bool::ANY,
+        limit in 1..=25usize,
+        offset in 0..=10usize,
+        mut gucs in any::<PgGucs>(),
+    )| {
+        let join_clause = join.to_sql();
+        let used_tables = join.used_tables();
+        let first_table = used_tables[0];
+
+        let where_sep = if disjunctive { " OR " } else { " AND " };
+        let where_bm25 = table_wheres
+            .iter()
+            .map(|w| format!("({})", w.to_sql("@@@")))
+            .collect::<Vec<_>>()
+            .join(where_sep);
+
+        // Disjunctive score joins require scoring all tables; conjunctive joins also test
+        // single-sided score (`scored_tables == 1`) and fast-field (`scored_tables == 0`) sorts.
+        let n_scored = if disjunctive {
+            used_tables.len()
+        } else {
+            scored_tables.min(used_tables.len())
+        };
+        let lead_order = if n_scored == 0 {
+            let dir = if descending { "DESC" } else { "ASC" };
+            format!("{first_table}.quantity {dir}")
+        } else {
+            let sum = used_tables[..n_scored]
+                .iter()
+                .map(|t| format!("pdb.score({t}.id)"))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            format!("{sum} DESC")
+        };
+        order_parts.insert(0, lead_order);
+        let order_by = order_parts.join(", ");
+
+        let bm25_query = format!(
+            "SELECT {first_table}.id, {first_table}.name {join_clause} \
+             WHERE {where_bm25} \
+             ORDER BY {order_by} \
+             LIMIT {limit} OFFSET {offset}"
+        );
+
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
+        gucs.parallel_workers = false;
+        gucs.range_partitioned_join = false;
+
+        let base_gucs = gucs.set();
+        let sides = Sides {
+            baseline: format!("{base_gucs}SET paradedb.enable_rank_join TO off;\n"),
+            candidate: format!(
+                "{base_gucs}SET paradedb.enable_rank_join TO on;\n\
+                 SET paradedb.rank_join_min_rows TO 0;\n"
+            ),
+        };
+
+        qgen_oracle!(
+            "qgen: generated_rank_join - RankJoinExec matches HashJoinExec",
+            compare_outcome_retrying_on(
+                &sides,
+                &bm25_query,
+                &bm25_query,
+                &gucs,
+                &pool,
+                &setup_sql,
+                |query, _, conn| query.fetch_result::<(i64, String)>(conn),
+            )
+        )?;
+
+        if !join.has_keyless_step()
+            && !join_clause.contains(" AND ")
+            && table_wheres
+                .iter()
+                .all(|w| matches!(w, WhereExpr::Atom { is_indexed: true, .. }))
+        {
+            qgen_oracle!(
+                "qgen: generated_rank_join - RankJoinExec planned",
+                compare_plan_retrying(
+                    &bm25_query,
+                    &bm25_query,
+                    &gucs,
+                    &pool,
+                    &setup_sql,
+                    &["RankJoinExec"],
+                    &[],
+                )
+            )?;
+        }
+    });
+}

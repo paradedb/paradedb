@@ -1544,9 +1544,12 @@ impl CustomScan for JoinScan {
                         OrderByFeature::Score { rti } => {
                             format!("{} {}", score_name(rti), oi.direction.as_ref())
                         }
-                        OrderByFeature::ScoreSum { rtis } => {
-                            let scores: Vec<String> = rtis.iter().map(score_name).collect();
-                            format!("{} {}", scores.join(" + "), oi.direction.as_ref())
+                        OrderByFeature::ScoreSum { expr, .. } => {
+                            format!(
+                                "{} {}",
+                                expr.format_with(&score_name),
+                                oi.direction.as_ref()
+                            )
                         }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
@@ -2534,6 +2537,7 @@ impl JoinScan {
         let (mut plan, multi_table_clauses) =
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
+
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
         // The planner can simplify the operator out of the quals, so the query as written counts too.

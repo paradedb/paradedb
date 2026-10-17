@@ -488,6 +488,7 @@ impl SegmentMetaEntry {
                     .unwrap_or(0);
                 if new_max_doc as usize >= row_limit {
                     content.frozen = true;
+                    unsafe { crate::postgres::mutable_wakeup::notify(indexrel.oid()) };
                 }
             }
             _ => return Err("Cannot add items to a non-mutable segment"),

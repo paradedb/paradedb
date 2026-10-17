@@ -145,6 +145,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     postgres::options::init();
     postgres::build_logging::init();
+    postgres::mutable_wakeup::init();
     gucs::init();
 
     // RegisterCustomRmgr can only be called during shared_preload_libraries init. If pg_search

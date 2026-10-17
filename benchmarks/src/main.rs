@@ -927,7 +927,7 @@ async fn sweep_query(
     query_stem: &str,
     raw_variant: &str,
     sweep: &SweepConfig,
-) -> anyhow::Result<Vec<SweepPoint>> {
+) -> anyhow::Result<Vec<SelectedPoint>> {
     // The exact top-10 depends only on filter selectivity, so variants of the same filter share
     // one ground truth (vchord ships prefilter on/off variants of each).
     let gt_stem = query_stem
@@ -958,7 +958,15 @@ async fn sweep_query(
     }
     // Resolve the variant's *other* params once; the swept one comes from the sweep per point, so
     // it needs no `[params]` entry of its own.
-    let swept = HashSet::from([sweep.param.clone()]);
+    let mut swept = HashSet::from([sweep.param.clone()]);
+    if let Some(param) = &sweep.recall_target_param {
+        if param == &sweep.param || !template_names(raw_variant).contains(param) {
+            bail!(
+                "Recall target parameter `{param}` must be distinct from the swept parameter and referenced by the query"
+            );
+        }
+        swept.insert(param.clone());
+    }
     let base_params = resolve_template_params_except(
         conn,
         &args.dataset,
@@ -968,42 +976,56 @@ async fn sweep_query(
     )
     .await?;
     let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
-    let (_, top_target) = RECALL_TARGETS[RECALL_TARGETS.len() - 1];
+    let targets = if sweep.recall_target_param.is_some() {
+        RECALL_TARGETS.as_slice()
+    } else {
+        &RECALL_TARGETS[RECALL_TARGETS.len() - 1..]
+    };
+    let mut selected = Vec::new();
+    for &(label, top_target) in targets {
+        let mut points = Vec::new();
+        for value in &sweep.values {
+            let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
+            let mut params = base_params.clone();
+            params.insert(sweep.param.clone(), resolved);
+            if let Some(param) = &sweep.recall_target_param {
+                params.insert(param.clone(), top_target.to_string());
+            }
 
-    let mut points = Vec::new();
-    for value in &sweep.values {
-        let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
-        let mut params = base_params.clone();
-        params.insert(sweep.param.clone(), resolved);
-
-        let query = substitute_vars(raw_variant, &params)?;
-        let (sets, knn_query) = split_operating_point(&query)?;
-        for stmt in &sets {
-            sqlx::query(AssertSqlSafe(stmt.as_str()))
-                .execute(&mut *conn)
-                .await
-                .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
-        }
-        let recall = score_recall(conn, &knn_query, &fixtures).await?;
-        println!("  {} = {value} -> recall {recall:.4}", sweep.param);
-        points.push(SweepPoint {
-            value: value.clone(),
-            recall,
-            query,
-        });
-        if recall >= top_target {
-            println!("  reached {top_target:.2} recall; skipping larger values");
-            break;
-        }
-        if let Some(best_recall) = recall_plateau(&points) {
-            println!(
-                "  no recall improvement across {RECALL_PLATEAU_PATIENCE} larger values \
+            let query = substitute_vars(raw_variant, &params)?;
+            let (sets, knn_query) = split_operating_point(&query)?;
+            for stmt in &sets {
+                sqlx::query(AssertSqlSafe(stmt.as_str()))
+                    .execute(&mut *conn)
+                    .await
+                    .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
+            }
+            let recall = score_recall(conn, &knn_query, &fixtures).await?;
+            println!("  {label}: {} = {value} -> recall {recall:.4}", sweep.param);
+            points.push(SweepPoint {
+                value: value.clone(),
+                recall,
+                query,
+            });
+            if recall >= top_target {
+                println!("  reached {top_target:.2} recall; skipping larger values");
+                break;
+            }
+            if let Some(best_recall) = recall_plateau(&points) {
+                println!(
+                    "  no recall improvement across {RECALL_PLATEAU_PATIENCE} larger values \
                  (best {best_recall:.4}); skipping remaining values"
-            );
-            break;
+                );
+                break;
+            }
         }
+        selected.extend(
+            select_points(&points)
+                .into_iter()
+                .filter(|point| sweep.recall_target_param.is_none() || point.label == label),
+        );
     }
-    Ok(points)
+    Ok(selected)
 }
 
 /// One selected operating point, held until latency has been measured for it so the run's summary
@@ -1052,7 +1074,7 @@ async fn expand_sweeps(
             sweep.param,
             sweep.values.len()
         );
-        let points = sweep_query(
+        let selected_points = sweep_query(
             conn,
             args,
             &config,
@@ -1062,7 +1084,7 @@ async fn expand_sweeps(
             sweep,
         )
         .await?;
-        for selected in select_points(&points) {
+        for selected in selected_points {
             if !selected.reached {
                 println!(
                     "  WARNING: no measured value reached {:.0}% recall for {}; \

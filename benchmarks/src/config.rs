@@ -67,6 +67,9 @@ pub struct SweepConfig {
     /// The name this sweep varies. The query file must reference it as `{{ param }}`; it is
     /// supplied by the sweep, so it needs no `[params]` entry.
     pub param: String,
+    /// Optional query parameter set to each requested recall target before sweeping.
+    #[serde(default)]
+    pub recall_target_param: Option<String>,
     /// Operating points to try, ordered cheapest first. Stop at the highest recall target or
     /// after three consecutive larger values fail to improve the best measured recall.
     /// Each is a SQL scalar expression, like any other param value.
@@ -205,6 +208,7 @@ mod tests {
             eps = "0.2"
             [sweeps.pg_search.knn_top10_1pct]
             param = "eps"
+            recall_target_param = "target"
             values = ["0.1", "0.2", "0.4"]
             "#,
         )
@@ -212,6 +216,7 @@ mod tests {
 
         let sweep = config.sweep_for("pg_search", "knn_top10_1pct").unwrap();
         assert_eq!(sweep.param, "eps");
+        assert_eq!(sweep.recall_target_param.as_deref(), Some("target"));
         assert_eq!(sweep.values, vec!["0.1", "0.2", "0.4"]);
         // Sweeps are per (index, query): another index sharing the query file has none.
         assert!(config.sweep_for("hnsw", "knn_top10_1pct").is_none());

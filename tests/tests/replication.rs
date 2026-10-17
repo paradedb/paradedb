@@ -1008,7 +1008,7 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
         "CREATE EXTENSION pg_search CASCADE;
         CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
         CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
-        WITH (target_segment_count=1, mutable_segment_rows=0)",
+        WITH (target_segment_count=8, mutable_segment_rows=0)",
     )
     .await?;
     let mut writers = Vec::new();
@@ -1032,7 +1032,7 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
     )
     .fetch_one(&mut conn)
     .await?;
-    anyhow::ensure!(segments <= 256, "small segment count reached {segments}");
+    anyhow::ensure!(segments <= 32, "small segment count reached {segments}");
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
         .fetch_one(&mut conn)
         .await?;

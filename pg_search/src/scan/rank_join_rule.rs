@@ -19,9 +19,10 @@
 //! `HashJoinExec` nodes into [`RankJoinExec`] and configures leaf [`PgSearchScanPlan`]s
 //! with [`LazySortConfig`].
 //!
-//! See `iterative-joins/TOPK_JOIN_OPTIMIZATION_DESIGN.md` for the three plan-time
-//! gates (Gate 1: Tantivy Top-K capability, Gate 2: score contribution balance,
-//! Gate 3: cardinality and $\sqrt{K \cdot D}$ window depth) and the monotonicity
+//! Supports two-sided conjunctive (`ScanMode::Standard`), disjunctive (`ScanMode::Tagged`),
+//! and single-sided (`NRJN`) top-K joins. See `iterative-joins/TOPK_JOIN_OPTIMIZATION_DESIGN.md`
+//! for the three plan-time gates (Gate 1: Tantivy Top-K capability, Gate 2: score contribution
+//! balance, Gate 3: minimum input cardinality `rank_join_min_rows`) and the monotonicity
 //! verification rules.
 
 use std::sync::Arc;
@@ -36,7 +37,7 @@ use datafusion::physical_expr::expressions::{BinaryExpr, CastExpr, Column, Liter
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr, ScalarFunctionExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+use datafusion::physical_plan::joins::HashJoinExec;
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::{
@@ -59,17 +60,11 @@ use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 const MAX_RANK_JOIN_K: usize = 1_000;
 
 /// Minimum ratio $\min(\Delta_L^{\max}, \Delta_R^{\max}) / \max(\Delta_L^{\max}, \Delta_R^{\max})$
-/// required by Gate 2 so heavily lopsided score queries do not force `RankJoinExec`
+/// required by Gate 2 so heavily lopsided two-sided score queries do not force `RankJoinExec`
 /// to scan the weaker-scored input to completion.
 const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
 
-/// Safety multiplier $c$ on $\sqrt{K \cdot D}$ in Gate 3.
-const WINDOW_DEPTH_MULTIPLIER: f64 = 2.0;
-
-/// Maximum fraction $\eta$ of $\min(M_L, M_R)$ that $c \cdot \sqrt{K \cdot D}$ may represent in Gate 3.
-const WINDOW_DEPTH_MAX_FRACTION: f64 = 0.10;
-
-/// Physical optimizer rule that replaces two-sided top-K scored `HashJoinExec`s with `RankJoinExec`.
+/// Physical optimizer rule that replaces top-K scored `HashJoinExec`s with `RankJoinExec`.
 #[derive(Debug, Default)]
 pub struct RankJoinRule {
     /// Optional override for `paradedb.rank_join_min_rows` in unit tests.
@@ -105,7 +100,14 @@ impl PhysicalOptimizerRule for RankJoinRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        if self.min_rows_override.is_none() && !crate::gucs::enable_rank_join() {
+        // RankJoin relies on dynamic filters (`FilterPushdown`) to prune the random-access
+        // probe side on the fly. Because cross-process dynamic filters are disabled under MPP
+        // (`with_distributed_remote_dynamic_filters(false)`), do not plan `RankJoinExec` when
+        // MPP is active.
+        if self.min_rows_override.is_none()
+            && (!crate::gucs::enable_rank_join()
+                || crate::postgres::customscan::mpp::glue::mpp_is_active())
+        {
             return Ok(plan);
         }
         let min_rows = self
@@ -140,7 +142,6 @@ impl PhysicalOptimizerRule for RankJoinRule {
 #[derive(Debug, Clone, Copy)]
 struct SubtreeScoreStats {
     estimated_rows: u64,
-    total_docs: u64,
     score_min: f64,
     score_max: f64,
 }
@@ -190,14 +191,14 @@ fn try_rewrite_under_sort(
     k: usize,
     min_rows: usize,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-    let Some(stats) = inspect_join_subtree(node, required_ordering, k, min_rows)? else {
+    let Some(_stats) = inspect_join_subtree(node, required_ordering, k, min_rows)? else {
         return Ok(None);
     };
-    let initial_window = compute_initial_window(k, stats.total_docs);
+    let initial_window = compute_initial_window(k);
     rewrite_join_subtree(node, required_ordering, k, min_rows, initial_window)
 }
 
-fn compute_initial_window(k: usize, max_total_docs: u64) -> usize {
+fn compute_initial_window(k: usize) -> usize {
     let scale_factor = if cfg!(test) {
         2
     } else {
@@ -208,9 +209,7 @@ fn compute_initial_window(k: usize, max_total_docs: u64) -> usize {
     } else {
         crate::gucs::max_topk_chunk_size().max(1) as usize
     };
-    let sqrt_kd = ((k as f64) * (max_total_docs.max(1) as f64)).sqrt().ceil() as usize;
-    let min_window = k.saturating_mul(scale_factor).max(1);
-    sqrt_kd.max(min_window).min(max_window)
+    k.saturating_mul(scale_factor).max(1).min(max_window)
 }
 
 /// Inspects a join subtree to verify Gates 1, 2, and 3 before mutating the plan.
@@ -227,7 +226,7 @@ fn inspect_join_subtree(
     let Some(join) = node.downcast_ref::<HashJoinExec>() else {
         return Ok(None);
     };
-    if !is_hash_join_eligible(join)? {
+    if !is_hash_join_eligible(join) {
         return Ok(None);
     }
 
@@ -240,18 +239,42 @@ fn inspect_join_subtree(
         return Ok(None);
     };
 
-    let Some(left_stats) =
-        inspect_child_branch(join.left(), &decomposed.left_sort_expr, k, min_rows)?
-    else {
+    let uses_left = decomposed.combiner.uses_left();
+    let uses_right = decomposed.combiner.uses_right();
+
+    // Single-sided (`NRJN`) joins disable SA on the unscored child (`initial_window = 0.0`),
+    // which is only sound when all leaf scans in the subtree use `ScanMode::Standard`
+    // (conjunctive join where every valid row matches the scored child's SA query).
+    if uses_left != uses_right && !subtree_all_standard_scans(node) {
         return Ok(None);
-    };
-    let Some(right_stats) =
-        inspect_child_branch(join.right(), &decomposed.right_sort_expr, k, min_rows)?
-    else {
-        return Ok(None);
+    }
+
+    let left_stats = if uses_left {
+        let Some(s) = inspect_child_branch(join.left(), &decomposed.left_sort_expr, k, min_rows)?
+        else {
+            return Ok(None);
+        };
+        s
+    } else {
+        let Some(s) = inspect_unscored_branch(join.left())? else {
+            return Ok(None);
+        };
+        s
     };
 
-    // Gate 2: Both tables must contribute comparably to the combined score.
+    let right_stats = if uses_right {
+        let Some(s) = inspect_child_branch(join.right(), &decomposed.right_sort_expr, k, min_rows)?
+        else {
+            return Ok(None);
+        };
+        s
+    } else {
+        let Some(s) = inspect_unscored_branch(join.right())? else {
+            return Ok(None);
+        };
+        s
+    };
+
     let f_max_max = decomposed.combiner.eval(InputScorePair {
         left: left_stats.score_max,
         right: right_stats.score_max,
@@ -265,28 +288,24 @@ fn inspect_join_subtree(
         right: right_stats.score_min,
     });
 
-    let delta_l = (f_max_max - f_min_max).abs();
-    let delta_r = (f_max_max - f_max_min).abs();
-    if delta_l <= 0.0 || delta_r <= 0.0 || !delta_l.is_finite() || !delta_r.is_finite() {
-        return Ok(None);
-    }
-    let min_delta = delta_l.min(delta_r);
-    let max_delta = delta_l.max(delta_r);
-    if min_delta < SCORE_BALANCE_THRESHOLD * max_delta {
-        return Ok(None);
+    // Gate 2: When both sides are scored, both must contribute comparably to the combined score.
+    if uses_left && uses_right {
+        let delta_l = (f_max_max - f_min_max).abs();
+        let delta_r = (f_max_max - f_max_min).abs();
+        if delta_l <= 0.0 || delta_r <= 0.0 || !delta_l.is_finite() || !delta_r.is_finite() {
+            return Ok(None);
+        }
+        let min_delta = delta_l.min(delta_r);
+        let max_delta = delta_l.max(delta_r);
+        if min_delta < SCORE_BALANCE_THRESHOLD * max_delta {
+            return Ok(None);
+        }
     }
 
-    // Gate 3: Both inputs must have enough matching rows relative to `sqrt(K * D)`.
+    // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`).
     let min_matched = left_stats.estimated_rows.min(right_stats.estimated_rows);
-    let max_total_docs = left_stats.total_docs.max(right_stats.total_docs);
-    if min_rows > 0 {
-        if min_matched < min_rows as u64 {
-            return Ok(None);
-        }
-        let est_window = WINDOW_DEPTH_MULTIPLIER * ((k as f64) * (max_total_docs as f64)).sqrt();
-        if est_window > WINDOW_DEPTH_MAX_FRACTION * (min_matched as f64) {
-            return Ok(None);
-        }
+    if min_rows > 0 && min_matched < min_rows as u64 {
+        return Ok(None);
     }
 
     let corners = [
@@ -303,9 +322,34 @@ fn inspect_join_subtree(
 
     Ok(Some(SubtreeScoreStats {
         estimated_rows: min_matched,
-        total_docs: max_total_docs,
         score_min: combined_min,
         score_max: combined_max,
+    }))
+}
+
+fn subtree_all_standard_scans(node: &Arc<dyn ExecutionPlan>) -> bool {
+    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+        return matches!(scan.scan_mode(), ScanMode::Standard { .. });
+    }
+    node.children().into_iter().all(subtree_all_standard_scans)
+}
+
+/// Inspects an unscored child branch of a single-sided (`NRJN`) join: must be a leaf
+/// `PgSearchScanPlan` (behind optional pass-through nodes) in `ScanMode::Standard`.
+fn inspect_unscored_branch(node: &Arc<dyn ExecutionPlan>) -> Result<Option<SubtreeScoreStats>> {
+    if is_passthrough_node(node) {
+        return inspect_unscored_branch(node.children()[0]);
+    }
+    let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
+        return Ok(None);
+    };
+    if !matches!(scan.scan_mode(), ScanMode::Standard { .. }) {
+        return Ok(None);
+    }
+    Ok(Some(SubtreeScoreStats {
+        estimated_rows: scan.planner_estimated_rows(),
+        score_min: 0.0,
+        score_max: 0.0,
     }))
 }
 
@@ -337,28 +381,54 @@ fn inspect_leaf_scan(
     scan: &PgSearchScanPlan,
     required_sort: &PhysicalSortExpr,
 ) -> Result<Option<SubtreeScoreStats>> {
-    // Gate 1.1: Must be `ScanMode::Standard` (not `ScanMode::Tagged`).
-    if !matches!(scan.scan_mode(), ScanMode::Standard { .. }) {
-        return Ok(None);
-    }
-
     let Some(order_by) = resolve_scan_order_by(scan, required_sort) else {
         return Ok(None);
     };
 
-    // Gate 1.2: When sorting by BM25 score, reject constant-score queries (`All`, `ConstScore`, etc.).
-    if order_by.is_score() && is_constant_score_query(scan.resolved_query()) {
-        return Ok(None);
-    }
-
-    let max_score = match &order_by.feature {
-        OrderByFeature::Score { .. } => estimate_query_max_score(scan.resolved_query()).max(1.0),
-        _ => 1.0,
+    let max_score = match scan.scan_mode() {
+        ScanMode::Standard { .. } => {
+            if order_by.is_score() && is_constant_score_query(scan.resolved_query()) {
+                return Ok(None);
+            }
+            match &order_by.feature {
+                OrderByFeature::Score { .. } => {
+                    estimate_query_max_score(scan.resolved_query()).max(1.0)
+                }
+                _ => 1.0,
+            }
+        }
+        ScanMode::Tagged {
+            base_query,
+            local_queries,
+        } => {
+            let base_has_score = !is_constant_score_query(base_query);
+            let tags_have_score = local_queries
+                .iter()
+                .any(|tq| !is_constant_score_query(&tq.query));
+            if order_by.is_score() && !base_has_score && !tags_have_score {
+                return Ok(None);
+            }
+            match &order_by.feature {
+                OrderByFeature::Score { .. } => {
+                    let mut total = if base_has_score {
+                        estimate_query_max_score(base_query)
+                    } else {
+                        0.0
+                    };
+                    for tq in local_queries {
+                        if !is_constant_score_query(&tq.query) {
+                            total += estimate_query_max_score(&tq.query);
+                        }
+                    }
+                    total.max(1.0)
+                }
+                _ => 1.0,
+            }
+        }
     };
 
     Ok(Some(SubtreeScoreStats {
         estimated_rows: scan.planner_estimated_rows(),
-        total_docs: scan.total_docs(),
         score_min: 0.0,
         score_max: max_score,
     }))
@@ -399,33 +469,35 @@ fn rewrite_join_subtree(
         return Ok(None);
     };
 
-    let Some(new_left) = rewrite_child_branch(
-        join.left(),
-        &decomposed.left_sort_expr,
-        k,
-        min_rows,
-        initial_window,
-    )?
-    else {
-        return Ok(None);
-    };
-    let Some(new_right) = rewrite_child_branch(
-        join.right(),
-        &decomposed.right_sort_expr,
-        k,
-        min_rows,
-        initial_window,
-    )?
-    else {
+    let uses_left = decomposed.combiner.uses_left();
+    let uses_right = decomposed.combiner.uses_right();
+
+    let Some(new_left) = (if uses_left {
+        rewrite_child_branch(
+            join.left(),
+            &decomposed.left_sort_expr,
+            k,
+            min_rows,
+            initial_window,
+        )?
+    } else {
+        rewrite_unscored_branch(join.left())?
+    }) else {
         return Ok(None);
     };
 
-    // If the right child has multiple partitions, use `PartitionMode::Partitioned` so each
-    // partition pulls its own co-partitioned left and right streams independently.
-    let mode = if new_right.output_partitioning().partition_count() > 1 {
-        PartitionMode::Partitioned
+    let Some(new_right) = (if uses_right {
+        rewrite_child_branch(
+            join.right(),
+            &decomposed.right_sort_expr,
+            k,
+            min_rows,
+            initial_window,
+        )?
     } else {
-        *join.partition_mode()
+        rewrite_unscored_branch(join.right())?
+    }) else {
+        return Ok(None);
     };
 
     let rank_join = RankJoinExec::try_new(
@@ -436,7 +508,7 @@ fn rewrite_join_subtree(
         join.on().to_vec(),
         join.filter().cloned(),
         join.projection.as_deref().map(<[usize]>::to_vec),
-        mode,
+        *join.partition_mode(),
         join.null_equality(),
         RankJoinSortExprs {
             left: decomposed.left_sort_expr,
@@ -447,6 +519,36 @@ fn rewrite_join_subtree(
     )?;
 
     Ok(Some(Arc::new(rank_join)))
+}
+
+fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
+    node.is::<ProjectionExec>()
+        || node.is::<VisibilityFilterExec>()
+        || node.is::<CoalescePartitionsExec>()
+        || node.is::<TantivyDecodeExec>()
+        || node.is::<TantivyFetchExec>()
+}
+
+fn rewrite_unscored_branch(
+    node: &Arc<dyn ExecutionPlan>,
+) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+    if is_passthrough_node(node) {
+        let Some(new_child) = rewrite_unscored_branch(node.children()[0])? else {
+            return Ok(None);
+        };
+        let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
+        return Ok(Some(rebuilt));
+    }
+    let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
+        return Ok(None);
+    };
+    let configured_scan = scan.clone().with_lazy_sort(LazySortConfig {
+        orderby_info: None,
+        ordering: None,
+        initial_window: 0.0,
+        shared_threshold: SharedThresholdMode::Disabled,
+    });
+    Ok(Some(Arc::new(configured_scan)))
 }
 
 fn rewrite_child_branch(
@@ -525,29 +627,12 @@ fn resolve_scan_order_by(
     Some(OrderByInfo { feature, direction })
 }
 
-fn is_hash_join_eligible(join: &HashJoinExec) -> Result<bool> {
-    if *join.join_type() != JoinType::Inner || join.null_aware || join.on().is_empty() {
-        return Ok(false);
-    }
-    let left_partitions = join.left().output_partitioning().partition_count();
-    let right_partitions = join.right().output_partitioning().partition_count();
-    if !cfg!(test)
-        && crate::postgres::customscan::mpp::glue::mpp_is_active()
-        && (left_partitions > 1 || right_partitions > 1)
-    {
-        if join.partition_mode() != &PartitionMode::Partitioned {
-            return Ok(false);
-        }
-        let children: Vec<&dyn ExecutionPlan> = vec![join.left().as_ref(), join.right().as_ref()];
-        let co_partitioned = join
-            .input_distribution_requirements()
-            .unsatisfied_co_partitioned_children(join.name(), &children)?
-            .is_empty();
-        if !co_partitioned {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+fn is_hash_join_eligible(join: &HashJoinExec) -> bool {
+    *join.join_type() == JoinType::Inner
+        && !join.null_aware
+        && !join.on().is_empty()
+        && join.left().output_partitioning().partition_count() == 1
+        && join.right().output_partitioning().partition_count() == 1
 }
 
 /// Maps `ordering` across a pass-through single-child operator (`ProjectionExec`,
@@ -1019,8 +1104,18 @@ pub(crate) fn analyze_join_score_expr(
         right_sort: None,
     };
     let combiner = state.analyze(&sort_expr.expr, MonotonicDirection::Increasing)?;
-    let left_sort_expr = state.left_sort?;
-    let right_sort_expr = state.right_sort?;
+    if !combiner.uses_left() && !combiner.uses_right() {
+        return None;
+    }
+    let dummy_zero = || PhysicalSortExpr {
+        expr: Arc::new(Literal::new(ScalarValue::Float64(Some(0.0)))),
+        options: SortOptions {
+            descending: root_descending,
+            nulls_first: false,
+        },
+    };
+    let left_sort_expr = state.left_sort.unwrap_or_else(dummy_zero);
+    let right_sort_expr = state.right_sort.unwrap_or_else(dummy_zero);
 
     Some(DecomposedJoinScore {
         left_sort_expr,
@@ -1078,6 +1173,7 @@ fn is_constant_score_pdb_query(query: &pdb::Query) -> bool {
         | pdb::Query::RangeTerm { .. }
         | pdb::Query::RangeWithin { .. }
         | pdb::Query::Regex { .. }
+        | pdb::Query::StoredRange { .. }
         | pdb::Query::TermSet { .. } => true,
         pdb::Query::ScoreAdjusted { query, score } => match score {
             Some(ScoreAdjustStyle::Const(_)) => true,
@@ -1151,11 +1247,10 @@ fn estimate_pdb_query_max_score(query: &pdb::Query) -> f64 {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use arrow_schema::Field;
-    use pgrx::prelude::*;
+    use datafusion::physical_plan::joins::PartitionMode;
 
     fn test_schemas() -> (SchemaRef, SchemaRef) {
         let left = Arc::new(Schema::new(vec![
@@ -1294,7 +1389,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[test]
     fn test_rank_join_rule_and_ensure_requirements_removes_top_sort() {
         use datafusion::common::NullEquality;
         use datafusion::physical_expr::projection::ProjectionExpr;
@@ -1399,7 +1494,7 @@ mod tests {
         assert!(right_leaf.lazy_sort().is_some());
     }
 
-    #[pg_test]
+    #[test]
     fn test_rank_join_rule_gates_reject_ineligible_plans() {
         use datafusion::common::NullEquality;
 

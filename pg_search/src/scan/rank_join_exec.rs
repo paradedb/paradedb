@@ -15,37 +15,44 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Pull-based symmetric hash rank join (`RankJoinExec`) for top-K scored joins.
+//! Pull-based symmetric hash rank join (`RankJoinExec`) combining Sorted Access (`SA`)
+//! and lazy Random Access (`RA`) point lookups (`CA` / `MPro` / `HRJN*` / `NRJN`).
 //!
-//! `RankJoinExec` consumes two score-ordered input streams (`left` and `right`),
-//! maintains in-memory hash tables on both sides, tracks the upper bound $T$ on any
-//! future unseen match using the top and current scores of both streams, and emits
-//! joined rows in combined score order as soon as their score is $\ge T$ (or $> T$
-//! when secondary tie-breaker sort expressions are present).
+//! `RankJoinExec` consumes up to two score-ordered input streams (`left` and `right`),
+//! maintains in-memory hash tables and unresolved-key frontiers on both sides, resolves
+//! blocking unmatched keys on demand via batched `RankLookupPhysicalExpr` dynamic filter
+//! point lookups (including cascading `RA` probes across nested `RankJoinExec` nodes),
+//! and emits joined rows in combined score order as soon as their score clears the
+//! upper bound $T$ on any unseen future match.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::fmt;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
-use crate::api::HashMap;
+use crate::api::{HashMap, HashSet};
+use crate::scan::pre_filter::RankLookupPhysicalExpr;
 use arrow_array::{Array, ArrayRef, BooleanArray, Float64Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{DataType, SchemaRef};
 use datafusion::arrow::compute::{cast, interleave};
 use datafusion::arrow::row::{OwnedRow, RowConverter, SortField};
-use datafusion::common::tree_node::TreeNodeRecursion;
+use datafusion::common::config::ConfigOptions;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{
-    DataFusionError, JoinSide, NullEquality, Result, internal_err, project_schema,
+    DataFusionError, JoinSide, NullEquality, Result, ScalarValue, internal_err, project_schema,
 };
-use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::JoinType;
 use datafusion::physical_expr::equivalence::{ProjectionMapping, join_equivalence_properties};
+use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr, Literal, lit};
 use datafusion::physical_expr::{
     Distribution, LexOrdering, OrderingRequirements, Partitioning, PhysicalExpr, PhysicalSortExpr,
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+    PushedDown,
+};
 use datafusion::physical_plan::joins::PartitionMode;
 use datafusion::physical_plan::joins::utils::{
     ColumnIndex, JoinFilter, JoinOn, JoinOnRef, adjust_right_output_partitioning,
@@ -55,12 +62,17 @@ use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::sorts::sort::sort_batch;
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties,
     InputDistributionRequirements, PlanProperties,
 };
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+
+/// Initial number of unresolved keys batched into an on-demand Random Access (`RA`) lookup.
+/// Scales by `topk_retry_scale_factor` on subsequent `RA` pulls up to `max_topk_chunk_size`.
+const RA_INITIAL_BATCH_SIZE: usize = 64;
 
 /// Pair of `(left, right)` input scores evaluated by [`ScoreCombiner`].
 #[derive(Debug, Clone, Copy)]
@@ -111,6 +123,38 @@ impl ScoreCombiner {
         };
         if raw.is_nan() { f64::NEG_INFINITY } else { raw }
     }
+
+    /// Returns whether the combined score depends on the left child's score (`LeftScore`).
+    pub fn uses_left(&self) -> bool {
+        match self {
+            ScoreCombiner::LeftScore => true,
+            ScoreCombiner::RightScore | ScoreCombiner::Constant(_) => false,
+            ScoreCombiner::Add(a, b)
+            | ScoreCombiner::Sub(a, b)
+            | ScoreCombiner::Mul(a, b)
+            | ScoreCombiner::Div(a, b) => a.uses_left() || b.uses_left(),
+            ScoreCombiner::Greatest(args) | ScoreCombiner::Least(args) => {
+                args.iter().any(Self::uses_left)
+            }
+            ScoreCombiner::Ln(a) | ScoreCombiner::Sqrt(a) | ScoreCombiner::Exp(a) => a.uses_left(),
+        }
+    }
+
+    /// Returns whether the combined score depends on the right child's score (`RightScore`).
+    pub fn uses_right(&self) -> bool {
+        match self {
+            ScoreCombiner::RightScore => true,
+            ScoreCombiner::LeftScore | ScoreCombiner::Constant(_) => false,
+            ScoreCombiner::Add(a, b)
+            | ScoreCombiner::Sub(a, b)
+            | ScoreCombiner::Mul(a, b)
+            | ScoreCombiner::Div(a, b) => a.uses_right() || b.uses_right(),
+            ScoreCombiner::Greatest(args) | ScoreCombiner::Least(args) => {
+                args.iter().any(Self::uses_right)
+            }
+            ScoreCombiner::Ln(a) | ScoreCombiner::Sqrt(a) | ScoreCombiner::Exp(a) => a.uses_right(),
+        }
+    }
 }
 
 /// Input plans for the left and right sides of [`RankJoinExec`].
@@ -143,6 +187,9 @@ pub struct RankJoinExec {
     pub null_equality: NullEquality,
     pub sort_exprs: RankJoinSortExprs,
     pub combiner: ScoreCombiner,
+    left_lookup_filter: Arc<dyn PhysicalExpr>,
+    right_lookup_filter: Arc<dyn PhysicalExpr>,
+    parent_lookup_filters: Vec<(JoinSide, Arc<dyn PhysicalExpr>)>,
     join_schema: SchemaRef,
     cache: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
@@ -160,6 +207,42 @@ impl RankJoinExec {
         null_equality: NullEquality,
         sort_exprs: RankJoinSortExprs,
         combiner: ScoreCombiner,
+    ) -> Result<Self> {
+        let left_keys: Vec<Arc<dyn PhysicalExpr>> = on.iter().map(|(l, _)| Arc::clone(l)).collect();
+        let right_keys: Vec<Arc<dyn PhysicalExpr>> =
+            on.iter().map(|(_, r)| Arc::clone(r)).collect();
+        let left_lookup_filter =
+            Arc::new(DynamicFilterPhysicalExpr::new(left_keys, lit(true))) as Arc<dyn PhysicalExpr>;
+        let right_lookup_filter = Arc::new(DynamicFilterPhysicalExpr::new(right_keys, lit(true)))
+            as Arc<dyn PhysicalExpr>;
+        Self::try_new_with_lookup_filters(
+            inputs,
+            on,
+            filter,
+            projection,
+            mode,
+            null_equality,
+            sort_exprs,
+            combiner,
+            left_lookup_filter,
+            right_lookup_filter,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_new_with_lookup_filters(
+        inputs: RankJoinInputs,
+        on: JoinOn,
+        filter: Option<JoinFilter>,
+        projection: Option<Vec<usize>>,
+        mode: PartitionMode,
+        null_equality: NullEquality,
+        sort_exprs: RankJoinSortExprs,
+        combiner: ScoreCombiner,
+        left_lookup_filter: Arc<dyn PhysicalExpr>,
+        right_lookup_filter: Arc<dyn PhysicalExpr>,
+        parent_lookup_filters: Vec<(JoinSide, Arc<dyn PhysicalExpr>)>,
     ) -> Result<Self> {
         let left_schema = inputs.left.schema();
         let right_schema = inputs.right.schema();
@@ -185,6 +268,9 @@ impl RankJoinExec {
             null_equality,
             sort_exprs,
             combiner,
+            left_lookup_filter,
+            right_lookup_filter,
+            parent_lookup_filters,
             join_schema,
             cache,
             metrics: ExecutionPlanMetricsSet::new(),
@@ -205,6 +291,78 @@ impl RankJoinExec {
 
     pub fn projection(&self) -> Option<&[usize]> {
         self.projection.as_deref()
+    }
+
+    /// Attempts to remap a filter expression from `self.schema()` coordinates into the schema
+    /// of `side` (`JoinSide::Left` or `JoinSide::Right`). Returns `None` if the expression
+    /// references columns outside `side`.
+    fn remap_filter_to_child_side(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        side: JoinSide,
+    ) -> Result<Option<Arc<dyn PhysicalExpr>>> {
+        let left_schema = self.inputs.left.schema();
+        let right_schema = self.inputs.right.schema();
+        let left_len = left_schema.fields().len();
+        let total_len = self.join_schema.fields().len();
+
+        let mut all_on_side = true;
+        let mut saw_col = false;
+        let _ = expr.apply(|node| {
+            if let Some(col) = node.downcast_ref::<Column>() {
+                saw_col = true;
+                let out_idx = col.index();
+                let join_idx = match &self.projection {
+                    Some(proj) => proj.get(out_idx).copied(),
+                    None => Some(out_idx),
+                };
+                let valid = match (side, join_idx) {
+                    (JoinSide::Left, Some(idx)) => idx < left_len,
+                    (JoinSide::Right, Some(idx)) => idx >= left_len && idx < total_len,
+                    _ => false,
+                };
+                if !valid {
+                    all_on_side = false;
+                    return Ok(TreeNodeRecursion::Stop);
+                }
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        if !all_on_side || !saw_col {
+            return Ok(None);
+        }
+
+        let remapped = Arc::clone(expr)
+            .transform_down(|node| {
+                if let Some(col) = node.downcast_ref::<Column>() {
+                    let out_idx = col.index();
+                    let join_idx = match &self.projection {
+                        Some(proj) => proj[out_idx],
+                        None => out_idx,
+                    };
+                    match side {
+                        JoinSide::Left => {
+                            let field = left_schema.field(join_idx);
+                            return Ok(Transformed::yes(Arc::new(Column::new(
+                                field.name(),
+                                join_idx,
+                            ))));
+                        }
+                        JoinSide::Right => {
+                            let child_idx = join_idx - left_len;
+                            let field = right_schema.field(child_idx);
+                            return Ok(Transformed::yes(Arc::new(Column::new(
+                                field.name(),
+                                child_idx,
+                            ))));
+                        }
+                        JoinSide::None => unreachable!(),
+                    }
+                }
+                Ok(Transformed::no(node))
+            })?
+            .data;
+        Ok(Some(remapped))
     }
 
     fn compute_properties(
@@ -324,6 +482,22 @@ impl RankJoinExec {
             .map(prost::Message::encode_to_vec)
             .collect();
 
+        let left_lookup_node =
+            proto_converter.physical_expr_to_proto(&self.left_lookup_filter, &codec)?;
+        let right_lookup_node =
+            proto_converter.physical_expr_to_proto(&self.right_lookup_filter, &codec)?;
+        let left_lookup_bytes = prost::Message::encode_to_vec(&left_lookup_node);
+        let right_lookup_bytes = prost::Message::encode_to_vec(&right_lookup_node);
+
+        let mut parent_lookup_bytes = Vec::with_capacity(self.parent_lookup_filters.len());
+        for (side, df) in &self.parent_lookup_filters {
+            let node = proto_converter.physical_expr_to_proto(df, &codec)?;
+            parent_lookup_bytes.push((
+                matches!(side, JoinSide::Left),
+                prost::Message::encode_to_vec(&node),
+            ));
+        }
+
         let payload = (
             on_bytes,
             filter_bytes,
@@ -334,6 +508,9 @@ impl RankJoinExec {
             right_sort_bytes,
             output_sort_bytes,
             self.combiner.clone(),
+            left_lookup_bytes,
+            right_lookup_bytes,
+            parent_lookup_bytes,
         );
         serde_json::to_vec(&payload).map_err(|e| {
             DataFusionError::Internal(format!("RankJoinExec dispatch: serialize: {e}"))
@@ -368,6 +545,9 @@ impl RankJoinExec {
             Vec<u8>,
             Vec<Vec<u8>>,
             ScoreCombiner,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<(bool, Vec<u8>)>,
         );
 
         let (
@@ -380,6 +560,9 @@ impl RankJoinExec {
             right_sort_bytes,
             output_sort_bytes,
             combiner,
+            left_lookup_bytes,
+            right_lookup_bytes,
+            parent_lookup_bytes,
         ): DispatchPayload = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("RankJoinExec dispatch: deserialize: {e}"))
         })?;
@@ -524,7 +707,55 @@ impl RankJoinExec {
             DataFusionError::Internal("RankJoinExec dispatch: empty output sort order".into())
         })?;
 
-        Ok(Arc::new(Self::try_new(
+        let left_lookup_node =
+            <datafusion_proto::protobuf::PhysicalExprNode as prost::Message>::decode(
+                left_lookup_bytes.as_slice(),
+            )
+            .map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "RankJoinExec dispatch: left lookup filter decode: {e}"
+                ))
+            })?;
+        let right_lookup_node =
+            <datafusion_proto::protobuf::PhysicalExprNode as prost::Message>::decode(
+                right_lookup_bytes.as_slice(),
+            )
+            .map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "RankJoinExec dispatch: right lookup filter decode: {e}"
+                ))
+            })?;
+        let left_lookup_filter = proto_converter.proto_to_physical_expr(
+            &left_lookup_node,
+            left_schema.as_ref(),
+            &decode_ctx,
+        )?;
+        let right_lookup_filter = proto_converter.proto_to_physical_expr(
+            &right_lookup_node,
+            right_schema.as_ref(),
+            &decode_ctx,
+        )?;
+
+        let mut parent_lookup_filters = Vec::with_capacity(parent_lookup_bytes.len());
+        for (is_left, buf) in parent_lookup_bytes {
+            let node = <datafusion_proto::protobuf::PhysicalExprNode as prost::Message>::decode(
+                buf.as_slice(),
+            )
+            .map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "RankJoinExec dispatch: parent lookup filter decode: {e}"
+                ))
+            })?;
+            let (side, target_schema) = if is_left {
+                (JoinSide::Left, left_schema.as_ref())
+            } else {
+                (JoinSide::Right, right_schema.as_ref())
+            };
+            let expr = proto_converter.proto_to_physical_expr(&node, target_schema, &decode_ctx)?;
+            parent_lookup_filters.push((side, expr));
+        }
+
+        Ok(Arc::new(Self::try_new_with_lookup_filters(
             inputs,
             on,
             filter,
@@ -537,6 +768,9 @@ impl RankJoinExec {
                 output: output_ordering,
             },
             combiner,
+            left_lookup_filter,
+            right_lookup_filter,
+            parent_lookup_filters,
         )?))
     }
 }
@@ -624,10 +858,17 @@ impl ExecutionPlan for RankJoinExec {
     }
 
     fn required_input_ordering(&self) -> Vec<Option<OrderingRequirements>> {
-        vec![
-            LexOrdering::new(vec![self.sort_exprs.left.clone()]).map(OrderingRequirements::from),
-            LexOrdering::new(vec![self.sort_exprs.right.clone()]).map(OrderingRequirements::from),
-        ]
+        let left_req = if self.combiner.uses_left() {
+            LexOrdering::new(vec![self.sort_exprs.left.clone()]).map(OrderingRequirements::from)
+        } else {
+            None
+        };
+        let right_req = if self.combiner.uses_right() {
+            LexOrdering::new(vec![self.sort_exprs.right.clone()]).map(OrderingRequirements::from)
+        } else {
+            None
+        };
+        vec![left_req, right_req]
     }
 
     fn maintains_input_order(&self) -> Vec<bool> {
@@ -666,6 +907,17 @@ impl ExecutionPlan for RankJoinExec {
                 return Ok(TreeNodeRecursion::Stop);
             }
         }
+        if f(&self.left_lookup_filter)? == TreeNodeRecursion::Stop {
+            return Ok(TreeNodeRecursion::Stop);
+        }
+        if f(&self.right_lookup_filter)? == TreeNodeRecursion::Stop {
+            return Ok(TreeNodeRecursion::Stop);
+        }
+        for (_, df) in &self.parent_lookup_filters {
+            if f(df)? == TreeNodeRecursion::Stop {
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        }
         Ok(TreeNodeRecursion::Continue)
     }
 
@@ -678,7 +930,7 @@ impl ExecutionPlan for RankJoinExec {
         }
         let right = children.pop().unwrap();
         let left = children.pop().unwrap();
-        Ok(Arc::new(Self::try_new(
+        Ok(Arc::new(Self::try_new_with_lookup_filters(
             RankJoinInputs { left, right },
             self.on.clone(),
             self.filter.clone(),
@@ -687,7 +939,132 @@ impl ExecutionPlan for RankJoinExec {
             self.null_equality,
             self.sort_exprs.clone(),
             self.combiner.clone(),
+            Arc::clone(&self.left_lookup_filter),
+            Arc::clone(&self.right_lookup_filter),
+            self.parent_lookup_filters.clone(),
         )?))
+    }
+
+    fn gather_filters_for_pushdown(
+        &self,
+        phase: FilterPushdownPhase,
+        parent_filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &ConfigOptions,
+    ) -> Result<FilterDescription> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
+        }
+
+        let unsupported_sentinel: Arc<dyn PhysicalExpr> =
+            Arc::new(Column::new("__rank_join_unsupported__", usize::MAX));
+        let mut left_parent_filters = Vec::with_capacity(parent_filters.len());
+        let mut right_parent_filters = Vec::with_capacity(parent_filters.len());
+
+        for pf in &parent_filters {
+            if let Some(remapped) = self.remap_filter_to_child_side(pf, JoinSide::Left)? {
+                left_parent_filters.push(remapped);
+            } else {
+                left_parent_filters.push(Arc::clone(&unsupported_sentinel));
+            }
+            if let Some(remapped) = self.remap_filter_to_child_side(pf, JoinSide::Right)? {
+                right_parent_filters.push(remapped);
+            } else {
+                right_parent_filters.push(Arc::clone(&unsupported_sentinel));
+            }
+        }
+
+        let left_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
+            &left_parent_filters,
+            &self.inputs.left.schema(),
+            None,
+        )?
+        .with_self_filter(Arc::clone(&self.left_lookup_filter));
+        let right_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
+            &right_parent_filters,
+            &self.inputs.right.schema(),
+            None,
+        )?
+        .with_self_filter(Arc::clone(&self.right_lookup_filter));
+
+        Ok(FilterDescription::new()
+            .with_child(left_desc)
+            .with_child(right_desc))
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterPushdownPropagation::if_any(child_pushdown_result));
+        }
+
+        let mut parent_lookup_filters = self.parent_lookup_filters.clone();
+        let mut changed = false;
+
+        for filter_result in &child_pushdown_result.parent_filters {
+            if !filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
+                continue;
+            }
+            let accepted_side =
+                if matches!(filter_result.child_results.first(), Some(PushedDown::Yes)) {
+                    Some(JoinSide::Left)
+                } else if matches!(filter_result.child_results.get(1), Some(PushedDown::Yes)) {
+                    Some(JoinSide::Right)
+                } else {
+                    None
+                };
+            let Some(side) = accepted_side else {
+                continue;
+            };
+            let Some(remapped) = self.remap_filter_to_child_side(&filter_result.filter, side)?
+            else {
+                continue;
+            };
+            let id = remapped.expression_id();
+            match parent_lookup_filters
+                .iter_mut()
+                .find(|(_, df)| df.expression_id() == id)
+            {
+                Some((existing_side, slot))
+                    if *existing_side != side || !Arc::ptr_eq(&remapped, slot) =>
+                {
+                    *existing_side = side;
+                    *slot = remapped;
+                    changed = true;
+                }
+                Some(_) => {}
+                None => {
+                    parent_lookup_filters.push((side, remapped));
+                    changed = true;
+                }
+            }
+        }
+
+        let propagation = FilterPushdownPropagation::if_any(child_pushdown_result);
+        if changed {
+            let updated = Self::try_new_with_lookup_filters(
+                self.inputs.clone(),
+                self.on.clone(),
+                self.filter.clone(),
+                self.projection.clone(),
+                self.mode,
+                self.null_equality,
+                self.sort_exprs.clone(),
+                self.combiner.clone(),
+                Arc::clone(&self.left_lookup_filter),
+                Arc::clone(&self.right_lookup_filter),
+                parent_lookup_filters,
+            )?;
+            Ok(propagation.with_updated_node(Arc::new(updated) as Arc<dyn ExecutionPlan>))
+        } else {
+            Ok(propagation)
+        }
     }
 
     fn execute(
@@ -719,12 +1096,20 @@ impl ExecutionPlan for RankJoinExec {
             .map(|(l, r)| (Arc::clone(l), Arc::clone(r)))
             .unzip();
 
+        let left_ra_capable =
+            plan_contains_filter_id(&self.inputs.left, self.left_lookup_filter.expression_id());
+        let right_ra_capable =
+            plan_contains_filter_id(&self.inputs.right, self.right_lookup_filter.expression_id());
+
         let left_cursor = RankedInputCursor::new(
             left_stream,
             Arc::clone(&self.sort_exprs.left.expr),
             left_keys,
             Arc::clone(&key_converter),
             self.null_equality,
+            Arc::clone(&self.left_lookup_filter),
+            left_ra_capable,
+            !self.combiner.uses_left(),
         );
         let right_cursor = RankedInputCursor::new(
             right_stream,
@@ -732,30 +1117,104 @@ impl ExecutionPlan for RankJoinExec {
             right_keys,
             key_converter,
             self.null_equality,
+            Arc::clone(&self.right_lookup_filter),
+            right_ra_capable,
+            !self.combiner.uses_right(),
         );
 
         let batch_size = context.session_config().batch_size().max(1);
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
 
-        Ok(Box::pin(RankJoinStream {
-            schema: self.schema(),
+        let schema = self.schema();
+        let mut state = RankJoinStream {
+            schema: Arc::clone(&schema),
             left_num_cols: left_schema.fields().len(),
             right_num_cols: self.inputs.right.schema().fields().len(),
             filter: self.filter.clone(),
             projection: self.projection.clone(),
             output_ordering: self.sort_exprs.output.clone(),
             combiner: self.combiner.clone(),
+            parent_lookup_filters: self.parent_lookup_filters.clone(),
             left_cursor,
             right_cursor,
             left_hash_table: HashMap::default(),
             right_hash_table: HashMap::default(),
             candidate_heap: BinaryHeap::new(),
+            emitted_pairs: HashSet::default(),
             next_sequence: 0,
             initialized: false,
-            done: false,
             batch_size,
-            baseline_metrics,
-        }))
+        };
+
+        let stream_gen = async_stream::try_stream! {
+            // Phase 1: Sorted Access (`SA`) + interleaved Random Access (`RA`) threshold loop.
+            'sa_loop: loop {
+                // Service any cascading RA lookups requested by a parent `RankJoinExec` before
+                // advancing SA.
+                while let Some((target_side, lookup)) = state.take_parent_lookup_request() {
+                    let batch = state.execute_parent_lookup(target_side, lookup).await?;
+                    yield batch.record_output(&baseline_metrics);
+                }
+
+                // Lazily pull the first SA batch from each non-exhausted input so `top_score`
+                // is known before computing upper bounds.
+                if !state.initialized {
+                    state.initialize_sa_cursors().await?;
+                }
+
+                // Drain and emit any candidate batches whose rank beats the stopping threshold.
+                while state.has_ready_candidates() {
+                    if let Some(batch) = state.drain_ready_batch()? {
+                        yield batch.record_output(&baseline_metrics);
+                        continue 'sa_loop;
+                    }
+                }
+
+                // If either input is completely empty and cannot produce rows via SA or RA,
+                // no join match is possible.
+                if state.has_empty_exhausted_input() {
+                    break 'sa_loop;
+                }
+
+                // Rule 1: Consume buffered in-memory SA rows (pausing a side once it accumulates
+                // `ra_batch_size` unresolved keys) until a candidate becomes ready or both sides
+                // need async I/O.
+                while !state.has_ready_candidates()
+                    && let Some(side) = state.next_buffered_sa_side()
+                {
+                    state.advance_one_row(side);
+                }
+                if state.has_ready_candidates() {
+                    continue 'sa_loop;
+                }
+
+                // Rule 2: Compare upper bounds (U_RA_L, U_RA_R, U_SA) to either execute a batched
+                // RA lookup or pull the next SA batch from a child stream.
+                match state.next_io_step() {
+                    NextIoStep::RaLookup { target_side, keys } => {
+                        state.execute_ra_lookup(target_side, &keys).await?;
+                    }
+                    NextIoStep::SaPull(pull_side) => {
+                        if state.ensure_side_buffered(pull_side).await? {
+                            state.advance_one_row(pull_side);
+                        }
+                    }
+                    NextIoStep::Exhausted => break 'sa_loop,
+                }
+            }
+
+            // Phase 2: Post-SA cascading RA server loop (when under a parent `RankJoinExec`).
+            if state.signal_sa_exhausted_to_parent() {
+                yield RecordBatch::new_empty(Arc::clone(&state.schema))
+                    .record_output(&baseline_metrics);
+
+                while let Some((target_side, lookup)) = state.take_parent_lookup_request() {
+                    let batch = state.execute_parent_lookup(target_side, lookup).await?;
+                    yield batch.record_output(&baseline_metrics);
+                }
+            }
+        };
+        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream_gen)))
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
@@ -763,14 +1222,57 @@ impl ExecutionPlan for RankJoinExec {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+fn plan_contains_filter_id(plan: &Arc<dyn ExecutionPlan>, target_id: Option<u64>) -> bool {
+    let Some(target_id) = target_id else {
+        return false;
+    };
+    let mut found = false;
+    let _ = plan.apply_expressions(&mut |expr| {
+        let _ = expr.apply(|node| {
+            if node.is::<DynamicFilterPhysicalExpr>() && node.expression_id() == Some(target_id) {
+                found = true;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        if found {
+            Ok(TreeNodeRecursion::Stop)
+        } else {
+            Ok(TreeNodeRecursion::Continue)
+        }
+    });
+    if found {
+        return true;
+    }
+    plan.children()
+        .iter()
+        .any(|c| plan_contains_filter_id(c, Some(target_id)))
+}
+
+fn update_lookup_filter(
+    filter: &Arc<dyn PhysicalExpr>,
+    new_expr: Arc<dyn PhysicalExpr>,
+) -> Result<()> {
+    if let Some(dyn_filter) = filter.downcast_ref::<DynamicFilterPhysicalExpr>() {
+        dyn_filter.update(new_expr)?;
+    }
+    Ok(())
+}
+
+fn current_lookup_filter(filter: &Arc<dyn PhysicalExpr>) -> Option<Arc<dyn PhysicalExpr>> {
+    filter
+        .downcast_ref::<DynamicFilterPhysicalExpr>()
+        .and_then(|df| df.current().ok())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct BatchIndex(usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct RowIndex(usize);
 
 /// Identifies a buffered row inside a [`RankedInputCursor`]'s retained batches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct BufferedRowRef {
     batch: BatchIndex,
     row: RowIndex,
@@ -825,29 +1327,46 @@ struct CursorRow {
 }
 
 /// Wraps one child stream of [`RankJoinExec`], retaining pulled batches so matched rows
-/// can be assembled by `(BatchIndex, RowIndex)` when their candidate clears threshold $T$.
+/// can be assembled by `(BatchIndex, RowIndex)` when their candidate clears threshold $T$,
+/// and coordinating both Sorted Access (`SA`) window pulls and Random Access (`RA`) point lookups.
 struct RankedInputCursor {
     stream: SendableRecordBatchStream,
     score_expr: Arc<dyn PhysicalExpr>,
     key_exprs: Vec<Arc<dyn PhysicalExpr>>,
     key_converter: Arc<RowConverter>,
     null_equality: NullEquality,
+    lookup_filter: Arc<dyn PhysicalExpr>,
+    ra_capable: bool,
     batches: Vec<RecordBatch>,
+    sa_batch_idx: Option<usize>,
     current_batch_scores: Vec<f64>,
     current_batch_keys: Vec<Option<OwnedRow>>,
     current_row_idx: usize,
     top_score: Option<f64>,
     bottom_score: Option<f64>,
-    exhausted: bool,
+    sa_exhausted: bool,
+    /// Keys from `SA` batches in rank order `(key, score)` for tracking the highest-scoring
+    /// unresolved key ($s^{\text{unres}}$) that has not yet been `RA`-probed on the opposite side.
+    sa_keys_in_order: Vec<(OwnedRow, f64)>,
+    next_unresolved_idx: usize,
+    /// Current batch size for `RA` point lookups triggered from this cursor's unresolved `SA` keys.
+    /// Starts at [`RA_INITIAL_BATCH_SIZE`] and scales by `topk_retry_scale_factor` on each `RA` pull.
+    ra_batch_size: usize,
+    /// Keys that have already been probed via `RA` against this cursor's child stream.
+    ra_probed_keys: HashSet<OwnedRow>,
 }
 
 impl RankedInputCursor {
+    #[expect(clippy::too_many_arguments)]
     fn new(
         stream: SendableRecordBatchStream,
         score_expr: Arc<dyn PhysicalExpr>,
         key_exprs: Vec<Arc<dyn PhysicalExpr>>,
         key_converter: Arc<RowConverter>,
         null_equality: NullEquality,
+        lookup_filter: Arc<dyn PhysicalExpr>,
+        ra_capable: bool,
+        start_sa_exhausted: bool,
     ) -> Self {
         Self {
             stream,
@@ -855,13 +1374,20 @@ impl RankedInputCursor {
             key_exprs,
             key_converter,
             null_equality,
+            lookup_filter,
+            ra_capable,
             batches: Vec::new(),
+            sa_batch_idx: None,
             current_batch_scores: Vec::new(),
             current_batch_keys: Vec::new(),
             current_row_idx: 0,
-            top_score: None,
-            bottom_score: None,
-            exhausted: false,
+            top_score: start_sa_exhausted.then_some(0.0),
+            bottom_score: start_sa_exhausted.then_some(0.0),
+            sa_exhausted: start_sa_exhausted,
+            sa_keys_in_order: Vec::new(),
+            next_unresolved_idx: 0,
+            ra_batch_size: RA_INITIAL_BATCH_SIZE,
+            ra_probed_keys: HashSet::default(),
         }
     }
 
@@ -869,34 +1395,113 @@ impl RankedInputCursor {
         self.current_row_idx < self.current_batch_scores.len()
     }
 
-    /// Polls the underlying stream until either at least one buffered row is available
-    /// or the stream is exhausted.
-    fn poll_ensure_buffered(&mut self, cx: &mut Context<'_>) -> Poll<Result<bool>> {
-        while !self.has_buffered_rows() {
-            if self.exhausted {
-                return Poll::Ready(Ok(false));
+    fn sa_fully_consumed(&self) -> bool {
+        self.sa_exhausted && !self.has_buffered_rows()
+    }
+
+    /// Number of un-probed `SA` key entries currently queued for `RA` lookup on the opposite side.
+    fn unresolved_key_count(&self) -> usize {
+        self.sa_keys_in_order
+            .len()
+            .saturating_sub(self.next_unresolved_idx)
+    }
+
+    /// Advances `next_unresolved_idx` past any leading keys that have already been probed in
+    /// `opposite_probed`.
+    fn skip_probed_keys(&mut self, opposite_probed: &HashSet<OwnedRow>) {
+        while self.next_unresolved_idx < self.sa_keys_in_order.len() {
+            let (key, _) = &self.sa_keys_in_order[self.next_unresolved_idx];
+            if opposite_probed.contains(key) {
+                self.next_unresolved_idx += 1;
+            } else {
+                break;
             }
-            match self.stream.poll_next_unpin(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(None) => {
-                    self.exhausted = true;
-                    return Poll::Ready(Ok(false));
+        }
+    }
+
+    /// Returns the score of the highest-ranked `SA` row whose join key has not yet been
+    /// probed via `RA` on the opposite side.
+    fn top_unresolved_score(&self, opposite_probed: &HashSet<OwnedRow>) -> Option<f64> {
+        self.sa_keys_in_order[self.next_unresolved_idx..]
+            .iter()
+            .find(|(k, _)| !opposite_probed.contains(k))
+            .map(|(_, s)| *s)
+    }
+
+    /// Pops up to `self.ra_batch_size` distinct unresolved `SA` keys, marking them as probed in
+    /// `opposite_probed` and scaling `self.ra_batch_size` for subsequent `RA` pulls.
+    fn pop_unresolved_keys(&mut self, opposite_probed: &mut HashSet<OwnedRow>) -> Vec<OwnedRow> {
+        let max_keys = self.ra_batch_size;
+        let mut out = Vec::new();
+        while self.next_unresolved_idx < self.sa_keys_in_order.len() && out.len() < max_keys {
+            let (key, _) = &self.sa_keys_in_order[self.next_unresolved_idx];
+            self.next_unresolved_idx += 1;
+            if opposite_probed.insert(key.clone()) {
+                out.push(key.clone());
+            }
+        }
+        self.skip_probed_keys(opposite_probed);
+        if !out.is_empty() {
+            let retry_scale = (crate::gucs::topk_retry_scale_factor() as usize).max(2);
+            let max_chunk =
+                (crate::gucs::max_topk_chunk_size() as usize).max(RA_INITIAL_BATCH_SIZE);
+            self.ra_batch_size = (self.ra_batch_size * retry_scale).min(max_chunk);
+        }
+        out
+    }
+
+    /// Pulls from the underlying stream in Sorted Access (`SA`) mode until either at least one
+    /// buffered `SA` row is available or the `SA` stream is exhausted.
+    async fn ensure_buffered(&mut self) -> Result<bool> {
+        while !self.has_buffered_rows() {
+            if self.sa_exhausted {
+                return Ok(false);
+            }
+            match self.stream.next().await {
+                None => {
+                    self.sa_exhausted = true;
+                    self.ra_capable = false;
+                    return Ok(false);
                 }
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Err(e)),
-                Poll::Ready(Some(Ok(batch))) => {
+                Some(Err(e)) => return Err(e),
+                Some(Ok(batch)) => {
+                    // Check if the child signaled SA exhaustion (`lit(false)` when staying alive
+                    // for RA, or `lit(Boolean(None))` when both SA and RA are exhausted).
+                    if let Some(curr) = current_lookup_filter(&self.lookup_filter)
+                        && let Some(lit_expr) = curr.downcast_ref::<Literal>()
+                    {
+                        match lit_expr.value() {
+                            ScalarValue::Boolean(Some(false)) => {
+                                let _ = update_lookup_filter(&self.lookup_filter, lit(true));
+                                self.sa_exhausted = true;
+                                if batch.num_rows() == 0 {
+                                    return Ok(false);
+                                }
+                            }
+                            ScalarValue::Boolean(None) => {
+                                let _ = update_lookup_filter(&self.lookup_filter, lit(true));
+                                self.sa_exhausted = true;
+                                self.ra_capable = false;
+                                if batch.num_rows() == 0 {
+                                    return Ok(false);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     if batch.num_rows() == 0 {
                         continue;
                     }
-                    self.ingest_batch(batch)?;
+                    self.ingest_sa_batch(batch)?;
                 }
             }
         }
-        Poll::Ready(Ok(true))
+        Ok(true)
     }
 
-    fn ingest_batch(&mut self, batch: RecordBatch) -> Result<()> {
+    fn evaluate_batch(&self, batch: &RecordBatch) -> Result<(Vec<f64>, Vec<Option<OwnedRow>>)> {
         let num_rows = batch.num_rows();
-        let score_arr = self.score_expr.evaluate(&batch)?.into_array(num_rows)?;
+        let score_arr = self.score_expr.evaluate(batch)?.into_array(num_rows)?;
         let score_f64_arr = if score_arr.data_type() == &DataType::Float64 {
             score_arr
         } else {
@@ -919,17 +1524,10 @@ impl RankedInputCursor {
             })
             .collect();
 
-        if self.top_score.is_none()
-            && let Some(&first_score) = scores.first()
-        {
-            self.top_score = Some(first_score);
-            self.bottom_score = Some(first_score);
-        }
-
         let key_arrays: Vec<ArrayRef> = self
             .key_exprs
             .iter()
-            .map(|expr| expr.evaluate(&batch)?.into_array(num_rows))
+            .map(|expr| expr.evaluate(batch)?.into_array(num_rows))
             .collect::<Result<_>>()?;
         let rows = self.key_converter.convert_columns(&key_arrays)?;
 
@@ -942,22 +1540,45 @@ impl RankedInputCursor {
                 keys.push(Some(rows.row(row_idx).owned()));
             }
         }
+        Ok((scores, keys))
+    }
 
+    fn ingest_sa_batch(&mut self, batch: RecordBatch) -> Result<()> {
+        let (scores, keys) = self.evaluate_batch(&batch)?;
+        if self.top_score.is_none()
+            && let Some(&first_score) = scores.first()
+        {
+            self.top_score = Some(first_score);
+            self.bottom_score = Some(first_score);
+        }
+
+        let batch_idx = self.batches.len();
         self.batches.push(batch);
+        self.sa_batch_idx = Some(batch_idx);
         self.current_batch_scores = scores;
         self.current_batch_keys = keys;
         self.current_row_idx = 0;
         Ok(())
     }
 
-    /// Consumes and returns the next buffered row. Caller must ensure `has_buffered_rows()`.
-    fn next_buffered_row(&mut self) -> CursorRow {
-        let batch_idx = self.batches.len() - 1;
+    /// Consumes and returns the next buffered `SA` row. Caller must ensure `has_buffered_rows()`.
+    fn next_buffered_row(
+        &mut self,
+        record_for_ra: bool,
+        opposite_probed: &HashSet<OwnedRow>,
+    ) -> CursorRow {
+        let batch_idx = self.sa_batch_idx.expect("SA batch must be present");
         let row_idx = self.current_row_idx;
         let score = self.current_batch_scores[row_idx];
         let key = self.current_batch_keys[row_idx].take();
         self.current_row_idx += 1;
         self.bottom_score = Some(score);
+        if record_for_ra
+            && let Some(ref k) = key
+            && !opposite_probed.contains(k)
+        {
+            self.sa_keys_in_order.push((k.clone(), score));
+        }
         CursorRow {
             row_ref: BufferedRowRef {
                 batch: BatchIndex(batch_idx),
@@ -969,11 +1590,25 @@ impl RankedInputCursor {
     }
 }
 
-/// Which input side [`RankJoinStream`] chooses to advance next.
+/// Which input side [`RankJoinStream`] chooses to advance or probe next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AdvanceSide {
     Left,
     Right,
+}
+
+/// Which async child I/O operation [`RankJoinStream`] chooses in Rule 2 when in-memory `SA`
+/// buffers are either empty or paused at `ra_batch_size` unresolved keys.
+enum NextIoStep {
+    /// Execute a batched Random Access (`RA`) lookup on `target_side` for `keys`.
+    RaLookup {
+        target_side: AdvanceSide,
+        keys: Vec<OwnedRow>,
+    },
+    /// Pull the next Sorted Access (`SA`) batch from `side`.
+    SaPull(AdvanceSide),
+    /// All `SA` streams and `RA` probes are exhausted.
+    Exhausted,
 }
 
 /// Streaming state machine for [`RankJoinExec`].
@@ -985,16 +1620,16 @@ struct RankJoinStream {
     projection: Option<Vec<usize>>,
     output_ordering: LexOrdering,
     combiner: ScoreCombiner,
+    parent_lookup_filters: Vec<(JoinSide, Arc<dyn PhysicalExpr>)>,
     left_cursor: RankedInputCursor,
     right_cursor: RankedInputCursor,
     left_hash_table: HashMap<OwnedRow, Vec<HashTableEntry>>,
     right_hash_table: HashMap<OwnedRow, Vec<HashTableEntry>>,
     candidate_heap: BinaryHeap<CandidateMatch>,
+    emitted_pairs: HashSet<(BufferedRowRef, BufferedRowRef)>,
     next_sequence: u64,
     initialized: bool,
-    done: bool,
     batch_size: usize,
-    baseline_metrics: BaselineMetrics,
 }
 
 impl RankJoinStream {
@@ -1007,43 +1642,79 @@ impl RankJoinStream {
         }
     }
 
-    /// Computes $(U_L, U_R)$, the upper bounds on the `rank_value` of any unseen pair
-    /// formed by advancing the left or right cursor respectively.
-    fn upper_bounds(&self) -> (f64, f64) {
-        let (Some(top_l), Some(top_r)) = (self.left_cursor.top_score, self.right_cursor.top_score)
-        else {
-            return (f64::NEG_INFINITY, f64::NEG_INFINITY);
-        };
-
-        let u_l = if self.left_cursor.exhausted && !self.left_cursor.has_buffered_rows() {
-            f64::NEG_INFINITY
-        } else if let Some(bot_l) = self.left_cursor.bottom_score {
-            self.to_rank_value(self.combiner.eval(InputScorePair {
-                left: bot_l,
-                right: top_r,
-            }))
+    /// Computes $(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$, the upper bounds on the
+    /// `rank_value` of any unseen pair from:
+    /// 1. `Left` seen row + `Right` unseen row ($U_{\text{RA}, L}$),
+    /// 2. `Left` unseen row + `Right` seen row ($U_{\text{RA}, R}$),
+    /// 3. `Left` unseen row + `Right` unseen row ($U_{\text{SA}}$).
+    fn compute_bounds(&self) -> (f64, f64, f64) {
+        let left_bound = if !self.left_cursor.sa_fully_consumed() {
+            self.left_cursor.bottom_score
+        } else if self.left_cursor.ra_capable {
+            Some(0.0)
         } else {
-            f64::INFINITY
+            None
         };
 
-        let u_r = if self.right_cursor.exhausted && !self.right_cursor.has_buffered_rows() {
-            f64::NEG_INFINITY
-        } else if let Some(bot_r) = self.right_cursor.bottom_score {
-            self.to_rank_value(self.combiner.eval(InputScorePair {
-                left: top_l,
-                right: bot_r,
-            }))
+        let right_bound = if !self.right_cursor.sa_fully_consumed() {
+            self.right_cursor.bottom_score
+        } else if self.right_cursor.ra_capable {
+            Some(0.0)
         } else {
-            f64::INFINITY
+            None
         };
 
-        (u_l, u_r)
+        let s_l_unres = if self.right_cursor.sa_fully_consumed() && !self.right_cursor.ra_capable {
+            None
+        } else if !self.right_cursor.ra_capable {
+            self.left_cursor.top_score
+        } else {
+            self.left_cursor
+                .top_unresolved_score(&self.right_cursor.ra_probed_keys)
+        };
+
+        let s_r_unres = if self.left_cursor.sa_fully_consumed() && !self.left_cursor.ra_capable {
+            None
+        } else if !self.left_cursor.ra_capable {
+            self.right_cursor.top_score
+        } else {
+            self.right_cursor
+                .top_unresolved_score(&self.left_cursor.ra_probed_keys)
+        };
+
+        let u_ra_l = match (s_l_unres, right_bound) {
+            (Some(l), Some(r)) => {
+                self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+            }
+            _ => f64::NEG_INFINITY,
+        };
+
+        let u_ra_r = match (left_bound, s_r_unres) {
+            (Some(l), Some(r)) => {
+                self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+            }
+            _ => f64::NEG_INFINITY,
+        };
+
+        let u_sa = if self.left_cursor.sa_fully_consumed() && self.right_cursor.sa_fully_consumed()
+        {
+            f64::NEG_INFINITY
+        } else {
+            match (left_bound, right_bound) {
+                (Some(l), Some(r)) => {
+                    self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+                }
+                _ => f64::NEG_INFINITY,
+            }
+        };
+
+        (u_ra_l, u_ra_r, u_sa)
     }
 
-    /// Stopping threshold $T = \max(U_L, U_R)$.
+    /// Global stopping threshold $T = \max(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$.
     fn stopping_threshold(&self) -> f64 {
-        let (u_l, u_r) = self.upper_bounds();
-        u_l.max(u_r)
+        let (u_ra_l, u_ra_r, u_sa) = self.compute_bounds();
+        u_ra_l.max(u_ra_r).max(u_sa)
     }
 
     fn has_tie_breakers(&self) -> bool {
@@ -1060,12 +1731,36 @@ impl RankJoinStream {
         }
     }
 
-    /// Advances the specified side by one buffered row, inserting into its hash table
+    /// Converts a slice of `OwnedRow` join keys back into `Vec<Vec<ScalarValue>>` for
+    /// constructing a [`RankLookupPhysicalExpr`].
+    fn owned_rows_to_scalars(&self, rows: &[OwnedRow]) -> Result<Vec<Vec<ScalarValue>>> {
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+        let parser = self.left_cursor.key_converter.parser();
+        let raw_rows: Vec<_> = rows.iter().map(|r| parser.parse(r.as_ref())).collect();
+        let arrays = self.left_cursor.key_converter.convert_rows(raw_rows)?;
+        let num_cols = arrays.len();
+        let mut out = Vec::with_capacity(rows.len());
+        for row_idx in 0..rows.len() {
+            let mut tuple = Vec::with_capacity(num_cols);
+            for col_arr in &arrays {
+                tuple.push(ScalarValue::try_from_array(col_arr, row_idx)?);
+            }
+            out.push(tuple);
+        }
+        Ok(out)
+    }
+
+    /// Advances the specified side by one buffered `SA` row, inserting into its hash table
     /// and probing the opposite hash table.
     fn advance_one_row(&mut self, side: AdvanceSide) {
         match side {
             AdvanceSide::Left => {
-                let row = self.left_cursor.next_buffered_row();
+                let row = self.left_cursor.next_buffered_row(
+                    self.right_cursor.ra_capable,
+                    &self.right_cursor.ra_probed_keys,
+                );
                 let Some(key) = row.key else {
                     return;
                 };
@@ -1095,7 +1790,10 @@ impl RankJoinStream {
                     });
             }
             AdvanceSide::Right => {
-                let row = self.right_cursor.next_buffered_row();
+                let row = self.right_cursor.next_buffered_row(
+                    self.left_cursor.ra_capable,
+                    &self.left_cursor.ra_probed_keys,
+                );
                 let Some(key) = row.key else {
                     return;
                 };
@@ -1127,15 +1825,414 @@ impl RankJoinStream {
         }
     }
 
+    /// Ingests a `RecordBatch` returned from a Random Access (`RA`) point lookup on `side`
+    /// without modifying `side`'s `SA` cursor state or `bottom_score`.
+    fn ingest_ra_batch(&mut self, side: AdvanceSide, batch: RecordBatch) -> Result<()> {
+        if batch.num_rows() == 0 {
+            return Ok(());
+        }
+        match side {
+            AdvanceSide::Left => {
+                let (scores, keys) = self.left_cursor.evaluate_batch(&batch)?;
+                let batch_idx = self.left_cursor.batches.len();
+                self.left_cursor.batches.push(batch);
+                for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
+                    let Some(key) = key_opt else {
+                        continue;
+                    };
+                    let row_ref = BufferedRowRef {
+                        batch: BatchIndex(batch_idx),
+                        row: RowIndex(row_idx),
+                    };
+                    if let Some(matches) = self.right_hash_table.get(&key) {
+                        for right_entry in matches {
+                            let combined = self.combiner.eval(InputScorePair {
+                                left: score,
+                                right: right_entry.score,
+                            });
+                            let rank_value = self.to_rank_value(combined);
+                            let seq = self.next_sequence;
+                            self.next_sequence += 1;
+                            self.candidate_heap.push(CandidateMatch {
+                                rank_value,
+                                sequence: seq,
+                                left_row: row_ref,
+                                right_row: right_entry.row_ref,
+                            });
+                        }
+                    }
+                    self.left_hash_table
+                        .entry(key)
+                        .or_default()
+                        .push(HashTableEntry { row_ref, score });
+                }
+            }
+            AdvanceSide::Right => {
+                let (scores, keys) = self.right_cursor.evaluate_batch(&batch)?;
+                let batch_idx = self.right_cursor.batches.len();
+                self.right_cursor.batches.push(batch);
+                for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
+                    let Some(key) = key_opt else {
+                        continue;
+                    };
+                    let row_ref = BufferedRowRef {
+                        batch: BatchIndex(batch_idx),
+                        row: RowIndex(row_idx),
+                    };
+                    if let Some(matches) = self.left_hash_table.get(&key) {
+                        for left_entry in matches {
+                            let combined = self.combiner.eval(InputScorePair {
+                                left: left_entry.score,
+                                right: score,
+                            });
+                            let rank_value = self.to_rank_value(combined);
+                            let seq = self.next_sequence;
+                            self.next_sequence += 1;
+                            self.candidate_heap.push(CandidateMatch {
+                                rank_value,
+                                sequence: seq,
+                                left_row: left_entry.row_ref,
+                                right_row: row_ref,
+                            });
+                        }
+                    }
+                    self.right_hash_table
+                        .entry(key)
+                        .or_default()
+                        .push(HashTableEntry { row_ref, score });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Finds all buffered rows in `target_side` across all retained batches that satisfy `lookup`,
+    /// returning their `(BufferedRowRef, join_key)` pairs.
+    fn find_matching_buffered_rows(
+        &self,
+        target_side: AdvanceSide,
+        lookup: &RankLookupPhysicalExpr,
+    ) -> Result<Vec<(BufferedRowRef, OwnedRow)>> {
+        let cursor = match target_side {
+            AdvanceSide::Left => &self.left_cursor,
+            AdvanceSide::Right => &self.right_cursor,
+        };
+        let skip_nulls = cursor.null_equality == NullEquality::NullEqualsNothing;
+        let mut out = Vec::new();
+        for (batch_idx, batch) in cursor.batches.iter().enumerate() {
+            let num_rows = batch.num_rows();
+            if num_rows == 0 {
+                continue;
+            }
+            let mask_val = lookup.evaluate(batch)?.into_array(num_rows)?;
+            let mask = mask_val
+                .as_any()
+                .downcast_ref::<BooleanArray>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "RankLookupPhysicalExpr did not evaluate to BooleanArray".into(),
+                    )
+                })?;
+            if mask.true_count() == 0 {
+                continue;
+            }
+            let key_arrays: Vec<ArrayRef> = cursor
+                .key_exprs
+                .iter()
+                .map(|expr| expr.evaluate(batch)?.into_array(num_rows))
+                .collect::<Result<_>>()?;
+            let rows = cursor.key_converter.convert_columns(&key_arrays)?;
+            for row_idx in 0..num_rows {
+                if !mask.is_null(row_idx) && mask.value(row_idx) {
+                    if skip_nulls && key_arrays.iter().any(|arr| arr.is_null(row_idx)) {
+                        continue;
+                    }
+                    out.push((
+                        BufferedRowRef {
+                            batch: BatchIndex(batch_idx),
+                            row: RowIndex(row_idx),
+                        },
+                        rows.row(row_idx).owned(),
+                    ));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Checks whether a parent [`RankJoinExec`] in a multi-way join has installed a cascading
+    /// [`RankLookupPhysicalExpr`] on one of this join's sides.
+    fn take_parent_lookup_request(&self) -> Option<(AdvanceSide, RankLookupPhysicalExpr)> {
+        for (side, pf) in &self.parent_lookup_filters {
+            if let Some(current_expr) = current_lookup_filter(pf)
+                && let Some(lookup) = current_expr.downcast_ref::<RankLookupPhysicalExpr>()
+            {
+                let target_side = match side {
+                    JoinSide::Left => AdvanceSide::Left,
+                    JoinSide::Right => AdvanceSide::Right,
+                    JoinSide::None => continue,
+                };
+                let lookup_cloned = lookup.clone();
+                // Note: if the target child is not `ra_capable` (already exhausted), reset the
+                // filter here; otherwise the target leaf scan will consume and reset it.
+                let target_ra_capable = match target_side {
+                    AdvanceSide::Left => self.left_cursor.ra_capable,
+                    AdvanceSide::Right => self.right_cursor.ra_capable,
+                };
+                if !target_ra_capable {
+                    let _ = update_lookup_filter(pf, lit(true));
+                }
+                return Some((target_side, lookup_cloned));
+            }
+        }
+        None
+    }
+
+    /// Performs a batched Random Access (`RA`) lookup on `side` for `keys` and ingests any
+    /// returned rows into `side`'s hash table and `candidate_heap`.
+    async fn execute_ra_lookup(&mut self, side: AdvanceSide, keys: &[OwnedRow]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let scalars = self.owned_rows_to_scalars(keys)?;
+        let (key_exprs, lookup_filter) = match side {
+            AdvanceSide::Left => (
+                self.left_cursor.key_exprs.clone(),
+                Arc::clone(&self.left_cursor.lookup_filter),
+            ),
+            AdvanceSide::Right => (
+                self.right_cursor.key_exprs.clone(),
+                Arc::clone(&self.right_cursor.lookup_filter),
+            ),
+        };
+        let lookup_expr = Arc::new(RankLookupPhysicalExpr::new(key_exprs, scalars));
+        update_lookup_filter(&lookup_filter, lookup_expr)?;
+
+        let next_res = match side {
+            AdvanceSide::Left => self.left_cursor.stream.next().await,
+            AdvanceSide::Right => self.right_cursor.stream.next().await,
+        };
+        let _ = update_lookup_filter(&lookup_filter, lit(true));
+
+        match next_res {
+            Some(Err(e)) => Err(e),
+            None => {
+                let target_cursor = match side {
+                    AdvanceSide::Left => &mut self.left_cursor,
+                    AdvanceSide::Right => &mut self.right_cursor,
+                };
+                target_cursor.sa_exhausted = true;
+                target_cursor.ra_capable = false;
+                Ok(())
+            }
+            Some(Ok(batch)) => {
+                if batch.num_rows() > 0 {
+                    self.ingest_ra_batch(side, batch)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Executes a cascading `RA` lookup requested by a parent [`RankJoinExec`].
+    async fn execute_parent_lookup(
+        &mut self,
+        target_side: AdvanceSide,
+        lookup: RankLookupPhysicalExpr,
+    ) -> Result<RecordBatch> {
+        let target_ra_capable = match target_side {
+            AdvanceSide::Left => self.left_cursor.ra_capable,
+            AdvanceSide::Right => self.right_cursor.ra_capable,
+        };
+        if target_ra_capable {
+            let next_res = match target_side {
+                AdvanceSide::Left => self.left_cursor.stream.next().await,
+                AdvanceSide::Right => self.right_cursor.stream.next().await,
+            };
+            for (_, pf) in &self.parent_lookup_filters {
+                let _ = update_lookup_filter(pf, lit(true));
+            }
+            match next_res {
+                Some(Err(e)) => return Err(e),
+                None => {
+                    let target_cursor = match target_side {
+                        AdvanceSide::Left => &mut self.left_cursor,
+                        AdvanceSide::Right => &mut self.right_cursor,
+                    };
+                    target_cursor.sa_exhausted = true;
+                    target_cursor.ra_capable = false;
+                }
+                Some(Ok(batch)) => {
+                    if batch.num_rows() > 0 {
+                        self.ingest_ra_batch(target_side, batch)?;
+                    }
+                }
+            }
+        }
+
+        let matching_target_rows = self.find_matching_buffered_rows(target_side, &lookup)?;
+        let opposite_side = match target_side {
+            AdvanceSide::Left => AdvanceSide::Right,
+            AdvanceSide::Right => AdvanceSide::Left,
+        };
+        let opposite_ra_capable = match opposite_side {
+            AdvanceSide::Left => self.left_cursor.ra_capable,
+            AdvanceSide::Right => self.right_cursor.ra_capable,
+        };
+
+        if opposite_ra_capable && !matching_target_rows.is_empty() {
+            let mut keys_to_probe = Vec::new();
+            {
+                let opposite_probed = match opposite_side {
+                    AdvanceSide::Left => &mut self.left_cursor.ra_probed_keys,
+                    AdvanceSide::Right => &mut self.right_cursor.ra_probed_keys,
+                };
+                for (_, key) in &matching_target_rows {
+                    if opposite_probed.insert(key.clone()) {
+                        keys_to_probe.push(key.clone());
+                    }
+                }
+            }
+            if !keys_to_probe.is_empty() {
+                self.execute_ra_lookup(opposite_side, &keys_to_probe)
+                    .await?;
+            }
+        }
+
+        self.materialize_parent_lookup(target_side, &matching_target_rows)
+    }
+
+    fn materialize_parent_lookup(
+        &mut self,
+        target_side: AdvanceSide,
+        matching_target_rows: &[(BufferedRowRef, OwnedRow)],
+    ) -> Result<RecordBatch> {
+        let mut candidates = Vec::new();
+        match target_side {
+            AdvanceSide::Left => {
+                let mut unadvanced_right: HashMap<&OwnedRow, Vec<BufferedRowRef>> =
+                    HashMap::default();
+                if self.right_cursor.has_buffered_rows()
+                    && let Some(batch_idx) = self.right_cursor.sa_batch_idx
+                {
+                    for row_idx in self.right_cursor.current_row_idx
+                        ..self.right_cursor.current_batch_keys.len()
+                    {
+                        if let Some(ref k) = self.right_cursor.current_batch_keys[row_idx] {
+                            unadvanced_right.entry(k).or_default().push(BufferedRowRef {
+                                batch: BatchIndex(batch_idx),
+                                row: RowIndex(row_idx),
+                            });
+                        }
+                    }
+                }
+                for (target_row_ref, key) in matching_target_rows {
+                    if let Some(matches) = self.right_hash_table.get(key) {
+                        for right_entry in matches {
+                            if self
+                                .emitted_pairs
+                                .insert((*target_row_ref, right_entry.row_ref))
+                            {
+                                candidates.push(CandidateMatch {
+                                    rank_value: 0.0,
+                                    sequence: 0,
+                                    left_row: *target_row_ref,
+                                    right_row: right_entry.row_ref,
+                                });
+                            }
+                        }
+                    }
+                    if let Some(unadv_matches) = unadvanced_right.get(key) {
+                        for &right_row_ref in unadv_matches {
+                            if self.emitted_pairs.insert((*target_row_ref, right_row_ref)) {
+                                candidates.push(CandidateMatch {
+                                    rank_value: 0.0,
+                                    sequence: 0,
+                                    left_row: *target_row_ref,
+                                    right_row: right_row_ref,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            AdvanceSide::Right => {
+                let mut unadvanced_left: HashMap<&OwnedRow, Vec<BufferedRowRef>> =
+                    HashMap::default();
+                if self.left_cursor.has_buffered_rows()
+                    && let Some(batch_idx) = self.left_cursor.sa_batch_idx
+                {
+                    for row_idx in
+                        self.left_cursor.current_row_idx..self.left_cursor.current_batch_keys.len()
+                    {
+                        if let Some(ref k) = self.left_cursor.current_batch_keys[row_idx] {
+                            unadvanced_left.entry(k).or_default().push(BufferedRowRef {
+                                batch: BatchIndex(batch_idx),
+                                row: RowIndex(row_idx),
+                            });
+                        }
+                    }
+                }
+                for (target_row_ref, key) in matching_target_rows {
+                    if let Some(matches) = self.left_hash_table.get(key) {
+                        for left_entry in matches {
+                            if self
+                                .emitted_pairs
+                                .insert((left_entry.row_ref, *target_row_ref))
+                            {
+                                candidates.push(CandidateMatch {
+                                    rank_value: 0.0,
+                                    sequence: 0,
+                                    left_row: left_entry.row_ref,
+                                    right_row: *target_row_ref,
+                                });
+                            }
+                        }
+                    }
+                    if let Some(unadv_matches) = unadvanced_left.get(key) {
+                        for &left_row_ref in unadv_matches {
+                            if self.emitted_pairs.insert((left_row_ref, *target_row_ref)) {
+                                candidates.push(CandidateMatch {
+                                    rank_value: 0.0,
+                                    sequence: 0,
+                                    left_row: left_row_ref,
+                                    right_row: *target_row_ref,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if candidates.is_empty() {
+            return Ok(RecordBatch::new_empty(Arc::clone(&self.schema)));
+        }
+        if let Some(filter) = &self.filter {
+            candidates = self.apply_join_filter(filter, candidates)?;
+            if candidates.is_empty() {
+                return Ok(RecordBatch::new_empty(Arc::clone(&self.schema)));
+            }
+        }
+        self.materialize_batch(&candidates)
+    }
+
     /// Pops ready candidates from `candidate_heap`, applies any residual `JoinFilter`,
     /// and materializes the output `RecordBatch`.
-    fn drain_ready_batch(&mut self, threshold: f64) -> Result<Option<RecordBatch>> {
+    fn drain_ready_batch(&mut self) -> Result<Option<RecordBatch>> {
+        let threshold = self.stopping_threshold();
         let mut ready = Vec::new();
         while let Some(top) = self.candidate_heap.peek() {
             if !self.candidate_is_ready(top.rank_value, threshold) {
                 break;
             }
             let popped = self.candidate_heap.pop().unwrap();
+            if !self
+                .emitted_pairs
+                .insert((popped.left_row, popped.right_row))
+            {
+                continue;
+            }
             let last_rank_value = popped.rank_value;
             ready.push(popped);
 
@@ -1145,7 +2242,10 @@ impl RankJoinStream {
                     // tie-breaking across secondary sort columns never splits a tie group.
                     while let Some(next) = self.candidate_heap.peek() {
                         if next.rank_value.to_bits() == last_rank_value.to_bits() {
-                            ready.push(self.candidate_heap.pop().unwrap());
+                            let tie = self.candidate_heap.pop().unwrap();
+                            if self.emitted_pairs.insert((tie.left_row, tie.right_row)) {
+                                ready.push(tie);
+                            }
                         } else {
                             break;
                         }
@@ -1279,104 +2379,164 @@ impl RankJoinStream {
         let slices: Vec<&dyn Array> = batches.iter().map(|b| b.column(col_idx).as_ref()).collect();
         Ok(interleave(&slices, indices)?)
     }
-}
 
-impl Stream for RankJoinStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = &mut *self;
-        if this.done {
-            return Poll::Ready(None);
+    /// Pulls the initial `SA` batch from each non-exhausted input so `top_score` is known, and
+    /// advances the first row from each available cursor.
+    async fn initialize_sa_cursors(&mut self) -> Result<()> {
+        if !self.left_cursor.sa_exhausted {
+            self.left_cursor.ensure_buffered().await?;
         }
-
-        // Step 1: Ensure both inputs have pulled their initial batch so `top_score` is known.
-        if !this.initialized {
-            match this.left_cursor.poll_ensure_buffered(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
-                Poll::Ready(Ok(false)) => {
-                    this.done = true;
-                    return Poll::Ready(None);
-                }
-                Poll::Ready(Ok(true)) => {}
-            }
-            match this.right_cursor.poll_ensure_buffered(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
-                Poll::Ready(Ok(false)) => {
-                    this.done = true;
-                    return Poll::Ready(None);
-                }
-                Poll::Ready(Ok(true)) => {}
-            }
-            this.initialized = true;
-            // Seed both hash tables with row 0 from each side so initial corner scores
-            // immediately reflect row 0 matches.
-            this.advance_one_row(AdvanceSide::Left);
-            this.advance_one_row(AdvanceSide::Right);
+        if !self.right_cursor.sa_exhausted {
+            self.right_cursor.ensure_buffered().await?;
         }
+        self.initialized = true;
+        if self.left_cursor.has_buffered_rows() {
+            self.advance_one_row(AdvanceSide::Left);
+        }
+        if self.right_cursor.has_buffered_rows() {
+            self.advance_one_row(AdvanceSide::Right);
+        }
+        Ok(())
+    }
 
-        loop {
-            // Ensure that whichever cursor has moved past the end of its current batch
-            // pulls its next batch (or marks itself exhausted) before we compute `upper_bounds()`.
-            if !this.left_cursor.has_buffered_rows() && !this.left_cursor.exhausted {
-                match this.left_cursor.poll_ensure_buffered(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
-                    Poll::Ready(Ok(_)) => {}
-                }
-            }
-            if !this.right_cursor.has_buffered_rows() && !this.right_cursor.exhausted {
-                match this.right_cursor.poll_ensure_buffered(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
-                    Poll::Ready(Ok(_)) => {}
-                }
-            }
+    /// Pulls from `side`'s `SA` stream until at least one buffered row is available or `SA` is exhausted.
+    async fn ensure_side_buffered(&mut self, side: AdvanceSide) -> Result<bool> {
+        match side {
+            AdvanceSide::Left => self.left_cursor.ensure_buffered().await,
+            AdvanceSide::Right => self.right_cursor.ensure_buffered().await,
+        }
+    }
 
-            let threshold = this.stopping_threshold();
-            let has_ready = this
-                .candidate_heap
-                .peek()
-                .is_some_and(|top| this.candidate_is_ready(top.rank_value, threshold));
+    /// Returns `true` if the top candidate in `candidate_heap` beats `stopping_threshold()`.
+    fn has_ready_candidates(&self) -> bool {
+        let threshold = self.stopping_threshold();
+        self.candidate_heap
+            .peek()
+            .is_some_and(|top| self.candidate_is_ready(top.rank_value, threshold))
+    }
 
-            if has_ready {
-                match this.drain_ready_batch(threshold) {
-                    Err(e) => return Poll::Ready(Some(Err(e))),
-                    Ok(Some(batch)) => {
-                        return Poll::Ready(Some(Ok(batch.record_output(&this.baseline_metrics))));
-                    }
-                    Ok(None) => {
-                        // All ready candidates in this drain were rejected by `JoinFilter`;
-                        // continue advancing inputs.
-                    }
-                }
-            }
+    /// Returns `true` if either input is completely empty and cannot produce rows via `SA` or `RA`.
+    fn has_empty_exhausted_input(&self) -> bool {
+        (self.left_cursor.sa_fully_consumed()
+            && !self.left_cursor.ra_capable
+            && self.left_hash_table.is_empty())
+            || (self.right_cursor.sa_fully_consumed()
+                && !self.right_cursor.ra_capable
+                && self.right_hash_table.is_empty())
+    }
 
-            let left_avail = this.left_cursor.has_buffered_rows();
-            let right_avail = this.right_cursor.has_buffered_rows();
-
-            if !left_avail && !right_avail {
-                // Both inputs are completely exhausted and no ready candidates remain.
-                this.done = true;
-                return Poll::Ready(None);
-            }
-
-            let (u_l, u_r) = this.upper_bounds();
-            let side = if left_avail && (!right_avail || u_l >= u_r) {
+    /// Chooses between `Left` and `Right` using the corner-bound priority $P_L = g(\underline{s}_L, \bar{s}_R)$
+    /// vs. $P_R = g(\bar{s}_L, \underline{s}_R)$.
+    fn preferred_corner_side(&self, left_avail: bool, right_avail: bool) -> Option<AdvanceSide> {
+        if left_avail && right_avail {
+            let top_l = self.left_cursor.top_score.unwrap_or(0.0);
+            let top_r = self.right_cursor.top_score.unwrap_or(0.0);
+            let bot_l = self.left_cursor.bottom_score.unwrap_or(top_l);
+            let bot_r = self.right_cursor.bottom_score.unwrap_or(top_r);
+            let p_l = self.to_rank_value(self.combiner.eval(InputScorePair {
+                left: bot_l,
+                right: top_r,
+            }));
+            let p_r = self.to_rank_value(self.combiner.eval(InputScorePair {
+                left: top_l,
+                right: bot_r,
+            }));
+            Some(if p_l >= p_r {
                 AdvanceSide::Left
             } else {
                 AdvanceSide::Right
-            };
-            this.advance_one_row(side);
+            })
+        } else if left_avail {
+            Some(AdvanceSide::Left)
+        } else if right_avail {
+            Some(AdvanceSide::Right)
+        } else {
+            None
         }
     }
-}
 
-impl RecordBatchStream for RankJoinStream {
-    fn schema(&self) -> SchemaRef {
-        Arc::clone(&self.schema)
+    /// Rule 1: Selects which side's in-memory `SA` buffer to advance next, pausing a side once it
+    /// has accumulated `ra_batch_size` unresolved keys so Rule 2 can interleave a batched `RA`
+    /// lookup before draining the remainder of a large `SA` window.
+    fn next_buffered_sa_side(&mut self) -> Option<AdvanceSide> {
+        self.left_cursor
+            .skip_probed_keys(&self.right_cursor.ra_probed_keys);
+        self.right_cursor
+            .skip_probed_keys(&self.left_cursor.ra_probed_keys);
+        let left_can_advance = self.left_cursor.has_buffered_rows()
+            && (!self.right_cursor.ra_capable
+                || self.left_cursor.unresolved_key_count() < self.left_cursor.ra_batch_size);
+        let right_can_advance = self.right_cursor.has_buffered_rows()
+            && (!self.left_cursor.ra_capable
+                || self.right_cursor.unresolved_key_count() < self.right_cursor.ra_batch_size);
+        self.preferred_corner_side(left_can_advance, right_can_advance)
+    }
+
+    /// Rule 2: Compares $(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$ to choose the next
+    /// async child I/O operation (batched `RA` lookup vs. pulling the next `SA` batch).
+    fn next_io_step(&mut self) -> NextIoStep {
+        let (u_ra_l, u_ra_r, u_sa) = self.compute_bounds();
+        let can_ra_l = self.right_cursor.ra_capable
+            && self
+                .left_cursor
+                .top_unresolved_score(&self.right_cursor.ra_probed_keys)
+                .is_some()
+            && u_ra_l > f64::NEG_INFINITY;
+        let can_ra_r = self.left_cursor.ra_capable
+            && self
+                .right_cursor
+                .top_unresolved_score(&self.left_cursor.ra_probed_keys)
+                .is_some()
+            && u_ra_r > f64::NEG_INFINITY;
+        let can_sa = (!self.left_cursor.sa_fully_consumed()
+            || !self.right_cursor.sa_fully_consumed())
+            && u_sa > f64::NEG_INFINITY;
+
+        let eff_ra_l = if can_ra_l { u_ra_l } else { f64::NEG_INFINITY };
+        let eff_ra_r = if can_ra_r { u_ra_r } else { f64::NEG_INFINITY };
+        let eff_sa = if can_sa { u_sa } else { f64::NEG_INFINITY };
+
+        if eff_ra_l > f64::NEG_INFINITY && eff_ra_l >= eff_ra_r && eff_ra_l >= eff_sa {
+            let keys = self
+                .left_cursor
+                .pop_unresolved_keys(&mut self.right_cursor.ra_probed_keys);
+            return NextIoStep::RaLookup {
+                target_side: AdvanceSide::Right,
+                keys,
+            };
+        }
+
+        if eff_ra_r > f64::NEG_INFINITY && eff_ra_r >= eff_sa {
+            let keys = self
+                .right_cursor
+                .pop_unresolved_keys(&mut self.left_cursor.ra_probed_keys);
+            return NextIoStep::RaLookup {
+                target_side: AdvanceSide::Left,
+                keys,
+            };
+        }
+
+        let left_sa_avail = !self.left_cursor.sa_fully_consumed();
+        let right_sa_avail = !self.right_cursor.sa_fully_consumed();
+        if let Some(pull_side) = self.preferred_corner_side(left_sa_avail, right_sa_avail) {
+            return NextIoStep::SaPull(pull_side);
+        }
+
+        NextIoStep::Exhausted
+    }
+
+    /// If this join is a child of a parent [`RankJoinExec`] and can still service cascading `RA`
+    /// lookups after `SA` is exhausted, signals `lit(false)` to the direct parent and returns `true`.
+    fn signal_sa_exhausted_to_parent(&self) -> bool {
+        if !self.parent_lookup_filters.is_empty()
+            && (self.left_cursor.ra_capable || self.right_cursor.ra_capable)
+        {
+            if let Some((_, pf)) = self.parent_lookup_filters.first() {
+                let _ = update_lookup_filter(pf, lit(false));
+            }
+            return true;
+        }
+        false
     }
 }
 
@@ -1388,7 +2548,6 @@ mod tests {
     use datafusion::logical_expr::Operator;
     use datafusion::physical_expr::expressions::{BinaryExpr, Column};
     use datafusion::physical_plan::common::collect;
-    use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 
     /// Stream wrapper that counts how many batches were pulled from a child plan.
     struct CountingPlan {

@@ -195,12 +195,12 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable `RankJoinExec` (NRA Rank Join) for top-K scored joins.
+/// Allows the user to enable or disable `RankJoinExec` (SA + RA Rank Join) for top-K scored joins.
 static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Minimum estimated matching rows on both join inputs required before `RankJoinRule`
 /// replaces a one-pass `HashJoinExec` with `RankJoinExec`. Set to 0 in tests to bypass
-/// the row-count and window-depth floor.
+/// the row-count floor.
 static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
@@ -813,9 +813,9 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_rank_join",
-        c"Enable RankJoinExec (NRA Rank Join) for top-K scored joins",
-        c"When enabled, top-K joins ordered by a monotonic combination of BM25 scores \
-          from both join inputs use RankJoinExec with lazy score-ordered scan streams.",
+        c"Enable RankJoinExec (SA + RA Rank Join) for top-K scored joins",
+        c"When enabled, top-K joins ordered by a monotonic score expression use \
+          RankJoinExec with lazy score-ordered (SA) and point-lookup (RA) scan streams.",
         &ENABLE_RANK_JOIN,
         GucContext::Userset,
         GucFlags::default(),

@@ -270,6 +270,13 @@ fn probe_stats_to_segment_info(
         .collect()
 }
 
+/// Reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+pub(crate) struct RaLookupWeights {
+    unconstrained: Arc<LazyWeight>,
+    constrained: Option<(PartitionSegments, Arc<LazyWeight>)>,
+    unconstrained_is_match_all: bool,
+}
+
 /// A set of search results across multiple segments.
 ///
 /// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
@@ -986,6 +993,44 @@ impl SearchIndexReader {
         clone
     }
 
+    /// Build a reader for Sorted Access (`SA`) over a tagged scan (`ScanMode::Tagged`) by
+    /// restricting `SA` to documents that match at least one of `local_queries`.
+    /// When `replace_query` is true (i.e. `base_query` is `SearchQueryInput::All` and no
+    /// additional filter was pushed into `self`), the union of `local_queries` replaces
+    /// the `AllQuery` directly so Tantivy can use Block-Max WAND over the tag query postings.
+    pub(crate) fn with_tagged_sa_queries(
+        &self,
+        replace_query: bool,
+        local_queries: &[crate::scan::TaggedQuery],
+    ) -> Self {
+        if local_queries.is_empty() {
+            return self.clone();
+        }
+        let should_clauses: Vec<(tantivy::query::Occur, Box<dyn Query>)> = local_queries
+            .iter()
+            .map(|tq| {
+                (
+                    tantivy::query::Occur::Should,
+                    self.make_query(&tq.query, None),
+                )
+            })
+            .collect();
+        let tag_union: Box<dyn Query> = if should_clauses.len() == 1 {
+            should_clauses.into_iter().next().unwrap().1
+        } else {
+            Box::new(tantivy::query::BooleanQuery::new(should_clauses))
+        };
+        if replace_query {
+            let mut clone = self.clone();
+            clone.query = tag_union;
+            clone.pruning_estimate = OnceLock::new();
+            clone.estimate_from_statistics = false;
+            clone
+        } else {
+            self.and_query(tag_union)
+        }
+    }
+
     /// Compiled without an expression context: only the reader's own query carries resolved
     /// Params, and it is kept as is.
     #[cfg(any(test, feature = "pg_test"))]
@@ -1382,6 +1427,133 @@ impl SearchIndexReader {
             lazy_iterators: None,
             lazy_estimated_rows: None,
         }
+    }
+
+    /// Prepare reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+    pub(crate) fn prepare_ra_lookup_weights(
+        &self,
+        range_target: Option<&(PartitionSegments, SearchQueryInput)>,
+        unconstrained_is_match_all: bool,
+    ) -> RaLookupWeights {
+        let unconstrained = Arc::new(LazyWeight::new(
+            self.query().box_clone(),
+            self.need_scores,
+            self.searcher.clone(),
+        ));
+        let constrained = range_target.map(|(segments, partition_bounds)| {
+            let range_query = Box::new(ConstScoreQuery::new(
+                self.make_query(partition_bounds, None),
+                0.0,
+            ));
+            let weight = if unconstrained_is_match_all {
+                Arc::new(LazyWeight::new(range_query, false, self.searcher.clone()))
+            } else {
+                Arc::new(unconstrained.and_query(range_query))
+            };
+            (segments.clone(), weight)
+        });
+        RaLookupWeights {
+            unconstrained,
+            constrained,
+            unconstrained_is_match_all,
+        }
+    }
+
+    /// Execute a Random Access (`RA`) point lookup against the index using pre-prepared
+    /// [`RaLookupWeights`], skipping segments that contain no un-emitted matching documents.
+    pub(crate) fn search_ra_lookup(
+        &self,
+        weights: &RaLookupWeights,
+        lookup_query: Box<dyn Query>,
+        emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    ) -> Vec<(SearchIndexScore, DocAddress)> {
+        let lookup_weight = lookup_query
+            .weight(EnableScoring::disabled_from_searcher(&self.searcher))
+            .expect("lookup weight should be constructable");
+        let mut results = Vec::new();
+        let mut candidate_docs = Vec::new();
+
+        let mut eval_segment = |segment_ord: SegmentOrdinal,
+                                segment_reader: &SegmentReader,
+                                base_weight: &LazyWeight,
+                                is_match_all: bool| {
+            let mut lookup_scorer = lookup_weight
+                .scorer(segment_reader, 1.0)
+                .expect("lookup scorer should be constructable");
+            let alive_bitset = segment_reader.alive_bitset();
+            candidate_docs.clear();
+            let mut doc_id = lookup_scorer.doc();
+            while doc_id != tantivy::TERMINATED {
+                if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+                    && !emitted_docs.contains(&DocAddress::new(segment_ord, doc_id))
+                {
+                    candidate_docs.push(doc_id);
+                }
+                doc_id = lookup_scorer.advance();
+            }
+            if candidate_docs.is_empty() {
+                return;
+            }
+            if is_match_all {
+                for &target_doc in &candidate_docs {
+                    let addr = DocAddress::new(segment_ord, target_doc);
+                    emitted_docs.insert(addr);
+                    results.push((SearchIndexScore::new(0.0), addr));
+                }
+                return;
+            }
+            let mut base_scorer = base_weight
+                .get()
+                .scorer(segment_reader, 1.0)
+                .expect("base scorer should be constructable");
+            for &target_doc in &candidate_docs {
+                let mut cur = base_scorer.doc();
+                if cur < target_doc {
+                    cur = base_scorer.seek(target_doc);
+                }
+                if cur == target_doc {
+                    let score = if self.need_scores {
+                        base_scorer.score()
+                    } else {
+                        0.0
+                    };
+                    let addr = DocAddress::new(segment_ord, target_doc);
+                    emitted_docs.insert(addr);
+                    results.push((SearchIndexScore::new(score), addr));
+                } else if cur == tantivy::TERMINATED {
+                    break;
+                }
+            }
+        };
+
+        if let Some((ref segments, ref constrained_weight)) = weights.constrained {
+            for (segment_ord, segment_reader) in
+                self.segment_readers_in_segments(segments.included.iter().copied())
+            {
+                eval_segment(
+                    segment_ord,
+                    segment_reader,
+                    &weights.unconstrained,
+                    weights.unconstrained_is_match_all,
+                );
+            }
+            for (segment_ord, segment_reader) in
+                self.segment_readers_in_segments(segments.partially_included.iter().copied())
+            {
+                eval_segment(segment_ord, segment_reader, constrained_weight, false);
+            }
+        } else {
+            for (segment_ord, segment_reader) in self.candidate_segment_readers() {
+                eval_segment(
+                    segment_ord,
+                    segment_reader,
+                    &weights.unconstrained,
+                    weights.unconstrained_is_match_all,
+                );
+            }
+        }
+
+        results
     }
 
     /// Search all available index segments for matching documents using lazy checkout from the

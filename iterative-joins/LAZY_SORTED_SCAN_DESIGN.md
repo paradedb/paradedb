@@ -1,22 +1,28 @@
-# Lazy Sorted Scan Mode Design (`PgSearchScanPlan`)
+# Lazy Sorted & Point-Lookup Scan Mode Design (`PgSearchScanPlan`)
 
 ## 1. Motivation & Overview
 
-Three execution paths in `pg_search` need to consume rows from a Tantivy index in sorted order (`ORDER BY pdb.score(id) DESC`, `ORDER BY fast_field ASC/DESC`, or `ORDER BY embedding <=> '[...]'`) with a `LIMIT K`, where downstream filtering or join probing may discard some returned rows:
+Ranked and Top-$K$ query execution in `pg_search` requires two complementary access primitives on a Tantivy index (`Fagin, Lotem, & Naor, PODS 2001 / JCSS 2003`):
 
-1. `BaseScan` Top-K (`pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs`): Pulls a sorted window from Tantivy, checks PostgreSQL heap MVCC visibility and subplan quals, and re-queries a deeper window if fewer than `K` tuples survive.
-2. `IterativeLookupJoinExec` (`iterative-joins/ITERATIVE_TOPK_JOIN_DESIGN.md`): Pulls sorted batches from an outer table and probes an inner table via repeatable `TermSetQuery` lookups until `K` joined and MVCC-visible rows are produced.
-3. `RankJoinExec` (`iterative-joins/RANK_JOIN_DESIGN.md`): Consumes two sorted input streams in score-guided order under a monotonic scoring function $f(s_L, s_R)$ until the top `K` joined results clear the stopping threshold $T$.
+1. _Sorted Access (`SA` — Iterative Top-$K$ Windowing)_:
+   Stream matching documents in descending score order (`ORDER BY pdb.score(id) DESC`) or fast-field / vector distance order (`ORDER BY fast_field ASC/DESC`, `ORDER BY embedding <=> '[...]'`) using progressively deeper Top-$K$ windows `[offset .. offset + local_limit)`.
+   - Used by `BaseScan` Top-$K$ (`pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs`) and `RankJoinExec` (`iterative-joins/RANK_JOIN_DESIGN.md`).
+   - Allows Tantivy's `TopDocs` collector (Block-Max WAND for BM25 scores, fast-field heap pruning for columnar fields, and HNSW/exact vector collectors) to skip non-competitive blocks without materializing the full postings list.
 
-Because Tantivy's Top-K collectors (Block-Max WAND for BM25 scores, fast-field heap pruning for columnar fields, and HNSW/exact vector collectors) are heavily optimized for bounded `limit + offset` queries, iteratively requesting progressively larger windows `[offset .. offset + local_limit)` on demand is much cheaper than materializing and sorting an entire table up front.
+2. _Random Access (`RA` — On-Demand Batched Point Lookup)_:
+   Fetch specific documents by join key (`col IN (k_1, ..., k_m)` $\rightarrow$ Tantivy `TermSetQuery`) when requested by a parent `RankJoinExec` via a pushed-down `DynamicFilterPhysicalExpr` (`RankLookupPhysicalExpr`), and evaluate the scan's scoring predicate (if any) on those documents.
+   - Used by `RankJoinExec` (`iterative-joins/RANK_JOIN_DESIGN.md`) whenever an unmatched high-scoring tuple from the opposite join input survives to the emission threshold (`CA` / `MPro` lazy probing):
+     - In _conjunctive_ joins (`ScanMode::Standard`), `RA` resolves whether the partner exists with a lower positive score outside the current `SA` window or is an orphan (allowing the stopping threshold $T$ to drop to $f(s_L^{\text{bottom}}, s_R^{\text{bottom}})$).
+     - In _disjunctive_ joins (`ScanMode::Tagged`), `RA` fetches the partner even if it did not match this scan's BM25 predicate (treating non-matching rows as $0.0$-scored documents).
+     - In _single-sided_ ordered joins (`NRJN`, `iterative-joins/RANK_JOIN_DESIGN.md` §3.3), the unscored inner child disables `SA` and executes _only_ `RA` point-lookup batches driven by the outer sorted input.
 
-This document specifies _Lazy Sorted Mode_ (`LazySortConfig`) on `PgSearchScanPlan` (`pg_search/src/scan/execution_plan.rs`) as the shared physical scan primitive used by all three paths.
+This document specifies how `PgSearchScanPlan` (`pg_search/src/scan/execution_plan.rs`) implements both `SA` and `RA` within a single stream while preserving its existing `ExecutionState` modes.
 
 ---
 
 ## 2. Reusing `PgSearchScanPlan` & Existing `ExecutionState` Modes
 
-Lazy sorted execution is represented as an optional `LazySortConfig` attached to `PgSearchScanPlan` (`pg_search/src/scan/execution_plan.rs`) rather than a separate `ExecutionPlan` node or a new scan output mode.
+Both `SA` (`LazySortConfig`) and `RA` (`RankLookupPhysicalExpr` in `dynamic_filters`) are attached directly to `PgSearchScanPlan` (`pg_search/src/scan/execution_plan.rs`) rather than introducing separate scan operators.
 
 `PgSearchScanPlan` keeps only its two existing `ExecutionState` modes:
 
@@ -32,7 +38,7 @@ Reusing `PgSearchScanPlan` and its two existing execution modes preserves all cu
 - `visit_scan_nodes`, `stamp_parallel_state`, and `CtidResolver` (`VisibilityCtidResolverRule`)
 - `DeferredPlacementRule` (`pg_search/src/scan/deferred_placement_rule.rs`)
 - `PgSearchPhysicalExtensionCodec` (`pg_search/src/scan/physical_codec.rs`)
-- `BaseScan`'s `TopKScanExecState` (`pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs`), which will drive `PgSearchScanPlan` via a synchronous Tokio stream poll (`poll_next_sync`, matching `ColumnarExecState` in `pg_search/src/postgres/customscan/basescan/exec_methods/fast_fields/columnar.rs`), giving the shared implementation immediate test coverage from the existing `BaseScan` Top-K test suite.
+- `BaseScan`'s `TopKScanExecState` (`pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs`), which drives `PgSearchScanPlan` via a synchronous Tokio stream poll (`poll_next_sync`, matching `ColumnarExecState` in `pg_search/src/postgres/customscan/basescan/exec_methods/fast_fields/columnar.rs`), giving the shared implementation immediate test coverage from the existing `BaseScan` Top-K test suite.
 
 </details>
 
@@ -44,50 +50,65 @@ Reusing `PgSearchScanPlan` and its two existing execution modes preserves all cu
 
 `LazySortConfig` (implementing `Clone` and `Debug`) encapsulates the parameters needed by `PgSearchScanPlan::with_lazy_sort(self, config: LazySortConfig) -> Self`:
 
-- The Tantivy sort specification (`Option<Vec<OrderByInfo>>`, where `None` represents unordered Top-K via `search_top_k_unordered_in_segments` in `BaseScan`).
-- The physical output ordering (`Option<LexOrdering>`) registered on `PlanProperties::eq_properties` via `EquivalenceProperties::add_ordering`, so DataFusion's `EnforceSorting` and parent operators (`SortPreservingMergeExec`, `IterativeLookupJoinExec`, `RankJoinExec`) know each partition's output is already sorted.
-- Window sizing parameters: `initial_window`, multiplicative retry growth factor (`paradedb.topk_retry_scale_factor`), and maximum window size cap (`paradedb.max_topk_chunk_size`).
-- Whether to consult the shared parallel threshold in `ParallelScanState` on the first pull.
+- `orderby_info: Option<Vec<OrderByInfo>>`: The Tantivy sort specification (`None` represents unordered Top-$K$ via `search_top_k_unordered_in_segments` in `BaseScan`, or `RA`-only point-lookup mode when `initial_window == 0.0`).
+- `ordering: Option<LexOrdering>`: The physical output ordering registered on `PlanProperties::eq_properties` via `EquivalenceProperties::add_ordering`, so DataFusion's `EnforceSorting` and parent operators (`SortPreservingMergeExec`, `RankJoinExec`) know each partition's `SA` output is sorted.
+- `initial_window: f64`: Initial `SA` window size (`0.0` when the scan operates in `RA`-only point-lookup mode for an unscored join input).
+- `shared_threshold: SharedThresholdMode`: Whether to consult the shared parallel threshold in `ParallelScanState` on the first pull.
 
-### 3.2 Execution Stream (`PgSearchScanPlan::execute`)
+### 3.2 Point-Lookup Dynamic Filter (`RankLookupPhysicalExpr`)
 
-Inside `PgSearchScanPlan::execute(target_partition, context) -> Result<SendableRecordBatchStream>`:
+When `RankJoinExec` (`iterative-joins/RANK_JOIN_DESIGN.md`) can resolve unmatched keys against a child via Random Access, `RankJoinExec::gather_filters_for_pushdown` pushes a `DynamicFilterPhysicalExpr` to that child. Because it is wrapped in DataFusion's standard `DynamicFilterPhysicalExpr`, DataFusion's `FilterPushdown` pass automatically propagates it through intermediate unary operators (`ProjectionExec`, `CooperativeExec`) and remaps the join-key `Column` indices to match `PgSearchScanPlan`'s schema.
 
-1. _Segment Selection_:
-   - `ExecutionState::Shared`: Queries all candidate segments in serial mode, or claims segments lazily via `ParallelScanState::checkout_segment_for_source` on the first pull in parallel/MPP mode and caches the claimed `Vec<SegmentId>` so subsequent window re-queries (`offset > 0`) search the exact same segment set.
-   - `ExecutionState::RangePartitioned`: Queries the partition's `PartitionSegments` (`included` and `partially_included`) constrained by `RangeBoundaries::partition_bounds(target_partition)`, evaluating the unconstrained weight on `included` segments and `unconstrained_weight.and_query(range_query)` on `partially_included` segments.
+Inside `DynamicFilterPhysicalExpr`, `RankJoinStream` publishes updates using `RankLookupPhysicalExpr`:
 
-2. _Iterative Window Pulling_:
-   - On the first `Stream::poll_next`, requests `local_limit = initial_window` rows at `offset = 0` via `SearchIndexReader::search_top_k_in_segments` (or `search_top_k_unordered_in_segments`).
-   - On subsequent pulls, advances `offset` by the previous `local_limit` and scales `local_limit` by `retry_scale_factor` (capped at `max_chunk_size`).
-   - Marks the stream exhausted as soon as Tantivy returns fewer than `local_limit` documents.
-   - Materializes the returned `Vec<(SearchIndexScore, DocAddress)>` into a `RecordBatch` in exact Top-K result order, using `for_each_segment` (`pg_search/src/index/fast_fields_helper.rs`) to fetch fast fields per segment in `DocId` order and scatter them back to their Top-K row indices.
+```rust
+pub struct RankLookupPhysicalExpr {
+    /// Join-key column expression(s) in the target child's schema.
+    /// Automatically remapped by `DynamicFilterPhysicalExpr::with_new_children`.
+    cols: Vec<Arc<dyn PhysicalExpr>>,
+    /// Batch of composite or single-column join key literals to resolve via `TermSetQuery`.
+    keys: Vec<Vec<ScalarValue>>,
+}
+```
 
-### 3.3 Backing `BaseScan`'s `TopKScanExecState`
+### 3.3 Unified `SA + RA` Execution Stream (`PgSearchScanPlan::execute`)
 
-In `pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs`, `TopKScanExecState` constructs a `PgSearchScanPlan` configured with `LazySortConfig` and `[WhichFastField::Ctid, WhichFastField::Score(...)]` (with `VisibilityChecker::new_noop()`), pulling the next `RecordBatch` via `poll_next_sync` whenever `found < limit` after heap visibility pruning.
+Inside `PgSearchScanPlan::execute(target_partition, context) -> Result<SendableRecordBatchStream>`, a single stream instance services an arbitrary interleaved sequence of `SA` window pulls and `RA` point-lookup requests without re-initializing `Scanner`, `FFHelper`, or `VisibilityChecker`:
+
+1. _Document Deduplication (`emitted_docs: HashSet<DocAddress>`)_:
+   - When `lazy_sort` is active alongside a `RankLookupPhysicalExpr`, a document may be fetched early by an `RA` point lookup and later encountered when the `SA` window expands (or vice versa).
+   - The stream maintains `emitted_docs: HashSet<DocAddress>`. Both `SA` window pulls and `RA` point-lookup pulls skip any `DocAddress` already present in `emitted_docs` and insert every newly emitted `DocAddress`. Every document in the partition is guaranteed to be emitted at most once.
+
+2. _Servicing Pending `RA` Point Lookups_:
+   - At the top of each stream loop iteration, the stream inspects its pushed-down `DynamicFilterPhysicalExpr`s for a `RankLookupPhysicalExpr`.
+   - When present:
+     - Resets the `DynamicFilterPhysicalExpr` back to `lit(true)` (or to a sentinel on `SA` exhaustion) and converts `RankLookupPhysicalExpr` (`cols IN (keys)`) into a `ConstScoreQuery(TermSetQuery, 0.0)`.
+     - Intersects the lookup query with the scan's required base filter via `SearchIndexReader::search_ra_lookup`:
+       - In `ScanMode::Standard`: `resolved_query AND TermSetQuery(cols IN keys)` (only documents matching both the table's predicate and the join key are returned, scored by `resolved_query`).
+       - In `ScanMode::Tagged`: `base_query AND TermSetQuery(cols IN keys)`. `Scanner::populate_scores_for_batch` evaluates `active_tag_scorers` on the matched `DocId`s, setting `__tag_i = true` and accumulating the tag's BM25 score onto `0.0` if the document matched the tag query, or setting `__tag_i = false` and keeping score `0.0` if it did not.
+     - Filters out any `DocAddress` already in `emitted_docs`, records newly matched `DocAddress`es, materializes the batch, and yields it (or yields an empty 0-row `RecordBatch` if 0 new documents matched, signaling immediate completion to `RankJoinStream`).
+     - Does _not_ advance the `SA` window `offset`.
+
+3. _Servicing `SA` Iterative Window Pulls_:
+   - When no `RA` request is pending:
+     - If `SA` is disabled (`initial_window == 0.0`, i.e. `RA`-only mode) or `sa_exhausted` is already `true`, updates the direct parent `DynamicFilterPhysicalExpr` (`dynamic_filters.first()`) to `lit(false)` when kept alive for future `RA` requests (or `ScalarValue::Boolean(None)` when neither `SA` nor `RA` remains) and yields an empty 0-row `RecordBatch` (or terminates with `None` when not kept alive for `RA`).
+     - Executes `search_top_k_in_segments` (or `search_top_k_segments_with_range_filter`) for `window = [offset .. offset + local_limit)`:
+       - In `ScanMode::Standard`, searches `resolved_query`.
+       - In `ScanMode::Tagged`, searches the positive-score tag query (`SearchIndexReader::with_tagged_sa_queries`), so `SA` only visits documents with positive tag scores in descending score order; non-matching documents (`score = 0.0`) are never scanned by `SA` and are only fetched on demand if requested by `RA`.
+     - Filters out any `DocAddress` already in `emitted_docs`, records newly emitted `DocAddress`es, materializes the window in Top-$K$ order, and yields the `RecordBatch`.
 
 ---
 
 ## 4. Tantivy `max_score` & Dynamic Threshold Pushdown
 
-Lazy Sorted Mode leverages Tantivy's Max Score API (`Weight::index_max_score`, `Weight::max_score(segment_reader, boost)`, and future `PruningScorer::max_score`):
+Lazy Sorted Mode leverages Tantivy's Max Score API (`Weight::index_max_score`, `Weight::max_score(segment_reader, boost)`, and `PruningScorer::max_score`):
 
-1. _Per-Segment Skipping_: Before executing a Top-K collector on a segment, `SearchIndexReader::search_top_k_in_segments` checks `Weight::max_score(segment_reader, 1.0)` (for `OrderByFeature::Score`) or fast-field `Column::min_value` / `Column::max_value` (for `OrderByFeature::Field`). Segments that cannot beat the current Top-K threshold or have `max_score == 0.0` are skipped in $O(1)$.
-2. _Plan-Time & Initial Upper Bounds_: `Query::index_max_score(&searcher)` provides an $O(1)$ upper bound on an input stream's top score at plan time (`iterative-joins/TOPK_JOIN_OPTIMIZATION_DESIGN.md`) and before documents are fetched.
-3. _Dynamic Threshold Pushdown_: Within a single window pull, Tantivy's `TopDocs` collector uses its window-local $(offset + local\_limit)$-th threshold for Block-Max WAND pruning. Across windows or join inputs, parent operators can publish a lower-bound score threshold $\theta_i$ only from _verified survivors_ that have passed all downstream filters.
-
-<details>
-<summary>Why cross-window pruning thresholds require verified survivors & future work on filter placement</summary>
-
-- _Within a single window pull_: Tantivy's `TopDocs` collector prunes blocks against the $(offset + local\_limit)$-th best score in that window. If downstream filters (`VisibilityFilterExec` or a join) reject rows from that window, the next pull re-queries with a larger `offset + local_limit`, so no valid document is permanently lost.
-- _Across windows or across join inputs_: Whenever selective operators sit _above_ the producer of a threshold $\theta_i$ — such as `VisibilityFilterExec` (checking heap MVCC visibility), a residual `FilterExec`, or an upstream `IterativeLookupJoinExec` — a hard cutoff $\theta_i$ that permanently skips documents or terminates a lazy-sorted stream early _must only be derived from $K$ rows that have survived all downstream filters_. Using an unverified $K$-th candidate before visibility/join filtering could prune the $(K+1)$-th candidate needed if one of the top $K$ is later filtered out.
-- _Future Work (Adaptive Filter & Visibility Placement)_: Moving `VisibilityFilterExec` (or cheap selective filters) _below_ `RankJoinExec` / `IterativeLookupJoinExec` on specific inputs makes every candidate entering the join already verified with respect to that input's visibility. That unlocks immediate cross-join Block-Max WAND threshold pushdown from the join's internal candidate heap, at the cost of checking heap visibility on rows that may not match the join. Evaluating adaptive placement of `VisibilityFilterExec` (above vs. below the join) is tracked as follow-up work.
-
-</details>
+1. _Per-Segment Skipping_: Before executing a Top-$K$ collector on a segment, `SearchIndexReader::search_top_k_in_segments` checks `Weight::max_score(segment_reader, 1.0)` (for `OrderByFeature::Score`) or fast-field `Column::min_value` / `Column::max_value` (for `OrderByFeature::Field`). Segments that cannot beat the current Top-$K$ threshold or have `max_score == 0.0` are skipped in $O(1)$.
+2. _Plan-Time & Initial Upper Bounds_: `Query::index_max_score(&searcher)` provides an $O(1)$ upper bound on an input stream's top score at plan time (`iterative-joins/TOPK_JOIN_OPTIMIZATION_DESIGN.md`).
+3. _Dynamic Threshold Pushdown_: Within a single window pull, Tantivy's `TopDocs` collector uses its window-local $(offset + local\_limit)$-th threshold for Block-Max WAND pruning. Across windows or join inputs, parent operators publish a lower-bound score threshold $\theta_i$ only from _verified survivors_ that have passed all downstream filters.
 
 ---
 
 ## 5. MPP Serialization (`PgSearchPhysicalExtensionCodec`)
 
-In `pg_search/src/scan/physical_codec.rs`, `PgSearchScanPlan`'s protobuf dispatch payload in `PgSearchPhysicalExtensionCodec` (`PhysicalExtensionCodec::try_encode` / `try_decode`) serializes `Option<LazySortConfig>` so workers decode and execute `LazySortMode` under either `ExecutionState::Shared` or `ExecutionState::RangePartitioned`.
+In `pg_search/src/scan/physical_codec.rs`, `PgSearchScanPlan`'s protobuf dispatch payload in `PgSearchPhysicalExtensionCodec` (`PhysicalExtensionCodec::try_encode` / `try_decode`) serializes `Option<LazySortConfig>`, and `DeduplicatingProtoConverter` preserves shared `Arc<DynamicFilterPhysicalExpr>` identity between `RankJoinExec` and `PgSearchScanPlan` within each worker task.

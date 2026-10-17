@@ -644,20 +644,6 @@ impl PgSearchScanPlan {
         self.planner_estimated_rows
     }
 
-    /// Total number of documents in the index (or `planner_estimated_rows` if uninitialized in tests).
-    pub fn total_docs(&self) -> u64 {
-        let state_guard = self.state.lock().unwrap();
-        match &*state_guard {
-            ExecutionState::Shared { scan_state, .. }
-            | ExecutionState::RangePartitioned { scan_state, .. } => scan_state
-                .0
-                .reader
-                .total_docs()
-                .max(self.planner_estimated_rows),
-            ExecutionState::Consumed | ExecutionState::Uninitialized => self.planner_estimated_rows,
-        }
-    }
-
     pub fn resolved_query(&self) -> &SearchQueryInput {
         &self.resolved_query
     }
@@ -1509,17 +1495,38 @@ impl ExecutionPlan for PgSearchScanPlan {
                     scanner_config.which_fast_fields,
                     scanner_config.heap_relid,
                 );
-                if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
-                    for tq in local_queries {
-                        let weight = reader
-                            .compile_match_weight(&tq.query, need_scores)
-                            .map_err(|e| DataFusionError::Internal(format!(
-                                "Failed to compile match weight for tag {}: {e}",
-                                tq.tag_name
-                            )))?;
-                        scanner.add_tagged_query(tq.tag_name.clone(), weight);
+                let (sa_reader, is_tagged_sa, base_is_match_all) = match &scanner_config.scan_mode {
+                    crate::scan::ScanMode::Tagged {
+                        base_query,
+                        local_queries,
+                    } => {
+                        for tq in local_queries {
+                            let weight = reader
+                                .compile_match_weight(&tq.query, need_scores)
+                                .map_err(|e| {
+                                    DataFusionError::Internal(format!(
+                                        "Failed to compile match weight for tag {}: {e}",
+                                        tq.tag_name
+                                    ))
+                                })?;
+                            scanner.add_tagged_query(tq.tag_name.clone(), weight);
+                        }
+                        let has_tags = !local_queries.is_empty();
+                        let replace_query =
+                            matches!(**base_query, SearchQueryInput::All) && !pushed;
+                        let sa = if has_tags {
+                            reader.with_tagged_sa_queries(replace_query, local_queries)
+                        } else {
+                            reader.clone()
+                        };
+                        (sa, has_tags, replace_query)
                     }
-                }
+                    crate::scan::ScanMode::Standard { query } => (
+                        reader.clone(),
+                        false,
+                        matches!(query.as_ref(), SearchQueryInput::All) && !pushed,
+                    ),
+                };
                 if !scan_fetched_fields.is_empty() {
                     scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
                 }
@@ -1531,18 +1538,137 @@ impl ExecutionPlan for PgSearchScanPlan {
                     let bounds = rb.partition_bounds(target_partition);
                     (segs, bounds)
                 });
+                let ra_weights =
+                    reader.prepare_ra_lookup_weights(range_target.as_ref(), base_is_match_all);
                 let claimed_segments: Rc<RefCell<Vec<SegmentId>>> =
                     Rc::new(RefCell::new(Vec::new()));
                 let all_segments_claimed = Rc::new(Cell::new(false));
                 let claim_source_idx = source_idx.unwrap_or(0);
 
+                let is_rank_join_leaf = matches!(
+                    lazy_sort.shared_threshold,
+                    SharedThresholdMode::Disabled
+                ) && !dynamic_filters.is_empty();
+                let keep_alive_for_ra =
+                    is_rank_join_leaf && (is_tagged_sa || lazy_sort.initial_window <= 0.0);
+                let mut emitted_docs: crate::api::HashSet<tantivy::DocAddress> =
+                    crate::api::HashSet::default();
+                let mut sa_exhausted = lazy_sort.initial_window <= 0.0;
                 let mut offset: usize = 0;
                 let mut chunk_size: usize = 0;
                 let mut pull_idx: usize = 0;
                 let mut pushdown_metric_recorded = false;
                 let mut score_pushdown_metric_recorded = false;
+                let mut flushed_rows_scanned: usize = 0;
+                let mut flushed_rows_pruned: usize = 0;
 
                 loop {
+                    // 1. Check if a parent `RankJoinExec` has requested an on-demand Random Access (RA)
+                    // point lookup via a `RankLookupPhysicalExpr` in `dynamic_filters`.
+                    let mut pending_lookup: Option<crate::scan::pre_filter::RankLookupPhysicalExpr> =
+                        None;
+                    for df in &dynamic_filters {
+                        if let Some(dyn_filter) = df.downcast_ref::<DynamicFilterPhysicalExpr>()
+                            && let Ok(current_expr) = dyn_filter.current()
+                            && let Some(lookup) = current_expr
+                                .downcast_ref::<crate::scan::pre_filter::RankLookupPhysicalExpr>()
+                        {
+                            pending_lookup = Some(lookup.clone());
+                            // Consume the RA request immediately by resetting the dynamic filter to `lit(true)`.
+                            let _ = dyn_filter
+                                .update(datafusion::physical_expr::expressions::lit(true));
+                            break;
+                        }
+                    }
+
+                    if let Some(lookup) = pending_lookup {
+                        let timer = baseline_metrics.elapsed_compute().timer();
+                        let (pre_filters, score_threshold) =
+                            build_filters(&dynamic_filters, &schema, score_column_schema_idx)?;
+                        let pre_filters_wrapper = if pre_filters.is_empty() {
+                            None
+                        } else {
+                            Some(crate::scan::pre_filter::PreFilters {
+                                filters: &pre_filters,
+                                schema: &schema,
+                            })
+                        };
+                        if scanner.can_pushdown_score_threshold() {
+                            scanner.set_score_threshold(score_threshold);
+                        }
+
+                        let ra_batch = if let Some(lookup_query) =
+                            crate::scan::pre_filter::try_convert_rank_lookup_to_query(
+                                &lookup,
+                                reader.schema(),
+                                reader.index_created_by_version(),
+                                Some(strategy_sink.clone()),
+                            ) {
+                            let ra_results = reader.search_ra_lookup(
+                                &ra_weights,
+                                lookup_query,
+                                &mut emitted_docs,
+                            );
+                            if let Some(ref counter) = queries {
+                                counter.add(1);
+                            }
+                            if !ra_results.is_empty() {
+                                scanner.materialize_topk_window(
+                                    &ra_results,
+                                    true,
+                                    &ffhelper,
+                                    &mut visibility,
+                                    pre_filters_wrapper.as_ref(),
+                                    &schema,
+                                )
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        timer.done();
+
+                        if let Some(ref counter) = rows_scanned {
+                            let delta = scanner.pre_filter_rows_scanned - flushed_rows_scanned;
+                            if delta > 0 {
+                                counter.add(delta);
+                                flushed_rows_scanned = scanner.pre_filter_rows_scanned;
+                            }
+                        }
+                        if let Some(ref counter) = rows_pruned {
+                            let delta = scanner.pre_filter_rows_pruned - flushed_rows_pruned;
+                            if delta > 0 {
+                                counter.add(delta);
+                                flushed_rows_pruned = scanner.pre_filter_rows_pruned;
+                            }
+                        }
+
+                        let out_batch =
+                            ra_batch.unwrap_or_else(|| RecordBatch::new_empty(schema.clone()));
+                        yield out_batch.record_output(&baseline_metrics);
+                        continue;
+                    }
+
+                    // 2. Sorted Access (SA) window pull.
+                    if sa_exhausted {
+                        if keep_alive_for_ra {
+                            if let Some(df) = dynamic_filters.first()
+                                && let Some(dyn_filter) =
+                                    df.downcast_ref::<DynamicFilterPhysicalExpr>()
+                            {
+                                let _ = dyn_filter.update(
+                                    datafusion::physical_expr::expressions::lit(false),
+                                );
+                            }
+                            yield RecordBatch::new_empty(schema.clone())
+                                .record_output(&baseline_metrics);
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+
                     if pull_idx > 0 {
                         let retry_scale = crate::gucs::topk_retry_scale_factor();
                         chunk_size = (chunk_size * retry_scale as usize)
@@ -1551,7 +1677,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }
                     let local_limit = lazy_sort.initial_window.max(chunk_size as f64) as usize;
                     if local_limit == 0 {
-                        break;
+                        sa_exhausted = true;
+                        continue;
                     }
                     let current_offset = offset;
                     offset += local_limit;
@@ -1592,14 +1719,14 @@ impl ExecutionPlan for PgSearchScanPlan {
 
                     let mut top_k_search = if let Some((ref segs, ref bounds)) = range_target {
                         if let Some(ref orderby_info) = lazy_sort.orderby_info {
-                            reader.search_top_k_segments_with_range_filter(
+                            sa_reader.search_top_k_segments_with_range_filter(
                                 segs,
                                 bounds,
                                 orderby_info,
                                 window,
                             )
                         } else {
-                            reader.search_top_k_unordered_segments_with_range_filter(
+                            sa_reader.search_top_k_unordered_segments_with_range_filter(
                                 segs,
                                 bounds,
                                 window,
@@ -1607,7 +1734,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                     } else {
                         let seg_iter: Box<dyn Iterator<Item = SegmentId>> = match parallel_state {
-                            None => Box::new(reader.segment_ids().into_iter().inspect(|_| {
+                            None => Box::new(sa_reader.segment_ids().into_iter().inspect(|_| {
                                 pgrx::check_for_interrupts!();
                             })),
                             Some(ps) => {
@@ -1643,7 +1770,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                             }
                         };
                         if let Some(ref orderby_info) = lazy_sort.orderby_info {
-                            reader.search_top_k_in_segments(
+                            sa_reader.search_top_k_in_segments(
                                 seg_iter,
                                 orderby_info,
                                 local_limit,
@@ -1652,7 +1779,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                                 maybe_parallel_state,
                             )
                         } else {
-                            let mut res = reader.search_top_k_unordered_in_segments(
+                            let mut res = sa_reader.search_top_k_unordered_in_segments(
                                 seg_iter,
                                 local_limit,
                                 current_offset,
@@ -1660,13 +1787,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                             if let Some(aux) = aux_collector {
                                 let segs_for_agg: Box<dyn Iterator<Item = SegmentId>> =
                                     match parallel_state {
-                                        None => Box::new(reader.segment_ids().into_iter()),
+                                        None => Box::new(sa_reader.segment_ids().into_iter()),
                                         Some(_) => {
                                             Box::new(claimed_segments.borrow().clone().into_iter())
                                         }
                                     };
                                 let agg_result = if let Some(vischeck) = aux.vischeck {
-                                    reader.collect_segments(
+                                    sa_reader.collect_segments(
                                         segs_for_agg,
                                         crate::aggregate::mvcc_collector::MVCCFilterCollector::new(
                                             aux.aggregation_collector,
@@ -1674,7 +1801,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                                         ),
                                     )
                                 } else {
-                                    reader.collect_segments(segs_for_agg, aux.aggregation_collector)
+                                    sa_reader
+                                        .collect_segments(segs_for_agg, aux.aggregation_collector)
                                 };
                                 res.aggregation_results = Some(agg_result);
                             }
@@ -1703,9 +1831,16 @@ impl ExecutionPlan for PgSearchScanPlan {
 
                     let raw_len = top_k_search.results.len();
                     let exhausted = raw_len < local_limit;
-                    let next_batch = if raw_len > 0 {
+                    if exhausted {
+                        sa_exhausted = true;
+                    }
+                    top_k_search
+                        .results
+                        .retain(|(_, doc_addr)| emitted_docs.insert(*doc_addr));
+                    let next_batch = if !top_k_search.results.is_empty() {
                         scanner.materialize_topk_window(
                             &top_k_search.results,
+                            !is_tagged_sa,
                             &ffhelper,
                             &mut visibility,
                             pre_filters_wrapper.as_ref(),
@@ -1718,7 +1853,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
                     if pushed && !pushdown_metric_recorded {
                         let tag = strategy_sink.load(Ordering::Relaxed);
-                        if tag > 0 {
+                        if tag > 0 || exhausted {
                             let strategy = tantivy::query::StrategyTag::try_from(tag)
                                 .unwrap_or(tantivy::query::StrategyTag::None);
                             let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
@@ -1740,35 +1875,39 @@ impl ExecutionPlan for PgSearchScanPlan {
                         score_pushdown_metric_recorded = true;
                     }
 
-                    if let Some(record_batch) = next_batch {
-                        yield record_batch.record_output(&baseline_metrics);
+                    if let Some(ref counter) = rows_scanned {
+                        let delta = scanner.pre_filter_rows_scanned - flushed_rows_scanned;
+                        if delta > 0 {
+                            counter.add(delta);
+                            flushed_rows_scanned = scanner.pre_filter_rows_scanned;
+                        }
+                    }
+                    if let Some(ref counter) = rows_pruned {
+                        let delta = scanner.pre_filter_rows_pruned - flushed_rows_pruned;
+                        if delta > 0 {
+                            counter.add(delta);
+                            flushed_rows_pruned = scanner.pre_filter_rows_pruned;
+                        }
                     }
 
-                    if exhausted {
-                        if pushed && !pushdown_metric_recorded {
-                            let tag = strategy_sink.load(Ordering::Relaxed);
-                            let strategy = tantivy::query::StrategyTag::try_from(tag)
-                                .unwrap_or(tantivy::query::StrategyTag::None);
-                            let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
-                                "dynamic_filter_pushdown".to_string()
+                    if let Some(record_batch) = next_batch {
+                        if sa_exhausted && is_rank_join_leaf {
+                            let sentinel = if keep_alive_for_ra {
+                                datafusion::physical_expr::expressions::lit(false)
                             } else {
-                                format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
+                                datafusion::physical_expr::expressions::lit(
+                                    datafusion::common::ScalarValue::Boolean(None),
+                                )
                             };
-                            MetricBuilder::new(&plan_metrics)
-                                .counter(metric_name, target_partition)
-                                .add(1);
+                            if let Some(df) = dynamic_filters.first()
+                                && let Some(dyn_filter) =
+                                    df.downcast_ref::<DynamicFilterPhysicalExpr>()
+                            {
+                                let _ = dyn_filter.update(sentinel);
+                            }
                         }
-                        if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
-                            MetricBuilder::new(&plan_metrics)
-                                .counter("dynamic_filter_pushdown_score", target_partition)
-                                .add(1);
-                        }
-                        if let Some(ref counter) = rows_scanned {
-                            counter.add(scanner.pre_filter_rows_scanned);
-                        }
-                        if let Some(ref counter) = rows_pruned {
-                            counter.add(scanner.pre_filter_rows_pruned);
-                        }
+                        yield record_batch.record_output(&baseline_metrics);
+                    } else if sa_exhausted && !keep_alive_for_ra {
                         break;
                     }
                 }

@@ -42,9 +42,10 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning bottom-up, evaluating leaf and subplan joins and injecting range split points into `PgSearchTableProvider`s
 2. **`LateMaterializationRule`** — injects [`TantivyDecodeExec`][decode-exec] over [`TantivyFetchExec`][fetch-exec] to defer string materialization. With `paradedb.defer_column_fetch = off` the scan resolves term ordinals itself and only the decode node is injected
 3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts (any join type except a null-aware `NOT IN` anti join), so MPP joins partition pairs task-locally instead of broadcasting the build side
-4. **[`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs)** — decides per column where the fetch and the decode of a deferred string column run: a build side or a fan-out join moves the fetch into the scan, and a fan-out with no bounded consumer above moves the decode there too. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` override it
-5. **[`DeferredAggregateRule`](../../../scan/deferred_aggregate_rule.rs)** — splits an aggregate that groups on a deferred string column into a partial aggregate on the term ordinals, a decode of one row per group, and a final aggregate on the strings
-6. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
+4. **[`RankJoinRule`][rank-join-rule]** — rewrites eligible top-K scored `HashJoinExec` subtrees (conjunctive, disjunctive `ScanMode::Tagged`, and single-sided `NRJN` joins) into [`RankJoinExec`][rank-join-exec] over lazy Sorted Access (`SA`) + Random Access (`RA`) point-lookup scan streams
+5. **[`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs)** — decides per column where the fetch and the decode of a deferred string column run: a build side or a fan-out join moves the fetch into the scan, and a fan-out with no bounded consumer above moves the decode there too. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` override it
+6. **[`DeferredAggregateRule`](../../../scan/deferred_aggregate_rule.rs)** — splits an aggregate that groups on a deferred string column into a partial aggregate on the term ordinals, a decode of one row per group, and a final aggregate on the strings
+7. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 
 When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`DistributedExec`), slicing it into isolated tasks. Plans with fewer than two producer tasks, or launches with fewer than two attached workers, run serially.
 
@@ -60,7 +61,7 @@ CTID columns are also deferred to eliminate redundant fast-field decompression a
 
 There are two primary pruning mechanisms for dynamic filters that are pushed down to the scan:
 
-1. **Query-Time Pushdown (Inverted Index):** Filters that are static and known at the start of the scan (such as `InList` predicates generated from a `HashJoin` build side) are intercepted during the first `poll_next` of the scan stream. They are converted into native Tantivy queries (e.g., `TermSetQuery`) and `AND`ed into the main search query via [`try_dynamic_filter_pushdown`][try-pushdown]. This allows Tantivy to use its inverted index to filter documents _while_ executing the search, providing the highest possible pruning performance. The DataFusion expressions are then rewritten to `lit(true)` so they are not evaluated again.
+1. **Query-Time Pushdown (Inverted Index):** Filters that are static and known at the start of the scan (such as `InList` predicates generated from a `HashJoin` build side, or `RankLookupPhysicalExpr` point lookups pushed by [`RankJoinExec`][rank-join-exec]) are converted into native Tantivy queries (e.g., `TermSetQuery`) via [`try_dynamic_filter_pushdown`][try-pushdown]. This allows Tantivy to use its inverted index to filter documents _while_ executing the search, providing the highest possible pruning performance.
 
 2. **Pre-Filter Pushdown (Columnar Fields):** For evolving thresholds (such as the global threshold from [`SegmentedTopKExec`][topk-exec]) or high-density `InList` predicates kept off the Tantivy `LinearScan` path, the filter is evaluated as a `PreFilter` against fast fields. [`PgSearchScan`][scan-plan] tracks incomplete dynamic filters via `DynamicFilterTracking` and re-reads `current()` only when a filter advances (reusing `PreFilter`s across batches otherwise). [`Scanner::next`][scanner-next] applies the `PreFilter`s _after_ the search but _before_ heap visibility checks and Arrow column materialization. For strings, each `PreFilter` rewrites literal comparisons and `InList`s once per segment (cached by `SegmentOrdinal`) into segment-local ordinal bounds or sets via [`try_rewrite_binary`][rewrite-binary] and `try_rewrite_in_list`, filtering directly against the fetched term ordinals.
 
@@ -94,18 +95,20 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 
 Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 
-| File                                                                                 | Purpose                                                                             |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| [`segmented_topk_exec.rs`][topk-exec]                                                | [`SegmentedTopKExec`][topk-exec] — per-segment buffers, global threshold publishing |
-| [`segmented_topk_rule.rs`][topk-rule]                                                | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                              |
-| [`visibility_ctid_resolver_rule.rs`](../../../scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `VisibilityFilterExec` for ctid resolution            |
-| [`tantivy_fetch_exec.rs`][fetch-exec]                                                | Columnar field fetch: doc address → term ordinal                                    |
-| [`tantivy_decode_exec.rs`][decode-exec]                                              | Dictionary decode: term ordinal → string/bytes                                      |
-| [`filter_passthrough_exec.rs`][filter-passthrough]                                   | Transparent wrapper enabling filter pushdown through blocking nodes                 |
-| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)                                 | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility         |
-| [`execution_plan.rs`](../../../scan/execution_plan.rs)                               | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                        |
-| [`pre_filter.rs`](../../../scan/pre_filter.rs)                                       | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]        |
-| [`deferred_encode.rs`](../../../scan/deferred_encode.rs)                             | Packed deferred column construction and unpacking                                   |
+| File                                                                                 | Purpose                                                                                     |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| [`rank_join_exec.rs`][rank-join-exec]                                                | [`RankJoinExec`][rank-join-exec] — pull-based `SA + RA` symmetric hash rank join            |
+| [`rank_join_rule.rs`][rank-join-rule]                                                | [`RankJoinRule`][rank-join-rule] — rewrites top-K scored `HashJoinExec` into `RankJoinExec` |
+| [`segmented_topk_exec.rs`][topk-exec]                                                | [`SegmentedTopKExec`][topk-exec] — per-segment buffers, global threshold publishing         |
+| [`segmented_topk_rule.rs`][topk-rule]                                                | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                      |
+| [`visibility_ctid_resolver_rule.rs`](../../../scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `VisibilityFilterExec` for ctid resolution                    |
+| [`tantivy_fetch_exec.rs`][fetch-exec]                                                | Columnar field fetch: doc address → term ordinal                                            |
+| [`tantivy_decode_exec.rs`][decode-exec]                                              | Dictionary decode: term ordinal → string/bytes                                              |
+| [`filter_passthrough_exec.rs`][filter-passthrough]                                   | Transparent wrapper enabling filter pushdown through blocking nodes                         |
+| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)                                 | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                 |
+| [`execution_plan.rs`](../../../scan/execution_plan.rs)                               | [`PgSearchScanPlan`][scan-plan] — lazy `SA + RA` top-K scan and dynamic filter integration  |
+| [`pre_filter.rs`](../../../scan/pre_filter.rs)                                       | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                |
+| [`deferred_encode.rs`](../../../scan/deferred_encode.rs)                             | Packed deferred column construction and unpacking                                           |
 
 ## GUCs
 
@@ -113,6 +116,8 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 | ---------------------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
 | `paradedb.enable_join_custom_scan`       | `on`    | Master switch                                                                                       |
 | `paradedb.enable_range_partitioned_join` | `true`  | Range co-partitioned joins                                                                          |
+| `paradedb.enable_rank_join`              | `true`  | `RankJoinExec` (`SA + RA` Rank Join) injection for top-K scored joins                               |
+| `paradedb.rank_join_min_rows`            | `10000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`   |
 | `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection                                                                       |
 | `paradedb.defer_column_fetch`            | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`) |
 | `paradedb.defer_string_decode`           | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)      |
@@ -121,6 +126,8 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 [relnode]: build.rs
 [joincsc]: build.rs
 [optimizer-rules]: scan_state.rs
+[rank-join-exec]: ../../../scan/rank_join_exec.rs
+[rank-join-rule]: ../../../scan/rank_join_rule.rs
 [topk-exec]: ../../../scan/segmented_topk_exec.rs
 [topk-rule]: ../../../scan/segmented_topk_rule.rs
 [wrap-blocking]: ../../../scan/segmented_topk_rule.rs

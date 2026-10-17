@@ -430,7 +430,7 @@ fn extract_funcexpr_from_placeholder(
 ///
 /// Returns true if:
 /// 1. varno matches rti (exact match)
-/// 2. varno is the parent of rti (partitioned/inheritance case)
+/// 2. varno is a parent of rti, at any depth (partitioned/inheritance case)
 unsafe fn is_varno_valid_for_relation(
     root: *mut pg_sys::PlannerInfo,
     varno: pg_sys::Index,
@@ -441,13 +441,19 @@ unsafe fn is_varno_valid_for_relation(
         return true;
     }
 
-    // 2. Check if varno is parent of current_rti
+    // 2. Check if varno is a parent of current_rti. The leaves of a partitioned partition
+    // reach the query's table through their own parent.
     if !(*root).append_rel_list.is_null() {
         let append_rels = PgList::<pg_sys::AppendRelInfo>::from_pg((*root).append_rel_list);
-        for appinfo in append_rels.iter_ptr() {
-            if (*appinfo).parent_relid == varno && (*appinfo).child_relid == current_rti {
+        let mut child = current_rti;
+        while let Some(appinfo) = append_rels
+            .iter_ptr()
+            .find(|&appinfo| (*appinfo).child_relid == child)
+        {
+            if (*appinfo).parent_relid == varno {
                 return true;
             }
+            child = (*appinfo).parent_relid;
         }
     }
 

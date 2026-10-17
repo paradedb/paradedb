@@ -304,7 +304,7 @@ fn need_backpressure(
             }
         });
     }
-    mutable_count > 2 || small_immutable_count > 256.max(4 * target_segment_count)
+    mutable_count > 2 || small_immutable_count > 4 * target_segment_count
 }
 
 /// Kick off a merge of the index, if needed.
@@ -782,7 +782,7 @@ mod tests {
             WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0');",
         )
         .unwrap();
-        for id in 0..256 {
+        for id in 0..4 {
             Spi::run(&format!(
                 "INSERT INTO backpressure VALUES ({id}, 'beer wine cheese')"
             ))
@@ -798,7 +798,7 @@ mod tests {
             1
         ));
         drop(index);
-        Spi::run("INSERT INTO backpressure VALUES (256, 'beer wine cheese')").unwrap();
+        Spi::run("INSERT INTO backpressure VALUES (4, 'beer wine cheese')").unwrap();
         let index = PgSearchRelation::open(oid);
         assert!(need_backpressure(
             MergeStyle::Insert,
@@ -808,20 +808,20 @@ mod tests {
         assert!(!need_backpressure(
             MergeStyle::Insert,
             MetaPage::open(&index).segment_metas(),
-            128
+            2
         ));
         assert!(!need_backpressure(
             MergeStyle::Vacuum,
             MetaPage::open(&index).segment_metas(),
             1
         ));
-        assert_eq!(MetaPage::open(&index).segment_metas().list(None).len(), 257);
+        assert_eq!(MetaPage::open(&index).segment_metas().list(None).len(), 5);
         drop(index);
 
         Spi::run(
-            "ALTER INDEX backpressure_idx SET (mutable_segment_rows=1, target_segment_count=128);
-            INSERT INTO backpressure VALUES (257, 'beer wine cheese');
-            INSERT INTO backpressure VALUES (258, 'beer wine cheese');
+            "ALTER INDEX backpressure_idx SET (mutable_segment_rows=1, target_segment_count=2);
+            INSERT INTO backpressure VALUES (5, 'beer wine cheese');
+            INSERT INTO backpressure VALUES (6, 'beer wine cheese');
             ALTER INDEX backpressure_idx SET (target_segment_count=1, background_layer_sizes='1kb,10kb,100mb');",
         )
         .unwrap();
@@ -836,13 +836,13 @@ mod tests {
         let xid = pg_sys::GetCurrentFullTransactionId();
         do_merge(&index, MergeStyle::Insert, Some(xid), Some(xid)).unwrap();
         let entries = MetaPage::open(&index).segment_metas().list(None);
-        assert!(entries.len() < 256);
+        assert!(entries.len() <= 4);
         assert!(entries.iter().all(|entry| !entry.is_mutable()));
         drop(index);
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
                 .unwrap(),
-            Some(259)
+            Some(7)
         );
         assert_eq!(Spi::get_one::<bool>("SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)").unwrap(), Some(true));
     }

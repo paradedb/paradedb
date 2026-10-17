@@ -30,7 +30,7 @@ ALTER INDEX search_idx SET (layer_sizes = '100KB, 1MB');
 
 Setting `layer_sizes` to `0` disables foreground merging, and setting `background_layer_sizes` to `0` disables background merging.
 
-When there are more than `max(256, 4 × target_segment_count)` immutable segments smaller than 100 MB,
+When there are more than `4 × target_segment_count` immutable segments smaller than 100 MB,
 writers also merge small background layers in the foreground during statement cleanup. This uses the
 normal merge policy alongside mutable segment merging; layers of 100 MB or larger remain in the
 background unless explicitly configured in `layer_sizes`. The threshold is soft: concurrent writes

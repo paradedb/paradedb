@@ -309,6 +309,15 @@ mod tests {
             prop_assert_eq!(us, pg);
         });
     }
+
+    #[pg_test]
+    fn convert_pg_date_string_test() {
+        use crate::postgres::utils::convert_pg_date_string;
+        use pgrx::PgBuiltInOids;
+
+        let dt = convert_pg_date_string(PgBuiltInOids::DATEOID.into(), "2024-01-01");
+        assert!(!dt.is_infinity());
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1070,43 +1079,36 @@ pub unsafe fn unwrap_alias_datum(datum: pg_sys::Datum, pg_type: PgOid) -> pg_sys
     }
 }
 
-pub fn convert_pg_date_string(
-    typeoid: PgOid,
-    date_string: &str,
-) -> anyhow::Result<PostgresDateTime> {
+pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDateTime {
     match typeoid {
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
-                .map_err(|e| anyhow::anyhow!("must be valid postgres date format: {e}"))?;
-            let dt = PostgresDateTime::try_from(d)
-                .map_err(|e| anyhow::anyhow!("date out of range: {e}"))?;
-            Ok(dt)
+                .expect("must be valid postgres date format");
+            PostgresDateTime::try_from(d).expect("date out of range")
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
             let t = pgrx::datum::Timestamp::from_str(date_string)
-                .map_err(|e| anyhow::anyhow!("must be a valid postgres timestamp: {e}"))?;
-            Ok(PostgresDateTime::from(t))
+                .expect("must be a valid postgres timestamp");
+            PostgresDateTime::from(t)
         }
         // For TIMESTAMPTZOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID | pg_sys::BuiltinOid::TSTZRANGEOID) => {
-            let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string).map_err(|e| {
-                anyhow::anyhow!("must be a valid postgres timestamp with time zone: {e}")
-            })?;
-            Ok(PostgresDateTime::from(twtz))
+            let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
+                .expect("must be a valid postgres timestamp with time zone");
+            PostgresDateTime::from(twtz)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
-            let t = pgrx::datum::Time::from_str(date_string)
-                .map_err(|e| anyhow::anyhow!("must be a valid postgres time: {e}"))?;
-            Ok(PostgresDateTime::from(t))
+            let t =
+                pgrx::datum::Time::from_str(date_string).expect("must be a valid postgres time");
+            PostgresDateTime::from(t)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
-            let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string).map_err(|e| {
-                anyhow::anyhow!("must be a valid postgres time with time zone: {e}")
-            })?;
-            Ok(PostgresDateTime::from(twtz))
+            let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string)
+                .expect("must be a valid postgres time with time zone");
+            PostgresDateTime::from(twtz)
         }
-        _ => anyhow::bail!("Unsupported typeoid: {typeoid:?}"),
+        _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }
 }
 

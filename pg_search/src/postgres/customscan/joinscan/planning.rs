@@ -40,7 +40,7 @@ use crate::postgres::node::NodeExt;
 
 use crate::api::operator::expr_contains_search_predicate;
 use crate::api::version::VersionInfo;
-use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, ScoreOrderExpr, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
@@ -1643,7 +1643,7 @@ pub(super) unsafe fn collect_required_fields(
             other => other,
         };
         match feature {
-            OrderByFeature::ScoreSum { rtis } => {
+            OrderByFeature::ScoreSum { rtis, .. } => {
                 for rti in rtis {
                     if let Some(source) = plan_sources
                         .iter_mut()
@@ -2093,7 +2093,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
             }
 
-            if let Some(rtis) = extract_score_sum(expr.cast())
+            if let Some((_, rtis)) = extract_score_sum(expr.cast())
                 && rtis.iter().all(|rti| source_rtis.contains(rti))
             {
                 continue 'pathkey;
@@ -2726,21 +2726,87 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
     false
 }
 
-/// Check if an expression is a sum of one or more `pdb.score(var)` calls.
-/// Returns the list of RTIs for the referenced relations if it matches.
-pub(super) fn extract_score_sum(expr: *mut pg_sys::Node) -> Option<Vec<pg_sys::Index>> {
+/// Check if an expression is a monotonic combination (`+`, `*`, positive constants) of one or more
+/// `pdb.score(var)` calls. Returns the parsed `ScoreOrderExpr` and referenced RTIs if it matches.
+pub(super) fn extract_score_sum(
+    expr: *mut pg_sys::Node,
+) -> Option<(ScoreOrderExpr, Vec<pg_sys::Index>)> {
     let mut rtis = Vec::new();
-    if !collect_score_sum_rtis(expr, &mut rtis) || rtis.is_empty() {
+    let score_expr = collect_score_expr(expr, &mut rtis)?;
+    if rtis.is_empty() {
         return None;
     }
-    Some(rtis)
+    Some((score_expr, rtis))
 }
 
-fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>) -> bool {
-    if node.is_null() {
-        return false;
+fn unwrap_numeric_casts(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        node = strip_identity_wrappers(strip_wrappers(node));
+        if node.is_null() {
+            return node;
+        }
+        if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+            let funcexpr = unsafe { &*funcexpr };
+            if funcexpr.funcformat != pg_sys::CoercionForm::COERCE_EXPLICIT_CALL
+                && matches!(
+                    funcexpr.funcresulttype,
+                    pg_sys::FLOAT4OID | pg_sys::FLOAT8OID | pg_sys::NUMERICOID
+                )
+            {
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
+                if args.len() == 1
+                    && let Some(arg) = args.get_ptr(0)
+                {
+                    node = arg;
+                    continue;
+                }
+            }
+        }
+        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+            let coerce = unsafe { &*coerce };
+            if matches!(
+                coerce.resulttype,
+                pg_sys::FLOAT4OID | pg_sys::FLOAT8OID | pg_sys::NUMERICOID
+            ) {
+                node = coerce.arg.cast();
+                continue;
+            }
+        }
+        break;
     }
-    let stripped = strip_identity_wrappers(strip_wrappers(node));
+    node
+}
+
+fn extract_positive_numeric_const(konst: &pg_sys::Const) -> Option<f64> {
+    use pgrx::{AnyNumeric, FromDatum};
+    if konst.constisnull {
+        return None;
+    }
+    let datum = konst.constvalue;
+    let val = unsafe {
+        match konst.consttype {
+            pg_sys::INT2OID => i16::from_datum(datum, false).map(|v| v as f64),
+            pg_sys::INT4OID => i32::from_datum(datum, false).map(|v| v as f64),
+            pg_sys::INT8OID => i64::from_datum(datum, false).map(|v| v as f64),
+            pg_sys::FLOAT4OID => f32::from_datum(datum, false).map(|v| v as f64),
+            pg_sys::FLOAT8OID => f64::from_datum(datum, false),
+            pg_sys::NUMERICOID => {
+                AnyNumeric::from_datum(datum, false).and_then(|n| f64::try_from(n).ok())
+            }
+            _ => None,
+        }
+    }?;
+    (val.is_finite() && val > 0.0).then_some(val)
+}
+
+fn collect_score_expr(
+    node: *mut pg_sys::Node,
+    rtis: &mut Vec<pg_sys::Index>,
+) -> Option<ScoreOrderExpr> {
+    if node.is_null() {
+        return None;
+    }
+    let stripped = unwrap_numeric_casts(node);
     if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, stripped) } {
         let funcexpr = unsafe { &*funcexpr };
         if score_funcoids().contains(&funcexpr.funcid) {
@@ -2749,11 +2815,18 @@ fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>
                 && let Some(arg) = args.get_ptr(0)
                 && let Some(var) = unsafe { nodecast!(Var, T_Var, strip_wrappers(arg)) }
             {
-                rtis.push(unsafe { (*var).varno } as pg_sys::Index);
-                return true;
+                let rti = unsafe { (*var).varno } as pg_sys::Index;
+                if !rtis.contains(&rti) {
+                    rtis.push(rti);
+                }
+                return Some(ScoreOrderExpr::Score { rti });
             }
         }
-        return false;
+        return None;
+    }
+    if let Some(konst) = unsafe { nodecast!(Const, T_Const, stripped) } {
+        let c = extract_positive_numeric_const(unsafe { &*konst })?;
+        return Some(ScoreOrderExpr::Constant(c));
     }
     if let Some(opexpr) = unsafe { nodecast!(OpExpr, T_OpExpr, stripped) } {
         let opexpr = unsafe { &*opexpr };
@@ -2764,19 +2837,24 @@ fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>
         if !opname_ptr.is_null() && !namespace_ptr.is_null() {
             let schema = unsafe { std::ffi::CStr::from_ptr(namespace_ptr) }.to_bytes();
             let opname = unsafe { std::ffi::CStr::from_ptr(opname_ptr) }.to_bytes();
-            if schema == b"pg_catalog" && opname == b"+" {
+            if schema == b"pg_catalog" && (opname == b"+" || opname == b"*") {
                 let args = unsafe { PgList::<pg_sys::Node>::from_pg(opexpr.args) };
                 if args.len() == 2
                     && let Some(left) = args.get_ptr(0)
                     && let Some(right) = args.get_ptr(1)
                 {
-                    return collect_score_sum_rtis(left, rtis)
-                        && collect_score_sum_rtis(right, rtis);
+                    let l = collect_score_expr(left, rtis)?;
+                    let r = collect_score_expr(right, rtis)?;
+                    return Some(if opname == b"+" {
+                        ScoreOrderExpr::Add(Box::new(l), Box::new(r))
+                    } else {
+                        ScoreOrderExpr::Mul(Box::new(l), Box::new(r))
+                    });
                 }
             }
         }
     }
-    false
+    None
 }
 
 /// Extracts the RTI of the variable passed to a `paradedb.score(var)` function call.
@@ -2884,27 +2962,24 @@ impl JoinSortExprKind {
             };
         }
 
-        if let Some(rtis) = extract_score_sum(check_expr.cast()) {
-            if rtis.len() > 1 {
-                if !rtis.iter().all(|rti| output_rtis.contains(rti)) {
-                    return if pathkey_equivalence_member {
-                        Self::SkipMember
-                    } else {
-                        Self::NoMatch
-                    };
-                }
-                return Self::Resolved(OrderByInfo {
-                    feature: OrderByFeature::ScoreSum { rtis },
-                    direction,
-                });
-            } else if let Some(&rti) = rtis.first()
-                && output_rtis.contains(&rti)
-            {
+        if let Some((expr, rtis)) = extract_score_sum(check_expr.cast()) {
+            if !rtis.iter().all(|rti| output_rtis.contains(rti)) {
+                return if pathkey_equivalence_member {
+                    Self::SkipMember
+                } else {
+                    Self::NoMatch
+                };
+            }
+            if let ScoreOrderExpr::Score { rti } = expr {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Score { rti },
                     direction,
                 });
             }
+            return Self::Resolved(OrderByInfo {
+                feature: OrderByFeature::ScoreSum { expr, rtis },
+                direction,
+            });
         }
 
         if let Some(var) = nodecast!(Var, T_Var, check_expr) {
@@ -3110,12 +3185,10 @@ pub(super) unsafe fn extract_orderby(
             _ => true,
         };
 
-        let direction = match (is_asc, nulls_first) {
-            (true, true) => SortDirection::AscNullsFirst,
-            (true, false) => SortDirection::AscNullsLast,
-            (false, true) => SortDirection::DescNullsFirst,
-            (false, false) => SortDirection::DescNullsLast,
-        };
+        let direction = SortDirection::from(arrow_schema::SortOptions {
+            descending: !is_asc,
+            nulls_first,
+        });
 
         let mut pathkey_resolved = false;
 

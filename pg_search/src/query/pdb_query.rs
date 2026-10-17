@@ -736,6 +736,55 @@ impl pdb::Query {
         }
     }
 
+    pub(crate) fn is_constant_score(&self) -> bool {
+        match self {
+            pdb::Query::All
+            | pdb::Query::Empty
+            | pdb::Query::Exists
+            | pdb::Query::FastFieldRangeWeight { .. }
+            | pdb::Query::Range { .. }
+            | pdb::Query::RangeContains { .. }
+            | pdb::Query::RangeIntersects { .. }
+            | pdb::Query::RangeTerm { .. }
+            | pdb::Query::RangeWithin { .. }
+            | pdb::Query::Regex { .. }
+            | pdb::Query::StoredRange { .. }
+            | pdb::Query::TermSet { .. } => true,
+            pdb::Query::ScoreAdjusted { query, score } => match score {
+                Some(ScoreAdjustStyle::Const(_)) => true,
+                _ => query.is_constant_score(),
+            },
+            pdb::Query::MoreLikeThis { .. }
+            | pdb::Query::UnclassifiedString { .. }
+            | pdb::Query::UnclassifiedArray { .. }
+            | pdb::Query::FuzzyTerm { .. }
+            | pdb::Query::Match { .. }
+            | pdb::Query::MatchArray { .. }
+            | pdb::Query::Parse { .. }
+            | pdb::Query::ParseWithField { .. }
+            | pdb::Query::Phrase { .. }
+            | pdb::Query::PhraseArray { .. }
+            | pdb::Query::PhrasePrefix { .. }
+            | pdb::Query::Proximity { .. }
+            | pdb::Query::TokenizedPhrase { .. }
+            | pdb::Query::RegexPhrase { .. }
+            | pdb::Query::Term { .. } => false,
+        }
+    }
+
+    pub(crate) fn estimate_max_score(&self) -> f64 {
+        match self {
+            pdb::Query::ScoreAdjusted { query, score } => match score {
+                Some(ScoreAdjustStyle::Boost(b)) => {
+                    (*b as f64).max(0.0) * query.estimate_max_score()
+                }
+                Some(ScoreAdjustStyle::Const(c)) => (*c as f64).max(0.0),
+                None => query.estimate_max_score(),
+            },
+            _ => 1.0,
+        }
+    }
+
     pub fn needs_tokenizer(&self) -> bool {
         match self {
             pdb::Query::All

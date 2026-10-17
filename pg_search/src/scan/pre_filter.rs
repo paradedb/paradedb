@@ -114,8 +114,350 @@ use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
 use tantivy::Term;
 use tantivy::query::{
-    BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
+    BooleanQuery, ConstScoreQuery, Occur, Query, TermQuery, TermSetQuery, TermSetStrategyConfig,
 };
+use tantivy::schema::IndexRecordOption;
+
+/// Point-lookup request payload pushed from [`crate::scan::rank_join_exec::RankJoinExec`] down to
+/// [`crate::scan::execution_plan::PgSearchScanPlan`] (and across nested `RankJoinExec` nodes) to
+/// trigger on-demand Random Access (`RA`) fetches for a batch of unresolved join keys.
+///
+/// # How `RankLookupPhysicalExpr` differs from a normal dynamic filter
+///
+/// If a rank join only needed Sorted Access (`SA`), its child inputs would simply be standard
+/// sorted `SendableRecordBatchStream` iterators with no special side-channel. Random Access (`RA`),
+/// however, acts like an extension trait on `Stream` that adds point-lookup methods and richer
+/// exhaustion states. Because DataFusion's `ExecutionPlan::execute` returns an opaque
+/// `SendableRecordBatchStream` wrapped by intermediate unary operators (`ProjectionExec`,
+/// `FilterPassthroughExec`, `TantivyFetchExec`, `TantivyDecodeExec`, `VisibilityFilterExec`),
+/// `RankJoinExec` cannot call custom methods on the leaf stream directly. Instead, it tunnels a
+/// synchronous, bidirectional RPC protocol through DataFusion's [`DynamicFilterPhysicalExpr`]:
+///
+/// 1. **One-shot RPC request/reset lifecycle (not a persistent monotonic filter):**
+///    Normal dynamic filters (`HashJoinExec`'s build-side `InListExpr`, or `SortExec` /
+///    `SegmentedTopKExec`'s rolling threshold) are published once or tightened monotonically and
+///    restrict every subsequent batch. By contrast, `RankJoinExec` writes a `RankLookupPhysicalExpr`
+///    into a side's `DynamicFilterPhysicalExpr` immediately before polling `child_stream.next().await`
+///    for an `RA` probe. At the top of `poll_next` in `lazy_sort.rs`,
+///    `LazySortStreamState::take_pending_ra_lookup` immediately consumes the request by resetting
+///    `dyn_filter.update(lit(true))` and executes a single out-of-band `reader.search_ra_lookup`
+///    batch without advancing the `SA` window cursor (yielding an empty `RecordBatch` if 0 rows
+///    matched, since returning `None` would close the stream).
+///
+/// 2. **Reverse (child `->` parent) exhaustion signaling:**
+///    When a leaf scan exhausts its `SA` stream, `LazySortStreamState::signal_parent_sa_exhausted`
+///    writes a sentinel literal back into the same `DynamicFilterPhysicalExpr` and yields an empty
+///    `RecordBatch` so `RankJoinExec` can distinguish why the batch was empty while keeping the
+///    stream open for future `RA` probes:
+///    - `lit(false)` (`ExhaustionBehavior::KeepAliveForRa`): `SA` is exhausted, but `RA` remains
+///      capable of probing the unvisited tail of the index.
+///    - `lit(ScalarValue::Boolean(None))` (`ExhaustionBehavior::SignalBothExhausted`): both `SA`
+///      and `RA` are exhausted because `SA` has already visited every matching document.
+///
+/// 3. **Automatic column-index remapping & cascading (`N >= 3`) interception:**
+///    Because `RankLookupPhysicalExpr` implements [`PhysicalExpr`] (`children()` returning `cols`
+///    and `with_new_children()` rebuilding `cols`), DataFusion's `FilterPushdown` pass and
+///    intermediate `ProjectionExec` nodes automatically remap its `Column` indices as it travels
+///    down the physical plan. In a cascading multi-way rank join, an inner `RankJoinExec`
+///    intercepts its parent's `DynamicFilterPhysicalExpr`, translates `score_threshold` via
+///    `ScoreCombiner::threshold_for`, and forwards a remapped `RankLookupPhysicalExpr` to its own
+///    children.
+///
+/// 4. **Dual execution mode (leaf Tantivy query vs intermediate in-memory `evaluate`):**
+///    - At a leaf `PgSearchScanPlan`, `PhysicalExpr::evaluate` is never called on
+///      `RankLookupPhysicalExpr`. Instead, [`try_convert_rank_lookup_to_query`] converts `cols`
+///      and `keys` into a Tantivy `TermSetQuery` (or `BooleanQuery` for composite keys), and
+///      `score_threshold` (`score > threshold`) is passed directly into
+///      `SearchIndexReader::search_ra_lookup` to drive Tantivy's `PruningScorer` (Block-Max WAND).
+///    - At an intermediate `RankJoinExec` (`find_matching_buffered_rows`),
+///      `RankLookupPhysicalExpr::evaluate(&batch)` *is* called as an Arrow [`PhysicalExpr`] to
+///      filter batches that the inner join already buffered in memory during prior `SA` pulls.
+#[derive(Debug, Clone)]
+pub struct RankLookupPhysicalExpr {
+    cols: Vec<Arc<dyn PhysicalExpr>>,
+    keys: Vec<Vec<ScalarValue>>,
+    /// Optional minimum score threshold using strict greater-than (`score > threshold`) semantics,
+    /// matching Tantivy's `PruningScorer`.
+    score_threshold: Option<Score>,
+}
+
+impl RankLookupPhysicalExpr {
+    pub fn new(cols: Vec<Arc<dyn PhysicalExpr>>, keys: Vec<Vec<ScalarValue>>) -> Self {
+        Self {
+            cols,
+            keys,
+            score_threshold: None,
+        }
+    }
+
+    pub fn with_score_threshold(mut self, score_threshold: Option<Score>) -> Self {
+        self.score_threshold = score_threshold;
+        self
+    }
+
+    pub fn with_keys_and_threshold(
+        &self,
+        keys: Vec<Vec<ScalarValue>>,
+        score_threshold: Option<Score>,
+    ) -> Self {
+        Self {
+            cols: self.cols.clone(),
+            keys,
+            score_threshold,
+        }
+    }
+
+    pub fn keys(&self) -> &[Vec<ScalarValue>] {
+        &self.keys
+    }
+
+    pub fn score_threshold(&self) -> Option<Score> {
+        self.score_threshold
+    }
+}
+
+impl std::fmt::Display for RankLookupPhysicalExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RankLookup([")?;
+        for (i, c) in self.cols.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{c}")?;
+        }
+        if let Some(t) = self.score_threshold {
+            write!(f, "], keys={}, score_threshold={t})", self.keys.len())
+        } else {
+            write!(f, "], keys={})", self.keys.len())
+        }
+    }
+}
+
+impl PartialEq for RankLookupPhysicalExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.cols.len() == other.cols.len()
+            && self
+                .cols
+                .iter()
+                .zip(other.cols.iter())
+                .all(|(a, b)| a.as_ref() == b.as_ref())
+            && self.keys == other.keys
+            && self.score_threshold.map(f32::to_bits) == other.score_threshold.map(f32::to_bits)
+    }
+}
+
+impl Eq for RankLookupPhysicalExpr {}
+
+impl std::hash::Hash for RankLookupPhysicalExpr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.cols.len().hash(state);
+        for c in &self.cols {
+            c.as_ref().hash(state);
+        }
+        self.keys.hash(state);
+        self.score_threshold.map(f32::to_bits).hash(state);
+    }
+}
+
+impl PhysicalExpr for RankLookupPhysicalExpr {
+    fn data_type(&self, _input_schema: &Schema) -> datafusion::common::Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+
+    fn nullable(&self, _input_schema: &Schema) -> datafusion::common::Result<bool> {
+        Ok(false)
+    }
+
+    fn evaluate(
+        &self,
+        batch: &RecordBatch,
+    ) -> datafusion::common::Result<datafusion::physical_plan::ColumnarValue> {
+        let num_rows = batch.num_rows();
+        if self.cols.is_empty() || self.keys.is_empty() || num_rows == 0 {
+            return Ok(datafusion::physical_plan::ColumnarValue::Array(Arc::new(
+                BooleanArray::from(vec![false; num_rows]),
+            )));
+        }
+
+        let mut col_arrays = Vec::with_capacity(self.cols.len());
+        for col_expr in &self.cols {
+            let val = col_expr.evaluate(batch)?;
+            col_arrays.push(val.into_array(num_rows)?);
+        }
+
+        let mut matches = Vec::with_capacity(num_rows);
+        if self.cols.len() == 1 {
+            let mut key_set = HashSet::default();
+            for k in &self.keys {
+                if let Some(v) = k.first() {
+                    key_set.insert(v.clone());
+                }
+            }
+            let arr = &col_arrays[0];
+            for row_idx in 0..num_rows {
+                let sv = ScalarValue::try_from_array(arr.as_ref(), row_idx)?;
+                matches.push(!sv.is_null() && key_set.contains(&sv));
+            }
+        } else {
+            let mut key_set: HashSet<Vec<ScalarValue>> = HashSet::default();
+            for k in &self.keys {
+                key_set.insert(k.clone());
+            }
+            let mut row_key = Vec::with_capacity(self.cols.len());
+            for row_idx in 0..num_rows {
+                row_key.clear();
+                let mut any_null = false;
+                for arr in &col_arrays {
+                    let sv = ScalarValue::try_from_array(arr.as_ref(), row_idx)?;
+                    if sv.is_null() {
+                        any_null = true;
+                        break;
+                    }
+                    row_key.push(sv);
+                }
+                matches.push(!any_null && key_set.contains(&row_key));
+            }
+        }
+
+        Ok(datafusion::physical_plan::ColumnarValue::Array(Arc::new(
+            BooleanArray::from(matches),
+        )))
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
+        self.cols.iter().collect()
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> datafusion::common::Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(Self {
+            cols: children,
+            keys: self.keys.clone(),
+            score_threshold: self.score_threshold,
+        }))
+    }
+
+    fn fmt_sql(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+/// Convert a [`RankLookupPhysicalExpr`] into a zero-scoring Tantivy query (`ConstScoreQuery(..., 0.0)`)
+/// suitable for `reader.and_query(...)` during a Random Access (`RA`) point lookup.
+pub fn try_convert_rank_lookup_to_query(
+    lookup: &RankLookupPhysicalExpr,
+    schema: &crate::schema::SearchIndexSchema,
+    index_created_by_version: Option<crate::api::version::Version>,
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+) -> Option<Box<dyn Query>> {
+    if lookup.cols.is_empty() || lookup.keys.is_empty() {
+        return None;
+    }
+
+    let tantivy_schema = schema.tantivy_schema();
+    if lookup.cols.len() == 1 {
+        let col = lookup.cols[0].downcast_ref::<Column>()?;
+        let field = schema.search_field(col.name())?;
+        if field.is_text() && !field.is_keyword() {
+            return None;
+        }
+        let field_type = field.field_type();
+        let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+        let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+
+        let mut terms = Vec::with_capacity(lookup.keys.len());
+        for key_tuple in &lookup.keys {
+            let scalar = key_tuple.first()?;
+            if scalar.is_null() {
+                continue;
+            }
+            let owned_value = PdbOwnedValue::from_execution_scalar(scalar, &field_type)?;
+            let term = value_to_term(
+                tantivy_field,
+                &owned_value,
+                tantivy_field_type,
+                None,
+                index_created_by_version,
+            )
+            .ok()?;
+            terms.push(term);
+        }
+        if terms.is_empty() {
+            return None;
+        }
+        let cfg = TermSetStrategyConfig {
+            gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+            bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique()
+                .max(crate::gucs::term_set_bitset_max_density_multi()),
+            bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+            strategy_sink,
+            ..TermSetStrategyConfig::default()
+        };
+        let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
+        return Some(Box::new(ConstScoreQuery::new(term_set_query, 0.0)));
+    }
+
+    // Composite key: OR of ANDed TermQuerys
+    let mut col_infos = Vec::with_capacity(lookup.cols.len());
+    for col_expr in &lookup.cols {
+        let col = col_expr.downcast_ref::<Column>()?;
+        let field = schema.search_field(col.name())?;
+        if field.is_text() && !field.is_keyword() {
+            return None;
+        }
+        let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+        let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+        col_infos.push((field.field_type(), tantivy_field, tantivy_field_type));
+    }
+
+    let mut tuple_queries: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(lookup.keys.len());
+    for key_tuple in &lookup.keys {
+        if key_tuple.len() != col_infos.len() {
+            continue;
+        }
+        let mut conj: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(col_infos.len());
+        let mut valid = true;
+        for (scalar, (field_type, tantivy_field, tantivy_field_type)) in
+            key_tuple.iter().zip(col_infos.iter())
+        {
+            if scalar.is_null() {
+                valid = false;
+                break;
+            }
+            let Some(owned_value) = PdbOwnedValue::from_execution_scalar(scalar, field_type) else {
+                valid = false;
+                break;
+            };
+            let Ok(term) = value_to_term(
+                *tantivy_field,
+                &owned_value,
+                tantivy_field_type,
+                None,
+                index_created_by_version,
+            ) else {
+                valid = false;
+                break;
+            };
+            conj.push((
+                Occur::Must,
+                Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+            ));
+        }
+        if valid && !conj.is_empty() {
+            tuple_queries.push((Occur::Should, Box::new(BooleanQuery::new(conj))));
+        }
+    }
+
+    if tuple_queries.is_empty() {
+        return None;
+    }
+    Some(Box::new(ConstScoreQuery::new(
+        BooleanQuery::new(tuple_queries),
+        0.0,
+    )))
+}
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -275,6 +617,11 @@ impl PreFilter {
 /// Top-level `AND` operations are split into separate `PreFilter`s to allow early
 /// short-circuiting in the scanner. Expressions containing unsupported nodes
 /// (e.g. non-comparison operators, functions) are safely skipped.
+///
+/// Note: [`RankLookupPhysicalExpr`] is intentionally not handled here because
+/// `LazySortStreamState::take_pending_ra_lookup` consumes any pending `RA` request and resets its
+/// [`DynamicFilterPhysicalExpr`] to `lit(true)` at the top of `poll_next`, before `SA` window
+/// pre-filter collection runs.
 pub fn collect_filters(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,

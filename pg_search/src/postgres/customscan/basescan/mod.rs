@@ -112,6 +112,16 @@ use tantivy::snippet::SnippetGenerator;
 pub struct BaseScan;
 
 impl BaseScan {
+    /// Solve the query for the coming execution: a fresh copy of the base query with its
+    /// Postgres expressions and parameters evaluated in the runtime context.
+    fn prepare_query(state: &mut CustomScanStateWrapper<Self>) {
+        let planstate = state.planstate();
+        let runtime_context = state.custom_state().runtime_context;
+        state
+            .custom_state_mut()
+            .prepare_query_for_execution(planstate, runtime_context);
+    }
+
     /// (Re-)initializes the search reader for the current execution context.
     ///
     /// This function handles two distinct execution scenarios:
@@ -138,11 +148,8 @@ impl BaseScan {
             (*state.csstate.ss.ps.state).es_snapshot
         });
 
+        Self::prepare_query(state);
         let planstate = state.planstate();
-        let runtime_context = state.custom_state().runtime_context;
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, runtime_context);
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
@@ -342,7 +349,7 @@ impl BaseScan {
         if quals.is_some()
             && !state.uses_our_operator
             && !allow_without_operator
-            && search_operator_relations::applies_to(root, rti)
+            && search_operator_relations::applies_to_scan(root, rti)
         {
             state.uses_our_operator = true;
             if !join_clauses_contain_search_predicate(builder.args().rel) {
@@ -879,7 +886,10 @@ impl CustomScan for BaseScan {
             // every row as it does for `pdb.all()`.
             let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
-                && search_operator_relations::applies_to(builder.args().root, builder.args().rti);
+                && search_operator_relations::applies_to_scan(
+                    builder.args().root,
+                    builder.args().rti,
+                );
 
             if matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
@@ -1194,22 +1204,6 @@ impl CustomScan for BaseScan {
             // any), so the cost computation opens the index at most once per query.
             let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
 
-            // Cost the query once (memoized) for costable scans; `None` marks the scan uncostable, so
-            // pg_search forces the worker decision (and an effective-LIMIT scan uses the magnitude in
-            // `cost_test_limited`). Skip the open entirely for un-ANALYZEd tables -- the row heuristic
-            // decides those without a cost.
-            let drive_cost = match row_estimate {
-                RowEstimate::Known(_) => costable_drive_cost(
-                    &query,
-                    &estimation_query,
-                    &bm25_index,
-                    &quals,
-                    builder.args().root,
-                    &mut cost_memo,
-                ),
-                RowEstimate::Unknown => None,
-            };
-
             // For each execution method variant, decide a `WorkerPathPolicy` and emit the path(s) it
             // calls for: one serial path, one partial (parallel) path, or -- for a costable no-LIMIT
             // scan -- both, so PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
@@ -1219,6 +1213,32 @@ impl CustomScan for BaseScan {
                     ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
                     // requires heap access to return fields
                     _ => pg_sys::cpu_tuple_cost,
+                };
+
+                let drive_cost = match (&method, row_estimate) {
+                    // Posting costs omit vector work; preserve the fallback for runtime filters.
+                    (
+                        ExecMethodType::TopK {
+                            orderby_info: Some(orderby),
+                            ..
+                        },
+                        _,
+                    ) if matches!(estimation_query, EstimationQuery::Folded(_))
+                        && orderby
+                            .first()
+                            .is_some_and(|order| order.is_vector_distance()) =>
+                    {
+                        None
+                    }
+                    (_, RowEstimate::Known(_)) => costable_drive_cost(
+                        &query,
+                        &estimation_query,
+                        &bm25_index,
+                        &quals,
+                        builder.args().root,
+                        &mut cost_memo,
+                    ),
+                    (_, RowEstimate::Unknown) => None,
                 };
 
                 let is_sorted = method.declares_sorted_output();
@@ -1781,7 +1801,17 @@ impl CustomScan for BaseScan {
                         .map(|stats| stats.hits())
                         .unwrap_or_else(|| vec![("Total".into(), 0)])
                     {
-                        explainer.add_unsigned_integer(&component, hits, None);
+                        if component == "Vectors"
+                            && let Some(stats) = &state.custom_state().io_trace
+                        {
+                            explainer.add_unsigned_integer_group(&component, hits, |explainer| {
+                                for (name, hits) in stats.vector_hits() {
+                                    explainer.add_unsigned_integer(name, hits, None);
+                                }
+                            });
+                        } else {
+                            explainer.add_unsigned_integer(&component, hits, None);
+                        }
                     }
                 });
             }
@@ -1969,11 +1999,8 @@ impl CustomScan for BaseScan {
         // Drop the previous execution's scorers (whose cursors point into the
         // bitmap) and the stale source cell before the bitmap is freed; only then
         // rebuild for the new params. The exec method itself is preserved and
-        // re-bound by `reset()` below. No reader means the scan never executed:
-        // there are no scorers, and the exec method may not even be bound yet.
-        if state.custom_state().search_reader.is_some() {
-            state.custom_state_mut().reset_exec_results();
-        }
+        // re-bound by `reset()` below.
+        state.custom_state_mut().reset_exec_results();
         // A merge can retire a segment the shared work queue still hands out, and a retired
         // segment stays readable only while something pins it. `TopKScanExecState` happens to
         // keep a reader clone through `reset_exec_results`, but the normal and columnar methods
@@ -1985,9 +2012,14 @@ impl CustomScan for BaseScan {
             .as_ref()
             .map(SearchIndexReader::segment_pins);
         drop(state.custom_state_mut().search_reader.take());
-        state.custom_state_mut().bitmap_cell = None;
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            unsafe { bitmap_exec.rescan() };
+        // A parallel scan's bitmap is shared state: the DSM callbacks build it and fill
+        // the cell before the workers launch, and this ReScan runs after, while they
+        // read it. Only a serial scan rebuilds here.
+        if state.custom_state().parallel.is_none() {
+            state.custom_state_mut().bitmap_cell = None;
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                unsafe { bitmap_exec.rescan() };
+            }
         }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();
@@ -2141,7 +2173,7 @@ impl CustomScan for BaseScan {
                 parallel.finalize_explain(&mut scan_state.telemetry);
             } else {
                 // Worker: flush local telemetry into the DSM for the leader to read.
-                parallel.publish_telemetry(&scan_state.telemetry);
+                parallel.publish_telemetry(&scan_state.telemetry, scan_state.io_trace.as_ref());
             }
         }
     }
@@ -3056,6 +3088,7 @@ fn base_query_has_search_predicates(
 
         // These are NOT search predicates (they're range/exists/other predicates)
         SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::StoredRange { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeIntersects { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeTerm { .. }, .. }

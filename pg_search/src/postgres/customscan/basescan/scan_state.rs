@@ -198,9 +198,13 @@ impl BaseScanState {
     /// Drop the active search results (whose scorers hold bitmap cursors),
     /// keeping the selected exec method: `reset()` re-binds it to the rebuilt
     /// reader after a rescan. Replacing the method here would leave the
-    /// default `UnknownScanStyle`, which panics on its next use.
+    /// default `UnknownScanStyle`, which panics on its next use. No reader means
+    /// the scan never executed: there are no scorers, and the exec method may
+    /// not even be bound yet.
     pub fn reset_exec_results(&mut self) {
-        self.exec_method_mut().reset(self);
+        if self.search_reader.is_some() {
+            self.exec_method_mut().reset(self);
+        }
     }
 
     /// Drop the current exec method (and with it any search results whose
@@ -246,9 +250,6 @@ impl BaseScanState {
     }
 
     pub fn parallel_scan_args(&self) -> ParallelScanArgs {
-        let query = serde_json::to_vec(self.search_query_input())
-            .expect("should be able to serialize query");
-
         let segment_view = self
             .search_reader
             .as_ref()
@@ -259,7 +260,6 @@ impl BaseScanState {
 
         ParallelScanArgs {
             all_sources: vec![segment_view],
-            query,
             with_aggregates,
             with_segment_info: true,
         }
@@ -615,7 +615,10 @@ impl SolvePostgresExpressions for BaseScanState {
             && let Some(handle) = unsafe { (*pstate).bitmap_wait_done() }
             && let Some(bitmap_exec) = self.bitmap_exec.as_mut()
         {
-            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle) });
+            // The owner published one iteration state per participant: slot 0 is its
+            // own, worker `n` takes slot `n + 1`.
+            let slot = unsafe { pg_sys::ParallelWorkerNumber } as u32 + 1;
+            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle, slot) });
         }
         Some(cell)
     }

@@ -164,23 +164,14 @@ jobs:
             echo
             echo "=========================================="
 
-            PR_NUMBER="${PR_NUMBER}"
+            SUGGESTED_FILE="pg_search/sql/unreleased/${PR_NUMBER:-<PR_NUMBER>}.<short_description>.sql"
             shopt -s nullglob
-
-            if [ -n "$PR_NUMBER" ]; then
-              MATCHING_FILES=("pg_search/sql/unreleased/${PR_NUMBER}."*.sql)
-            else
-              # Fallback for manual runs (workflow_dispatch)
-              MATCHING_FILES=(pg_search/sql/unreleased/*.sql)
-            fi
+            mapfile -t RELEASED_FILES < <(git diff --name-only --diff-filter=AM FETCH_HEAD HEAD -- 'pg_search/sql/pg_search--*--*.sql')
+            MATCHING_FILES=(pg_search/sql/unreleased/*.sql "${RELEASED_FILES[@]}")
 
             if (( ${#MATCHING_FILES[@]} == 0 )); then
               echo "❌ ERROR: Schema changed but no SQL migration fragment found in pg_search/sql/unreleased/"
-              if [ -n "$PR_NUMBER" ]; then
-                echo "Expected file: pg_search/sql/unreleased/${PR_NUMBER}.<short_description>.sql"
-              else
-                echo "Expected file: pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql"
-              fi
+              echo "Suggested file: ${SUGGESTED_FILE}"
               echo "Please create a fragment file containing the required schema changes shown above."
               exit 1
             fi
@@ -202,7 +193,7 @@ jobs:
               rm -f "$COMBINED_FRAGMENT"
               echo
               echo "The migration fragment(s) need to be updated."
-              echo "Please ensure all the schema changes shown above are in your fragment file(s)."
+              echo "Please ensure all the schema changes shown above are in your fragment file(s) (e.g. ${SUGGESTED_FILE})."
               echo
               echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
               echo "   please update the schema diff generation logic at:"

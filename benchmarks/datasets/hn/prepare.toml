@@ -1,0 +1,25 @@
+dataset = "hn"
+version = "v1"
+source = "s3://paradedb-benchmarker/datasets/hn-ci.tar.gz"
+artifact_prefix = "s3://paradedb-ci-benchmarks/datasets/hn/v1"
+snapshot_prefix = "s3://paradedb-ci-benchmarks/snapshots/hn/v1"
+
+[embedding]
+model = "text-embedding-3-small"
+dimensions = 1536
+input_column = "text"
+preprocessing = "hn-html-text-v1"
+encoding = "cl100k_base"
+max_tokens = 8192
+distance = "cosine"
+
+[queries]
+count = 1000
+seed = 42
+require_unique_normalized_text = true
+
+[pricing]
+standard_usd_per_million_tokens = 0.02
+batch_usd_per_million_tokens = 0.01
+as_of = "2026-10-15"
+source = "https://developers.openai.com/api/docs/models/text-embedding-3-small"

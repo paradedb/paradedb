@@ -11,6 +11,8 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -63,6 +65,7 @@ class FakeClient:
         self.fail_after_accept = False
         self.reject_before_accept = False
         self.create_calls = 0
+        self.hidden_lists = 0
 
     def with_options(self, *, max_retries):
         """Ensure paid create requests never use implicit SDK retries."""
@@ -75,6 +78,8 @@ class FakeClient:
         assert completion_window == "24h"
         self.create_calls += 1
         if self.reject_before_accept:
+            if isinstance(self.reject_before_accept, Exception):
+                raise self.reject_before_accept
             raise ConnectionError("Connection lost before acceptance")
         batch = SimpleNamespace(
             id=f"batch-{len(self.jobs)}",
@@ -86,7 +91,10 @@ class FakeClient:
         )
         self.jobs[batch.id] = batch
         if self.fail_after_accept:
+            error = self.fail_after_accept
             self.fail_after_accept = False
+            if isinstance(error, Exception):
+                raise error
             raise ConnectionError("Accepted job response was lost")
         return batch
 
@@ -97,6 +105,9 @@ class FakeClient:
     def list(self, *, limit):
         """Expose metadata-based recovery of an accepted job."""
         assert limit == 100
+        if self.hidden_lists:
+            self.hidden_lists -= 1
+            return iter(())
         return iter(self.jobs.values())
 
     def complete(self, batch_id, failures=None, status="completed"):
@@ -189,6 +200,7 @@ def response_body(request):
     return {"model": request["body"]["model"], "data": list(reversed(entries))}
 
 
+# pylint: disable-next=too-many-public-methods
 class HNEmbeddingTests(unittest.TestCase):
     """Run the complete preparation-to-cache path with simulated API responses."""
 
@@ -351,7 +363,7 @@ class HNEmbeddingTests(unittest.TestCase):
                     "--directory",
                     str(self.directory),
                     "--max-seconds",
-                    "60",
+                    "180",
                 ],
             ),
         ):
@@ -406,13 +418,209 @@ class HNEmbeddingTests(unittest.TestCase):
             "batch-0",
         )
 
+    def test_server_timeout_recovers_after_delayed_batch_visibility(self):
+        """Wait through a 504 and stale listing without creating a duplicate batch."""
+        self.client.fail_after_accept = embed.openai.InternalServerError(
+            "Gateway time-out",
+            response=embed.httpx2.Response(
+                504,
+                request=embed.httpx2.Request(
+                    "POST", "https://api.openai.com/v1/batches"
+                ),
+            ),
+            body={"retry_after": 120},
+        )
+        self.client.hidden_lists = 1
+
+        def complete_batches(_seconds):
+            for batch_id in self.client.jobs:
+                self.client.complete(batch_id)
+
+        with (
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep", side_effect=complete_batches) as sleep,
+            patch(
+                "sys.argv",
+                [
+                    "embed_hn.py",
+                    "advance",
+                    "--directory",
+                    str(self.directory),
+                    "--max-seconds",
+                    "600",
+                ],
+            ),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [120, 60, 60])
+        self.assertEqual(self.client.create_calls, len(self.plan["units"]))
+        manifest = json.loads((self.directory / "embeddings.json").read_text())
+        hashes = [
+            row["input_sha256"]
+            for part in manifest["parts"]
+            for row in pq.read_table(self.directory / part["path"]).to_pylist()
+        ]
+        self.assertEqual(len(hashes), self.plan["counts"]["unique_inputs"])
+        self.assertEqual(len(set(hashes)), len(hashes))
+
+    def test_server_retry_deadline_preserves_uncertain_submission(self):
+        """Do not retry earlier than the server permits or lose recovery metadata."""
+        self.client.fail_after_accept = embed.openai.InternalServerError(
+            "Gateway time-out",
+            response=embed.httpx2.Response(
+                504,
+                headers={"Retry-After": "120"},
+                request=embed.httpx2.Request(
+                    "POST", "https://api.openai.com/v1/batches"
+                ),
+            ),
+            body=None,
+        )
+        with (
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep") as sleep,
+            patch(
+                "sys.argv",
+                [
+                    "embed_hn.py",
+                    "advance",
+                    "--directory",
+                    str(self.directory),
+                    "--max-seconds",
+                    "120",
+                ],
+            ),
+            self.assertRaises(embed.openai.InternalServerError),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        sleep.assert_not_called()
+        self.assertFalse((self.directory / "embeddings.json").exists())
+        self.assertFalse(
+            embed.BatchRunner(self.store, self.client).advance(max_active=1)
+        )
+        self.assertEqual(self.client.create_calls, 1)
+
+    def test_server_error_during_collection_is_retried(self):
+        """Retry a failed status read while reusing all previously accepted jobs."""
+        embed.BatchRunner(self.store, self.client).advance()
+        for batch_id in self.client.jobs:
+            self.client.complete(batch_id)
+        error = embed.openai.InternalServerError(
+            "Unavailable",
+            response=embed.httpx2.Response(
+                503,
+                request=embed.httpx2.Request(
+                    "GET", "https://api.openai.com/v1/batches/batch-0"
+                ),
+            ),
+            body=None,
+        )
+        with (
+            patch.object(
+                self.client, "retrieve", side_effect=[error, *self.client.jobs.values()]
+            ),
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep") as sleep,
+            patch(
+                "sys.argv",
+                [
+                    "embed_hn.py",
+                    "advance",
+                    "--directory",
+                    str(self.directory),
+                    "--max-seconds",
+                    "180",
+                ],
+            ),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        sleep.assert_called_once_with(60)
+        self.assertTrue((self.directory / "embeddings.json").exists())
+        self.assertEqual(self.client.create_calls, len(self.plan["units"]))
+
+    def test_billing_rejection_is_not_retried(self):
+        """Keep billing failures actionable instead of looping on a permanent error."""
+        self.client.reject_before_accept = embed.openai.BadRequestError(
+            "Billing hard limit reached",
+            response=embed.httpx2.Response(
+                400,
+                request=embed.httpx2.Request(
+                    "POST", "https://api.openai.com/v1/batches"
+                ),
+            ),
+            body={"code": "billing_hard_limit_reached"},
+        )
+        with (
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep") as sleep,
+            patch(
+                "sys.argv",
+                [
+                    "embed_hn.py",
+                    "advance",
+                    "--directory",
+                    str(self.directory),
+                    "--max-seconds",
+                    "180",
+                ],
+            ),
+            self.assertRaises(embed.openai.BadRequestError),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        sleep.assert_not_called()
+        self.assertEqual(self.client.create_calls, 1)
+
+    def test_retry_delay_handles_dates_and_invalid_values(self):
+        """Use valid server delays and ignore malformed, infinite, or shorter values."""
+        date = format_datetime(datetime.fromtimestamp(1120, tz=UTC), usegmt=True)
+        for header, body, expected in (
+            ("90", {"retry_after": 120}, 120),
+            (date, None, 120),
+            ("invalid", {"retry_after": "nan"}, 60),
+            ("inf", {"retry_after": -1}, 60),
+        ):
+            with (
+                self.subTest(header=header),
+                patch("embed_hn.time.time", return_value=1000),
+            ):
+                error = embed.openai.InternalServerError(
+                    "Unavailable",
+                    response=embed.httpx2.Response(
+                        503,
+                        headers={"Retry-After": header},
+                        request=embed.httpx2.Request(
+                            "GET", "https://api.openai.com/v1/batches"
+                        ),
+                    ),
+                    body=body,
+                )
+                self.assertEqual(embed.retry_delay(error, 60), expected)
+
     def test_unknown_submission_is_not_automatically_repeated(self):
         """An ambiguous network failure requires reconciliation, not a second charge."""
         self.client.reject_before_accept = True
         with self.assertRaises(ConnectionError):
             embed.BatchRunner(self.store, self.client).advance(max_active=1)
-        with self.assertRaisesRegex(RuntimeError, "Uncertain submission"):
-            embed.BatchRunner(self.store, self.client).advance(max_active=1)
+        before = (self.directory / "state.json").read_bytes()
+        with (
+            patch("embed_hn.openai.OpenAI") as factory,
+            patch("embed_hn.time.sleep") as sleep,
+            patch(
+                "sys.argv",
+                ["embed_hn.py", "advance", "--directory", str(self.directory)],
+            ),
+            self.assertRaisesRegex(
+                embed.SubmissionPendingError, "Uncertain submission"
+            ),
+        ):
+            factory.return_value.__enter__.return_value = self.client
+            embed.main()
+        sleep.assert_not_called()
+        self.assertEqual((self.directory / "state.json").read_bytes(), before)
         self.assertEqual(self.client.create_calls, 1)
 
     def test_checkpoint_failure_prevents_submission(self):

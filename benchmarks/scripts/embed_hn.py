@@ -21,6 +21,7 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx2
@@ -38,6 +39,31 @@ RETRYABLE_CODES = {
     "server_error",
     "request_timeout",
 }
+
+
+class SubmissionPendingError(RuntimeError):
+    """An uncertain create request has not appeared in the batch listing yet."""
+
+
+def retry_delay(error, fallback):
+    """Honor server backoff without shortening the configured polling interval."""
+    if not isinstance(error, openai.APIStatusError):
+        return fallback
+    values = [error.response.headers.get("retry-after")]
+    if isinstance(error.body, dict):
+        values.append(error.body.get("retry_after"))
+    delay = fallback
+    for value in values:
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            try:
+                seconds = parsedate_to_datetime(value).timestamp() - time.time()
+            except (TypeError, ValueError, AttributeError, OverflowError):
+                continue
+        if math.isfinite(seconds):
+            delay = max(delay, seconds)
+    return delay
 
 
 class Store:
@@ -294,6 +320,11 @@ class BatchRunner:
             if (batch.metadata or {}).get("hn_attempt") == attempt["token"]
             and (batch.metadata or {}).get("hn_plan") == self.plan_hash
         ]
+        if not matches:
+            raise SubmissionPendingError(
+                f"Uncertain submission {attempt['token']} (input file {attempt['file_id']}): "
+                "no matching batch visible; waiting to reconcile without resubmitting."
+            )
         if len(matches) != 1:
             raise RuntimeError(
                 f"Uncertain submission {attempt['token']}: found {len(matches)} matching batches. "
@@ -302,6 +333,7 @@ class BatchRunner:
         attempt["batch_id"] = matches[0].id
         attempt["status"] = matches[0].status
         self.checkpoint()
+        print(f"Recovered existing batch {matches[0].id}", flush=True)
 
     def submit(self, unit, progress):
         """Upload only remaining requests and durably record intent before batch creation."""
@@ -543,6 +575,7 @@ def main():
                     f"{runner.plan['counts']['unique_inputs']:,} vectors saved",
                     flush=True,
                 )
+                pause = args.poll_seconds
                 try:
                     complete = runner.advance(
                         args.max_active, args.max_pending_tokens, args.max_attempts
@@ -550,16 +583,21 @@ def main():
                 except (
                     openai.RateLimitError,
                     openai.APIConnectionError,
+                    openai.InternalServerError,
+                    SubmissionPendingError,
                     httpx2.TimeoutException,
                     httpx2.NetworkError,
                     httpx2.RemoteProtocolError,
                 ) as error:
+                    pause = retry_delay(error, args.poll_seconds)
                     print(
                         f"Transient {type(error).__name__}; "
-                        "retrying from the saved checkpoint",
+                        f"retrying from the saved checkpoint in {pause:g}s",
                         flush=True,
                     )
-                    if time.monotonic() >= deadline:
+                    if isinstance(error, SubmissionPendingError):
+                        print(str(error), flush=True)
+                    if time.monotonic() + pause >= deadline:
                         raise
                     complete = False
                 if complete:
@@ -569,7 +607,7 @@ def main():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
-                time.sleep(min(args.poll_seconds, remaining))
+                time.sleep(min(pause, remaining))
 
 
 if __name__ == "__main__":

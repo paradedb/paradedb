@@ -32,7 +32,6 @@ pub struct LayeredMergePolicy {
     layer_sizes: Vec<u64>,
     min_merge_count: usize,
     enable_logging: bool,
-    immutable_merge_limits: Option<(u64, usize)>,
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
@@ -58,20 +57,10 @@ impl LayeredMergePolicy {
             layer_sizes,
             min_merge_count: 2,
             enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },
-            immutable_merge_limits: None,
 
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
         }
-    }
-
-    pub fn with_immutable_merge_limits(
-        mut self,
-        max_input_bytes: u64,
-        max_segments: usize,
-    ) -> Self {
-        self.immutable_merge_limits = Some((max_input_bytes, max_segments));
-        self
     }
 
     pub fn set_mergeable_segment_entries(
@@ -246,37 +235,6 @@ impl LayeredMergePolicy {
                 directory,
                 "compute_merge_candidates: already processed segments, skipping merge",
             );
-            return Vec::new();
-        }
-
-        if let Some((max_input_bytes, max_segments)) = self.immutable_merge_limits {
-            let mut entries = self
-                .mergeable_segments
-                .values()
-                .filter(|entry| !entry.is_mutable() && entry.byte_size() <= max_input_bytes)
-                .collect::<Vec<_>>();
-            entries.sort_unstable_by_key(|entry| entry.byte_size());
-            let mut layers = self.layer_sizes.clone();
-            layers.sort_unstable();
-            for layer in layers {
-                let mut candidate = Vec::new();
-                let mut input_bytes = 0;
-                for entry in &entries {
-                    let bytes = entry.byte_size();
-                    if bytes > layer || bytes > max_input_bytes - input_bytes {
-                        break;
-                    }
-                    candidate.push(entry.segment_id());
-                    input_bytes += bytes;
-                    if candidate.len() >= max_segments || input_bytes >= layer + layer / 3 {
-                        break;
-                    }
-                }
-                if candidate.len() >= self.min_merge_count {
-                    self.already_processed.store(true, Ordering::Relaxed);
-                    return vec![(layer, MergeCandidate(candidate))];
-                }
-            }
             return Vec::new();
         }
 
@@ -515,74 +473,6 @@ mod tests {
         };
 
         SegmentMetaEntry::new_mutable(segment_id, max_doc, pg_sys::InvalidTransactionId, content)
-    }
-
-    #[pg_test]
-    fn test_immutable_backpressure_bounds_one_candidate() {
-        let small = (0..200)
-            .map(|_| create_segment_meta_entry(1024, 10, 0))
-            .collect::<Vec<_>>();
-        let mut entries = small.clone();
-        entries.push(create_segment_meta_entry(200 * 1024 * 1024, 1, 999));
-        entries.push(create_mutable_segment_meta_entry(100, 0, true));
-        let mut policy = LayeredMergePolicy::new(vec![10 * 1024 * 1024, 1024 * 1024])
-            .with_immutable_merge_limits(100 * 1024 * 1024 - 1, 64);
-        policy.set_mergeable_segments_for_test(entries);
-        let (candidates, layer) = policy.simulate();
-        assert_eq!(layer, 1024 * 1024);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].0.len(), 64);
-        assert_eq!(policy.mergeable_segments().count(), 64);
-        assert!(
-            candidates[0]
-                .0
-                .iter()
-                .all(|id| { small.iter().any(|entry| entry.segment_id() == *id) })
-        );
-    }
-
-    #[pg_test]
-    fn test_immutable_backpressure_bounds_total_input_bytes() {
-        let entries = (0..8)
-            .map(|_| create_segment_meta_entry(40, 10, 0))
-            .collect();
-        let mut policy = LayeredMergePolicy::new(vec![99]).with_immutable_merge_limits(99, 64);
-        policy.set_mergeable_segments_for_test(entries);
-        let (candidates, _) = policy.simulate();
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].0.len(), 2);
-
-        let entries = (0..8)
-            .map(|_| create_segment_meta_entry(50, 10, 0))
-            .collect();
-        let mut policy = LayeredMergePolicy::new(vec![99]).with_immutable_merge_limits(99, 64);
-        policy.set_mergeable_segments_for_test(entries);
-        assert!(policy.simulate().0.is_empty());
-    }
-
-    #[pg_test]
-    fn test_immutable_backpressure_reselects_after_unsupported_vectors() {
-        let entries = (0..8)
-            .map(|_| create_segment_meta_entry(10, 10, 0))
-            .collect::<Vec<_>>();
-        let unsupported = entries
-            .iter()
-            .take(4)
-            .map(|e| e.segment_id())
-            .collect::<HashSet<_>>();
-        let mut policy = LayeredMergePolicy::new(vec![100]).with_immutable_merge_limits(100, 2);
-        policy.set_mergeable_segments_for_test(entries);
-        let (candidates, _, _) = policy
-            .simulate_with_validation(|selected| {
-                Ok(selected
-                    .keys()
-                    .filter(|id| unsupported.contains(id))
-                    .copied()
-                    .collect())
-            })
-            .unwrap();
-        assert_eq!(candidates.len(), 1);
-        assert!(candidates[0].0.iter().all(|id| !unsupported.contains(id)));
     }
 
     #[pg_test]

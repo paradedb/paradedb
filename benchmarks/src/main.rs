@@ -856,6 +856,7 @@ async fn score_recall(
 /// Recall targets a sweep reports, lowest first.
 const RECALL_TARGETS: [(&str, f64); 3] = [("r90", 0.90), ("r95", 0.95), ("r99", 0.99)];
 const RECALL_PLATEAU_PATIENCE: usize = 3;
+const RECALL_REFINEMENT_STEPS: usize = 6;
 
 /// One measured point of a sweep.
 struct SweepPoint {
@@ -915,10 +916,37 @@ fn recall_plateau(points: &[SweepPoint]) -> Option<f64> {
         .then_some(best_recall)
 }
 
+fn recall_bracket_midpoint(points: &[SweepPoint], target: f64) -> Option<String> {
+    let numeric: Vec<_> = points
+        .iter()
+        .map(|point| {
+            point
+                .value
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| (value, point.recall))
+        })
+        .collect::<Option<_>>()?;
+    let upper = numeric
+        .iter()
+        .filter(|(_, recall)| *recall >= target)
+        .map(|(value, _)| *value)
+        .reduce(f64::min)?;
+    let lower = numeric
+        .iter()
+        .filter(|(value, recall)| *value < upper && *recall < target)
+        .map(|(value, _)| *value)
+        .reduce(f64::max)?;
+    let midpoint = lower / 2.0 + upper / 2.0;
+    (lower < midpoint && midpoint < upper).then(|| midpoint.to_string())
+}
+
 /// Measure recall at each value of `sweep` for one query, reusing a single set of fixtures.
 ///
 /// Values are ordered cheapest first. Stop at the highest recall target or after three
 /// consecutive larger values fail to improve the best recall measured so far.
+/// Target-specific numeric sweeps then refine the passing bracket before measuring latency.
 async fn sweep_query(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
@@ -984,8 +1012,11 @@ async fn sweep_query(
     let mut selected = Vec::new();
     for &(label, top_target) in targets {
         let mut points = Vec::new();
-        for value in &sweep.values {
-            let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
+        let mut values = sweep.values.iter().cloned();
+        let mut next_value = values.next();
+        let mut refinements = 0;
+        while let Some(value) = next_value.take() {
+            let resolved = eval_param(conn, &sweep.param, &value, &vars).await?;
             let mut params = base_params.clone();
             params.insert(sweep.param.clone(), resolved);
             if let Some(param) = &sweep.recall_target_param {
@@ -1007,8 +1038,16 @@ async fn sweep_query(
                 recall,
                 query,
             });
-            if recall >= top_target {
-                println!("  reached {top_target:.2} recall; skipping larger values");
+            if recall >= top_target || refinements > 0 {
+                if sweep.recall_target_param.is_some()
+                    && refinements < RECALL_REFINEMENT_STEPS
+                    && let Some(midpoint) = recall_bracket_midpoint(&points, top_target)
+                {
+                    next_value = Some(midpoint);
+                    refinements += 1;
+                    continue;
+                }
+                println!("  reached {top_target:.2} recall; finished calibration");
                 break;
             }
             if let Some(best_recall) = recall_plateau(&points) {
@@ -1018,6 +1057,15 @@ async fn sweep_query(
                 );
                 break;
             }
+            next_value = values.next();
+        }
+        if refinements > 0 {
+            points.sort_by(|a, b| {
+                a.value
+                    .parse::<f64>()
+                    .unwrap()
+                    .total_cmp(&b.value.parse::<f64>().unwrap())
+            });
         }
         selected.extend(
             select_points(&points)
@@ -2509,6 +2557,45 @@ mod tests {
     #[test]
     fn empty_sweep_selects_nothing() {
         assert!(select_points(&[]).is_empty());
+    }
+
+    #[test]
+    fn refinement_preserves_a_passing_point_while_narrowing_the_bracket() {
+        let mut points = vec![point("1.5", 0.989), point("1.6", 0.992)];
+        let midpoint = recall_bracket_midpoint(&points, 0.99).unwrap();
+        assert_eq!(midpoint, "1.55");
+        points.push(point(&midpoint, 0.990));
+        assert_eq!(
+            recall_bracket_midpoint(&points, 0.99).as_deref(),
+            Some("1.525")
+        );
+        points.push(point("1.525", 0.989));
+        assert_eq!(
+            recall_bracket_midpoint(&points, 0.99)
+                .unwrap()
+                .parse::<f64>()
+                .unwrap(),
+            1.5375
+        );
+        let selected = select_points(&points);
+        let selected = selected.iter().find(|p| p.label == "r99").unwrap();
+        assert_eq!(selected.value, "1.55");
+        assert!(selected.reached && selected.query.is_some());
+    }
+
+    #[test]
+    fn refinement_requires_a_finite_numeric_bracket() {
+        for points in [
+            vec![],
+            vec![point("1.5", 0.98)],
+            vec![point("1.5", 0.99)],
+            vec![point("1.5", 0.99), point("1.6", 0.98)],
+            vec![point("1.0 + 0.5", 0.98), point("1.6", 0.99)],
+            vec![point("NaN", 0.98), point("1.6", 0.99)],
+            vec![point("1.5", 0.98), point("inf", 0.99)],
+        ] {
+            assert!(recall_bracket_midpoint(&points, 0.99).is_none());
+        }
     }
 
     #[rstest::rstest]

@@ -280,15 +280,22 @@ impl IndexLayerSizes {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backpressure {
+    None,
+    Mutable,
+    SmallImmutable,
+}
+
 /// Force foreground merging when mutable or small immutable segments accumulate during inserts.
 #[inline]
-fn need_backpressure(
+fn backpressure(
     style: MergeStyle,
     mut segment_metas: LinkedItemList<SegmentMetaEntry>,
     target_segment_count: usize,
-) -> bool {
+) -> Backpressure {
     if !matches!(style, MergeStyle::Insert { .. }) {
-        return false;
+        return Backpressure::None;
     }
 
     let mut mutable_count = 0;
@@ -304,7 +311,13 @@ fn need_backpressure(
             }
         });
     }
-    mutable_count > 2 || small_immutable_count > 4 * target_segment_count
+    if small_immutable_count > 4 * target_segment_count {
+        Backpressure::SmallImmutable
+    } else if mutable_count > 2 {
+        Backpressure::Mutable
+    } else {
+        Backpressure::None
+    }
 }
 
 /// Kick off a merge of the index, if needed.
@@ -320,7 +333,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
 
-    let need_backpressure = need_backpressure(
+    let backpressure = backpressure(
         style,
         metadata.segment_metas(),
         index.options().target_segment_count(),
@@ -328,7 +341,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
     let mut foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
-    if need_backpressure {
+    if backpressure == Backpressure::SmallImmutable {
         foreground_layer_sizes.extend(
             layer_sizes
                 .background_layer_sizes
@@ -354,7 +367,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
             (false, 0)
         };
 
-    if needs_background_merge && !need_backpressure {
+    if needs_background_merge && backpressure == Backpressure::None {
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
@@ -365,7 +378,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         current_xid,
         next_xid,
     } = style
-        && (!foreground_layer_sizes.is_empty() || need_backpressure)
+        && (!foreground_layer_sizes.is_empty() || backpressure != Backpressure::None)
     {
         let foreground_layer_sizes = if foreground_layer_sizes.is_empty() {
             vec![0]
@@ -792,29 +805,41 @@ mod tests {
             .unwrap()
             .unwrap();
         let index = PgSearchRelation::open(oid);
-        assert!(!need_backpressure(
-            MergeStyle::Insert,
-            MetaPage::open(&index).segment_metas(),
-            1
-        ));
+        assert_eq!(
+            backpressure(
+                MergeStyle::Insert,
+                MetaPage::open(&index).segment_metas(),
+                1
+            ),
+            Backpressure::None
+        );
         drop(index);
         Spi::run("INSERT INTO backpressure VALUES (4, 'beer wine cheese')").unwrap();
         let index = PgSearchRelation::open(oid);
-        assert!(need_backpressure(
-            MergeStyle::Insert,
-            MetaPage::open(&index).segment_metas(),
-            1
-        ));
-        assert!(!need_backpressure(
-            MergeStyle::Insert,
-            MetaPage::open(&index).segment_metas(),
-            2
-        ));
-        assert!(!need_backpressure(
-            MergeStyle::Vacuum,
-            MetaPage::open(&index).segment_metas(),
-            1
-        ));
+        assert_eq!(
+            backpressure(
+                MergeStyle::Insert,
+                MetaPage::open(&index).segment_metas(),
+                1
+            ),
+            Backpressure::SmallImmutable
+        );
+        assert_eq!(
+            backpressure(
+                MergeStyle::Insert,
+                MetaPage::open(&index).segment_metas(),
+                2
+            ),
+            Backpressure::None
+        );
+        assert_eq!(
+            backpressure(
+                MergeStyle::Vacuum,
+                MetaPage::open(&index).segment_metas(),
+                1
+            ),
+            Backpressure::None
+        );
         assert_eq!(MetaPage::open(&index).segment_metas().list(None).len(), 5);
         drop(index);
 

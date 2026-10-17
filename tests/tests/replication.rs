@@ -943,7 +943,7 @@ async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -
         .await?;
     conn.execute(
         "CREATE INDEX merge_launch_idx ON merge_launch USING paradedb (id, body) \
-         WITH (background_layer_sizes = '0', target_segment_count = 1)",
+         WITH (background_layer_sizes = '0', target_segment_count = 4)",
     )
     .await?;
     // Immutable segments, which only the background merger merges.
@@ -968,7 +968,7 @@ async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -
     let immutable =
         "SELECT count(*) FROM paradedb.index_info('merge_launch_idx') WHERE NOT mutable";
     let (before,): (i64,) = sqlx::query_as(immutable).fetch_one(&mut conn).await?;
-    conn.execute("ALTER INDEX merge_launch_idx SET (background_layer_sizes = '1kb,10kb,64kb')")
+    conn.execute("ALTER INDEX merge_launch_idx SET (background_layer_sizes = '1mb')")
         .await?;
     // A third mutable segment puts this insert under backpressure.
     conn.execute("INSERT INTO merge_launch VALUES (4, 'single row')")
@@ -992,6 +992,74 @@ async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -
     .fetch_one(&mut conn)
     .await?;
     anyhow::ensure!(passed == Some(true), "verify_index failed after the merge");
+    Ok(())
+}
+
+#[async_std::test]
+async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> Result<()> {
+    let postgres = EphemeralPostgres::new(
+        Some("shared_preload_libraries = 'pg_search'\nmax_worker_processes = 0\nautovacuum = off"),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute(
+        "CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE backpressure (id bigint, body text);
+        CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
+        WITH (target_segment_count=4, mutable_segment_rows=0, background_layer_sizes='0')",
+    )
+    .await?;
+    for id in 0..12_i64 {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    let immutable = "SELECT segno FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable";
+    let before: Vec<String> = sqlx::query_scalar(immutable).fetch_all(&mut conn).await?;
+    anyhow::ensure!(before.len() == 12, "expected 12 immutable segments");
+    conn.execute("ALTER INDEX backpressure_idx SET (mutable_segment_rows=1)")
+        .await?;
+    for id in 12..16_i64 {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    let mutable = "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE mutable";
+    let mutable_before: i64 = sqlx::query_scalar(mutable).fetch_one(&mut conn).await?;
+    anyhow::ensure!(mutable_before == 2, "expected two mutable segments");
+    conn.execute(
+        "ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100mb');
+        INSERT INTO backpressure VALUES (16, 'beer wine cheese')",
+    )
+    .await?;
+    let after: Vec<String> = sqlx::query_scalar(immutable).fetch_all(&mut conn).await?;
+    anyhow::ensure!(
+        before.iter().all(|id| after.contains(id)),
+        "mutable backpressure merged immutable segments"
+    );
+    let mutable_after: i64 = sqlx::query_scalar(mutable).fetch_one(&mut conn).await?;
+    anyhow::ensure!(mutable_after < 3, "mutable segments were not merged");
+    conn.execute(
+        "ALTER INDEX backpressure_idx SET (target_segment_count=1, mutable_segment_rows=0);
+        INSERT INTO backpressure VALUES (17, 'beer wine cheese')",
+    )
+    .await?;
+    let merged: Vec<String> = sqlx::query_scalar(immutable).fetch_all(&mut conn).await?;
+    anyhow::ensure!(
+        before.iter().any(|id| !merged.contains(id)),
+        "immutable backpressure did not merge immutable segments"
+    );
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(
+        passed == Some(true),
+        "verify_index failed after backpressure"
+    );
     Ok(())
 }
 

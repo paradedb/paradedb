@@ -280,96 +280,31 @@ impl IndexLayerSizes {
     }
 }
 
-/// We need backpressure if there are more than 2 mutable segments present during an insert
+/// Force foreground merging when mutable or small immutable segments accumulate during inserts.
 #[inline]
-fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMetaEntry>) -> bool {
+fn need_backpressure(
+    style: MergeStyle,
+    mut segment_metas: LinkedItemList<SegmentMetaEntry>,
+    target_segment_count: usize,
+) -> bool {
     if !matches!(style, MergeStyle::Insert { .. }) {
         return false;
     }
 
-    let mut count = 0usize;
+    let mut mutable_count = 0;
+    let mut small_immutable_count = 0;
     unsafe {
-        segment_metas.list(None).into_iter().for_each(|entry| {
-            if entry.visible() && entry.is_mutable() {
-                count += 1;
+        segment_metas.for_each(|_, entry| {
+            if entry.visible() {
+                if entry.is_mutable() {
+                    mutable_count += 1;
+                } else if entry.byte_size() < LARGE_MERGE_THRESHOLD {
+                    small_immutable_count += 1;
+                }
             }
         });
     }
-    count > 2
-}
-
-fn small_immutable_segment_count(index: &PgSearchRelation) -> usize {
-    let mut count = 0;
-    unsafe {
-        MetaPage::open(index).segment_metas().for_each(|_, entry| {
-            if entry.visible()
-                && !entry.is_mutable()
-                && MergeSlotVariant::for_size(entry.byte_size()) == MergeSlotVariant::Small
-            {
-                count += 1;
-            }
-        });
-    }
-    count
-}
-
-unsafe fn apply_immutable_backpressure(
-    index: &PgSearchRelation,
-    current_xid: pg_sys::FullTransactionId,
-    next_xid: pg_sys::FullTransactionId,
-) {
-    let options = index.options();
-    let high_watermark = 256.max(4 * options.target_segment_count());
-    if small_immutable_segment_count(index) <= high_watermark {
-        return;
-    }
-    let small_layers = options
-        .foreground_layer_sizes()
-        .into_iter()
-        .chain(options.background_layer_sizes())
-        .filter(|size| MergeSlotVariant::for_size(*size) == MergeSlotVariant::Small)
-        .collect::<Vec<_>>();
-    if small_layers.is_empty() {
-        return;
-    }
-
-    // Serialize helpers with the small background worker, before taking buffer locks or pins.
-    let slot = MergeSlot::new(index.oid(), MergeSlotVariant::Small);
-    let _slot = AdvisoryLock::lock_session(slot.key());
-    let low_watermark = high_watermark / 2;
-    pgrx::debug1!(
-        "small immutable segment backpressure for {}: high={high_watermark}, low={low_watermark}",
-        index.name()
-    );
-    let mut remaining = small_immutable_segment_count(index).saturating_sub(low_watermark);
-    while remaining > 0 {
-        let count = small_immutable_segment_count(index);
-        if count <= low_watermark {
-            break;
-        }
-        check_for_interrupts!();
-        let policy = LayeredMergePolicy::new(small_layers.clone()).with_immutable_merge_limits(
-            LARGE_MERGE_THRESHOLD - 1,
-            (count - low_watermark + 1).min(remaining + 1).min(64),
-        );
-        let metadata = MetaPage::open(index);
-        let cleanup_lock = metadata.cleanup_lock_shared();
-        let merge_lock = metadata.acquire_merge_lock();
-        let merged = merge_index(
-            index,
-            policy,
-            merge_lock,
-            cleanup_lock,
-            false,
-            true,
-            current_xid,
-            next_xid,
-        );
-        if merged == 0 {
-            break;
-        }
-        remaining = remaining.saturating_sub(merged);
-    }
+    mutable_count > 2 || small_immutable_count > 256.max(4 * target_segment_count)
 }
 
 /// Kick off a merge of the index, if needed.
@@ -382,23 +317,26 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         return Ok(());
     }
 
-    if style == MergeStyle::Insert {
-        apply_immutable_backpressure(
-            index,
-            current_xid.expect("foreground merging requires a current transaction id"),
-            next_xid.expect("foreground merging requires a next transaction id"),
-        );
-    }
-
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
 
-    // apply backpressure if there are too many mutable segments
-    // this means forcing a foreground merge of the mutable segments
-    let need_backpressure = need_backpressure(style, metadata.segment_metas());
+    let need_backpressure = need_backpressure(
+        style,
+        metadata.segment_metas(),
+        index.options().target_segment_count(),
+    );
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
-    let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
+    let mut foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
+    if need_backpressure {
+        foreground_layer_sizes.extend(
+            layer_sizes
+                .background_layer_sizes
+                .iter()
+                .copied()
+                .filter(|size| *size < LARGE_MERGE_THRESHOLD),
+        );
+    }
 
     let (needs_background_merge, largest_layer_size) =
         if layer_sizes.user_configured_background_layers() {
@@ -445,8 +383,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
             next_xid,
         );
 
-        // The foreground merge only covers the foreground layers, so the background layers still
-        // need a merger.
+        // Larger layers may still need a background merger.
         if needs_background_merge {
             try_launch_background_merger(index, largest_layer_size);
         }
@@ -601,7 +538,7 @@ pub(crate) unsafe fn merge_index(
     mode: MergeMode,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
-) -> usize {
+) {
     // Hold both pins until the output is published and the reservation removed. ambulkdelete must
     // see the final merged segment, not the originals about to be deleted, and must not deactivate
     // its exclusion list while this merger still works from an older metadata view.
@@ -626,7 +563,6 @@ pub(crate) unsafe fn merge_index(
         .expect("should be able to adjust merger pins");
 
     let ncandidates = merge_candidates.len();
-    let mut segment_reduction = 0;
     if ncandidates > 0 {
         // record all the segments the SearchIndexMerger can see, as those are the ones that
         // could be merged
@@ -659,8 +595,6 @@ pub(crate) unsafe fn merge_index(
             if merge_result.is_err() {
                 break;
             }
-            segment_reduction +=
-                candidate.0.len() - usize::from(merge_result.as_ref().unwrap().is_some());
             if mode == MergeMode::Background {
                 garbage_collect_index(indexrel, current_xid, next_xid);
             }
@@ -693,7 +627,6 @@ pub(crate) unsafe fn merge_index(
         drop(merge_lock);
     }
     drop(merge_pins);
-    segment_reduction
 }
 
 ///
@@ -769,16 +702,6 @@ enum MergeSlotVariant {
     Large = 1,
 }
 
-impl MergeSlotVariant {
-    fn for_size(bytes: u64) -> Self {
-        if bytes >= LARGE_MERGE_THRESHOLD {
-            Self::Large
-        } else {
-            Self::Small
-        }
-    }
-}
-
 impl TryFrom<u8> for MergeSlotVariant {
     type Error = anyhow::Error;
 
@@ -803,7 +726,11 @@ impl MergeSlot {
     }
 
     fn for_layer_size(index_oid: pg_sys::Oid, largest_layer_size: u64) -> Self {
-        MergeSlot::new(index_oid, MergeSlotVariant::for_size(largest_layer_size))
+        if largest_layer_size >= LARGE_MERGE_THRESHOLD {
+            MergeSlot::new(index_oid, MergeSlotVariant::Large)
+        } else {
+            MergeSlot::new(index_oid, MergeSlotVariant::Small)
+        }
     }
 
     fn lock(&self) -> Option<AdvisoryLock> {
@@ -848,30 +775,14 @@ mod tests {
     use pgrx::prelude::*;
 
     #[pg_test]
-    fn test_immutable_backpressure_uses_background_size_classification() {
-        assert_eq!(
-            MergeSlotVariant::for_size(LARGE_MERGE_THRESHOLD - 1),
-            MergeSlotVariant::Small
-        );
-        assert_eq!(
-            MergeSlotVariant::for_size(LARGE_MERGE_THRESHOLD),
-            MergeSlotVariant::Large
-        );
-        assert_eq!(
-            MergeSlotVariant::for_size(LARGE_MERGE_THRESHOLD + 1),
-            MergeSlotVariant::Large
-        );
-    }
-
-    #[pg_test]
-    unsafe fn test_immutable_backpressure_drains_small_segments_without_background_worker() {
+    unsafe fn test_small_immutable_backpressure_merges_both_segment_types() {
         Spi::run(
             "CREATE TABLE backpressure (id bigint, body text);
             CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
             WITH (target_segment_count=1, mutable_segment_rows=0, background_layer_sizes='0');",
         )
         .unwrap();
-        for id in 0..320 {
+        for id in 0..256 {
             Spi::run(&format!(
                 "INSERT INTO backpressure VALUES ({id}, 'beer wine cheese')"
             ))
@@ -881,38 +792,57 @@ mod tests {
             .unwrap()
             .unwrap();
         let index = PgSearchRelation::open(oid);
-        assert_eq!(small_immutable_segment_count(&index), 320);
+        assert!(!need_backpressure(
+            MergeStyle::Insert,
+            MetaPage::open(&index).segment_metas(),
+            1
+        ));
         drop(index);
-
-        Spi::run("ALTER INDEX backpressure_idx SET (background_layer_sizes='100mb,1gb')").unwrap();
+        Spi::run("INSERT INTO backpressure VALUES (256, 'beer wine cheese')").unwrap();
         let index = PgSearchRelation::open(oid);
-        let xid = pg_sys::GetCurrentFullTransactionId();
-        apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 320);
+        assert!(need_backpressure(
+            MergeStyle::Insert,
+            MetaPage::open(&index).segment_metas(),
+            1
+        ));
+        assert!(!need_backpressure(
+            MergeStyle::Insert,
+            MetaPage::open(&index).segment_metas(),
+            128
+        ));
+        assert!(!need_backpressure(
+            MergeStyle::Vacuum,
+            MetaPage::open(&index).segment_metas(),
+            1
+        ));
+        assert_eq!(MetaPage::open(&index).segment_metas().list(None).len(), 257);
         drop(index);
 
-        Spi::run("ALTER INDEX backpressure_idx SET (target_segment_count=128, background_layer_sizes='1kb,10kb,100mb')").unwrap();
-        let index = PgSearchRelation::open(oid);
-        apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 320);
-        let bytes = MetaPage::open(&index).segment_metas().list(None)[0].byte_size();
-        drop(index);
-
-        Spi::run(&format!("ALTER INDEX backpressure_idx SET (target_segment_count=16, background_layer_sizes='{} bytes,{} bytes,100mb')", bytes / 2, bytes * 32)).unwrap();
+        Spi::run(
+            "ALTER INDEX backpressure_idx SET (mutable_segment_rows=1, target_segment_count=128);
+            INSERT INTO backpressure VALUES (257, 'beer wine cheese');
+            INSERT INTO backpressure VALUES (258, 'beer wine cheese');
+            ALTER INDEX backpressure_idx SET (target_segment_count=1, background_layer_sizes='1kb,10kb,100mb');",
+        )
+        .unwrap();
         let index = PgSearchRelation::open(oid);
         assert!(
-            IndexLayerSizes::from(&index)
-                .combined()
+            MetaPage::open(&index)
+                .segment_metas()
+                .list(None)
                 .iter()
-                .all(|size| *size < bytes)
+                .any(|entry| entry.is_mutable() && entry.is_mergeable(&index))
         );
-        apply_immutable_backpressure(&index, xid, xid);
-        assert_eq!(small_immutable_segment_count(&index), 128);
+        let xid = pg_sys::GetCurrentFullTransactionId();
+        do_merge(&index, MergeStyle::Insert, Some(xid), Some(xid)).unwrap();
+        let entries = MetaPage::open(&index).segment_metas().list(None);
+        assert!(entries.len() < 256);
+        assert!(entries.iter().all(|entry| !entry.is_mutable()));
         drop(index);
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
                 .unwrap(),
-            Some(320)
+            Some(259)
         );
         assert_eq!(Spi::get_one::<bool>("SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)").unwrap(), Some(true));
     }

@@ -30,22 +30,11 @@ ALTER INDEX search_idx SET (layer_sizes = '100KB, 1MB');
 
 Setting `layer_sizes` to `0` disables foreground merging, and setting `background_layer_sizes` to `0` disables background merging.
 
-## Backpressure on Small Segments
-
-When writes create small immutable segments faster than background merging can consolidate them, writers help merge
-small segments before continuing. This uses the background merger's size classification: segments and layers below
-100 MB are small. Automatic foreground assistance merges at most 64 immutable segments per batch, with less than
-100 MB of combined input. Larger merges remain in the background unless explicitly configured in `layer_sizes`.
-
-The internal trigger is the greater of 256 small immutable segments or four times `target_segment_count`.
-One writer per index merges bounded batches toward half that threshold; other writers under pressure wait for the
-small merge slot. Pressure is checked at statement cleanup and between segment flushes during bulk writes.
-Each helper's work is bounded by the backlog it observes on entry, so new writes cannot prolong its assistance indefinitely.
-
-This is a soft threshold: concurrent writes can exceed it, and assistance stops if no supported small candidate is
-available. It does not force large merges or wait for retired segments still pinned by readers. It uses the small
-layers available to the normal merge policy; disabling both foreground and background merging also disables this
-assistance.
+When there are more than `max(256, 4 × target_segment_count)` immutable segments smaller than 100 MB,
+writers also merge small background layers in the foreground during statement cleanup. This uses the
+normal merge policy alongside mutable segment merging; layers of 100 MB or larger remain in the
+background unless explicitly configured in `layer_sizes`. The threshold is soft: concurrent writes
+can exceed it, and progress depends on available merge candidates and the configured layer sizes.
 
 ## Increasing Work Memory for Bulk Updates
 

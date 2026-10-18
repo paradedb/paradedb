@@ -1348,21 +1348,14 @@ unsafe fn wrap_with_index(
         args.push(rhs);
 
         Some(
-            pg_sys::FuncExpr {
-                xpr: pg_sys::Expr {
-                    type_: pg_sys::NodeTag::T_FuncExpr,
-                },
-                funcid: with_index_procoid(),
-                funcresulttype: searchqueryinput_typoid(),
-                funcretset: false,
-                funcvariadic: false,
-                funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                funccollid: pg_sys::Oid::INVALID,
-                inputcollid: pg_sys::Oid::INVALID,
-                args: args.into_pg(),
-                location: -1,
-            }
-            .palloc()
+            pg_sys::makeFuncExpr(
+                with_index_procoid(),
+                searchqueryinput_typoid(),
+                args.into_pg(),
+                pg_sys::Oid::INVALID,
+                pg_sys::Oid::INVALID,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            )
             .cast(),
         )
     }
@@ -1476,20 +1469,14 @@ unsafe fn build_text_funcexpr(
     args.push(field.into_const().cast());
     args.push(rhs.cast());
 
-    pg_sys::FuncExpr {
-        xpr: pg_sys::Expr {
-            type_: pg_sys::NodeTag::T_FuncExpr,
-        },
+    *pg_sys::makeFuncExpr(
         funcid,
-        funcresulttype: searchqueryinput_typoid(),
-        funcretset: false,
-        funcvariadic: false,
-        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        funccollid: pg_sys::Oid::INVALID,
-        inputcollid: pg_sys::Oid::INVALID,
-        args: args.into_pg(),
-        location: -1,
-    }
+        searchqueryinput_typoid(),
+        args.into_pg(),
+        pg_sys::Oid::INVALID,
+        pg_sys::Oid::INVALID,
+        pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+    )
 }
 
 /// A ParadeDB `pdb.*` type that participates as an operator RHS, either directly
@@ -1558,21 +1545,14 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
 
         let mut cast_args = PgList::<pg_sys::Node>::new();
         cast_args.push(rhs);
-        pg_sys::FuncExpr {
-            xpr: pg_sys::Expr {
-                type_: pg_sys::NodeTag::T_FuncExpr,
-            },
-            funcid: cast_funcid,
-            funcresulttype: pdb_query_typoid(),
-            funcretset: false,
-            funcvariadic: false,
-            funcformat: pg_sys::CoercionForm::COERCE_IMPLICIT_CAST,
-            funccollid: pg_sys::Oid::INVALID,
-            inputcollid: pg_sys::Oid::INVALID,
-            args: cast_args.into_pg(),
-            location: -1,
-        }
-        .palloc()
+        pg_sys::makeFuncExpr(
+            cast_funcid,
+            pdb_query_typoid(),
+            cast_args.into_pg(),
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_IMPLICIT_CAST,
+        )
         .cast()
     } else {
         rhs
@@ -1586,20 +1566,14 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
     args.push(field.into_const().cast());
     args.push(coerced_rhs);
 
-    pg_sys::FuncExpr {
-        xpr: pg_sys::Expr {
-            type_: pg_sys::NodeTag::T_FuncExpr,
-        },
-        funcid: outer_funcid,
-        funcresulttype: searchqueryinput_typoid(),
-        funcretset: false,
-        funcvariadic: false,
-        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        funccollid: pg_sys::Oid::INVALID,
-        inputcollid: pg_sys::Oid::INVALID,
-        args: args.into_pg(),
-        location: -1,
-    }
+    *pg_sys::makeFuncExpr(
+        outer_funcid,
+        searchqueryinput_typoid(),
+        args.into_pg(),
+        pg_sys::Oid::INVALID,
+        pg_sys::Oid::INVALID,
+        pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+    )
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that

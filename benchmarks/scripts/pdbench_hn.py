@@ -140,6 +140,10 @@ def prepare(store, output, *, corpus=False):
         "corpus_downloaded": corpus,
         "rows": manifest["corpora"]["full"]["rows"],
         "vector_rows": manifest["corpora"]["full"]["vector_rows"],
+        "heap_text_normalization": {
+            "columns": ["text", "title", "url"],
+            "nul_replacement": "",
+        },
         "filters": ground_truth["filters"],
         "boundary_audit": ground_truth["boundary_audit"],
         "artifacts": inventory(output, (p for p in output.rglob("*") if p.is_file())),
@@ -177,7 +181,14 @@ def load_heap(output, dsn):
         conn.execute("INSTALL postgres; LOAD postgres")
         conn.execute("ATTACH '" + dsn.replace("'", "''") + "' AS pg (TYPE postgres)")
         conn.read_parquet([str(path) for path in paths]).create_view("corpus")
-        conn.execute("INSERT INTO pg.public.hn_items SELECT * FROM corpus")
+        conn.execute("""
+            INSERT INTO pg.public.hn_items
+            SELECT * REPLACE (
+                replace(text, chr(0), '') AS text,
+                replace(title, chr(0), '') AS title,
+                replace(url, chr(0), '') AS url
+            ) FROM corpus
+        """)
     holdout = pq.read_table(store.path("queries/holdout.parquet"))["hn_id"].to_pylist()
     with psycopg.connect(dsn) as db:
         counts = db.execute("SELECT count(*), count(emb) FROM hn_items").fetchone()

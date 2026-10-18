@@ -56,6 +56,18 @@ class HNGroundTruthTests(unittest.TestCase):
                 "by": authors[i % 4],
                 "score": i,
                 "time": datetime(2020, 1, 1, tzinfo=UTC) + timedelta(days=i),
+                "text": [None, "", "plain 日本語\n\\N", "\0left\0\0right\0"][i % 4],
+                "title": ["a\0b", None, "", r"literal \x00"][i % 4],
+                "url": ["https://example.com/\0path", "", None, "https://例.jp/"][
+                    i % 4
+                ],
+                "deleted": bool(i % 2),
+                "dead": False,
+                "parent": i,
+                "poll": None,
+                "kids": [i + 2000, i + 2001],
+                "parts": [],
+                "descendants": i + 10,
                 "emb": vector.tolist(),
             }
             for i, vector in enumerate(vectors)
@@ -67,6 +79,9 @@ class HNGroundTruthTests(unittest.TestCase):
                 "by": None,
                 "score": None,
                 "time": None,
+                "text": "\0",
+                "title": "no\0vector",
+                "url": None,
                 "emb": None,
             }
         )
@@ -378,6 +393,44 @@ class HNGroundTruthTests(unittest.TestCase):
                 bench.load_heap(output, isolated)
             with psycopg.connect(isolated) as db:
                 bench.verify_heap(binding, db)
+                rows = db.execute(
+                    sql.SQL("SELECT {}, emb::text FROM hn_items ORDER BY id").format(
+                        sql.SQL(", ").join(map(sql.Identifier, assembly.COLUMNS))
+                    )
+                ).fetchall()
+                for source, loaded in zip(self.rows, rows, strict=True):
+                    self.assertEqual(
+                        list(loaded[:-1]),
+                        [
+                            source.get(column).replace("\0", "")
+                            if column in ("text", "title", "url")
+                            and source.get(column) is not None
+                            else source.get(column)
+                            for column in assembly.COLUMNS
+                        ],
+                    )
+                    if source["emb"] is None:
+                        self.assertIsNone(loaded[-1])
+                    else:
+                        np.testing.assert_array_equal(
+                            np.array(json.loads(loaded[-1]), dtype=np.float32),
+                            source["emb"],
+                        )
+                masks = pq.read_table(
+                    self.output / "ground_truth/membership.parquet"
+                ).to_pylist()
+                for item in binding["filters"]:
+                    actual = db.execute(
+                        sql.SQL(
+                            "SELECT id FROM hn_items WHERE emb IS NOT NULL AND ({}) ORDER BY id"
+                        ).format(sql.SQL(item["predicate"]))
+                    ).fetchall()
+                    self.assertEqual(
+                        [row[0] for row in actual],
+                        [row["id"] for row in masks if row[item["name"]]],
+                    )
+                bench.read_bundle(output)
+                gt.restore_dataset(store)
                 schema = (
                     (output / "assets/hn/create_table.sql")
                     .read_text()

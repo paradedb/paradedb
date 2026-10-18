@@ -385,6 +385,11 @@ The schema asset is safe for pdbench's temporary schema probe and contains no
 `DROP TABLE`. A snapshot with a different manifest identity or row/vector counts
 is rejected before building the index.
 
+PostgreSQL cannot store NUL bytes in text values. Heap loading removes them from
+`text`, `title`, and `url` only, and records this conversion in `bundle.json`.
+Published Parquet retains the original values. Filter columns, IDs, embeddings,
+query vectors, and frozen ground truth are unchanged.
+
 Before measuring, an `EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON)` gate requires
 native cosine TopK and all filter fields inside the ParadeDB scan, with no residual
 Postgres or internal heap filter. This runs against the actual CI extension build.

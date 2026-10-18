@@ -1340,6 +1340,10 @@ impl ExecutionPlan for RankJoinExec {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
 
         let schema = self.schema();
+        let primary_score_is_f32 = matches!(
+            self.sort_exprs.output[0].expr.data_type(&schema),
+            Ok(DataType::Float32)
+        );
         let mut state = RankJoinStream {
             schema: Arc::clone(&schema),
             left_num_cols: left_schema.fields().len(),
@@ -1347,6 +1351,7 @@ impl ExecutionPlan for RankJoinExec {
             filter: self.filter.clone(),
             projection: self.projection.clone(),
             output_ordering: self.sort_exprs.output.clone(),
+            primary_score_is_f32,
             combiner: self.combiner.clone(),
             parent_lookup_filters: self.parent_lookup_filters.clone(),
             left_cursor,
@@ -1542,13 +1547,6 @@ impl Ord for CandidateMatch {
             .total_cmp(&other.rank_value)
             .then_with(|| other.sequence.cmp(&self.sequence))
     }
-}
-
-/// Returned when a [`RankedInputCursor`] advances by one row.
-struct CursorRow {
-    row_ref: BufferedRowRef,
-    score: f64,
-    key: Option<OwnedRow>,
 }
 
 /// Wraps one child stream of [`RankJoinExec`], retaining pulled batches so matched rows
@@ -1871,13 +1869,35 @@ impl RankedInputCursor {
         Ok(())
     }
 
-    /// Consumes and returns the next buffered `SA` row. Caller must ensure `has_buffered_rows()`.
-    fn next_buffered_row(
-        &mut self,
-        record_for_ra: bool,
-        opposite_probed: &HashSet<OwnedRow>,
-    ) -> CursorRow {
-        let batch_idx = self.sa_batch_idx.expect("SA batch must be present");
+    /// Records a positive-score key in `sa_keys_in_order` while maintaining descending score order.
+    fn record_positive_key(&mut self, key: OwnedRow, score: f64) {
+        if self.sa_queued_keys.insert(key.clone()) {
+            let pos = if self
+                .sa_keys_in_order
+                .last()
+                .is_none_or(|(_, last_s)| *last_s >= score)
+            {
+                self.sa_keys_in_order.len()
+            } else {
+                self.sa_keys_in_order.partition_point(|(_, s)| *s >= score)
+            };
+            self.sa_keys_in_order.insert(pos, (key, score));
+            self.next_unresolved_idx = self.next_unresolved_idx.min(pos);
+            self.next_zero_unresolved_idx = self.next_zero_unresolved_idx.min(pos);
+        } else if let Some(existing_idx) = self.sa_keys_in_order.iter().position(|(k, _)| *k == key)
+            && self.sa_keys_in_order[existing_idx].1 < score
+        {
+            self.sa_keys_in_order.remove(existing_idx);
+            let pos = self.sa_keys_in_order.partition_point(|(_, s)| *s >= score);
+            self.sa_keys_in_order.insert(pos, (key, score));
+            self.next_unresolved_idx = self.next_unresolved_idx.min(pos);
+            self.next_zero_unresolved_idx = self.next_zero_unresolved_idx.min(pos);
+        }
+    }
+
+    /// Advances the buffered `SA` cursor by one row, updating `bottom_score` and recording
+    /// its key in `sa_keys_in_order` if the opposite side is `ra_capable`.
+    fn advance_buffered_row(&mut self, record_for_ra: bool, opposite_probed: &HashSet<OwnedRow>) {
         let row_idx = self.current_row_idx;
         let score = self.current_batch_scores[row_idx];
         let key = self.current_batch_keys[row_idx].take();
@@ -1885,19 +1905,10 @@ impl RankedInputCursor {
         self.sa_rows_advanced += 1;
         self.bottom_score = Some(score);
         if record_for_ra
-            && let Some(ref k) = key
-            && !opposite_probed.contains(k)
-            && self.sa_queued_keys.insert(k.clone())
+            && let Some(k) = key
+            && !opposite_probed.contains(&k)
         {
-            self.sa_keys_in_order.push((k.clone(), score));
-        }
-        CursorRow {
-            row_ref: BufferedRowRef {
-                batch: BatchIndex(batch_idx),
-                row: RowIndex(row_idx),
-            },
-            score,
-            key,
+            self.record_positive_key(k, score);
         }
     }
 }
@@ -1942,6 +1953,7 @@ struct RankJoinStream {
     filter: Option<JoinFilter>,
     projection: Option<Vec<usize>>,
     output_ordering: LexOrdering,
+    primary_score_is_f32: bool,
     combiner: ScoreCombiner,
     parent_lookup_filters: Vec<(JoinSide, Arc<dyn PhysicalExpr>)>,
     left_cursor: RankedInputCursor,
@@ -1956,13 +1968,21 @@ struct RankJoinStream {
 }
 
 impl RankJoinStream {
-    /// Normalizes a combined score into a max-heap rank value (`score` for `DESC`, `-score` for `ASC`).
+    /// Normalizes a combined score into a max-heap rank value (`score` for `DESC`, `-score` for `ASC`),
+    /// quantizing to `f32` precision when the primary sort expression has `DataType::Float32` so tie
+    /// groups in `candidate_heap` match `sort_batch` / `SortExec` tie groups bit-for-bit.
     fn to_rank_value(&self, combined_score: f64) -> f64 {
-        if self.output_ordering[0].options.descending {
-            combined_score
+        let score = if self.primary_score_is_f32 && combined_score.is_finite() {
+            (combined_score as f32) as f64
         } else {
-            -combined_score
-        }
+            combined_score
+        };
+        let rank = if self.output_ordering[0].options.descending {
+            score
+        } else {
+            -score
+        };
+        if rank == 0.0 { 0.0 } else { rank }
     }
 
     /// Computes detailed upper bounds on the `rank_value` of any unseen pair:
@@ -2134,107 +2154,45 @@ impl RankJoinStream {
         Ok(out)
     }
 
-    /// Advances the specified side by one buffered `SA` row, inserting into its hash table
-    /// and probing the opposite hash table.
+    /// Advances the specified side's `SA` cursor by one buffered row, lowering `bottom_score`
+    /// and recording its join key for `RA` probing on the opposite side.
     fn advance_one_row(&mut self, side: AdvanceSide) {
         match side {
             AdvanceSide::Left => {
-                let row = self.left_cursor.next_buffered_row(
+                self.left_cursor.advance_buffered_row(
                     self.right_cursor.ra_capable,
                     &self.right_cursor.ra_probed_keys,
                 );
-                let Some(key) = row.key else {
-                    return;
-                };
-                if let Some(matches) = self.right_hash_table.get(&key) {
-                    for right_entry in matches {
-                        let combined = self.combiner.eval(InputScorePair {
-                            left: row.score,
-                            right: right_entry.score,
-                        });
-                        let rank_value = self.to_rank_value(combined);
-                        let seq = self.next_sequence;
-                        self.next_sequence += 1;
-                        self.candidate_heap.push(CandidateMatch {
-                            rank_value,
-                            sequence: seq,
-                            left_row: row.row_ref,
-                            right_row: right_entry.row_ref,
-                        });
-                    }
-                }
-                self.left_hash_table
-                    .entry(key)
-                    .or_default()
-                    .push(HashTableEntry {
-                        row_ref: row.row_ref,
-                        score: row.score,
-                        from_sa: true,
-                    });
             }
             AdvanceSide::Right => {
-                let row = self.right_cursor.next_buffered_row(
+                self.right_cursor.advance_buffered_row(
                     self.left_cursor.ra_capable,
                     &self.left_cursor.ra_probed_keys,
                 );
-                let Some(key) = row.key else {
-                    return;
-                };
-                if let Some(matches) = self.left_hash_table.get(&key) {
-                    for left_entry in matches {
-                        let combined = self.combiner.eval(InputScorePair {
-                            left: left_entry.score,
-                            right: row.score,
-                        });
-                        let rank_value = self.to_rank_value(combined);
-                        let seq = self.next_sequence;
-                        self.next_sequence += 1;
-                        self.candidate_heap.push(CandidateMatch {
-                            rank_value,
-                            sequence: seq,
-                            left_row: left_entry.row_ref,
-                            right_row: row.row_ref,
-                        });
-                    }
-                }
-                self.right_hash_table
-                    .entry(key)
-                    .or_default()
-                    .push(HashTableEntry {
-                        row_ref: row.row_ref,
-                        score: row.score,
-                        from_sa: true,
-                    });
             }
         }
     }
 
-    /// Ingests a `RecordBatch` returned from a Random Access (`RA`) point lookup on `side`
-    /// without modifying `side`'s `SA` cursor state or `bottom_score`.
-    ///
-    /// Only pairs `RA`-fetched rows with opposite-side hash table entries that arrived via
-    /// `SA` (`entry.from_sa == true`), preventing `(RA_only, RA_only)` pairs that satisfy
-    /// neither side's disjunctive search predicate when join keys are non-unique.
-    fn ingest_ra_batch(&mut self, side: AdvanceSide, batch: RecordBatch) -> Result<()> {
-        if batch.num_rows() == 0 {
-            return Ok(());
-        }
+    /// Inserts all rows of the newly pulled `SA` batch on `side` into `side`'s hash table
+    /// (`from_sa: true`) and pairs them with existing entries in the opposite hash table.
+    fn insert_current_sa_batch_into_hash_table(&mut self, side: AdvanceSide) {
         match side {
             AdvanceSide::Left => {
-                let (scores, keys) = self.left_cursor.evaluate_batch(&batch)?;
-                let batch_idx = self.left_cursor.batches.len();
-                self.left_cursor.batches.push(batch);
-                self.left_cursor.batch_scores.push(scores.clone());
-                for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
-                    let Some(key) = key_opt else {
+                let Some(batch_idx) = self.left_cursor.sa_batch_idx else {
+                    return;
+                };
+                let num_rows = self.left_cursor.current_batch_scores.len();
+                for row_idx in 0..num_rows {
+                    let Some(key) = self.left_cursor.current_batch_keys[row_idx].clone() else {
                         continue;
                     };
+                    let score = self.left_cursor.current_batch_scores[row_idx];
                     let row_ref = BufferedRowRef {
                         batch: BatchIndex(batch_idx),
                         row: RowIndex(row_idx),
                     };
                     if let Some(matches) = self.right_hash_table.get(&key) {
-                        for right_entry in matches.iter().filter(|e| e.from_sa) {
+                        for right_entry in matches {
                             let combined = self.combiner.eval(InputScorePair {
                                 left: score,
                                 right: right_entry.score,
@@ -2256,25 +2214,26 @@ impl RankJoinStream {
                         .push(HashTableEntry {
                             row_ref,
                             score,
-                            from_sa: false,
+                            from_sa: true,
                         });
                 }
             }
             AdvanceSide::Right => {
-                let (scores, keys) = self.right_cursor.evaluate_batch(&batch)?;
-                let batch_idx = self.right_cursor.batches.len();
-                self.right_cursor.batches.push(batch);
-                self.right_cursor.batch_scores.push(scores.clone());
-                for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
-                    let Some(key) = key_opt else {
+                let Some(batch_idx) = self.right_cursor.sa_batch_idx else {
+                    return;
+                };
+                let num_rows = self.right_cursor.current_batch_scores.len();
+                for row_idx in 0..num_rows {
+                    let Some(key) = self.right_cursor.current_batch_keys[row_idx].clone() else {
                         continue;
                     };
+                    let score = self.right_cursor.current_batch_scores[row_idx];
                     let row_ref = BufferedRowRef {
                         batch: BatchIndex(batch_idx),
                         row: RowIndex(row_idx),
                     };
                     if let Some(matches) = self.left_hash_table.get(&key) {
-                        for left_entry in matches.iter().filter(|e| e.from_sa) {
+                        for left_entry in matches {
                             let combined = self.combiner.eval(InputScorePair {
                                 left: left_entry.score,
                                 right: score,
@@ -2296,7 +2255,118 @@ impl RankJoinStream {
                         .push(HashTableEntry {
                             row_ref,
                             score,
-                            from_sa: false,
+                            from_sa: true,
+                        });
+                }
+            }
+        }
+    }
+
+    /// Ingests a `RecordBatch` returned from a Random Access (`RA`) point lookup on `side`
+    /// without modifying `side`'s `SA` cursor state or `bottom_score`.
+    ///
+    /// Zero-score `RA` rows (`score <= 0.0`) are only paired with opposite-side hash table entries
+    /// that arrived via `SA` (`entry.from_sa == true`), preventing `(RA_only, RA_only)` pairs that
+    /// satisfy neither side's disjunctive search predicate when join keys are non-unique.
+    /// Positive-score `RA` rows (`score > 0.0`) matched their own table's search query (and were
+    /// added to `emitted_docs`, so `SA` will not re-emit them), so they are treated as `from_sa`
+    /// and recorded in `sa_keys_in_order` for Tier-2 probing on the opposite side.
+    fn ingest_ra_batch(&mut self, side: AdvanceSide, batch: RecordBatch) -> Result<()> {
+        if batch.num_rows() == 0 {
+            return Ok(());
+        }
+        match side {
+            AdvanceSide::Left => {
+                let (scores, keys) = self.left_cursor.evaluate_batch(&batch)?;
+                let batch_idx = self.left_cursor.batches.len();
+                self.left_cursor.batches.push(batch);
+                self.left_cursor.batch_scores.push(scores.clone());
+                for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
+                    let Some(key) = key_opt else {
+                        continue;
+                    };
+                    let row_ref = BufferedRowRef {
+                        batch: BatchIndex(batch_idx),
+                        row: RowIndex(row_idx),
+                    };
+                    let from_sa = score > 0.0;
+                    if let Some(matches) = self.right_hash_table.get(&key) {
+                        for right_entry in matches.iter().filter(|e| from_sa || e.from_sa) {
+                            let combined = self.combiner.eval(InputScorePair {
+                                left: score,
+                                right: right_entry.score,
+                            });
+                            let rank_value = self.to_rank_value(combined);
+                            let seq = self.next_sequence;
+                            self.next_sequence += 1;
+                            self.candidate_heap.push(CandidateMatch {
+                                rank_value,
+                                sequence: seq,
+                                left_row: row_ref,
+                                right_row: right_entry.row_ref,
+                            });
+                        }
+                    }
+                    if from_sa
+                        && self.right_cursor.ra_capable
+                        && !self.right_cursor.ra_probed_keys.contains(&key)
+                    {
+                        self.left_cursor.record_positive_key(key.clone(), score);
+                    }
+                    self.left_hash_table
+                        .entry(key)
+                        .or_default()
+                        .push(HashTableEntry {
+                            row_ref,
+                            score,
+                            from_sa,
+                        });
+                }
+            }
+            AdvanceSide::Right => {
+                let (scores, keys) = self.right_cursor.evaluate_batch(&batch)?;
+                let batch_idx = self.right_cursor.batches.len();
+                self.right_cursor.batches.push(batch);
+                self.right_cursor.batch_scores.push(scores.clone());
+                for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
+                    let Some(key) = key_opt else {
+                        continue;
+                    };
+                    let row_ref = BufferedRowRef {
+                        batch: BatchIndex(batch_idx),
+                        row: RowIndex(row_idx),
+                    };
+                    let from_sa = score > 0.0;
+                    if let Some(matches) = self.left_hash_table.get(&key) {
+                        for left_entry in matches.iter().filter(|e| from_sa || e.from_sa) {
+                            let combined = self.combiner.eval(InputScorePair {
+                                left: left_entry.score,
+                                right: score,
+                            });
+                            let rank_value = self.to_rank_value(combined);
+                            let seq = self.next_sequence;
+                            self.next_sequence += 1;
+                            self.candidate_heap.push(CandidateMatch {
+                                rank_value,
+                                sequence: seq,
+                                left_row: left_entry.row_ref,
+                                right_row: row_ref,
+                            });
+                        }
+                    }
+                    if from_sa
+                        && self.left_cursor.ra_capable
+                        && !self.left_cursor.ra_probed_keys.contains(&key)
+                    {
+                        self.right_cursor.record_positive_key(key.clone(), score);
+                    }
+                    self.right_hash_table
+                        .entry(key)
+                        .or_default()
+                        .push(HashTableEntry {
+                            row_ref,
+                            score,
+                            from_sa,
                         });
                 }
             }
@@ -2931,10 +3001,10 @@ impl RankJoinStream {
     /// advances the first row from each available cursor.
     async fn initialize_sa_cursors(&mut self) -> Result<()> {
         if !self.left_cursor.sa_exhausted {
-            self.left_cursor.ensure_buffered().await?;
+            self.ensure_side_buffered(AdvanceSide::Left).await?;
         }
         if !self.right_cursor.sa_exhausted {
-            self.right_cursor.ensure_buffered().await?;
+            self.ensure_side_buffered(AdvanceSide::Right).await?;
         }
         self.initialized = true;
         if self.left_cursor.has_buffered_rows() {
@@ -2946,12 +3016,21 @@ impl RankJoinStream {
         Ok(())
     }
 
-    /// Pulls from `side`'s `SA` stream until at least one buffered row is available or `SA` is exhausted.
+    /// Pulls from `side`'s `SA` stream until at least one buffered row is available or `SA` is exhausted,
+    /// indexing any newly pulled `SA` batch into `side`'s hash table.
     async fn ensure_side_buffered(&mut self, side: AdvanceSide) -> Result<bool> {
-        match side {
-            AdvanceSide::Left => self.left_cursor.ensure_buffered().await,
-            AdvanceSide::Right => self.right_cursor.ensure_buffered().await,
+        let had_buffered = match side {
+            AdvanceSide::Left => self.left_cursor.has_buffered_rows(),
+            AdvanceSide::Right => self.right_cursor.has_buffered_rows(),
+        };
+        let has_buffered = match side {
+            AdvanceSide::Left => self.left_cursor.ensure_buffered().await?,
+            AdvanceSide::Right => self.right_cursor.ensure_buffered().await?,
+        };
+        if !had_buffered && has_buffered {
+            self.insert_current_sa_batch_into_hash_table(side);
         }
+        Ok(has_buffered)
     }
 
     /// Returns `true` if the top candidate in `candidate_heap` beats `stopping_threshold()`.
@@ -3076,6 +3155,7 @@ impl RankJoinStream {
                 }
                 let combiner = self.combiner.clone();
                 let descending = self.output_ordering[0].options.descending;
+                let primary_score_is_f32 = self.primary_score_is_f32;
                 let keys = self.left_cursor.pop_all_unresolved_keys(
                     &mut self.right_cursor.ra_positive_probed_keys,
                     &mut self.right_cursor.ra_probed_keys,
@@ -3084,7 +3164,13 @@ impl RankJoinStream {
                             left: left_score,
                             right: 0.0,
                         });
-                        let rank_val = if descending { combined } else { -combined };
+                        let score = if primary_score_is_f32 && combined.is_finite() {
+                            (combined as f32) as f64
+                        } else {
+                            combined
+                        };
+                        let rank_val = if descending { score } else { -score };
+                        let rank_val = if rank_val == 0.0 { 0.0 } else { rank_val };
                         rank_val >= cutoff
                     },
                 );
@@ -3114,6 +3200,7 @@ impl RankJoinStream {
                 }
                 let combiner = self.combiner.clone();
                 let descending = self.output_ordering[0].options.descending;
+                let primary_score_is_f32 = self.primary_score_is_f32;
                 let keys = self.right_cursor.pop_all_unresolved_keys(
                     &mut self.left_cursor.ra_positive_probed_keys,
                     &mut self.left_cursor.ra_probed_keys,
@@ -3122,7 +3209,13 @@ impl RankJoinStream {
                             left: 0.0,
                             right: right_score,
                         });
-                        let rank_val = if descending { combined } else { -combined };
+                        let score = if primary_score_is_f32 && combined.is_finite() {
+                            (combined as f32) as f64
+                        } else {
+                            combined
+                        };
+                        let rank_val = if descending { score } else { -score };
+                        let rank_val = if rank_val == 0.0 { 0.0 } else { rank_val };
                         rank_val >= cutoff
                     },
                 );

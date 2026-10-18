@@ -681,6 +681,29 @@ fn moved(
         .filter(Decision::moves)
 }
 
+/// Rewrites `plan` so that the specified deferred `fields` are decoded eagerly at their leaf
+/// `PgSearchScanPlan`, removing them from any intermediate `TantivyFetchExec` / `TantivyDecodeExec`
+/// and rebuilding the operators in between with the decoded column types.
+pub(crate) fn make_fields_eager(
+    plan: Arc<dyn ExecutionPlan>,
+    fields: &[PhysicalDeferredField],
+) -> Result<Arc<dyn ExecutionPlan>> {
+    if fields.is_empty() {
+        return Ok(plan);
+    }
+    let mut decisions = HashMap::default();
+    for field in fields {
+        decisions.insert(
+            DeferredSource::of(field),
+            Decision {
+                fetch_at_scan: false,
+                eager: true,
+            },
+        );
+    }
+    rewrite(plan, &decisions)
+}
+
 /// Applies the decisions bottom-up: a scan takes its columns over, and the fetch and decode
 /// above it drop them. The nodes in between are rebuilt so an eager column's new type reaches
 /// the decode point.

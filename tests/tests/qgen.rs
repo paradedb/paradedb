@@ -1909,3 +1909,209 @@ async fn generated_pdb_agg_single_table(database: Db) {
         ))?;
     });
 }
+
+#[derive(Clone, Copy, Debug)]
+enum RankJoinQueryMode {
+    /// Conjunctive `WHERE (w0) AND (w1) ...` with multi-table combined score.
+    Conjunctive,
+    /// Disjunctive `WHERE (w0) OR (w1) ...` with multi-table combined score.
+    Disjunctive,
+    /// Single-sided (`NRJN`) `WHERE (w0) AND (w1) ...` scored by the first table only.
+    SingleSided,
+}
+
+impl RankJoinQueryMode {
+    fn score_sql(self, tables: &[String]) -> String {
+        match self {
+            Self::SingleSided => format!("pdb.score({}.id)", tables[0]),
+            Self::Conjunctive | Self::Disjunctive => tables
+                .iter()
+                .map(|t| format!("pdb.score({t}.id)"))
+                .collect::<Vec<_>>()
+                .join(" + "),
+        }
+    }
+}
+
+/// Property test for top-K scored joins comparing `HashJoinExec` (`paradedb.enable_rank_join = off`)
+/// against `RankJoinExec` (`paradedb.enable_rank_join = on`, `paradedb.rank_join_min_rows = 0`).
+///
+/// Covers 2-way and 3-way `INNER JOIN`s over unique (`id`) and non-unique (`age`) join keys,
+/// conjunctive (`AND`), disjunctive (`OR`), and single-sided (`NRJN`) predicates, and
+/// deterministic secondary tiebreaker `ORDER BY` expressions (including deferred string columns
+/// and expressions) with `LIMIT`/`OFFSET`.
+#[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
+#[tokio::test]
+async fn generated_rank_join(database: Db, #[case] churn_on: bool) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 40), ("products", 40), ("orders", 40)];
+    let all_tables: Vec<String> = tables_and_sizes
+        .iter()
+        .map(|(table, _)| table.to_string())
+        .collect();
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
+
+    let where_columns = columns_named(vec!["name", "color"]);
+    let join_key_columns = columns_named(vec!["id", "age"]);
+
+    let join_and_where_strategy = (2..=all_tables.len()).prop_flat_map({
+        let all_tables = all_tables.clone();
+        let where_columns = where_columns.clone();
+        let join_key_columns = join_key_columns.clone();
+        move |num_tables| {
+            let joined: Vec<String> = all_tables[..num_tables].to_vec();
+            let where_cols = where_columns.clone();
+            let table_wheres: Vec<BoxedStrategy<WhereExpr>> = joined
+                .iter()
+                .map(|t| arb_wheres(vec![t.clone()], &where_cols).boxed())
+                .collect();
+            (
+                arb_joins(Just(JoinType::Inner), joined.clone(), &join_key_columns),
+                table_wheres,
+                arb_joinscan_order_parts(joined, false),
+            )
+        }
+    });
+
+    proptest!(qgen_proptest_config(), |(
+        (join, table_wheres, order_parts) in join_and_where_strategy,
+        query_mode in prop_oneof![
+            Just(RankJoinQueryMode::Conjunctive),
+            Just(RankJoinQueryMode::Disjunctive),
+            Just(RankJoinQueryMode::SingleSided),
+        ],
+        limit in 1..=25usize,
+        offset in proptest::option::of(0..=10usize),
+        mut gucs in any::<PgGucs>(),
+    )| {
+        let join_clause = join.to_sql();
+        let used_tables: Vec<String> = join
+            .used_tables()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+
+        let target_cols: Vec<String> = used_tables
+            .iter()
+            .flat_map(|t| [format!("{t}.id"), format!("{t}.name")])
+            .collect();
+        let target_cols_str = target_cols.join(", ");
+
+        let where_join_sep = match query_mode {
+            RankJoinQueryMode::Conjunctive | RankJoinQueryMode::SingleSided => " AND ",
+            RankJoinQueryMode::Disjunctive => " OR ",
+        };
+        let where_bm25 = table_wheres
+            .iter()
+            .map(|w| format!("({})", w.to_sql("@@@")))
+            .collect::<Vec<_>>()
+            .join(where_join_sep);
+
+        let score_expr = query_mode.score_sql(&used_tables);
+        let tiebreakers = order_parts.join(", ");
+        let offset_clause = match offset {
+            Some(o) if o > 0 => format!(" OFFSET {o}"),
+            _ => String::new(),
+        };
+
+        let bm25_query = format!(
+            "SELECT {target_cols_str} {join_clause} \
+             WHERE {where_bm25} \
+             ORDER BY {score_expr} DESC, {tiebreakers} \
+             LIMIT {limit}{offset_clause}"
+        );
+
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
+        gucs.parallel_workers = false;
+        gucs.range_partitioned_join = false;
+
+        let base_gucs = gucs.set();
+        let sides = Sides {
+            baseline: format!("{base_gucs}SET paradedb.enable_rank_join TO off;\n"),
+            candidate: format!(
+                "{base_gucs}SET paradedb.enable_rank_join TO on;\n\
+                 SET paradedb.rank_join_min_rows TO 0;\n"
+            ),
+        };
+
+        // When every join step is a pure equi-join (`!join_clause.contains(" AND ")` and
+        // `!join.has_keyless_step()`), every table predicate is a single indexed `Atom`,
+        // and `SingleSided` is a 2-way join, `RankJoinRule` is guaranteed to rewrite the
+        // candidate plan into `RankJoinExec`.
+        let expect_rank_join = !join.has_keyless_step()
+            && !join_clause.contains(" AND ")
+            && (!matches!(query_mode, RankJoinQueryMode::SingleSided) || used_tables.len() == 2)
+            && table_wheres.iter().all(|w| {
+                matches!(
+                    w,
+                    WhereExpr::Atom {
+                        is_indexed: true,
+                        ..
+                    }
+                )
+            });
+
+        qgen_oracle!(
+            "qgen: generated_rank_join - RankJoinExec matches HashJoinExec",
+            compare_outcome_retrying_on(
+                &sides,
+                &bm25_query,
+                &bm25_query,
+                &gucs,
+                &pool,
+                &setup_sql,
+                |query, side, conn| {
+                    if expect_rank_join {
+                        let plan_rows = format!("EXPLAIN {query}")
+                            .fetch_result::<(String,)>(conn)?;
+                        let plan_str = plan_rows
+                            .into_iter()
+                            .map(|(line,)| line)
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if side.is_candidate() && !plan_str.contains("RankJoinExec") {
+                            return Err(sqlx::Error::Protocol(format!(
+                                "Expected RankJoinExec in candidate plan, got:\n{plan_str}"
+                            )));
+                        }
+                        if side.is_baseline() && plan_str.contains("RankJoinExec") {
+                            return Err(sqlx::Error::Protocol(format!(
+                                "Unexpected RankJoinExec in baseline plan, got:\n{plan_str}"
+                            )));
+                        }
+                    }
+
+                    let rows = query.fetch_dynamic_result(conn)?;
+                    let row_strings: Vec<String> = rows
+                        .into_iter()
+                        .map(|row| {
+                            let mut parts = Vec::with_capacity(row.len());
+                            for i in 0..row.len() {
+                                let part = if let Ok(v) = row.try_get::<i64, _>(i) {
+                                    v.to_string()
+                                } else if let Ok(v) = row.try_get::<i32, _>(i) {
+                                    v.to_string()
+                                } else if let Ok(v) = row.try_get::<String, _>(i) {
+                                    v
+                                } else {
+                                    "NULL".to_string()
+                                };
+                                parts.push(part);
+                            }
+                            parts.join("|")
+                        })
+                        .collect();
+                    Ok(row_strings)
+                },
+            )
+        )?;
+    });
+}

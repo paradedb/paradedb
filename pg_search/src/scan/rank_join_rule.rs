@@ -49,6 +49,7 @@ use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterEx
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb::{self, ScoreAdjustStyle};
 use crate::scan::ScanMode;
+use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::{LazySortConfig, PgSearchScanPlan, SharedThresholdMode};
 use crate::scan::rank_join_exec::{
     InputScorePair, RankJoinExec, RankJoinInputs, RankJoinSortExprs, ScoreCombiner,
@@ -294,10 +295,20 @@ fn try_rewrite_under_sort(
     min_rows: usize,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let initial_window = compute_initial_window(k);
-    Ok(
-        try_rewrite_join_subtree(node, required_ordering, min_rows, initial_window)?
-            .map(|(plan, _)| plan),
-    )
+    let mut eager_fields = Vec::new();
+    let Some((rewritten, _)) = try_rewrite_join_subtree(
+        node,
+        required_ordering,
+        min_rows,
+        initial_window,
+        &mut eager_fields,
+    )?
+    else {
+        return Ok(None);
+    };
+    let rewritten =
+        crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
+    Ok(Some(rewritten))
 }
 
 fn compute_initial_window(k: usize) -> usize {
@@ -314,11 +325,33 @@ fn compute_initial_window(k: usize) -> usize {
     k.saturating_mul(scale_factor).max(1).min(max_window)
 }
 
+fn collect_decode_tiebreaker_fields(
+    decode: &TantivyDecodeExec,
+    ordering: &LexOrdering,
+    out: &mut Vec<PhysicalDeferredField>,
+) {
+    for sort_expr in ordering.iter().skip(1) {
+        let _ = sort_expr.expr.apply(|e| {
+            if let Some(col) = e.downcast_ref::<Column>()
+                && let Some(field) = decode
+                    .deferred_fields()
+                    .iter()
+                    .find(|f| f.col_idx == col.index())
+                && !out.contains(field)
+            {
+                out.push(field.clone());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+}
+
 fn try_rewrite_join_subtree(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
     min_rows: usize,
     initial_window: usize,
+    eager_fields: &mut Vec<PhysicalDeferredField>,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
         let Some((new_child, stats)) = try_rewrite_join_subtree(
@@ -326,10 +359,14 @@ fn try_rewrite_join_subtree(
             &child_ordering,
             min_rows,
             initial_window,
+            eager_fields,
         )?
         else {
             return Ok(None);
         };
+        if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
+            collect_decode_tiebreaker_fields(decode, required_ordering, eager_fields);
+        }
         let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
         return Ok(Some((rebuilt, stats)));
     }
@@ -511,7 +548,13 @@ fn try_rewrite_child_branch(
         return Ok(Some((rebuilt, stats)));
     }
     if node.is::<HashJoinExec>() {
-        return try_rewrite_join_subtree(node, &ordering, min_rows, initial_window);
+        return try_rewrite_join_subtree(
+            node,
+            &ordering,
+            min_rows,
+            initial_window,
+            &mut Vec::new(),
+        );
     }
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
@@ -629,7 +672,47 @@ fn map_ordering_through_passthrough(
         return Ok(LexOrdering::new(mapped));
     }
 
-    if node.is::<VisibilityFilterExec>() || node.is::<CoalescePartitionsExec>() {
+    if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
+        let Some(proj) = vis.projection() else {
+            return Ok(Some(ordering.clone()));
+        };
+        let in_schema = vis.children()[0].schema();
+        let mut mapped = Vec::with_capacity(ordering.len());
+        for sort_expr in ordering.iter() {
+            let mut valid = true;
+            let rewritten = Arc::clone(&sort_expr.expr)
+                .transform_down(|expr| {
+                    if let Some(col) = expr.downcast_ref::<Column>() {
+                        let Some(&in_idx) = proj.get(col.index()) else {
+                            valid = false;
+                            return Ok(Transformed::no(expr));
+                        };
+                        if in_idx >= in_schema.fields().len() {
+                            valid = false;
+                            return Ok(Transformed::no(expr));
+                        }
+                        let field_name = in_schema.field(in_idx).name();
+                        return Ok(Transformed::new(
+                            Arc::new(Column::new(field_name, in_idx)) as Arc<dyn PhysicalExpr>,
+                            true,
+                            TreeNodeRecursion::Jump,
+                        ));
+                    }
+                    Ok(Transformed::no(expr))
+                })?
+                .data;
+            if !valid {
+                return Ok(None);
+            }
+            mapped.push(PhysicalSortExpr {
+                expr: rewritten,
+                options: sort_expr.options,
+            });
+        }
+        return Ok(LexOrdering::new(mapped));
+    }
+
+    if node.is::<CoalescePartitionsExec>() {
         return Ok(Some(ordering.clone()));
     }
 
@@ -637,16 +720,23 @@ fn map_ordering_through_passthrough(
         let out_schema = node.schema();
         let in_schema = node.children()[0].schema();
         let mut valid = true;
-        for sort_expr in ordering.iter() {
+        for (idx, sort_expr) in ordering.iter().enumerate() {
             let _ = sort_expr.expr.apply(|e| {
-                if let Some(col) = e.downcast_ref::<Column>()
-                    && (col.index() >= out_schema.fields().len()
-                        || col.index() >= in_schema.fields().len()
-                        || out_schema.field(col.index()).data_type()
-                            != in_schema.field(col.index()).data_type())
-                {
-                    valid = false;
-                    return Ok(TreeNodeRecursion::Stop);
+                if let Some(col) = e.downcast_ref::<Column>() {
+                    let in_bounds = col.index() < out_schema.fields().len()
+                        && col.index() < in_schema.fields().len();
+                    // Primary score expression (`idx == 0`) cannot reference a deferred
+                    // column whose DataType changes across `TantivyDecodeExec`. Secondary
+                    // tiebreakers (`idx > 0`) may reference deferred columns, which will
+                    // be converted to eager delivery if the join rewrite succeeds.
+                    let type_ok = idx > 0
+                        || (in_bounds
+                            && out_schema.field(col.index()).data_type()
+                                == in_schema.field(col.index()).data_type());
+                    if !in_bounds || !type_ok {
+                        valid = false;
+                        return Ok(TreeNodeRecursion::Stop);
+                    }
                 }
                 Ok(TreeNodeRecursion::Continue)
             });
@@ -1203,10 +1293,12 @@ fn estimate_pdb_query_max_score(query: &pdb::Query) -> f64 {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use arrow_schema::Field;
     use datafusion::physical_plan::joins::PartitionMode;
+    use pgrx::prelude::*;
 
     fn test_schemas() -> (SchemaRef, SchemaRef) {
         let left = Arc::new(Schema::new(vec![
@@ -1345,7 +1437,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn test_rank_join_rule_and_ensure_requirements_removes_top_sort() {
         use datafusion::common::NullEquality;
         use datafusion::physical_expr::projection::ProjectionExpr;
@@ -1450,7 +1542,7 @@ mod tests {
         assert!(right_leaf.lazy_sort().is_some());
     }
 
-    #[test]
+    #[pg_test]
     fn test_rank_join_rule_gates_reject_ineligible_plans() {
         use datafusion::common::NullEquality;
 

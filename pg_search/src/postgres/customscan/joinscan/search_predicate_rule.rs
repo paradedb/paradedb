@@ -60,7 +60,6 @@ use crate::postgres::customscan::datafusion::translator::make_source_col;
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelationAlias};
 use crate::query::SearchQueryInput;
-use crate::scan::late_materialization::{get_deferred_fields, trace_column};
 use crate::scan::rank_join_rule::{
     MAX_RANK_JOIN_K, SubtreeScoreStats, analyze_join_score_expr, is_score_column_name,
 };
@@ -346,15 +345,6 @@ fn try_elide_under_sort(
         return None;
     }
 
-    // If any sort expression (including secondary tie-breaker keys) references a deferred
-    // column, `LateMaterializationRule` will anchor a `LateMaterializeNode` (`TantivyDecodeExec`
-    // or `TantivyFetchExec`) directly below `Sort`, which changes that column's `DataType`
-    // from `UInt64` to `Utf8View`/`BinaryView` and causes `RankJoinRule::map_ordering_through_passthrough`
-    // to decline the plan.
-    if sort_references_deferred_column(sort) {
-        return None;
-    }
-
     let phys_sort = logical_sort_to_physical(&sort.expr[0], sort.input.schema())?;
     let (root_join, join_sort_expr) = find_root_join_under_sort(sort.input.as_ref(), phys_sort)?;
 
@@ -404,30 +394,6 @@ fn try_elide_under_sort(
     inspect_logical_join(root_join, &join_sort_expr, tags_by_position, min_rows, true)?;
 
     Some(leaf_positions)
-}
-
-fn sort_references_deferred_column(sort: &Sort) -> bool {
-    let deferred = get_deferred_fields(sort.input.as_ref());
-    if deferred.is_empty() {
-        return false;
-    }
-    let mut found_deferred = false;
-    for sort_expr in &sort.expr {
-        let _ = sort_expr.expr.apply(|e| {
-            if let Expr::Column(col) = e
-                && let Some(base) = trace_column(sort.input.as_ref(), col)
-                && deferred.iter().any(|d| base.is(d))
-            {
-                found_deferred = true;
-                return Ok(TreeNodeRecursion::Stop);
-            }
-            Ok(TreeNodeRecursion::Continue)
-        });
-        if found_deferred {
-            return true;
-        }
-    }
-    false
 }
 
 /// Walks down from `Sort.input` through pass-through nodes (`Projection`, `SubqueryAlias`)
@@ -1002,7 +968,8 @@ fn rewrite_plan(
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use crate::index::fast_fields_helper::WhichFastField;
@@ -1014,6 +981,7 @@ mod tests {
     use datafusion::optimizer::OptimizerContext;
     use datafusion::prelude::SessionContext;
     use pgrx::pg_sys;
+    use pgrx::prelude::*;
 
     fn test_scan_provider(plan_position: usize, alias: &str) -> Arc<PgSearchTableProvider> {
         let scan_info = ScanInfo::new(
@@ -1049,7 +1017,7 @@ mod tests {
         ))])
     }
 
-    #[test]
+    #[pg_test]
     fn search_predicate_udf_roundtrips_through_logical_plan_codec() {
         let provider = test_scan_provider(0, "p");
         let pred = make_udf_expr(0, "p", SearchQueryInput::All);
@@ -1069,7 +1037,7 @@ mod tests {
         assert_eq!(collect_search_predicates(&decoded).len(), 1);
     }
 
-    #[test]
+    #[pg_test]
     fn rule_rewrites_predicates_to_tags_and_updates_providers() {
         let left_provider = test_scan_provider(0, "p");
         let right_provider = test_scan_provider(1, "s");
@@ -1161,7 +1129,7 @@ mod tests {
         assert_eq!(tagged_count, 2);
     }
 
-    #[test]
+    #[pg_test]
     fn distinct_predicates_on_same_table_are_not_conflated_by_cse() {
         let left_provider = test_scan_provider(0, "p");
         let right_provider = test_scan_provider(1, "s");
@@ -1253,7 +1221,7 @@ mod tests {
         assert_eq!(filter_preds, vec!["__p_0_tag_0 OR __p_0_tag_1"]);
     }
 
-    #[test]
+    #[pg_test]
     fn rank_join_elides_tags_and_join_filter_and_falls_back_when_ineligible() {
         let make_scored_provider = |plan_position: usize, alias: &str, rows: u64| {
             let mut scan_info = ScanInfo::new(
@@ -1271,11 +1239,7 @@ mod tests {
                 WhichFastField::Score(Some(format!("__pdb_score_{plan_position}"))),
             ];
 
-            Arc::new(PgSearchTableProvider::new(
-                scan_info,
-                fields,
-                Some(plan_position),
-            ))
+            Arc::new(PgSearchTableProvider::new(scan_info, fields, None))
         };
 
         let build_disjunctive_top_k_plan =

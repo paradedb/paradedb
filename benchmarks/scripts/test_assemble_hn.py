@@ -22,6 +22,48 @@ import prepare_hn as hn
 from test_hn_embeddings import FakeClient, FakeS3
 
 
+class HNSourceReaderTests(unittest.TestCase):
+    """Keep CSV row identity and field values intact across streamed batches."""
+
+    def test_multiline_records_across_batches(self):
+        """Embedded CSV-like lines, escaped quotes, and nulls stay in their fields."""
+        rows = []
+        for hn_id in range(1, 10004):
+            row = dict.fromkeys(assembly.COLUMNS, "\\N")
+            row.update(
+                id=str(hn_id),
+                text=(
+                    'before "quoted" text\r\n'
+                    "not an ID,0,comment,user,2008-10-26 05:06:58,body,1,0,0,[],,-1,title,[],0\n"
+                    'after 🦆, "more quotes"'
+                ),
+                title=f'row {hn_id}\n"multiline title"',
+                url="",
+                kids="[1,2]",
+            )
+            rows.append(row)
+        expected = [
+            {name: None if value == "\\N" else value for name, value in row.items()}
+            for row in rows
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "data.csv"
+            for newline in ("\n", "\r\n"):
+                with self.subTest(newline=newline):
+                    with source.open("w", newline="", encoding="utf-8") as stream:
+                        writer = csv.DictWriter(
+                            stream, fieldnames=assembly.COLUMNS, lineterminator=newline
+                        )
+                        writer.writeheader()
+                        writer.writerows(rows)
+                    reader = pa.RecordBatchReader.from_batches(
+                        assembly.SOURCE_SCHEMA, assembly.source_batches(source)
+                    )
+                    with duckdb.connect() as conn:
+                        table = conn.from_arrow(reader).fetch_arrow_table()
+                    self.assertEqual(table.to_pylist(), expected)
+
+
 class HNAssemblyTests(unittest.TestCase):
     """Exercise the real assembly pipeline using a completed simulated Batch cache."""
 

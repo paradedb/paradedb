@@ -191,6 +191,12 @@ def profile_csv(source, work, max_tokens, workers):
 
 def read_rows(source):
     """Stream validated HN IDs and original text for each preparation stage."""
+    for row in read_records(source):
+        yield int(row["id"]), row["text"]
+
+
+def read_records(source):
+    """Read complete source records with the same CSV validation at every stage."""
     csv.field_size_limit(2**31 - 1)
     with Path(source).open(newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream, strict=True)
@@ -206,7 +212,7 @@ def read_rows(source):
             hn_id = int(row["id"])
             if not 0 < hn_id <= 2**63 - 1:
                 raise ValueError(f"Invalid HN id: {hn_id}")
-            yield hn_id, row["text"]
+            yield row
 
 
 def summarize(work, config, memory_limit):

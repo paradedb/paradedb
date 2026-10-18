@@ -8,6 +8,7 @@
 
 import argparse
 import csv
+import itertools
 import json
 import re
 import shutil
@@ -41,6 +42,7 @@ COLUMNS = {
     "parts": "BIGINT[]",
     "descendants": "INTEGER",
 }
+SOURCE_SCHEMA = pa.schema([(name, pa.string()) for name in COLUMNS])
 
 
 def checked_file(store, relative, expected):
@@ -119,6 +121,19 @@ def sample_sizes(labels, corpus_rows):
     return sizes
 
 
+def source_batches(source):
+    """Stream original fields through the preparer's CSV reader in bounded batches."""
+    rows = hn.read_records(source)
+    while records := list(itertools.islice(rows, 10000)):
+        yield pa.RecordBatch.from_pylist(
+            [
+                {name: None if value == "\\N" else value for name, value in row.items()}
+                for row in records
+            ],
+            schema=SOURCE_SCHEMA,
+        )
+
+
 def partition_source(conn, source, work, profile, workers):
     """Verify source identity and partition original columns with canonical input hashes."""
     before = source.stat()
@@ -168,14 +183,8 @@ def partition_source(conn, source, work, profile, workers):
     """,
         [str(seed)],
     )
-    conn.read_csv(
-        str(source),
-        header=True,
-        columns=dict.fromkeys(COLUMNS, "VARCHAR"),
-        na_values="\\N",
-        auto_detect=False,
-        quotechar='"',
-        escapechar='"',
+    conn.from_arrow(
+        pa.RecordBatchReader.from_batches(SOURCE_SCHEMA, source_batches(source))
     ).create_view("raw_source")
     columns = ", ".join(
         f'r."{name}"'

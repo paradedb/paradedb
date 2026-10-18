@@ -708,11 +708,11 @@ LIMIT 10;
    Limit: 10
    Order By: pdb.score(documents) + pdb.score(files) desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(documents)@0 as col_3, pdb.score(files)@3 as col_4, pdb.score(documents)@0 + pdb.score(files)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=220.0 B, output_batches=3]
-     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=5, output_bytes=200.0 B, output_batches=3]
-     :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=3, ctids_fetched=10, ctids_lazy=0]
-     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=3]
-     :         RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=3]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(documents)@0 as col_3, pdb.score(files)@3 as col_4, pdb.score(documents)@0 + pdb.score(files)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=220.0 B, output_batches=2]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=5, output_bytes=200.0 B, output_batches=2]
+     :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=2, ctids_fetched=10, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=2]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=2]
      :           CooperativeExec
      :             PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=100.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=3]
      :           CooperativeExec
@@ -767,7 +767,7 @@ LIMIT 10;
      :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=4]
      :         RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=4]
      :           CooperativeExec
-     :             PgSearchScan: table=documents, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=108.0 B, output_batches=3, queries=4, rows_pruned=0, rows_scanned=3]
+     :             PgSearchScan: table=documents, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=108.0 B, output_batches=4, queries=5, rows_pruned=0, rows_scanned=3]
      :           CooperativeExec
      :             PgSearchScan: table=files, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=3, queries=4, rows_pruned=0, rows_scanned=5]
 (15 rows)
@@ -814,13 +814,13 @@ LIMIT 10;
    Limit: 10
    Order By: pdb.score(documents) + pdb.score(files) + pdb.score(pages) desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, NULL as col_3, pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 as col_4, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2], metrics=[output_rows=6, output_bytes=360.0 B, output_batches=2]
-     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=6, output_bytes=408.0 B, output_batches=2]
-     :     VisibilityFilterExec: tables=[documents, files, pages], metrics=[output_rows=6, output_bytes=408.0 B, output_batches=2, ctids_fetched=18, ctids_lazy=0]
-     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id, pdb.score(pages)@6 as pdb.score(pages), ctid_2@7 as ctid_2], metrics=[output_rows=6, output_bytes=408.0 B, output_batches=2]
-     :         RankJoinExec: mode=CollectLeft, on=[(id@5, fileId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC], metrics=[output_rows=6, output_bytes=504.0 B, output_batches=2]
-     :           ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=2]
-     :             RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@3)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC NULLS LAST], metrics=[output_rows=5, output_bytes=360.0 B, output_batches=2]
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, NULL as col_3, pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 as col_4, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2], metrics=[output_rows=6, output_bytes=360.0 B, output_batches=3]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=6, output_bytes=408.0 B, output_batches=3]
+     :     VisibilityFilterExec: tables=[documents, files, pages], metrics=[output_rows=6, output_bytes=408.0 B, output_batches=3, ctids_fetched=18, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id, pdb.score(pages)@6 as pdb.score(pages), ctid_2@7 as ctid_2], metrics=[output_rows=6, output_bytes=408.0 B, output_batches=3]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@5, fileId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC], metrics=[output_rows=6, output_bytes=504.0 B, output_batches=3]
+     :           ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=4]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@3)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC NULLS LAST], metrics=[output_rows=5, output_bytes=360.0 B, output_batches=4]
      :               CooperativeExec
      :                 PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=100.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=3]
      :               CooperativeExec
@@ -927,17 +927,17 @@ LIMIT 10;
    Limit: 10
    Order By: pdb.score(documents) + pdb.score(files) + pdb.score(pages) desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, NULL as col_3, pdb.score(documents)@0 as col_4, pdb.score(files)@3 as col_5, pdb.score(pages)@6 as col_6, pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 as col_7, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2], metrics=[output_rows=4, output_bytes=288.0 B, output_batches=3]
-     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=4, output_bytes=272.0 B, output_batches=3]
-     :     VisibilityFilterExec: tables=[documents, files, pages], metrics=[output_rows=4, output_bytes=272.0 B, output_batches=3, ctids_fetched=12, ctids_lazy=0]
-     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id, pdb.score(pages)@6 as pdb.score(pages), ctid_2@7 as ctid_2], metrics=[output_rows=4, output_bytes=272.0 B, output_batches=3]
-     :         RankJoinExec: mode=CollectLeft, on=[(id@5, fileId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC], metrics=[output_rows=4, output_bytes=336.0 B, output_batches=3]
-     :           ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id], metrics=[output_rows=3, output_bytes=168.0 B, output_batches=3]
-     :             RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@3)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC NULLS LAST], metrics=[output_rows=3, output_bytes=216.0 B, output_batches=3]
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, NULL as col_3, pdb.score(documents)@0 as col_4, pdb.score(files)@3 as col_5, pdb.score(pages)@6 as col_6, pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 as col_7, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2], metrics=[output_rows=4, output_bytes=288.0 B, output_batches=4]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=4, output_bytes=272.0 B, output_batches=4]
+     :     VisibilityFilterExec: tables=[documents, files, pages], metrics=[output_rows=4, output_bytes=272.0 B, output_batches=4, ctids_fetched=12, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id, pdb.score(pages)@6 as pdb.score(pages), ctid_2@7 as ctid_2], metrics=[output_rows=4, output_bytes=272.0 B, output_batches=4]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@5, fileId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC], metrics=[output_rows=4, output_bytes=336.0 B, output_batches=4]
+     :           ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id], metrics=[output_rows=3, output_bytes=168.0 B, output_batches=4]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@3)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC NULLS LAST], metrics=[output_rows=3, output_bytes=216.0 B, output_batches=4]
      :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=2, queries=2, rows_pruned=0, rows_scanned=2]
+     :                 PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=4, queries=4, rows_pruned=0, rows_scanned=2]
      :               CooperativeExec
-     :                 PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=2, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=180.0 B, output_batches=3, queries=3, rows_pruned=0, rows_scanned=3]
+     :                 PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=2, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=180.0 B, output_batches=4, queries=4, rows_pruned=0, rows_scanned=3]
      :           CooperativeExec
      :             PgSearchScan: table=pages, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=4, output_bytes=120.0 B, output_batches=2, queries=2, rows_pruned=0, rows_scanned=4]
 (20 rows)

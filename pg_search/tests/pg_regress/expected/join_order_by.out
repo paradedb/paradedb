@@ -629,7 +629,7 @@ LIMIT 10;
      :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, pdb.score(t2)@2 as pdb.score(t2), ctid_1@3 as ctid_1, id@5 as id], metrics=[output_rows=20.00 K, output_bytes=703.1 KB, output_batches=1]
      :         RankJoinExec: mode=CollectLeft, on=[(id@1, t1_id@2)], order=[pdb.score(t2)@2 DESC, id@5 ASC NULLS LAST], metrics=[output_rows=20.00 K, output_bytes=859.4 KB, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=10, queries=10, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t1, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=18, queries=18, rows_pruned=0, rows_scanned=20.00 K]
      :           CooperativeExec
      :             PgSearchScan: table=t2, segments=2, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=546.9 KB, output_batches=10, queries=10, rows_pruned=0, rows_scanned=20.00 K]
 (15 rows)

@@ -1482,10 +1482,15 @@ impl SearchIndexReader {
 
     /// Execute a Random Access (`RA`) point lookup against the index using pre-prepared
     /// [`RaLookupWeights`], skipping segments that contain no un-emitted matching documents.
+    ///
+    /// When `score_threshold` is `Some(threshold)` (using strict `score > threshold` semantics),
+    /// pushes the threshold down into Tantivy's [`tantivy::query::PruningScorer`] so non-matching or low-scoring
+    /// segments and 128-doc blocks are skipped via Block-Max WAND before fast-field / CTID reads.
     pub(crate) fn search_ra_lookup(
         &self,
         weights: &RaLookupWeights,
         lookup_query: Box<dyn Query>,
+        score_threshold: Option<Score>,
         emitted_docs: &mut crate::api::HashSet<DocAddress>,
     ) -> Vec<(SearchIndexScore, DocAddress)> {
         let lookup_weight = lookup_query
@@ -1498,23 +1503,7 @@ impl SearchIndexReader {
                                 segment_reader: &SegmentReader,
                                 base_weight: &LazyWeight,
                                 is_match_all: bool| {
-            let mut lookup_scorer = lookup_weight
-                .scorer(segment_reader, 1.0)
-                .expect("lookup scorer should be constructable");
             let alive_bitset = segment_reader.alive_bitset();
-            candidate_docs.clear();
-            let mut doc_id = lookup_scorer.doc();
-            while doc_id != tantivy::TERMINATED {
-                if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
-                    && !emitted_docs.contains(&DocAddress::new(segment_ord, doc_id))
-                {
-                    candidate_docs.push(doc_id);
-                }
-                doc_id = lookup_scorer.advance();
-            }
-            if candidate_docs.is_empty() {
-                return;
-            }
             let mut tag_scorer = None;
             let mut eval_tag_score = |target_doc: DocId| -> Score {
                 if !self.need_scores {
@@ -1538,36 +1527,213 @@ impl SearchIndexReader {
                     0.0
                 }
             };
+
             if is_match_all {
+                if let Some(threshold) = score_threshold
+                    && threshold >= 0.0
+                {
+                    if !self.need_scores {
+                        return;
+                    }
+                    let Some(ref tw) = weights.tag_weight else {
+                        return;
+                    };
+                    let mut tag_pruning_scorer = tw
+                        .get()
+                        .pruning_scorer(segment_reader, 1.0, threshold)
+                        .expect("tag pruning scorer should be constructable");
+                    if tag_pruning_scorer.doc() == tantivy::TERMINATED {
+                        return;
+                    }
+                    let mut lookup_scorer = lookup_weight
+                        .scorer(segment_reader, 1.0)
+                        .expect("lookup scorer should be constructable");
+                    let first_lookup_doc = lookup_scorer.doc();
+                    if first_lookup_doc == tantivy::TERMINATED {
+                        return;
+                    }
+                    let mut doc_id = tag_pruning_scorer.doc();
+                    if doc_id < first_lookup_doc {
+                        doc_id = tag_pruning_scorer.seek(first_lookup_doc);
+                    }
+                    while doc_id != tantivy::TERMINATED {
+                        match lookup_scorer.seek_danger(doc_id) {
+                            tantivy::SeekDangerResult::Found => {
+                                let addr = DocAddress::new(segment_ord, doc_id);
+                                if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+                                    && !emitted_docs.contains(&addr)
+                                {
+                                    let score = tag_pruning_scorer.score();
+                                    if score > threshold {
+                                        emitted_docs.insert(addr);
+                                        results.push((SearchIndexScore::new(score), addr));
+                                    }
+                                }
+                                if lookup_scorer.has_fast_bitset() {
+                                    let next_target = lookup_scorer.advance();
+                                    if next_target == tantivy::TERMINATED {
+                                        break;
+                                    }
+                                    if next_target > doc_id + 1 {
+                                        doc_id = tag_pruning_scorer.seek(next_target);
+                                    } else {
+                                        doc_id = tag_pruning_scorer.advance();
+                                    }
+                                } else {
+                                    doc_id = tag_pruning_scorer.advance();
+                                }
+                            }
+                            tantivy::SeekDangerResult::SeekLowerBound(next_target) => {
+                                if next_target == tantivy::TERMINATED {
+                                    break;
+                                }
+                                if next_target > doc_id + 1 {
+                                    doc_id = tag_pruning_scorer.seek(next_target);
+                                } else {
+                                    doc_id = tag_pruning_scorer.advance();
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                let mut lookup_scorer = lookup_weight
+                    .scorer(segment_reader, 1.0)
+                    .expect("lookup scorer should be constructable");
+                candidate_docs.clear();
+                let mut doc_id = lookup_scorer.doc();
+                while doc_id != tantivy::TERMINATED {
+                    if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+                        && !emitted_docs.contains(&DocAddress::new(segment_ord, doc_id))
+                    {
+                        candidate_docs.push(doc_id);
+                    }
+                    doc_id = lookup_scorer.advance();
+                }
                 for &target_doc in &candidate_docs {
                     let score = eval_tag_score(target_doc);
-                    let addr = DocAddress::new(segment_ord, target_doc);
-                    emitted_docs.insert(addr);
-                    results.push((SearchIndexScore::new(score), addr));
+                    if score_threshold.is_none_or(|t| score > t) {
+                        let addr = DocAddress::new(segment_ord, target_doc);
+                        emitted_docs.insert(addr);
+                        results.push((SearchIndexScore::new(score), addr));
+                    }
                 }
                 return;
             }
+
+            if weights.tag_weight.is_none()
+                && self.need_scores
+                && let Some(threshold) = score_threshold
+            {
+                let mut base_pruning_scorer = base_weight
+                    .get()
+                    .pruning_scorer(segment_reader, 1.0, threshold)
+                    .expect("base pruning scorer should be constructable");
+                if base_pruning_scorer.doc() == tantivy::TERMINATED {
+                    return;
+                }
+                let mut lookup_scorer = lookup_weight
+                    .scorer(segment_reader, 1.0)
+                    .expect("lookup scorer should be constructable");
+                let first_lookup_doc = lookup_scorer.doc();
+                if first_lookup_doc == tantivy::TERMINATED {
+                    return;
+                }
+                let mut doc_id = base_pruning_scorer.doc();
+                if doc_id < first_lookup_doc {
+                    doc_id = base_pruning_scorer.seek(first_lookup_doc);
+                }
+                while doc_id != tantivy::TERMINATED {
+                    match lookup_scorer.seek_danger(doc_id) {
+                        tantivy::SeekDangerResult::Found => {
+                            let addr = DocAddress::new(segment_ord, doc_id);
+                            if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+                                && !emitted_docs.contains(&addr)
+                            {
+                                let score = base_pruning_scorer.score();
+                                if score > threshold {
+                                    emitted_docs.insert(addr);
+                                    results.push((SearchIndexScore::new(score), addr));
+                                }
+                            }
+                            if lookup_scorer.has_fast_bitset() {
+                                let next_target = lookup_scorer.advance();
+                                if next_target == tantivy::TERMINATED {
+                                    break;
+                                }
+                                if next_target > doc_id + 1 {
+                                    doc_id = base_pruning_scorer.seek(next_target);
+                                } else {
+                                    doc_id = base_pruning_scorer.advance();
+                                }
+                            } else {
+                                doc_id = base_pruning_scorer.advance();
+                            }
+                        }
+                        tantivy::SeekDangerResult::SeekLowerBound(next_target) => {
+                            if next_target == tantivy::TERMINATED {
+                                break;
+                            }
+                            if next_target > doc_id + 1 {
+                                doc_id = base_pruning_scorer.seek(next_target);
+                            } else {
+                                doc_id = base_pruning_scorer.advance();
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+
             let mut base_scorer = base_weight
                 .get()
                 .scorer(segment_reader, 1.0)
                 .expect("base scorer should be constructable");
-            for &target_doc in &candidate_docs {
-                let mut cur = base_scorer.doc();
-                if cur < target_doc {
-                    cur = base_scorer.seek(target_doc);
-                }
-                if cur == target_doc {
-                    let mut score = if self.need_scores {
-                        base_scorer.score()
-                    } else {
-                        0.0
-                    };
-                    score += eval_tag_score(target_doc);
-                    let addr = DocAddress::new(segment_ord, target_doc);
-                    emitted_docs.insert(addr);
-                    results.push((SearchIndexScore::new(score), addr));
-                } else if cur == tantivy::TERMINATED {
-                    break;
+            if base_scorer.doc() == tantivy::TERMINATED {
+                return;
+            }
+            let mut lookup_scorer = lookup_weight
+                .scorer(segment_reader, 1.0)
+                .expect("lookup scorer should be constructable");
+            let first_lookup_doc = lookup_scorer.doc();
+            if first_lookup_doc == tantivy::TERMINATED {
+                return;
+            }
+            let mut doc_id = base_scorer.doc();
+            if doc_id < first_lookup_doc {
+                doc_id = base_scorer.seek(first_lookup_doc);
+            }
+            while doc_id != tantivy::TERMINATED {
+                match lookup_scorer.seek_danger(doc_id) {
+                    tantivy::SeekDangerResult::Found => {
+                        let addr = DocAddress::new(segment_ord, doc_id);
+                        if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+                            && !emitted_docs.contains(&addr)
+                        {
+                            let mut score = if self.need_scores {
+                                base_scorer.score()
+                            } else {
+                                0.0
+                            };
+                            score += eval_tag_score(doc_id);
+                            if score_threshold.is_none_or(|t| score > t) {
+                                emitted_docs.insert(addr);
+                                results.push((SearchIndexScore::new(score), addr));
+                            }
+                        }
+                        doc_id = base_scorer.advance();
+                    }
+                    tantivy::SeekDangerResult::SeekLowerBound(next_target) => {
+                        if next_target == tantivy::TERMINATED {
+                            break;
+                        }
+                        if next_target > doc_id + 1 {
+                            doc_id = base_scorer.seek(next_target);
+                        } else {
+                            doc_id = base_scorer.advance();
+                        }
+                    }
                 }
             }
         };

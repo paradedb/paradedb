@@ -125,11 +125,27 @@ use tantivy::schema::IndexRecordOption;
 pub struct RankLookupPhysicalExpr {
     cols: Vec<Arc<dyn PhysicalExpr>>,
     keys: Vec<Vec<ScalarValue>>,
+    /// Optional minimum score threshold using strict greater-than (`score > threshold`) semantics,
+    /// matching Tantivy's `PruningScorer`.
+    score_threshold: Option<Score>,
 }
 
 impl RankLookupPhysicalExpr {
     pub fn new(cols: Vec<Arc<dyn PhysicalExpr>>, keys: Vec<Vec<ScalarValue>>) -> Self {
-        Self { cols, keys }
+        Self {
+            cols,
+            keys,
+            score_threshold: None,
+        }
+    }
+
+    pub fn with_score_threshold(mut self, score_threshold: Option<Score>) -> Self {
+        self.score_threshold = score_threshold;
+        self
+    }
+
+    pub fn score_threshold(&self) -> Option<Score> {
+        self.score_threshold
     }
 }
 
@@ -142,7 +158,11 @@ impl std::fmt::Display for RankLookupPhysicalExpr {
             }
             write!(f, "{c}")?;
         }
-        write!(f, "], keys={})", self.keys.len())
+        if let Some(t) = self.score_threshold {
+            write!(f, "], keys={}, score_threshold={t})", self.keys.len())
+        } else {
+            write!(f, "], keys={})", self.keys.len())
+        }
     }
 }
 
@@ -155,6 +175,7 @@ impl PartialEq for RankLookupPhysicalExpr {
                 .zip(other.cols.iter())
                 .all(|(a, b)| a.as_ref() == b.as_ref())
             && self.keys == other.keys
+            && self.score_threshold.map(f32::to_bits) == other.score_threshold.map(f32::to_bits)
     }
 }
 
@@ -167,6 +188,7 @@ impl std::hash::Hash for RankLookupPhysicalExpr {
             c.as_ref().hash(state);
         }
         self.keys.hash(state);
+        self.score_threshold.map(f32::to_bits).hash(state);
     }
 }
 
@@ -246,6 +268,7 @@ impl PhysicalExpr for RankLookupPhysicalExpr {
         Ok(Arc::new(Self {
             cols: children,
             keys: self.keys.clone(),
+            score_threshold: self.score_threshold,
         }))
     }
 
@@ -299,7 +322,8 @@ pub fn try_convert_rank_lookup_to_query(
         }
         let cfg = TermSetStrategyConfig {
             gallop_enabled: crate::gucs::term_set_gallop_enabled(),
-            bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
+            bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique()
+                .max(crate::gucs::term_set_bitset_max_density_multi()),
             bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
             strategy_sink,
             ..TermSetStrategyConfig::default()
@@ -636,15 +660,15 @@ fn try_extract_score_threshold(
                 _ => None,
             }
         }
-        Operator::Eq => {
-            // Look for a binary expr that looks like: score = f32
+        Operator::Eq | Operator::GtEq => {
+            // Look for a binary expr that looks like: score = f32 or score >= f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
             if col.index() != score_col_schema_idx {
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
                 // PruningScorer's assume the threshold has greater-than semantics, so
-                // take the next representable value below the eq check to keep the threshold valid
+                // take the next representable value below the eq/gte check to keep the threshold valid
                 ScalarValue::Float32(Some(t)) => Some(t.next_down()),
                 _ => None,
             }

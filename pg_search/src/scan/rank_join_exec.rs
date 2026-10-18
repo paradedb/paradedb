@@ -155,6 +155,220 @@ impl ScoreCombiner {
             ScoreCombiner::Ln(a) | ScoreCombiner::Sqrt(a) | ScoreCombiner::Exp(a) => a.uses_right(),
         }
     }
+
+    /// Given a required strict combined score floor `f(s_L, s_R) > min_combined` and an upper
+    /// bound `0 <= s_R <= max_right`, returns a strict lower-bound threshold `t >= 0.0` on `s_L`
+    /// (`s_L > t`, suitable for `PruningScorer`) if one holds by monotonicity.
+    pub fn left_threshold_for(&self, min_combined: f32, max_right: f64) -> Option<f32> {
+        let min_combined_f64 = min_combined as f64;
+        if !self.uses_left() || !max_right.is_finite() || max_right < 0.0 {
+            return None;
+        }
+        if self.eval(InputScorePair {
+            left: 0.0,
+            right: max_right,
+        }) > min_combined_f64
+        {
+            return None;
+        }
+        if let Some(raw) = self.raw_min_left_score_for(min_combined_f64, max_right)
+            && raw > 0.0
+            && raw.is_finite()
+        {
+            let candidate = ((raw as f32) * (1.0 - 1e-5) - 1e-5).max(0.0);
+            if self.eval(InputScorePair {
+                left: candidate as f64,
+                right: max_right,
+            }) <= min_combined_f64
+            {
+                return Some(candidate);
+            }
+        }
+        Some(0.0)
+    }
+
+    /// Given a required strict combined score floor `f(s_L, s_R) > min_combined` and an upper
+    /// bound `0 <= s_L <= max_left`, returns a strict lower-bound threshold `t >= 0.0` on `s_R`
+    /// (`s_R > t`, suitable for `PruningScorer`) if one holds by monotonicity.
+    pub fn right_threshold_for(&self, min_combined: f32, max_left: f64) -> Option<f32> {
+        let min_combined_f64 = min_combined as f64;
+        if !self.uses_right() || !max_left.is_finite() || max_left < 0.0 {
+            return None;
+        }
+        if self.eval(InputScorePair {
+            left: max_left,
+            right: 0.0,
+        }) > min_combined_f64
+        {
+            return None;
+        }
+        if let Some(raw) = self.raw_min_right_score_for(min_combined_f64, max_left)
+            && raw > 0.0
+            && raw.is_finite()
+        {
+            let candidate = ((raw as f32) * (1.0 - 1e-5) - 1e-5).max(0.0);
+            if self.eval(InputScorePair {
+                left: max_left,
+                right: candidate as f64,
+            }) <= min_combined_f64
+            {
+                return Some(candidate);
+            }
+        }
+        Some(0.0)
+    }
+
+    fn raw_min_left_score_for(&self, min_combined: f64, max_right: f64) -> Option<f64> {
+        match self {
+            ScoreCombiner::LeftScore => Some(min_combined),
+            ScoreCombiner::RightScore | ScoreCombiner::Constant(_) => None,
+            ScoreCombiner::Add(a, b) => {
+                if !b.uses_left() {
+                    let b_max = b.eval(InputScorePair {
+                        left: 0.0,
+                        right: max_right,
+                    });
+                    a.raw_min_left_score_for(min_combined - b_max, max_right)
+                } else if !a.uses_left() {
+                    let a_max = a.eval(InputScorePair {
+                        left: 0.0,
+                        right: max_right,
+                    });
+                    b.raw_min_left_score_for(min_combined - a_max, max_right)
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Sub(a, b) => {
+                if !b.uses_left() {
+                    let b_min = b.eval(InputScorePair {
+                        left: 0.0,
+                        right: 0.0,
+                    });
+                    a.raw_min_left_score_for(min_combined + b_min, max_right)
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Mul(a, b) => {
+                if !b.uses_left() {
+                    let b_max = b.eval(InputScorePair {
+                        left: 0.0,
+                        right: max_right,
+                    });
+                    (b_max > 0.0)
+                        .then(|| a.raw_min_left_score_for(min_combined / b_max, max_right))?
+                } else if !a.uses_left() {
+                    let a_max = a.eval(InputScorePair {
+                        left: 0.0,
+                        right: max_right,
+                    });
+                    (a_max > 0.0)
+                        .then(|| b.raw_min_left_score_for(min_combined / a_max, max_right))?
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Div(a, b) => {
+                if !b.uses_left() {
+                    let b_max = b.eval(InputScorePair {
+                        left: 0.0,
+                        right: max_right,
+                    });
+                    (b_max > 0.0)
+                        .then(|| a.raw_min_left_score_for(min_combined * b_max, max_right))?
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Ln(a) => a.raw_min_left_score_for(min_combined.exp(), max_right),
+            ScoreCombiner::Sqrt(a) => (min_combined > 0.0)
+                .then(|| a.raw_min_left_score_for(min_combined * min_combined, max_right))?,
+            ScoreCombiner::Exp(a) => (min_combined > 0.0)
+                .then(|| a.raw_min_left_score_for(min_combined.ln(), max_right))?,
+            ScoreCombiner::Least(args) => args
+                .iter()
+                .filter_map(|arg| arg.raw_min_left_score_for(min_combined, max_right))
+                .reduce(f64::max),
+            ScoreCombiner::Greatest(_) => None,
+        }
+    }
+
+    fn raw_min_right_score_for(&self, min_combined: f64, max_left: f64) -> Option<f64> {
+        match self {
+            ScoreCombiner::RightScore => Some(min_combined),
+            ScoreCombiner::LeftScore | ScoreCombiner::Constant(_) => None,
+            ScoreCombiner::Add(a, b) => {
+                if !a.uses_right() {
+                    let a_max = a.eval(InputScorePair {
+                        left: max_left,
+                        right: 0.0,
+                    });
+                    b.raw_min_right_score_for(min_combined - a_max, max_left)
+                } else if !b.uses_right() {
+                    let b_max = b.eval(InputScorePair {
+                        left: max_left,
+                        right: 0.0,
+                    });
+                    a.raw_min_right_score_for(min_combined - b_max, max_left)
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Sub(a, b) => {
+                if !b.uses_right() {
+                    let b_min = b.eval(InputScorePair {
+                        left: 0.0,
+                        right: 0.0,
+                    });
+                    a.raw_min_right_score_for(min_combined + b_min, max_left)
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Mul(a, b) => {
+                if !a.uses_right() {
+                    let a_max = a.eval(InputScorePair {
+                        left: max_left,
+                        right: 0.0,
+                    });
+                    (a_max > 0.0)
+                        .then(|| b.raw_min_right_score_for(min_combined / a_max, max_left))?
+                } else if !b.uses_right() {
+                    let b_max = b.eval(InputScorePair {
+                        left: max_left,
+                        right: 0.0,
+                    });
+                    (b_max > 0.0)
+                        .then(|| a.raw_min_right_score_for(min_combined / b_max, max_left))?
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Div(a, b) => {
+                if !b.uses_right() {
+                    let b_max = b.eval(InputScorePair {
+                        left: max_left,
+                        right: 0.0,
+                    });
+                    (b_max > 0.0)
+                        .then(|| a.raw_min_right_score_for(min_combined * b_max, max_left))?
+                } else {
+                    None
+                }
+            }
+            ScoreCombiner::Ln(a) => a.raw_min_right_score_for(min_combined.exp(), max_left),
+            ScoreCombiner::Sqrt(a) => (min_combined > 0.0)
+                .then(|| a.raw_min_right_score_for(min_combined * min_combined, max_left))?,
+            ScoreCombiner::Exp(a) => (min_combined > 0.0)
+                .then(|| a.raw_min_right_score_for(min_combined.ln(), max_left))?,
+            ScoreCombiner::Least(args) => args
+                .iter()
+                .filter_map(|arg| arg.raw_min_right_score_for(min_combined, max_left))
+                .reduce(f64::max),
+            ScoreCombiner::Greatest(_) => None,
+        }
+    }
 }
 
 /// Input plans for the left and right sides of [`RankJoinExec`].
@@ -1177,8 +1391,8 @@ impl ExecutionPlan for RankJoinExec {
                 }
 
                 // Rule 1: Consume buffered in-memory SA rows (pausing a side once it accumulates
-                // `ra_batch_size` unresolved keys) until a candidate becomes ready or both sides
-                // need async I/O.
+                // `ra_batch_size` unresolved keys, or once `U_SA` already clears the top candidate)
+                // until a candidate becomes ready or both sides need async I/O.
                 while !state.has_ready_candidates()
                     && let Some(side) = state.next_buffered_sa_side()
                 {
@@ -1191,8 +1405,14 @@ impl ExecutionPlan for RankJoinExec {
                 // Rule 2: Compare upper bounds (U_RA_L, U_RA_R, U_SA) to either execute a batched
                 // RA lookup or pull the next SA batch from a child stream.
                 match state.next_io_step() {
-                    NextIoStep::RaLookup { target_side, keys } => {
-                        state.execute_ra_lookup(target_side, &keys).await?;
+                    NextIoStep::RaLookup {
+                        target_side,
+                        keys,
+                        score_threshold,
+                    } => {
+                        state
+                            .execute_ra_lookup(target_side, &keys, score_threshold)
+                            .await?;
                     }
                     NextIoStep::SaPull(pull_side) => {
                         if state.ensure_side_buffered(pull_side).await? {
@@ -1343,6 +1563,8 @@ struct RankedInputCursor {
     lookup_filter: Arc<dyn PhysicalExpr>,
     ra_capable: bool,
     batches: Vec<RecordBatch>,
+    /// Per-row `f64` scores parallel to `batches`, indexed by `[batch_idx][row_idx]`.
+    batch_scores: Vec<Vec<f64>>,
     sa_batch_idx: Option<usize>,
     current_batch_scores: Vec<f64>,
     current_batch_keys: Vec<Option<OwnedRow>>,
@@ -1350,14 +1572,23 @@ struct RankedInputCursor {
     top_score: Option<f64>,
     bottom_score: Option<f64>,
     sa_exhausted: bool,
-    /// Keys from `SA` batches in rank order `(key, score)` for tracking the highest-scoring
-    /// unresolved key ($s^{\text{unres}}$) that has not yet been `RA`-probed on the opposite side.
+    /// Total number of `SA` rows advanced from this cursor so far.
+    sa_rows_advanced: usize,
+    /// Distinct keys from `SA` batches in rank order `(key, max_sa_score)` for tracking the
+    /// highest-scoring unresolved key ($s^{\text{unres}}$) for Tier-1 (`score > 0.0`) and
+    /// Tier-2 (`score >= 0.0`) `RA` probes on the opposite side.
     sa_keys_in_order: Vec<(OwnedRow, f64)>,
+    sa_queued_keys: HashSet<OwnedRow>,
+    /// Index of the first key in `sa_keys_in_order` not yet probed at all (Tier 1: `score > 0.0`).
     next_unresolved_idx: usize,
+    /// Index of the first key in `sa_keys_in_order` not yet probed for `0.0`-score rows (Tier 2).
+    next_zero_unresolved_idx: usize,
     /// Current batch size for `RA` point lookups triggered from this cursor's unresolved `SA` keys.
-    /// Starts at [`RA_INITIAL_BATCH_SIZE`] and scales by `topk_retry_scale_factor` on each `RA` pull.
+    /// Starts at [`RA_INITIAL_BATCH_SIZE`] and scales by `topk_retry_scale_factor` after each batch.
     ra_batch_size: usize,
-    /// Keys that have already been probed via `RA` against this cursor's child stream.
+    /// Keys that have been probed with `score_threshold = Some(0.0)` (`score > 0.0`) against this cursor's child stream.
+    ra_positive_probed_keys: HashSet<OwnedRow>,
+    /// Keys that have been fully probed (`score_threshold = None`, including `0.0`-score rows) against this cursor's child stream.
     ra_probed_keys: HashSet<OwnedRow>,
 }
 
@@ -1382,6 +1613,7 @@ impl RankedInputCursor {
             lookup_filter,
             ra_capable,
             batches: Vec::new(),
+            batch_scores: Vec::new(),
             sa_batch_idx: None,
             current_batch_scores: Vec::new(),
             current_batch_keys: Vec::new(),
@@ -1389,11 +1621,19 @@ impl RankedInputCursor {
             top_score: start_sa_exhausted.then_some(0.0),
             bottom_score: start_sa_exhausted.then_some(0.0),
             sa_exhausted: start_sa_exhausted,
+            sa_rows_advanced: 0,
             sa_keys_in_order: Vec::new(),
+            sa_queued_keys: HashSet::default(),
             next_unresolved_idx: 0,
+            next_zero_unresolved_idx: 0,
             ra_batch_size: RA_INITIAL_BATCH_SIZE,
+            ra_positive_probed_keys: HashSet::default(),
             ra_probed_keys: HashSet::default(),
         }
+    }
+
+    fn row_score(&self, row_ref: BufferedRowRef) -> f64 {
+        self.batch_scores[row_ref.batch.0][row_ref.row.0]
     }
 
     fn has_buffered_rows(&self) -> bool {
@@ -1404,20 +1644,32 @@ impl RankedInputCursor {
         self.sa_exhausted && !self.has_buffered_rows()
     }
 
-    /// Number of un-probed `SA` key entries currently queued for `RA` lookup on the opposite side.
+    /// Number of un-probed `SA` key entries currently queued for Tier-1 `RA` lookup on the opposite side.
     fn unresolved_key_count(&self) -> usize {
         self.sa_keys_in_order
             .len()
             .saturating_sub(self.next_unresolved_idx)
     }
 
-    /// Advances `next_unresolved_idx` past any leading keys that have already been probed in
-    /// `opposite_probed`.
-    fn skip_probed_keys(&mut self, opposite_probed: &HashSet<OwnedRow>) {
+    /// Advances `next_unresolved_idx` past keys already in `opposite_positive_probed` or `opposite_probed`,
+    /// and advances `next_zero_unresolved_idx` past keys already in `opposite_probed`.
+    fn skip_probed_keys(
+        &mut self,
+        opposite_positive_probed: &HashSet<OwnedRow>,
+        opposite_probed: &HashSet<OwnedRow>,
+    ) {
         while self.next_unresolved_idx < self.sa_keys_in_order.len() {
             let (key, _) = &self.sa_keys_in_order[self.next_unresolved_idx];
-            if opposite_probed.contains(key) {
+            if opposite_positive_probed.contains(key) || opposite_probed.contains(key) {
                 self.next_unresolved_idx += 1;
+            } else {
+                break;
+            }
+        }
+        while self.next_zero_unresolved_idx < self.sa_keys_in_order.len() {
+            let (key, _) = &self.sa_keys_in_order[self.next_zero_unresolved_idx];
+            if opposite_probed.contains(key) {
+                self.next_zero_unresolved_idx += 1;
             } else {
                 break;
             }
@@ -1425,28 +1677,80 @@ impl RankedInputCursor {
     }
 
     /// Returns the score of the highest-ranked `SA` row whose join key has not yet been
-    /// probed via `RA` on the opposite side.
-    fn top_unresolved_score(&self, opposite_probed: &HashSet<OwnedRow>) -> Option<f64> {
+    /// probed at all via `RA` (neither Tier-1 nor Tier-2) on the opposite side.
+    fn top_unresolved_score(
+        &self,
+        opposite_positive_probed: &HashSet<OwnedRow>,
+        opposite_probed: &HashSet<OwnedRow>,
+    ) -> Option<f64> {
         self.sa_keys_in_order[self.next_unresolved_idx..]
+            .iter()
+            .find(|(k, _)| !opposite_positive_probed.contains(k) && !opposite_probed.contains(k))
+            .map(|(_, s)| *s)
+    }
+
+    /// Returns the score of the highest-ranked `SA` row whose join key has not yet been
+    /// probed for `0.0`-score rows (Tier-2) on the opposite side.
+    fn top_zero_unresolved_score(&self, opposite_probed: &HashSet<OwnedRow>) -> Option<f64> {
+        self.sa_keys_in_order[self.next_zero_unresolved_idx..]
             .iter()
             .find(|(k, _)| !opposite_probed.contains(k))
             .map(|(_, s)| *s)
     }
 
-    /// Pops up to `self.ra_batch_size` distinct unresolved `SA` keys, marking them as probed in
-    /// `opposite_probed` and scaling `self.ra_batch_size` for subsequent `RA` pulls.
-    fn pop_unresolved_keys(&mut self, opposite_probed: &mut HashSet<OwnedRow>) -> Vec<OwnedRow> {
+    /// Pops up to `self.ra_batch_size` distinct unresolved `SA` keys for a Tier-1 (`score > 0.0`)
+    /// `RA` probe, marking them in `opposite_positive_probed`.
+    fn pop_positive_unresolved_keys(
+        &mut self,
+        opposite_positive_probed: &mut HashSet<OwnedRow>,
+        opposite_probed: &HashSet<OwnedRow>,
+    ) -> Vec<OwnedRow> {
         let max_keys = self.ra_batch_size;
         let mut out = Vec::new();
         while self.next_unresolved_idx < self.sa_keys_in_order.len() && out.len() < max_keys {
             let (key, _) = &self.sa_keys_in_order[self.next_unresolved_idx];
             self.next_unresolved_idx += 1;
+            if !opposite_probed.contains(key) && opposite_positive_probed.insert(key.clone()) {
+                out.push(key.clone());
+            }
+        }
+        self.skip_probed_keys(opposite_positive_probed, opposite_probed);
+        if !out.is_empty() {
+            let retry_scale = (crate::gucs::topk_retry_scale_factor() as usize).max(2);
+            let max_chunk =
+                (crate::gucs::max_topk_chunk_size() as usize).max(RA_INITIAL_BATCH_SIZE);
+            self.ra_batch_size = (self.ra_batch_size * retry_scale).min(max_chunk);
+        }
+        out
+    }
+
+    /// Pops up to `self.ra_batch_size` distinct unresolved `SA` keys whose Tier-2 (`score = 0.0`
+    /// on the opposite side) rank bound is `>= cutoff`, marking them in both `opposite_probed`
+    /// and `opposite_positive_probed`.
+    fn pop_all_unresolved_keys(
+        &mut self,
+        opposite_positive_probed: &mut HashSet<OwnedRow>,
+        opposite_probed: &mut HashSet<OwnedRow>,
+        mut include_score: impl FnMut(f64) -> bool,
+    ) -> Vec<OwnedRow> {
+        let max_keys = self.ra_batch_size;
+        let mut out = Vec::new();
+        while self.next_zero_unresolved_idx < self.sa_keys_in_order.len() && out.len() < max_keys {
+            let (key, score) = &self.sa_keys_in_order[self.next_zero_unresolved_idx];
+            if !out.is_empty() && !include_score(*score) {
+                break;
+            }
+            self.next_zero_unresolved_idx += 1;
+            opposite_positive_probed.insert(key.clone());
             if opposite_probed.insert(key.clone()) {
                 out.push(key.clone());
             }
         }
-        self.skip_probed_keys(opposite_probed);
-        if !out.is_empty() {
+        if self.next_unresolved_idx < self.next_zero_unresolved_idx {
+            self.next_unresolved_idx = self.next_zero_unresolved_idx;
+        }
+        self.skip_probed_keys(opposite_positive_probed, opposite_probed);
+        if out.len() >= max_keys {
             let retry_scale = (crate::gucs::topk_retry_scale_factor() as usize).max(2);
             let max_chunk =
                 (crate::gucs::max_topk_chunk_size() as usize).max(RA_INITIAL_BATCH_SIZE);
@@ -1559,6 +1863,7 @@ impl RankedInputCursor {
 
         let batch_idx = self.batches.len();
         self.batches.push(batch);
+        self.batch_scores.push(scores.clone());
         self.sa_batch_idx = Some(batch_idx);
         self.current_batch_scores = scores;
         self.current_batch_keys = keys;
@@ -1577,10 +1882,12 @@ impl RankedInputCursor {
         let score = self.current_batch_scores[row_idx];
         let key = self.current_batch_keys[row_idx].take();
         self.current_row_idx += 1;
+        self.sa_rows_advanced += 1;
         self.bottom_score = Some(score);
         if record_for_ra
             && let Some(ref k) = key
             && !opposite_probed.contains(k)
+            && self.sa_queued_keys.insert(k.clone())
         {
             self.sa_keys_in_order.push((k.clone(), score));
         }
@@ -1609,11 +1916,22 @@ enum NextIoStep {
     RaLookup {
         target_side: AdvanceSide,
         keys: Vec<OwnedRow>,
+        score_threshold: Option<f32>,
     },
     /// Pull the next Sorted Access (`SA`) batch from `side`.
     SaPull(AdvanceSide),
     /// All `SA` streams and `RA` probes are exhausted.
     Exhausted,
+}
+
+/// Detailed upper bounds across Tier-1 (`score > 0.0`) and Tier-2 (`score = 0.0`) `RA` probes
+/// and `SA` cursor advancement.
+struct DetailedBounds {
+    u_ra_l_pos: f64,
+    u_ra_l_zero: f64,
+    u_ra_r_pos: f64,
+    u_ra_r_zero: f64,
+    u_sa: f64,
 }
 
 /// Streaming state machine for [`RankJoinExec`].
@@ -1647,12 +1965,13 @@ impl RankJoinStream {
         }
     }
 
-    /// Computes $(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$, the upper bounds on the
-    /// `rank_value` of any unseen pair from:
-    /// 1. `Left` seen row + `Right` unseen row ($U_{\text{RA}, L}$),
-    /// 2. `Left` unseen row + `Right` seen row ($U_{\text{RA}, R}$),
-    /// 3. `Left` unseen row + `Right` unseen row ($U_{\text{SA}}$).
-    fn compute_bounds(&self) -> (f64, f64, f64) {
+    /// Computes detailed upper bounds on the `rank_value` of any unseen pair:
+    /// - `u_ra_l_pos`: `Left` unprobed row + `Right` unseen positive-score row (`score > 0.0`),
+    /// - `u_ra_l_zero`: `Left` zero-unprobed row + `Right` unseen `0.0`-score row,
+    /// - `u_ra_r_pos`: `Left` unseen positive-score row (`score > 0.0`) + `Right` unprobed row,
+    /// - `u_ra_r_zero`: `Left` unseen `0.0`-score row + `Right` zero-unprobed row,
+    /// - `u_sa`: `Left` unseen row + `Right` unseen row.
+    fn compute_detailed_bounds(&self) -> DetailedBounds {
         let left_bound = if !self.left_cursor.sa_fully_consumed() {
             self.left_cursor.bottom_score
         } else if self.left_cursor.ra_capable {
@@ -1669,37 +1988,75 @@ impl RankJoinStream {
             None
         };
 
-        let s_l_unres = if self.right_cursor.sa_fully_consumed() && !self.right_cursor.ra_capable {
-            None
-        } else if !self.right_cursor.ra_capable {
-            self.left_cursor.top_score
-        } else {
-            self.left_cursor
-                .top_unresolved_score(&self.right_cursor.ra_probed_keys)
-        };
+        let (u_ra_l_pos, u_ra_l_zero) =
+            if self.right_cursor.sa_fully_consumed() && !self.right_cursor.ra_capable {
+                (f64::NEG_INFINITY, f64::NEG_INFINITY)
+            } else if !self.right_cursor.ra_capable {
+                let u = match (self.left_cursor.top_score, right_bound) {
+                    (Some(l), Some(r)) => {
+                        self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+                    }
+                    _ => f64::NEG_INFINITY,
+                };
+                (u, f64::NEG_INFINITY)
+            } else {
+                let s_l_pos = self.left_cursor.top_unresolved_score(
+                    &self.right_cursor.ra_positive_probed_keys,
+                    &self.right_cursor.ra_probed_keys,
+                );
+                let s_l_zero = self
+                    .left_cursor
+                    .top_zero_unresolved_score(&self.right_cursor.ra_probed_keys);
+                let u_pos = match (s_l_pos, right_bound) {
+                    (Some(l), Some(r)) if r > 0.0 => {
+                        self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+                    }
+                    _ => f64::NEG_INFINITY,
+                };
+                let u_zero = match (s_l_zero, right_bound) {
+                    (Some(l), Some(_)) => self.to_rank_value(self.combiner.eval(InputScorePair {
+                        left: l,
+                        right: 0.0,
+                    })),
+                    _ => f64::NEG_INFINITY,
+                };
+                (u_pos, u_zero)
+            };
 
-        let s_r_unres = if self.left_cursor.sa_fully_consumed() && !self.left_cursor.ra_capable {
-            None
-        } else if !self.left_cursor.ra_capable {
-            self.right_cursor.top_score
-        } else {
-            self.right_cursor
-                .top_unresolved_score(&self.left_cursor.ra_probed_keys)
-        };
-
-        let u_ra_l = match (s_l_unres, right_bound) {
-            (Some(l), Some(r)) => {
-                self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
-            }
-            _ => f64::NEG_INFINITY,
-        };
-
-        let u_ra_r = match (left_bound, s_r_unres) {
-            (Some(l), Some(r)) => {
-                self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
-            }
-            _ => f64::NEG_INFINITY,
-        };
+        let (u_ra_r_pos, u_ra_r_zero) =
+            if self.left_cursor.sa_fully_consumed() && !self.left_cursor.ra_capable {
+                (f64::NEG_INFINITY, f64::NEG_INFINITY)
+            } else if !self.left_cursor.ra_capable {
+                let u = match (left_bound, self.right_cursor.top_score) {
+                    (Some(l), Some(r)) => {
+                        self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+                    }
+                    _ => f64::NEG_INFINITY,
+                };
+                (u, f64::NEG_INFINITY)
+            } else {
+                let s_r_pos = self.right_cursor.top_unresolved_score(
+                    &self.left_cursor.ra_positive_probed_keys,
+                    &self.left_cursor.ra_probed_keys,
+                );
+                let s_r_zero = self
+                    .right_cursor
+                    .top_zero_unresolved_score(&self.left_cursor.ra_probed_keys);
+                let u_pos = match (left_bound, s_r_pos) {
+                    (Some(l), Some(r)) if l > 0.0 => {
+                        self.to_rank_value(self.combiner.eval(InputScorePair { left: l, right: r }))
+                    }
+                    _ => f64::NEG_INFINITY,
+                };
+                let u_zero = match (left_bound, s_r_zero) {
+                    (Some(_), Some(r)) => self.to_rank_value(self.combiner.eval(InputScorePair {
+                        left: 0.0,
+                        right: r,
+                    })),
+                    _ => f64::NEG_INFINITY,
+                };
+                (u_pos, u_zero)
+            };
 
         let u_sa = if self.left_cursor.sa_fully_consumed() && self.right_cursor.sa_fully_consumed()
         {
@@ -1713,7 +2070,27 @@ impl RankJoinStream {
             }
         };
 
-        (u_ra_l, u_ra_r, u_sa)
+        DetailedBounds {
+            u_ra_l_pos,
+            u_ra_l_zero,
+            u_ra_r_pos,
+            u_ra_r_zero,
+            u_sa,
+        }
+    }
+
+    /// Computes $(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$, the upper bounds on the
+    /// `rank_value` of any unseen pair from:
+    /// 1. `Left` seen row + `Right` unseen row ($U_{\text{RA}, L}$),
+    /// 2. `Left` unseen row + `Right` seen row ($U_{\text{RA}, R}$),
+    /// 3. `Left` unseen row + `Right` unseen row ($U_{\text{SA}}$).
+    fn compute_bounds(&self) -> (f64, f64, f64) {
+        let b = self.compute_detailed_bounds();
+        (
+            b.u_ra_l_pos.max(b.u_ra_l_zero),
+            b.u_ra_r_pos.max(b.u_ra_r_zero),
+            b.u_sa,
+        )
     }
 
     /// Global stopping threshold $T = \max(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$.
@@ -1847,6 +2224,7 @@ impl RankJoinStream {
                 let (scores, keys) = self.left_cursor.evaluate_batch(&batch)?;
                 let batch_idx = self.left_cursor.batches.len();
                 self.left_cursor.batches.push(batch);
+                self.left_cursor.batch_scores.push(scores.clone());
                 for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
                     let Some(key) = key_opt else {
                         continue;
@@ -1886,6 +2264,7 @@ impl RankJoinStream {
                 let (scores, keys) = self.right_cursor.evaluate_batch(&batch)?;
                 let batch_idx = self.right_cursor.batches.len();
                 self.right_cursor.batches.push(batch);
+                self.right_cursor.batch_scores.push(scores.clone());
                 for (row_idx, (score, key_opt)) in scores.into_iter().zip(keys).enumerate() {
                     let Some(key) = key_opt else {
                         continue;
@@ -1925,12 +2304,14 @@ impl RankJoinStream {
         Ok(())
     }
 
-    /// Finds all buffered rows in `target_side` across all retained batches that satisfy `lookup`,
-    /// returning their `(BufferedRowRef, join_key)` pairs.
+    /// Finds all buffered rows in `target_side` across all retained batches that satisfy `lookup`
+    /// and (when `target_thresh` is `Some(t)`) have `score > t`, returning their
+    /// `(BufferedRowRef, join_key)` pairs.
     fn find_matching_buffered_rows(
         &self,
         target_side: AdvanceSide,
         lookup: &RankLookupPhysicalExpr,
+        target_thresh: Option<f32>,
     ) -> Result<Vec<(BufferedRowRef, OwnedRow)>> {
         let cursor = match target_side {
             AdvanceSide::Left => &self.left_cursor,
@@ -1961,8 +2342,14 @@ impl RankJoinStream {
                 .map(|expr| expr.evaluate(batch)?.into_array(num_rows))
                 .collect::<Result<_>>()?;
             let rows = cursor.key_converter.convert_columns(&key_arrays)?;
-            for row_idx in 0..num_rows {
+            let scores = &cursor.batch_scores[batch_idx];
+            for (row_idx, &score) in scores.iter().enumerate().take(num_rows) {
                 if !mask.is_null(row_idx) && mask.value(row_idx) {
+                    if let Some(t) = target_thresh
+                        && (score as f32) <= t
+                    {
+                        continue;
+                    }
                     if skip_nulls && key_arrays.iter().any(|arr| arr.is_null(row_idx)) {
                         continue;
                     }
@@ -2007,9 +2394,15 @@ impl RankJoinStream {
         None
     }
 
-    /// Performs a batched Random Access (`RA`) lookup on `side` for `keys` and ingests any
-    /// returned rows into `side`'s hash table and `candidate_heap`.
-    async fn execute_ra_lookup(&mut self, side: AdvanceSide, keys: &[OwnedRow]) -> Result<()> {
+    /// Performs a batched Random Access (`RA`) lookup on `side` for `keys` with optional
+    /// strict `score_threshold` pushdown and ingests any returned rows into `side`'s hash
+    /// table and `candidate_heap`.
+    async fn execute_ra_lookup(
+        &mut self,
+        side: AdvanceSide,
+        keys: &[OwnedRow],
+        score_threshold: Option<f32>,
+    ) -> Result<()> {
         if keys.is_empty() {
             return Ok(());
         }
@@ -2024,7 +2417,9 @@ impl RankJoinStream {
                 Arc::clone(&self.right_cursor.lookup_filter),
             ),
         };
-        let lookup_expr = Arc::new(RankLookupPhysicalExpr::new(key_exprs, scalars));
+        let lookup_expr = Arc::new(
+            RankLookupPhysicalExpr::new(key_exprs, scalars).with_score_threshold(score_threshold),
+        );
         update_lookup_filter(&lookup_filter, lookup_expr)?;
 
         let next_res = match side {
@@ -2059,11 +2454,41 @@ impl RankJoinStream {
         target_side: AdvanceSide,
         lookup: RankLookupPhysicalExpr,
     ) -> Result<RecordBatch> {
+        let parent_thresh = lookup.score_threshold();
+        let target_thresh = parent_thresh.and_then(|pt| {
+            if !self.initialized {
+                return None;
+            }
+            match target_side {
+                AdvanceSide::Left => {
+                    let max_right = self.right_cursor.top_score.unwrap_or(0.0);
+                    self.combiner.left_threshold_for(pt, max_right)
+                }
+                AdvanceSide::Right => {
+                    let max_left = self.left_cursor.top_score.unwrap_or(0.0);
+                    self.combiner.right_threshold_for(pt, max_left)
+                }
+            }
+        });
+
         let target_ra_capable = match target_side {
             AdvanceSide::Left => self.left_cursor.ra_capable,
             AdvanceSide::Right => self.right_cursor.ra_capable,
         };
         if target_ra_capable {
+            if target_thresh != parent_thresh {
+                let target_lookup: Arc<dyn PhysicalExpr> =
+                    Arc::new(lookup.clone().with_score_threshold(target_thresh));
+                let target_join_side = match target_side {
+                    AdvanceSide::Left => JoinSide::Left,
+                    AdvanceSide::Right => JoinSide::Right,
+                };
+                for (side, pf) in &self.parent_lookup_filters {
+                    if *side == target_join_side {
+                        let _ = update_lookup_filter(pf, Arc::clone(&target_lookup));
+                    }
+                }
+            }
             let next_res = match target_side {
                 AdvanceSide::Left => self.left_cursor.stream.next().await,
                 AdvanceSide::Right => self.right_cursor.stream.next().await,
@@ -2089,7 +2514,8 @@ impl RankJoinStream {
             }
         }
 
-        let matching_target_rows = self.find_matching_buffered_rows(target_side, &lookup)?;
+        let matching_target_rows =
+            self.find_matching_buffered_rows(target_side, &lookup, target_thresh)?;
         let opposite_side = match target_side {
             AdvanceSide::Left => AdvanceSide::Right,
             AdvanceSide::Right => AdvanceSide::Left,
@@ -2100,31 +2526,93 @@ impl RankJoinStream {
         };
 
         if opposite_ra_capable && !matching_target_rows.is_empty() {
-            let mut keys_to_probe = Vec::new();
-            {
-                let opposite_probed = match opposite_side {
-                    AdvanceSide::Left => &mut self.left_cursor.ra_probed_keys,
-                    AdvanceSide::Right => &mut self.right_cursor.ra_probed_keys,
+            let mut unfiltered_keys = Vec::new();
+            let mut threshold_keys = Vec::new();
+            let mut threshold_seen: HashSet<OwnedRow> = HashSet::default();
+            let mut min_opp_thresh: Option<f32> = None;
+
+            for (row_ref, key) in &matching_target_rows {
+                let target_score = match target_side {
+                    AdvanceSide::Left => self.left_cursor.row_score(*row_ref),
+                    AdvanceSide::Right => self.right_cursor.row_score(*row_ref),
                 };
-                for (_, key) in &matching_target_rows {
-                    if opposite_probed.insert(key.clone()) {
-                        keys_to_probe.push(key.clone());
+                let row_opp_thresh = parent_thresh.and_then(|pt| match target_side {
+                    AdvanceSide::Left => self.combiner.right_threshold_for(pt, target_score),
+                    AdvanceSide::Right => self.combiner.left_threshold_for(pt, target_score),
+                });
+                match row_opp_thresh {
+                    None => {
+                        let opposite_cursor = match opposite_side {
+                            AdvanceSide::Left => &mut self.left_cursor,
+                            AdvanceSide::Right => &mut self.right_cursor,
+                        };
+                        opposite_cursor.ra_positive_probed_keys.insert(key.clone());
+                        if opposite_cursor.ra_probed_keys.insert(key.clone()) {
+                            unfiltered_keys.push(key.clone());
+                        }
+                    }
+                    Some(t) => {
+                        let already_probed = {
+                            let opposite_cursor = match opposite_side {
+                                AdvanceSide::Left => &self.left_cursor,
+                                AdvanceSide::Right => &self.right_cursor,
+                            };
+                            opposite_cursor.ra_probed_keys.contains(key)
+                                || (t >= 0.0
+                                    && opposite_cursor.ra_positive_probed_keys.contains(key))
+                        };
+                        if !already_probed && threshold_seen.insert(key.clone()) {
+                            threshold_keys.push(key.clone());
+                            min_opp_thresh = Some(min_opp_thresh.map_or(t, |m| m.min(t)));
+                        }
                     }
                 }
             }
-            if !keys_to_probe.is_empty() {
-                self.execute_ra_lookup(opposite_side, &keys_to_probe)
+
+            if !unfiltered_keys.is_empty() {
+                self.execute_ra_lookup(opposite_side, &unfiltered_keys, None)
                     .await?;
+            }
+            if !threshold_keys.is_empty() {
+                let opp_thresh = min_opp_thresh.unwrap_or(0.0);
+                let filtered_threshold_keys: Vec<OwnedRow> = {
+                    let opposite_cursor = match opposite_side {
+                        AdvanceSide::Left => &mut self.left_cursor,
+                        AdvanceSide::Right => &mut self.right_cursor,
+                    };
+                    threshold_keys
+                        .into_iter()
+                        .filter(|k| {
+                            if opposite_cursor.ra_probed_keys.contains(k) {
+                                return false;
+                            }
+                            if opp_thresh == 0.0 {
+                                opposite_cursor.ra_positive_probed_keys.insert(k.clone())
+                            } else {
+                                true
+                            }
+                        })
+                        .collect()
+                };
+                if !filtered_threshold_keys.is_empty() {
+                    self.execute_ra_lookup(
+                        opposite_side,
+                        &filtered_threshold_keys,
+                        Some(opp_thresh),
+                    )
+                    .await?;
+                }
             }
         }
 
-        self.materialize_parent_lookup(target_side, &matching_target_rows)
+        self.materialize_parent_lookup(target_side, &matching_target_rows, parent_thresh)
     }
 
     fn materialize_parent_lookup(
         &mut self,
         target_side: AdvanceSide,
         matching_target_rows: &[(BufferedRowRef, OwnedRow)],
+        parent_thresh: Option<f32>,
     ) -> Result<RecordBatch> {
         let mut candidates = Vec::new();
         match target_side {
@@ -2146,8 +2634,18 @@ impl RankJoinStream {
                     }
                 }
                 for (target_row_ref, key) in matching_target_rows {
+                    let left_score = self.left_cursor.row_score(*target_row_ref);
                     if let Some(matches) = self.right_hash_table.get(key) {
                         for right_entry in matches {
+                            if let Some(pt) = parent_thresh {
+                                let combined = self.combiner.eval(InputScorePair {
+                                    left: left_score,
+                                    right: right_entry.score,
+                                });
+                                if (combined as f32) <= pt {
+                                    continue;
+                                }
+                            }
                             if self
                                 .emitted_pairs
                                 .insert((*target_row_ref, right_entry.row_ref))
@@ -2163,6 +2661,16 @@ impl RankJoinStream {
                     }
                     if let Some(unadv_matches) = unadvanced_right.get(key) {
                         for &right_row_ref in unadv_matches {
+                            if let Some(pt) = parent_thresh {
+                                let right_score = self.right_cursor.row_score(right_row_ref);
+                                let combined = self.combiner.eval(InputScorePair {
+                                    left: left_score,
+                                    right: right_score,
+                                });
+                                if (combined as f32) <= pt {
+                                    continue;
+                                }
+                            }
                             if self.emitted_pairs.insert((*target_row_ref, right_row_ref)) {
                                 candidates.push(CandidateMatch {
                                     rank_value: 0.0,
@@ -2193,8 +2701,18 @@ impl RankJoinStream {
                     }
                 }
                 for (target_row_ref, key) in matching_target_rows {
+                    let right_score = self.right_cursor.row_score(*target_row_ref);
                     if let Some(matches) = self.left_hash_table.get(key) {
                         for left_entry in matches {
+                            if let Some(pt) = parent_thresh {
+                                let combined = self.combiner.eval(InputScorePair {
+                                    left: left_entry.score,
+                                    right: right_score,
+                                });
+                                if (combined as f32) <= pt {
+                                    continue;
+                                }
+                            }
                             if self
                                 .emitted_pairs
                                 .insert((left_entry.row_ref, *target_row_ref))
@@ -2210,6 +2728,16 @@ impl RankJoinStream {
                     }
                     if let Some(unadv_matches) = unadvanced_left.get(key) {
                         for &left_row_ref in unadv_matches {
+                            if let Some(pt) = parent_thresh {
+                                let left_score = self.left_cursor.row_score(left_row_ref);
+                                let combined = self.combiner.eval(InputScorePair {
+                                    left: left_score,
+                                    right: right_score,
+                                });
+                                if (combined as f32) <= pt {
+                                    continue;
+                                }
+                            }
                             if self.emitted_pairs.insert((left_row_ref, *target_row_ref)) {
                                 candidates.push(CandidateMatch {
                                     rank_value: 0.0,
@@ -2444,10 +2972,25 @@ impl RankJoinStream {
                 && self.right_hash_table.is_empty())
     }
 
-    /// Chooses between `Left` and `Right` using the corner-bound priority $P_L = g(\underline{s}_L, \bar{s}_R)$
-    /// vs. $P_R = g(\bar{s}_L, \underline{s}_R)$.
+    /// Chooses between `Left` and `Right` when both sides have available `SA` rows.
+    ///
+    /// When both sides support `RA` point lookups, all seen `SA` rows are resolved via `RA` and the
+    /// remaining `SA` frontier is $U_{\text{SA}} = g(\underline{s}_L, \underline{s}_R)$, so advancing
+    /// both cursors at balanced `SA` row depth ($N_L = N_R$) is 2-competitive with the omniscient
+    /// offline optimal $(N_L^*, N_R^*)$ regardless of score skew. When `RA` is unavailable on either
+    /// side, falls back to the corner-bound priority $P_L = g(\underline{s}_L, \bar{s}_R)$ vs.
+    /// $P_R = g(\bar{s}_L, \underline{s}_R)$.
     fn preferred_corner_side(&self, left_avail: bool, right_avail: bool) -> Option<AdvanceSide> {
         if left_avail && right_avail {
+            if self.left_cursor.ra_capable && self.right_cursor.ra_capable {
+                return Some(
+                    if self.left_cursor.sa_rows_advanced <= self.right_cursor.sa_rows_advanced {
+                        AdvanceSide::Left
+                    } else {
+                        AdvanceSide::Right
+                    },
+                );
+            }
             let top_l = self.left_cursor.top_score.unwrap_or(0.0);
             let top_r = self.right_cursor.top_score.unwrap_or(0.0);
             let bot_l = self.left_cursor.bottom_score.unwrap_or(top_l);
@@ -2478,10 +3021,15 @@ impl RankJoinStream {
     /// has accumulated `ra_batch_size` unresolved keys so Rule 2 can interleave a batched `RA`
     /// lookup before draining the remainder of a large `SA` window.
     fn next_buffered_sa_side(&mut self) -> Option<AdvanceSide> {
-        self.left_cursor
-            .skip_probed_keys(&self.right_cursor.ra_probed_keys);
-        self.right_cursor
-            .skip_probed_keys(&self.left_cursor.ra_probed_keys);
+        self.left_cursor.skip_probed_keys(
+            &self.right_cursor.ra_positive_probed_keys,
+            &self.right_cursor.ra_probed_keys,
+        );
+        self.right_cursor.skip_probed_keys(
+            &self.left_cursor.ra_positive_probed_keys,
+            &self.left_cursor.ra_probed_keys,
+        );
+
         let left_can_advance = self.left_cursor.has_buffered_rows()
             && (!self.right_cursor.ra_capable
                 || self.left_cursor.unresolved_key_count() < self.left_cursor.ra_batch_size);
@@ -2492,21 +3040,16 @@ impl RankJoinStream {
     }
 
     /// Rule 2: Compares $(U_{\text{RA}, L}, U_{\text{RA}, R}, U_{\text{SA}})$ to choose the next
-    /// async child I/O operation (batched `RA` lookup vs. pulling the next `SA` batch).
+    /// async child I/O operation (Tier-1 `score > 0.0` `RA` lookup, Tier-2 `score >= 0.0` `RA`
+    /// lookup, or pulling the next `SA` batch).
     fn next_io_step(&mut self) -> NextIoStep {
-        let (u_ra_l, u_ra_r, u_sa) = self.compute_bounds();
-        let can_ra_l = self.right_cursor.ra_capable
-            && self
-                .left_cursor
-                .top_unresolved_score(&self.right_cursor.ra_probed_keys)
-                .is_some()
-            && u_ra_l > f64::NEG_INFINITY;
-        let can_ra_r = self.left_cursor.ra_capable
-            && self
-                .right_cursor
-                .top_unresolved_score(&self.left_cursor.ra_probed_keys)
-                .is_some()
-            && u_ra_r > f64::NEG_INFINITY;
+        let b = self.compute_detailed_bounds();
+        let u_ra_l = b.u_ra_l_pos.max(b.u_ra_l_zero);
+        let u_ra_r = b.u_ra_r_pos.max(b.u_ra_r_zero);
+        let u_sa = b.u_sa;
+
+        let can_ra_l = self.right_cursor.ra_capable && u_ra_l > f64::NEG_INFINITY;
+        let can_ra_r = self.left_cursor.ra_capable && u_ra_r > f64::NEG_INFINITY;
         let can_sa = (!self.left_cursor.sa_fully_consumed()
             || !self.right_cursor.sa_fully_consumed())
             && u_sa > f64::NEG_INFINITY;
@@ -2516,23 +3059,79 @@ impl RankJoinStream {
         let eff_sa = if can_sa { u_sa } else { f64::NEG_INFINITY };
 
         if eff_ra_l > f64::NEG_INFINITY && eff_ra_l >= eff_ra_r && eff_ra_l >= eff_sa {
-            let keys = self
-                .left_cursor
-                .pop_unresolved_keys(&mut self.right_cursor.ra_probed_keys);
-            return NextIoStep::RaLookup {
-                target_side: AdvanceSide::Right,
-                keys,
-            };
+            if b.u_ra_l_pos >= b.u_ra_l_zero && b.u_ra_l_pos > f64::NEG_INFINITY {
+                let keys = self.left_cursor.pop_positive_unresolved_keys(
+                    &mut self.right_cursor.ra_positive_probed_keys,
+                    &self.right_cursor.ra_probed_keys,
+                );
+                return NextIoStep::RaLookup {
+                    target_side: AdvanceSide::Right,
+                    keys,
+                    score_threshold: Some(0.0),
+                };
+            } else {
+                let mut cutoff = b.u_ra_l_pos.max(eff_ra_r).max(eff_sa);
+                if let Some(top) = self.candidate_heap.peek() {
+                    cutoff = cutoff.max(top.rank_value);
+                }
+                let combiner = self.combiner.clone();
+                let descending = self.output_ordering[0].options.descending;
+                let keys = self.left_cursor.pop_all_unresolved_keys(
+                    &mut self.right_cursor.ra_positive_probed_keys,
+                    &mut self.right_cursor.ra_probed_keys,
+                    |left_score| {
+                        let combined = combiner.eval(InputScorePair {
+                            left: left_score,
+                            right: 0.0,
+                        });
+                        let rank_val = if descending { combined } else { -combined };
+                        rank_val >= cutoff
+                    },
+                );
+                return NextIoStep::RaLookup {
+                    target_side: AdvanceSide::Right,
+                    keys,
+                    score_threshold: None,
+                };
+            }
         }
 
         if eff_ra_r > f64::NEG_INFINITY && eff_ra_r >= eff_sa {
-            let keys = self
-                .right_cursor
-                .pop_unresolved_keys(&mut self.left_cursor.ra_probed_keys);
-            return NextIoStep::RaLookup {
-                target_side: AdvanceSide::Left,
-                keys,
-            };
+            if b.u_ra_r_pos >= b.u_ra_r_zero && b.u_ra_r_pos > f64::NEG_INFINITY {
+                let keys = self.right_cursor.pop_positive_unresolved_keys(
+                    &mut self.left_cursor.ra_positive_probed_keys,
+                    &self.left_cursor.ra_probed_keys,
+                );
+                return NextIoStep::RaLookup {
+                    target_side: AdvanceSide::Left,
+                    keys,
+                    score_threshold: Some(0.0),
+                };
+            } else {
+                let mut cutoff = b.u_ra_r_pos.max(eff_ra_l).max(eff_sa);
+                if let Some(top) = self.candidate_heap.peek() {
+                    cutoff = cutoff.max(top.rank_value);
+                }
+                let combiner = self.combiner.clone();
+                let descending = self.output_ordering[0].options.descending;
+                let keys = self.right_cursor.pop_all_unresolved_keys(
+                    &mut self.left_cursor.ra_positive_probed_keys,
+                    &mut self.left_cursor.ra_probed_keys,
+                    |right_score| {
+                        let combined = combiner.eval(InputScorePair {
+                            left: 0.0,
+                            right: right_score,
+                        });
+                        let rank_val = if descending { combined } else { -combined };
+                        rank_val >= cutoff
+                    },
+                );
+                return NextIoStep::RaLookup {
+                    target_side: AdvanceSide::Left,
+                    keys,
+                    score_threshold: None,
+                };
+            }
         }
 
         let left_sa_avail = !self.left_cursor.sa_fully_consumed();

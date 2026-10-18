@@ -494,6 +494,8 @@ impl<'a> BuildWorker<'a> {
                 pg_sys::UnregisterSnapshot(snapshot);
             }
             drained?;
+            // Vectors are clustered only during merges, so cluster eligible segments that
+            // didn't need merging to reach the target segment count.
             build_state.cluster_flat_segments()?;
             Ok((reltuples as f64, build_state.nmerges))
         }

@@ -395,12 +395,6 @@ pub fn vector_cluster_min_probe() -> usize {
     VECTOR_CLUSTER_MIN_PROBE.get() as usize
 }
 
-static VECTOR_CLUSTER_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-pub fn vector_cluster_stats() -> bool {
-    VECTOR_CLUSTER_STATS.get()
-}
-
 pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
@@ -440,15 +434,6 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_bool_guc(
-        c"paradedb.vector_cluster_stats",
-        c"Record completed clusters and prefix top-k in vector statistics (serial diagnostic)",
-        c"Experimental adaptive probing benchmark setting.",
-        &VECTOR_CLUSTER_STATS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 

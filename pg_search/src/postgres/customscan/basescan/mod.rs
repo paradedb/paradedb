@@ -1242,8 +1242,7 @@ impl CustomScan for BaseScan {
                 };
 
                 let is_sorted = method.declares_sorted_output();
-                let consider_parallel_local =
-                    (*builder.args().rel).consider_parallel && !gucs::vector_cluster_stats();
+                let consider_parallel_local = (*builder.args().rel).consider_parallel;
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
                 // Decide the policy first: its reason gates the path cost below.

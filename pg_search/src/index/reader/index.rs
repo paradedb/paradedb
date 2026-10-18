@@ -1670,7 +1670,6 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
-                        cluster_stats: crate::gucs::vector_cluster_stats(),
                         quantized_recall,
                         min_probe_clusters: crate::gucs::vector_cluster_min_probe(),
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),

@@ -1820,20 +1820,15 @@ mod tests {
                                 mw, lp, mwm, ts, count
                             );
                         } else if *ts == 32 {
-                            // When fewer parallel workers are available (e.g. only 2 workers started on a busy
-                            // CI runner or when mw = 2), workers may receive an uneven distribution of table pages
-                            // during the parallel table scan. Workers that scan fewer rows flush fewer segments than
-                            // their assigned quota, while workers that scan more rows merge down to their quota,
-                            // producing slightly fewer total segments (e.g. 26). Sizing to 24–33 segments accommodates
-                            // this variance.
+                            // The parallel heap scan hands out blocks on demand, so a participant
+                            // short on CPU scans fewer rows and flushes fewer segments than its
+                            // quota, while its peers merge back down to theirs. Skew only ever
+                            // pulls the total below the target. The floor tolerates about a
+                            // quarter of the rows moving between participants.
+                            let expected = 24..=33;
                             assert!(
-                                (24..=33).contains(&count),
-                                "Expected 24-33 segments with workers={}, leader={}, mem={}, segments={}, got {}",
-                                mw,
-                                lp,
-                                mwm,
-                                ts,
-                                count
+                                expected.contains(&count),
+                                "Expected {expected:?} segments with workers={mw}, leader={lp}, mem={mwm}, segments={ts}, got {count}"
                             );
                         }
 

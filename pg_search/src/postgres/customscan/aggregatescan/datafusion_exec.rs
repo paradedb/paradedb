@@ -133,6 +133,7 @@ pub async fn build_join_aggregate_plan(
         ctx,
         plan,
         plan,
+        targetlist,
         custom_exprs,
         custom_scan_tlist,
         expr_context,
@@ -149,7 +150,7 @@ pub async fn build_join_aggregate_plan(
         .schema()
         .fields()
         .iter()
-        .filter(|field| CtidColumn::try_from(field.name().as_str()).is_ok())
+        .filter(|field| targetlist.is_ctid_column_name(field.name()))
         .map(|field| col(field.name()).sort(true, false))
         .collect();
 
@@ -1020,6 +1021,7 @@ fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
     top_level_plan: &'a RelNode,
+    targetlist: &'a JoinAggregateTargetList,
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
@@ -1034,6 +1036,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     source,
                     top_level_plan,
+                    targetlist,
                     plan_position,
                     expr_context,
                     planstate,
@@ -1049,6 +1052,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &join.left,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1060,6 +1064,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &join.right,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1077,6 +1082,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &filter.input,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1130,6 +1136,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &unnest.input,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1330,6 +1337,7 @@ async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
     plan: &RelNode,
+    targetlist: &JoinAggregateTargetList,
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
@@ -1441,9 +1449,8 @@ async fn build_source_df(
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
-            Some(WhichFastField::Ctid) => {
-                make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
-            }
+            Some(WhichFastField::Ctid) => make_col(alias.as_str(), name)
+                .alias(targetlist.ctid_column_name(plan_position)),
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);

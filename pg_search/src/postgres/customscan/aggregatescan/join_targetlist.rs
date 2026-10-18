@@ -35,6 +35,7 @@ use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
+use crate::postgres::customscan::joinscan::CtidColumn;
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
@@ -408,6 +409,18 @@ impl JoinAggregateTargetList {
         format!("{}__one_group", self.internal_prefix())
     }
 
+    /// The DataFusion name of the synthetic CTID column for `plan_position`.
+    pub fn ctid_column_name(&self, plan_position: usize) -> String {
+        format!("{}{}", self.internal_prefix(), CtidColumn::new(plan_position))
+    }
+
+    /// Whether `name` is a prefixed internal CTID column for this target list.
+    pub fn is_ctid_column_name(&self, name: &str) -> bool {
+        name.strip_prefix(self.internal_prefix())
+            .and_then(|suffix| CtidColumn::try_from(suffix).ok())
+            .is_some()
+    }
+
     /// DataFusion rejects a schema with a qualified and an unqualified column of
     /// the same name, and its optimizer drops the qualifier of an aggregate
     /// alias. So the names above stay unqualified, and get a longer prefix while
@@ -415,6 +428,7 @@ impl JoinAggregateTargetList {
     fn internal_prefix(&self) -> String {
         let is_internal = |name: &str| {
             name == "__one_group"
+                || CtidColumn::try_from(name).is_ok()
                 || ["agg_", "row_", "win_", "precombine_"].iter().any(|kind| {
                     name.strip_prefix(kind)
                         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))

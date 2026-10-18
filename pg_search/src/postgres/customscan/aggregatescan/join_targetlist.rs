@@ -34,8 +34,8 @@ use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
-use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 use crate::postgres::customscan::joinscan::CtidColumn;
+use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
@@ -411,7 +411,11 @@ impl JoinAggregateTargetList {
 
     /// The DataFusion name of the synthetic CTID column for `plan_position`.
     pub fn ctid_column_name(&self, plan_position: usize) -> String {
-        format!("{}{}", self.internal_prefix(), CtidColumn::new(plan_position))
+        format!(
+            "{}{}",
+            self.internal_prefix(),
+            CtidColumn::new(plan_position)
+        )
     }
 
     /// Whether `name` is a prefixed internal CTID column for this target list.

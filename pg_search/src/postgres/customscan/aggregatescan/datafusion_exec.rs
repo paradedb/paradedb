@@ -1449,8 +1449,9 @@ async fn build_source_df(
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
-            Some(WhichFastField::Ctid) => make_col(alias.as_str(), name)
-                .alias(targetlist.ctid_column_name(plan_position)),
+            Some(WhichFastField::Ctid) => {
+                make_col(alias.as_str(), name).alias(targetlist.ctid_column_name(plan_position))
+            }
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);

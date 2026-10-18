@@ -1771,6 +1771,15 @@ impl RelNode {
                         f(&mut tq.query);
                     }
                 }
+                crate::scan::ScanMode::Disjunctive {
+                    base_query,
+                    disjunct_queries,
+                } => {
+                    f(base_query);
+                    for q in disjunct_queries {
+                        f(q);
+                    }
+                }
             },
             RelNode::Join(j) => {
                 j.left.visit_queries_mut(f);
@@ -1801,6 +1810,15 @@ impl RelNode {
                     f(base_query);
                     for tq in local_queries {
                         f(&tq.query);
+                    }
+                }
+                crate::scan::ScanMode::Disjunctive {
+                    base_query,
+                    disjunct_queries,
+                } => {
+                    f(base_query);
+                    for q in disjunct_queries {
+                        f(q);
                     }
                 }
             },

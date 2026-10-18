@@ -140,7 +140,7 @@ impl<'a> PredicateTranslator<'a> {
                             .tag_name;
                         Some(col(tag_name))
                     }
-                    ScanMode::Standard { .. } => Some(
+                    ScanMode::Standard { .. } | ScanMode::Disjunctive { .. } => Some(
                         crate::postgres::customscan::joinscan::search_predicate_rule::make_search_predicate_expr(
                             source,
                             &predicate.query,

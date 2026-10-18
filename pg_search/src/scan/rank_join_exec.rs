@@ -1283,6 +1283,11 @@ struct BufferedRowRef {
 struct HashTableEntry {
     row_ref: BufferedRowRef,
     score: f64,
+    /// `true` when this row arrived via Sorted Access (`SA`), `false` when fetched via
+    /// Random Access (`RA`). In a tagless disjunctive join, `RA`-fetched rows only satisfy
+    /// their table's base filter (not its disjunctive search predicate), so `ingest_ra_batch`
+    /// only pairs `RA` rows with opposite-side entries that have `from_sa == true`.
+    from_sa: bool,
 }
 
 /// A joined candidate pair waiting in the max-heap until its score clears threshold $T$.
@@ -1787,6 +1792,7 @@ impl RankJoinStream {
                     .push(HashTableEntry {
                         row_ref: row.row_ref,
                         score: row.score,
+                        from_sa: true,
                     });
             }
             AdvanceSide::Right => {
@@ -1820,6 +1826,7 @@ impl RankJoinStream {
                     .push(HashTableEntry {
                         row_ref: row.row_ref,
                         score: row.score,
+                        from_sa: true,
                     });
             }
         }
@@ -1827,6 +1834,10 @@ impl RankJoinStream {
 
     /// Ingests a `RecordBatch` returned from a Random Access (`RA`) point lookup on `side`
     /// without modifying `side`'s `SA` cursor state or `bottom_score`.
+    ///
+    /// Only pairs `RA`-fetched rows with opposite-side hash table entries that arrived via
+    /// `SA` (`entry.from_sa == true`), preventing `(RA_only, RA_only)` pairs that satisfy
+    /// neither side's disjunctive search predicate when join keys are non-unique.
     fn ingest_ra_batch(&mut self, side: AdvanceSide, batch: RecordBatch) -> Result<()> {
         if batch.num_rows() == 0 {
             return Ok(());
@@ -1845,7 +1856,7 @@ impl RankJoinStream {
                         row: RowIndex(row_idx),
                     };
                     if let Some(matches) = self.right_hash_table.get(&key) {
-                        for right_entry in matches {
+                        for right_entry in matches.iter().filter(|e| e.from_sa) {
                             let combined = self.combiner.eval(InputScorePair {
                                 left: score,
                                 right: right_entry.score,
@@ -1864,7 +1875,11 @@ impl RankJoinStream {
                     self.left_hash_table
                         .entry(key)
                         .or_default()
-                        .push(HashTableEntry { row_ref, score });
+                        .push(HashTableEntry {
+                            row_ref,
+                            score,
+                            from_sa: false,
+                        });
                 }
             }
             AdvanceSide::Right => {
@@ -1880,7 +1895,7 @@ impl RankJoinStream {
                         row: RowIndex(row_idx),
                     };
                     if let Some(matches) = self.left_hash_table.get(&key) {
-                        for left_entry in matches {
+                        for left_entry in matches.iter().filter(|e| e.from_sa) {
                             let combined = self.combiner.eval(InputScorePair {
                                 left: left_entry.score,
                                 right: score,
@@ -1899,7 +1914,11 @@ impl RankJoinStream {
                     self.right_hash_table
                         .entry(key)
                         .or_default()
-                        .push(HashTableEntry { row_ref, score });
+                        .push(HashTableEntry {
+                            row_ref,
+                            score,
+                            from_sa: false,
+                        });
                 }
             }
         }

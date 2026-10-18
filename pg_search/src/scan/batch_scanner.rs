@@ -205,7 +205,6 @@ impl ActiveTagScorer {
         ids: &[DocId],
         end_doc: DocId,
         scores: &mut [Score],
-        accumulate_scores: bool,
         which_fast_fields: &[WhichFastField],
         memoized_columns: &mut [Option<ArrayRef>],
     ) {
@@ -214,9 +213,6 @@ impl ActiveTagScorer {
             WhichFastField::MatchTag(name) => name == &self.tag_name,
             _ => false,
         });
-        if !is_needed && !accumulate_scores {
-            return;
-        }
 
         // 2. Pre-allocate and zero-fill the bit-packed buffer directly (1 bit per entry)
         let mut builder = if is_needed {
@@ -246,9 +242,7 @@ impl ActiveTagScorer {
                 if let Some(b) = builder.as_mut() {
                     b.set_bit(id_idx, true);
                 }
-                if accumulate_scores {
-                    scores[id_idx] += tag_scorer.score();
-                }
+                scores[id_idx] += tag_scorer.score();
                 tag_scorer.advance();
                 id_idx += 1;
             } else {
@@ -444,13 +438,11 @@ impl Scanner {
     /// Populates `memoized_columns` for requested `MatchTag` and `Score` fields.
     ///
     /// For tagged scans, evaluating each match tag mutates `scores` by accumulating
-    /// the matched tag's BM25 score onto the base query score in-place for each row
-    /// when `accumulate_tag_scores` is true.
+    /// the matched tag's BM25 score onto the base query score in-place for each row.
     fn populate_scores_for_batch(
         &mut self,
         ids: &[DocId],
         mut scores: Vec<Score>,
-        accumulate_tag_scores: bool,
         memoized_columns: &mut [Option<ArrayRef>],
     ) {
         if !self.active_tag_scorers.is_empty() && !ids.is_empty() {
@@ -460,7 +452,6 @@ impl Scanner {
                     ids,
                     end_doc,
                     &mut scores,
-                    accumulate_tag_scores,
                     &self.which_fast_fields,
                     memoized_columns,
                 );
@@ -497,7 +488,6 @@ impl Scanner {
             scores,
             ids,
             None,
-            true,
             ffhelper,
             visibility,
             pre_filters,
@@ -516,7 +506,6 @@ impl Scanner {
             crate::index::reader::index::SearchIndexScore,
             tantivy::DocAddress,
         )],
-        accumulate_tag_scores: bool,
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
@@ -529,9 +518,6 @@ impl Scanner {
         if self.can_pushdown_score_threshold() && self.score_threshold.is_some() {
             self.score_threshold_pushed = true;
         }
-        // Reset active tag scorers per window/lookup because `DocId`s in successive windows
-        // or Random Access point lookups are not monotonic across windows within a single segment.
-        self.current_segment_ord = None;
 
         let num_segments = ffhelper.num_segments();
         let mut slot_by_orig_idx: Vec<Option<(usize, usize)>> = vec![None; results.len()];
@@ -559,7 +545,6 @@ impl Scanner {
                     scores,
                     ids,
                     Some(&mut orig_indices),
-                    accumulate_tag_scores,
                     ffhelper,
                     visibility,
                     pre_filters,
@@ -617,7 +602,6 @@ impl Scanner {
         scores: Vec<Score>,
         mut ids: Vec<DocId>,
         mut orig_indices: Option<&mut Vec<usize>>,
-        accumulate_tag_scores: bool,
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
@@ -635,7 +619,7 @@ impl Scanner {
 
         // TODO: Determine which pre-filters can safely be applied before calculating
         // scores/match-tags to avoid evaluating tag scorers on rows that will be pruned.
-        self.populate_scores_for_batch(&ids, scores, accumulate_tag_scores, &mut memoized_columns);
+        self.populate_scores_for_batch(&ids, scores, &mut memoized_columns);
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.

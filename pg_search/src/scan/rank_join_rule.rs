@@ -57,12 +57,12 @@ use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 /// Maximum `LIMIT + OFFSET` ($K$) eligible for `RankJoinExec`.
-const MAX_RANK_JOIN_K: usize = 1_000;
+pub(crate) const MAX_RANK_JOIN_K: usize = 1_000;
 
 /// Minimum ratio $\min(\Delta_L^{\max}, \Delta_R^{\max}) / \max(\Delta_L^{\max}, \Delta_R^{\max})$
 /// required by Gate 2 so heavily lopsided two-sided score queries do not force `RankJoinExec`
 /// to scan the weaker-scored input to completion.
-const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
+pub(crate) const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
 
 /// Physical optimizer rule that replaces top-K scored `HashJoinExec`s with `RankJoinExec`.
 #[derive(Debug, Default)]
@@ -114,36 +114,138 @@ impl PhysicalOptimizerRule for RankJoinRule {
             .min_rows_override
             .unwrap_or_else(crate::gucs::rank_join_min_rows);
 
-        plan.transform_down(|node| {
-            let Some(sort_exec) = node.downcast_ref::<SortExec>() else {
-                return Ok(Transformed::no(node));
-            };
-            let Some(k) = sort_exec.fetch() else {
-                return Ok(Transformed::no(node));
-            };
-            if k == 0 || k > MAX_RANK_JOIN_K {
-                return Ok(Transformed::no(node));
-            }
+        let rewritten = plan
+            .transform_down(|node| {
+                let Some(sort_exec) = node.downcast_ref::<SortExec>() else {
+                    return Ok(Transformed::no(node));
+                };
+                let Some(k) = sort_exec.fetch() else {
+                    return Ok(Transformed::no(node));
+                };
+                if k == 0 || k > MAX_RANK_JOIN_K {
+                    return Ok(Transformed::no(node));
+                };
 
-            let Some(rewritten_input) =
-                try_rewrite_under_sort(sort_exec.input(), sort_exec.expr(), k, min_rows)?
-            else {
-                return Ok(Transformed::no(node));
-            };
+                let Some(rewritten_input) =
+                    try_rewrite_under_sort(sort_exec.input(), sort_exec.expr(), k, min_rows)?
+                else {
+                    return Ok(Transformed::no(node));
+                };
 
-            let new_sort = replace_children_if_necessary(Arc::clone(&node), vec![rewritten_input])?;
-            Ok(Transformed::new(new_sort, true, TreeNodeRecursion::Jump))
-        })
-        .map(|t| t.data)
+                let new_sort =
+                    replace_children_if_necessary(Arc::clone(&node), vec![rewritten_input])?;
+                Ok(Transformed::new(new_sort, true, TreeNodeRecursion::Jump))
+            })
+            .map(|t| t.data)?;
+
+        debug_assert!(
+            !has_unconfigured_tagless_disjunctive_scan(&rewritten),
+            "JoinSearchPredicateRule elided predicate tagging for a scan that RankJoinRule did not rewrite into lazy_sort"
+        );
+
+        Ok(rewritten)
     }
 }
 
 /// Statistics and score range for a join input subtree used by Gates 2 and 3.
 #[derive(Debug, Clone, Copy)]
-struct SubtreeScoreStats {
-    estimated_rows: u64,
-    score_min: f64,
-    score_max: f64,
+pub(crate) struct SubtreeScoreStats {
+    pub estimated_rows: u64,
+    pub score_min: f64,
+    pub score_max: f64,
+}
+
+impl SubtreeScoreStats {
+    /// Verifies Gate 1 (non-constant BM25 score when `is_score_sort` is true) and computes
+    /// `[0.0, score_max]` for a leaf scan.
+    pub(crate) fn from_leaf_queries(
+        is_score_sort: bool,
+        base_query: &SearchQueryInput,
+        disjunct_queries: &[SearchQueryInput],
+        estimated_rows: u64,
+    ) -> Option<Self> {
+        let base_has_score = !is_constant_score_query(base_query);
+        let disjuncts_have_score = disjunct_queries.iter().any(|q| !is_constant_score_query(q));
+        if is_score_sort && !base_has_score && !disjuncts_have_score {
+            return None;
+        }
+        let score_max = if is_score_sort {
+            let mut total = if base_has_score {
+                estimate_query_max_score(base_query)
+            } else {
+                0.0
+            };
+            for q in disjunct_queries {
+                if !is_constant_score_query(q) {
+                    total += estimate_query_max_score(q);
+                }
+            }
+            total.max(1.0)
+        } else {
+            1.0
+        };
+        Some(Self {
+            estimated_rows,
+            score_min: 0.0,
+            score_max,
+        })
+    }
+
+    /// Verifies Gate 2 (score balance when both sides are scored) and Gate 3 (`min_rows`),
+    /// and computes the combined `[score_min, score_max]` across `combiner`.
+    pub(crate) fn combine(
+        combiner: &ScoreCombiner,
+        left: Self,
+        right: Self,
+        min_rows: usize,
+        skip_min_rows_gate: bool,
+    ) -> Option<Self> {
+        let f_max_max = combiner.eval(InputScorePair {
+            left: left.score_max,
+            right: right.score_max,
+        });
+        let f_min_max = combiner.eval(InputScorePair {
+            left: left.score_min,
+            right: right.score_max,
+        });
+        let f_max_min = combiner.eval(InputScorePair {
+            left: left.score_max,
+            right: right.score_min,
+        });
+
+        // Gate 2: When both sides are scored, both must contribute comparably to the combined score.
+        if combiner.uses_left() && combiner.uses_right() {
+            let delta_l = (f_max_max - f_min_max).abs();
+            let delta_r = (f_max_max - f_max_min).abs();
+            if delta_l <= 0.0 || delta_r <= 0.0 || !delta_l.is_finite() || !delta_r.is_finite() {
+                return None;
+            }
+            if delta_l.min(delta_r) < SCORE_BALANCE_THRESHOLD * delta_l.max(delta_r) {
+                return None;
+            }
+        }
+
+        // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`).
+        let min_matched = left.estimated_rows.min(right.estimated_rows);
+        if min_rows > 0 && min_matched < min_rows as u64 && !skip_min_rows_gate {
+            return None;
+        }
+
+        let corners = [
+            combiner.eval(InputScorePair {
+                left: left.score_min,
+                right: right.score_min,
+            }),
+            f_min_max,
+            f_max_min,
+            f_max_max,
+        ];
+        Some(Self {
+            estimated_rows: min_matched,
+            score_min: corners.into_iter().fold(f64::INFINITY, f64::min),
+            score_max: corners.into_iter().fold(f64::NEG_INFINITY, f64::max),
+        })
+    }
 }
 
 /// Monotonicity direction of a subexpression with respect to the top-level sort expression.
@@ -183,19 +285,19 @@ pub(crate) struct DecomposedJoinScore {
     pub combiner: ScoreCombiner,
 }
 
-/// Walks down from `SortExec` through pass-through nodes to find and rewrite an eligible
-/// `HashJoinExec` subtree into `RankJoinExec`.
+/// Walks down from `SortExec` through pass-through nodes to find, verify (Gates 1, 2, and 3),
+/// and rewrite an eligible `HashJoinExec` subtree into `RankJoinExec` in a single pass.
 fn try_rewrite_under_sort(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
     k: usize,
     min_rows: usize,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-    let Some(_stats) = inspect_join_subtree(node, required_ordering, k, min_rows)? else {
-        return Ok(None);
-    };
     let initial_window = compute_initial_window(k);
-    rewrite_join_subtree(node, required_ordering, k, min_rows, initial_window)
+    Ok(
+        try_rewrite_join_subtree(node, required_ordering, min_rows, initial_window)?
+            .map(|(plan, _)| plan),
+    )
 }
 
 fn compute_initial_window(k: usize) -> usize {
@@ -212,15 +314,24 @@ fn compute_initial_window(k: usize) -> usize {
     k.saturating_mul(scale_factor).max(1).min(max_window)
 }
 
-/// Inspects a join subtree to verify Gates 1, 2, and 3 before mutating the plan.
-fn inspect_join_subtree(
+fn try_rewrite_join_subtree(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
-    k: usize,
     min_rows: usize,
-) -> Result<Option<SubtreeScoreStats>> {
+    initial_window: usize,
+) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
-        return inspect_join_subtree(node.children()[0], &child_ordering, k, min_rows);
+        let Some((new_child, stats)) = try_rewrite_join_subtree(
+            node.children()[0],
+            &child_ordering,
+            min_rows,
+            initial_window,
+        )?
+        else {
+            return Ok(None);
+        };
+        let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
+        return Ok(Some((rebuilt, stats)));
     }
 
     let Some(join) = node.downcast_ref::<HashJoinExec>() else {
@@ -249,254 +360,43 @@ fn inspect_join_subtree(
         return Ok(None);
     }
 
-    let left_stats = if uses_left {
-        let Some(s) = inspect_child_branch(join.left(), &decomposed.left_sort_expr, k, min_rows)?
-        else {
-            return Ok(None);
-        };
-        s
-    } else {
-        let Some(s) = inspect_unscored_branch(join.left())? else {
-            return Ok(None);
-        };
-        s
-    };
-
-    let right_stats = if uses_right {
-        let Some(s) = inspect_child_branch(join.right(), &decomposed.right_sort_expr, k, min_rows)?
-        else {
-            return Ok(None);
-        };
-        s
-    } else {
-        let Some(s) = inspect_unscored_branch(join.right())? else {
-            return Ok(None);
-        };
-        s
-    };
-
-    let f_max_max = decomposed.combiner.eval(InputScorePair {
-        left: left_stats.score_max,
-        right: right_stats.score_max,
-    });
-    let f_min_max = decomposed.combiner.eval(InputScorePair {
-        left: left_stats.score_min,
-        right: right_stats.score_max,
-    });
-    let f_max_min = decomposed.combiner.eval(InputScorePair {
-        left: left_stats.score_max,
-        right: right_stats.score_min,
-    });
-
-    // Gate 2: When both sides are scored, both must contribute comparably to the combined score.
-    if uses_left && uses_right {
-        let delta_l = (f_max_max - f_min_max).abs();
-        let delta_r = (f_max_max - f_max_min).abs();
-        if delta_l <= 0.0 || delta_r <= 0.0 || !delta_l.is_finite() || !delta_r.is_finite() {
-            return Ok(None);
-        }
-        let min_delta = delta_l.min(delta_r);
-        let max_delta = delta_l.max(delta_r);
-        if min_delta < SCORE_BALANCE_THRESHOLD * max_delta {
-            return Ok(None);
-        }
-    }
-
-    // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`).
-    let min_matched = left_stats.estimated_rows.min(right_stats.estimated_rows);
-    if min_rows > 0 && min_matched < min_rows as u64 {
-        return Ok(None);
-    }
-
-    let corners = [
-        decomposed.combiner.eval(InputScorePair {
-            left: left_stats.score_min,
-            right: right_stats.score_min,
-        }),
-        f_min_max,
-        f_max_min,
-        f_max_max,
-    ];
-    let combined_min = corners.into_iter().fold(f64::INFINITY, f64::min);
-    let combined_max = corners.into_iter().fold(f64::NEG_INFINITY, f64::max);
-
-    Ok(Some(SubtreeScoreStats {
-        estimated_rows: min_matched,
-        score_min: combined_min,
-        score_max: combined_max,
-    }))
-}
-
-fn subtree_all_standard_scans(node: &Arc<dyn ExecutionPlan>) -> bool {
-    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
-        return matches!(scan.scan_mode(), ScanMode::Standard { .. });
-    }
-    node.children().into_iter().all(subtree_all_standard_scans)
-}
-
-/// Inspects an unscored child branch of a single-sided (`NRJN`) join: must be a leaf
-/// `PgSearchScanPlan` (behind optional pass-through nodes) in `ScanMode::Standard`.
-fn inspect_unscored_branch(node: &Arc<dyn ExecutionPlan>) -> Result<Option<SubtreeScoreStats>> {
-    if is_passthrough_node(node) {
-        return inspect_unscored_branch(node.children()[0]);
-    }
-    let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
-        return Ok(None);
-    };
-    if !matches!(scan.scan_mode(), ScanMode::Standard { .. }) {
-        return Ok(None);
-    }
-    Ok(Some(SubtreeScoreStats {
-        estimated_rows: scan.planner_estimated_rows(),
-        score_min: 0.0,
-        score_max: 0.0,
-    }))
-}
-
-/// Inspects one child branch of a `HashJoinExec`: either a leaf `PgSearchScanPlan`
-/// (behind optional pass-through nodes) or a nested `HashJoinExec`.
-fn inspect_child_branch(
-    node: &Arc<dyn ExecutionPlan>,
-    required_sort: &PhysicalSortExpr,
-    k: usize,
-    min_rows: usize,
-) -> Result<Option<SubtreeScoreStats>> {
-    let Some(ordering) = LexOrdering::new(vec![required_sort.clone()]) else {
-        return Ok(None);
-    };
-    if let Some(child_ordering) = map_ordering_through_passthrough(node, &ordering)? {
-        return inspect_child_branch(node.children()[0], &child_ordering[0], k, min_rows);
-    }
-    if node.is::<HashJoinExec>() {
-        return inspect_join_subtree(node, &ordering, k, min_rows);
-    }
-    let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
-        return Ok(None);
-    };
-    inspect_leaf_scan(scan, required_sort)
-}
-
-/// Verifies Gate 1 on a leaf `PgSearchScanPlan` and returns its `SubtreeScoreStats`.
-fn inspect_leaf_scan(
-    scan: &PgSearchScanPlan,
-    required_sort: &PhysicalSortExpr,
-) -> Result<Option<SubtreeScoreStats>> {
-    let Some(order_by) = resolve_scan_order_by(scan, required_sort) else {
-        return Ok(None);
-    };
-
-    let max_score = match scan.scan_mode() {
-        ScanMode::Standard { .. } => {
-            if order_by.is_score() && is_constant_score_query(scan.resolved_query()) {
-                return Ok(None);
-            }
-            match &order_by.feature {
-                OrderByFeature::Score { .. } => {
-                    estimate_query_max_score(scan.resolved_query()).max(1.0)
-                }
-                _ => 1.0,
-            }
-        }
-        ScanMode::Tagged {
-            base_query,
-            local_queries,
-        } => {
-            let base_has_score = !is_constant_score_query(base_query);
-            let tags_have_score = local_queries
-                .iter()
-                .any(|tq| !is_constant_score_query(&tq.query));
-            if order_by.is_score() && !base_has_score && !tags_have_score {
-                return Ok(None);
-            }
-            match &order_by.feature {
-                OrderByFeature::Score { .. } => {
-                    let mut total = if base_has_score {
-                        estimate_query_max_score(base_query)
-                    } else {
-                        0.0
-                    };
-                    for tq in local_queries {
-                        if !is_constant_score_query(&tq.query) {
-                            total += estimate_query_max_score(&tq.query);
-                        }
-                    }
-                    total.max(1.0)
-                }
-                _ => 1.0,
-            }
-        }
-    };
-
-    Ok(Some(SubtreeScoreStats {
-        estimated_rows: scan.planner_estimated_rows(),
-        score_min: 0.0,
-        score_max: max_score,
-    }))
-}
-
-fn rewrite_join_subtree(
-    node: &Arc<dyn ExecutionPlan>,
-    required_ordering: &LexOrdering,
-    k: usize,
-    min_rows: usize,
-    initial_window: usize,
-) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-    if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
-        let Some(new_child) = rewrite_join_subtree(
-            node.children()[0],
-            &child_ordering,
-            k,
-            min_rows,
-            initial_window,
-        )?
-        else {
-            return Ok(None);
-        };
-        let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
-        return Ok(Some(rebuilt));
-    }
-
-    let Some(join) = node.downcast_ref::<HashJoinExec>() else {
-        return Ok(None);
-    };
-
-    let unprojected_ordering = unproject_join_ordering(join, required_ordering)?;
-    let left_schema = join.left().schema();
-    let right_schema = join.right().schema();
-    let Some(decomposed) =
-        analyze_join_score_expr(&unprojected_ordering[0], &left_schema, &right_schema)
-    else {
-        return Ok(None);
-    };
-
-    let uses_left = decomposed.combiner.uses_left();
-    let uses_right = decomposed.combiner.uses_right();
-
-    let Some(new_left) = (if uses_left {
-        rewrite_child_branch(
+    let Some((new_left, left_stats)) = (if uses_left {
+        try_rewrite_child_branch(
             join.left(),
             &decomposed.left_sort_expr,
-            k,
             min_rows,
             initial_window,
         )?
     } else {
-        rewrite_unscored_branch(join.left())?
+        try_rewrite_unscored_branch(join.left())?
     }) else {
         return Ok(None);
     };
 
-    let Some(new_right) = (if uses_right {
-        rewrite_child_branch(
+    let Some((new_right, right_stats)) = (if uses_right {
+        try_rewrite_child_branch(
             join.right(),
             &decomposed.right_sort_expr,
-            k,
             min_rows,
             initial_window,
         )?
     } else {
-        rewrite_unscored_branch(join.right())?
+        try_rewrite_unscored_branch(join.right())?
     }) else {
+        return Ok(None);
+    };
+
+    // If `JoinSearchPredicateRule` already elided predicate tagging on this subtree
+    // (based on logical `scan_info.estimate`), do not reject if segment pruning at reader
+    // open time lowered `planner_estimated_rows`.
+    let skip_min_rows_gate = subtree_has_tagless_disjunctive_scans(node);
+    let Some(combined_stats) = SubtreeScoreStats::combine(
+        &decomposed.combiner,
+        left_stats,
+        right_stats,
+        min_rows,
+        skip_min_rows_gate,
+    ) else {
         return Ok(None);
     };
 
@@ -518,7 +418,32 @@ fn rewrite_join_subtree(
         decomposed.combiner,
     )?;
 
-    Ok(Some(Arc::new(rank_join)))
+    Ok(Some((Arc::new(rank_join), combined_stats)))
+}
+
+fn subtree_all_standard_scans(node: &Arc<dyn ExecutionPlan>) -> bool {
+    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+        return matches!(scan.scan_mode(), ScanMode::Standard { .. });
+    }
+    node.children().into_iter().all(subtree_all_standard_scans)
+}
+
+fn subtree_has_tagless_disjunctive_scans(node: &Arc<dyn ExecutionPlan>) -> bool {
+    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+        return scan.is_tagless_disjunctive();
+    }
+    node.children()
+        .into_iter()
+        .any(subtree_has_tagless_disjunctive_scans)
+}
+
+fn has_unconfigured_tagless_disjunctive_scan(node: &Arc<dyn ExecutionPlan>) -> bool {
+    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+        return scan.is_tagless_disjunctive() && scan.lazy_sort().is_none();
+    }
+    node.children()
+        .into_iter()
+        .any(has_unconfigured_tagless_disjunctive_scan)
 }
 
 fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
@@ -529,18 +454,28 @@ fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
         || node.is::<TantivyFetchExec>()
 }
 
-fn rewrite_unscored_branch(
+/// Inspects and rewrites an unscored child branch of a single-sided (`NRJN`) join: must be a
+/// leaf `PgSearchScanPlan` (behind optional pass-through nodes) in `ScanMode::Standard`.
+fn try_rewrite_unscored_branch(
     node: &Arc<dyn ExecutionPlan>,
-) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if is_passthrough_node(node) {
-        let Some(new_child) = rewrite_unscored_branch(node.children()[0])? else {
+        let Some((new_child, stats)) = try_rewrite_unscored_branch(node.children()[0])? else {
             return Ok(None);
         };
         let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
-        return Ok(Some(rebuilt));
+        return Ok(Some((rebuilt, stats)));
     }
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
+    };
+    if !matches!(scan.scan_mode(), ScanMode::Standard { .. }) {
+        return Ok(None);
+    }
+    let stats = SubtreeScoreStats {
+        estimated_rows: scan.planner_estimated_rows(),
+        score_min: 0.0,
+        score_max: 0.0,
     };
     let configured_scan = scan.clone().with_lazy_sort(LazySortConfig {
         orderby_info: None,
@@ -548,24 +483,24 @@ fn rewrite_unscored_branch(
         initial_window: 0.0,
         shared_threshold: SharedThresholdMode::Disabled,
     });
-    Ok(Some(Arc::new(configured_scan)))
+    Ok(Some((Arc::new(configured_scan), stats)))
 }
 
-fn rewrite_child_branch(
+/// Inspects and rewrites one scored child branch of a `HashJoinExec`: either a leaf
+/// `PgSearchScanPlan` (behind optional pass-through nodes) or a nested `HashJoinExec`.
+fn try_rewrite_child_branch(
     node: &Arc<dyn ExecutionPlan>,
     required_sort: &PhysicalSortExpr,
-    k: usize,
     min_rows: usize,
     initial_window: usize,
-) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     let Some(ordering) = LexOrdering::new(vec![required_sort.clone()]) else {
         return Ok(None);
     };
     if let Some(child_ordering) = map_ordering_through_passthrough(node, &ordering)? {
-        let Some(new_child) = rewrite_child_branch(
+        let Some((new_child, stats)) = try_rewrite_child_branch(
             node.children()[0],
             &child_ordering[0],
-            k,
             min_rows,
             initial_window,
         )?
@@ -573,15 +508,36 @@ fn rewrite_child_branch(
             return Ok(None);
         };
         let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
-        return Ok(Some(rebuilt));
+        return Ok(Some((rebuilt, stats)));
     }
     if node.is::<HashJoinExec>() {
-        return rewrite_join_subtree(node, &ordering, k, min_rows, initial_window);
+        return try_rewrite_join_subtree(node, &ordering, min_rows, initial_window);
     }
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
     };
     let Some(order_by) = resolve_scan_order_by(scan, required_sort) else {
+        return Ok(None);
+    };
+    let stats = match scan.scan_mode() {
+        ScanMode::Standard { .. } => SubtreeScoreStats::from_leaf_queries(
+            order_by.is_score(),
+            scan.resolved_query(),
+            &[],
+            scan.planner_estimated_rows(),
+        ),
+        ScanMode::Disjunctive {
+            base_query,
+            disjunct_queries,
+        } => SubtreeScoreStats::from_leaf_queries(
+            order_by.is_score(),
+            base_query,
+            disjunct_queries,
+            scan.planner_estimated_rows(),
+        ),
+        ScanMode::Tagged { .. } => None,
+    };
+    let Some(stats) = stats else {
         return Ok(None);
     };
     let configured_scan = scan.clone().with_lazy_sort(LazySortConfig {
@@ -590,7 +546,7 @@ fn rewrite_child_branch(
         initial_window: initial_window as f64,
         shared_threshold: SharedThresholdMode::Disabled,
     });
-    Ok(Some(Arc::new(configured_scan)))
+    Ok(Some((Arc::new(configured_scan), stats)))
 }
 
 fn resolve_scan_order_by(
@@ -809,7 +765,7 @@ fn scalar_to_f64(scalar: &ScalarValue) -> Option<f64> {
     v.is_finite().then_some(v)
 }
 
-fn is_score_column_name(name: &str) -> bool {
+pub(crate) fn is_score_column_name(name: &str) -> bool {
     name.starts_with("pdb.score(")
         || name.starts_with("__pdb_score")
         || name.starts_with("_pdb_score")
@@ -1199,7 +1155,7 @@ fn is_constant_score_pdb_query(query: &pdb::Query) -> bool {
 
 /// Estimates a relative upper bound on the BM25 score of `query` for Gate 2's balance check,
 /// accounting for query-level `Boost`, `ConstScore`, `Boolean` sums, and `DisjunctionMax`.
-fn estimate_query_max_score(query: &SearchQueryInput) -> f64 {
+pub(crate) fn estimate_query_max_score(query: &SearchQueryInput) -> f64 {
     match query {
         SearchQueryInput::Uninitialized | SearchQueryInput::Empty => 0.0,
         SearchQueryInput::All | SearchQueryInput::TermSet { .. } => 1.0,

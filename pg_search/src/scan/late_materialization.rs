@@ -61,7 +61,7 @@ pub struct LateMaterializationRule;
 
 /// Traverses down from the given node to find the underlying `PgSearchTableProvider`
 /// to extract the list of deferred fields that must be materialized.
-fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
+pub(crate) fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
     let mut fields = Vec::new();
     let _ = plan.apply(|node| {
         if let LogicalPlan::TableScan(scan) = node
@@ -84,7 +84,7 @@ pub(crate) struct BaseColumn {
 }
 
 impl BaseColumn {
-    fn is(&self, field: &DeferredField) -> bool {
+    pub(crate) fn is(&self, field: &DeferredField) -> bool {
         field.canonical.indexrelid == self.indexrelid && field.name == self.name
     }
 }

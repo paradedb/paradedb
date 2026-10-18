@@ -652,6 +652,12 @@ impl PgSearchScanPlan {
         &self.scan_mode
     }
 
+    /// Returns `true` when this scan is in `ScanMode::Disjunctive` (i.e. `JoinSearchPredicateRule`
+    /// elided predicate tagging for an eligible `RankJoinExec` subtree).
+    pub fn is_tagless_disjunctive(&self) -> bool {
+        matches!(self.scan_mode, crate::scan::ScanMode::Disjunctive { .. })
+    }
+
     pub fn deferred_fields(&self) -> &[DeferredField] {
         &self.deferred_fields
     }
@@ -1297,6 +1303,20 @@ impl DisplayAs for PgSearchScanPlan {
                     write!(f, ", tag_{}={}", tq.tag_idx.0, tq.query.explain_format())?;
                 }
             }
+            crate::scan::ScanMode::Disjunctive {
+                base_query,
+                disjunct_queries,
+            } => {
+                let has_base = !matches!(**base_query, SearchQueryInput::All);
+                if has_base {
+                    write!(f, ", query={}", base_query.explain_format())?;
+                } else if disjunct_queries.is_empty() {
+                    write!(f, ", query=\"all\"")?;
+                }
+                for q in disjunct_queries {
+                    write!(f, ", disjunct={}", q.explain_format())?;
+                }
+            }
         }
         Ok(())
     }
@@ -1495,38 +1515,35 @@ impl ExecutionPlan for PgSearchScanPlan {
                     scanner_config.which_fast_fields,
                     scanner_config.heap_relid,
                 );
-                let (sa_reader, is_tagged_sa, base_is_match_all) = match &scanner_config.scan_mode {
-                    crate::scan::ScanMode::Tagged {
-                        base_query,
-                        local_queries,
-                    } => {
-                        for tq in local_queries {
-                            let weight = reader
-                                .compile_match_weight(&tq.query, need_scores)
-                                .map_err(|e| {
-                                    DataFusionError::Internal(format!(
-                                        "Failed to compile match weight for tag {}: {e}",
-                                        tq.tag_name
-                                    ))
-                                })?;
-                            scanner.add_tagged_query(tq.tag_name.clone(), weight);
+                let (sa_reader, is_disjunctive_sa, base_is_match_all, ra_disjunct_queries) =
+                    match &scanner_config.scan_mode {
+                        crate::scan::ScanMode::Disjunctive {
+                            base_query,
+                            disjunct_queries,
+                        } => {
+                            let has_disjuncts = !disjunct_queries.is_empty();
+                            let replace_query =
+                                matches!(**base_query, SearchQueryInput::All) && !pushed;
+                            let sa = if has_disjuncts {
+                                reader.with_disjunctive_sa_queries(replace_query, disjunct_queries)
+                            } else {
+                                reader.clone()
+                            };
+                            (sa, has_disjuncts, replace_query, disjunct_queries.as_slice())
                         }
-                        let has_tags = !local_queries.is_empty();
-                        let replace_query =
-                            matches!(**base_query, SearchQueryInput::All) && !pushed;
-                        let sa = if has_tags {
-                            reader.with_tagged_sa_queries(replace_query, local_queries)
-                        } else {
-                            reader.clone()
-                        };
-                        (sa, has_tags, replace_query)
-                    }
-                    crate::scan::ScanMode::Standard { query } => (
-                        reader.clone(),
-                        false,
-                        matches!(query.as_ref(), SearchQueryInput::All) && !pushed,
-                    ),
-                };
+                        crate::scan::ScanMode::Standard { query } => (
+                            reader.clone(),
+                            false,
+                            matches!(query.as_ref(), SearchQueryInput::All) && !pushed,
+                            &[][..],
+                        ),
+                        crate::scan::ScanMode::Tagged { .. } => {
+                            Err(DataFusionError::Internal(
+                                "ScanMode::Tagged is not supported in lazy_sort; RankJoinExec uses ScanMode::Disjunctive".to_string(),
+                            ))?;
+                            unreachable!()
+                        }
+                    };
                 if !scan_fetched_fields.is_empty() {
                     scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
                 }
@@ -1538,8 +1555,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                     let bounds = rb.partition_bounds(target_partition);
                     (segs, bounds)
                 });
-                let ra_weights =
-                    reader.prepare_ra_lookup_weights(range_target.as_ref(), base_is_match_all);
+                let ra_weights = reader.prepare_ra_lookup_weights(
+                    range_target.as_ref(),
+                    base_is_match_all,
+                    ra_disjunct_queries,
+                );
                 let claimed_segments: Rc<RefCell<Vec<SegmentId>>> =
                     Rc::new(RefCell::new(Vec::new()));
                 let all_segments_claimed = Rc::new(Cell::new(false));
@@ -1550,7 +1570,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     SharedThresholdMode::Disabled
                 ) && !dynamic_filters.is_empty();
                 let keep_alive_for_ra =
-                    is_rank_join_leaf && (is_tagged_sa || lazy_sort.initial_window <= 0.0);
+                    is_rank_join_leaf && (is_disjunctive_sa || lazy_sort.initial_window <= 0.0);
                 let mut emitted_docs: crate::api::HashSet<tantivy::DocAddress> =
                     crate::api::HashSet::default();
                 let mut sa_exhausted = lazy_sort.initial_window <= 0.0;
@@ -1615,7 +1635,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                             if !ra_results.is_empty() {
                                 scanner.materialize_topk_window(
                                     &ra_results,
-                                    true,
                                     &ffhelper,
                                     &mut visibility,
                                     pre_filters_wrapper.as_ref(),
@@ -1840,7 +1859,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     let next_batch = if !top_k_search.results.is_empty() {
                         scanner.materialize_topk_window(
                             &top_k_search.results,
-                            !is_tagged_sa,
                             &ffhelper,
                             &mut visibility,
                             pre_filters_wrapper.as_ref(),

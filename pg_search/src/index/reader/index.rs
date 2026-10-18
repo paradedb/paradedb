@@ -275,6 +275,7 @@ pub(crate) struct RaLookupWeights {
     unconstrained: Arc<LazyWeight>,
     constrained: Option<(PartitionSegments, Arc<LazyWeight>)>,
     unconstrained_is_match_all: bool,
+    tag_weight: Option<Arc<LazyWeight>>,
 }
 
 /// A set of search results across multiple segments.
@@ -993,41 +994,36 @@ impl SearchIndexReader {
         clone
     }
 
-    /// Build a reader for Sorted Access (`SA`) over a tagged scan (`ScanMode::Tagged`) by
-    /// restricting `SA` to documents that match at least one of `local_queries`.
+    /// Build a reader for Sorted Access (`SA`) over a disjunctive scan (`ScanMode::Disjunctive`) by
+    /// restricting `SA` to documents that match at least one of `disjunct_queries`.
     /// When `replace_query` is true (i.e. `base_query` is `SearchQueryInput::All` and no
-    /// additional filter was pushed into `self`), the union of `local_queries` replaces
-    /// the `AllQuery` directly so Tantivy can use Block-Max WAND over the tag query postings.
-    pub(crate) fn with_tagged_sa_queries(
+    /// additional filter was pushed into `self`), the union of `disjunct_queries` replaces
+    /// the `AllQuery` directly so Tantivy can use Block-Max WAND over the disjunct postings.
+    pub(crate) fn with_disjunctive_sa_queries(
         &self,
         replace_query: bool,
-        local_queries: &[crate::scan::TaggedQuery],
+        disjunct_queries: &[SearchQueryInput],
     ) -> Self {
-        if local_queries.is_empty() {
+        if disjunct_queries.is_empty() {
             return self.clone();
         }
-        let should_clauses: Vec<(tantivy::query::Occur, Box<dyn Query>)> = local_queries
+        let should_clauses: Vec<(tantivy::query::Occur, Box<dyn Query>)> = disjunct_queries
             .iter()
-            .map(|tq| {
-                (
-                    tantivy::query::Occur::Should,
-                    self.make_query(&tq.query, None),
-                )
-            })
+            .map(|q| (tantivy::query::Occur::Should, self.make_query(q, None)))
             .collect();
-        let tag_union: Box<dyn Query> = if should_clauses.len() == 1 {
+        let disjunct_union: Box<dyn Query> = if should_clauses.len() == 1 {
             should_clauses.into_iter().next().unwrap().1
         } else {
             Box::new(tantivy::query::BooleanQuery::new(should_clauses))
         };
         if replace_query {
             let mut clone = self.clone();
-            clone.query = tag_union;
+            clone.query = disjunct_union;
             clone.pruning_estimate = OnceLock::new();
             clone.estimate_from_statistics = false;
             clone
         } else {
-            self.and_query(tag_union)
+            self.and_query(disjunct_union)
         }
     }
 
@@ -1430,10 +1426,16 @@ impl SearchIndexReader {
     }
 
     /// Prepare reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+    ///
+    /// When `disjunct_queries` is non-empty (`ScanMode::Disjunctive` scans), also prepares an
+    /// optional `tag_weight` over the union of `disjunct_queries` so `search_ra_lookup` can
+    /// accumulate BM25 scores for documents fetched via `RA` without materializing boolean
+    /// match-tag columns in `Scanner`.
     pub(crate) fn prepare_ra_lookup_weights(
         &self,
         range_target: Option<&(PartitionSegments, SearchQueryInput)>,
         unconstrained_is_match_all: bool,
+        disjunct_queries: &[SearchQueryInput],
     ) -> RaLookupWeights {
         let unconstrained = Arc::new(LazyWeight::new(
             self.query().box_clone(),
@@ -1452,10 +1454,29 @@ impl SearchIndexReader {
             };
             (segments.clone(), weight)
         });
+        let tag_weight = if self.need_scores && !disjunct_queries.is_empty() {
+            let should_clauses: Vec<(tantivy::query::Occur, Box<dyn Query>)> = disjunct_queries
+                .iter()
+                .map(|q| (tantivy::query::Occur::Should, self.make_query(q, None)))
+                .collect();
+            let tag_union: Box<dyn Query> = if should_clauses.len() == 1 {
+                should_clauses.into_iter().next().unwrap().1
+            } else {
+                Box::new(tantivy::query::BooleanQuery::new(should_clauses))
+            };
+            Some(Arc::new(LazyWeight::new(
+                tag_union,
+                true,
+                self.searcher.clone(),
+            )))
+        } else {
+            None
+        };
         RaLookupWeights {
             unconstrained,
             constrained,
             unconstrained_is_match_all,
+            tag_weight,
         }
     }
 
@@ -1494,11 +1515,35 @@ impl SearchIndexReader {
             if candidate_docs.is_empty() {
                 return;
             }
+            let mut tag_scorer = None;
+            let mut eval_tag_score = |target_doc: DocId| -> Score {
+                if !self.need_scores {
+                    return 0.0;
+                }
+                let Some(ref tw) = weights.tag_weight else {
+                    return 0.0;
+                };
+                let scorer = tag_scorer.get_or_insert_with(|| {
+                    tw.get()
+                        .scorer(segment_reader, 1.0)
+                        .expect("tag scorer should be constructable")
+                });
+                let mut cur = scorer.doc();
+                if cur < target_doc {
+                    cur = scorer.seek(target_doc);
+                }
+                if cur == target_doc {
+                    scorer.score()
+                } else {
+                    0.0
+                }
+            };
             if is_match_all {
                 for &target_doc in &candidate_docs {
+                    let score = eval_tag_score(target_doc);
                     let addr = DocAddress::new(segment_ord, target_doc);
                     emitted_docs.insert(addr);
-                    results.push((SearchIndexScore::new(0.0), addr));
+                    results.push((SearchIndexScore::new(score), addr));
                 }
                 return;
             }
@@ -1512,11 +1557,12 @@ impl SearchIndexReader {
                     cur = base_scorer.seek(target_doc);
                 }
                 if cur == target_doc {
-                    let score = if self.need_scores {
+                    let mut score = if self.need_scores {
                         base_scorer.score()
                     } else {
                         0.0
                     };
+                    score += eval_tag_score(target_doc);
                     let addr = DocAddress::new(segment_ord, target_doc);
                     emitted_docs.insert(addr);
                     results.push((SearchIndexScore::new(score), addr));

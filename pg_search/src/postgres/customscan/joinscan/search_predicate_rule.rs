@@ -35,17 +35,24 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arrow_array::BooleanArray;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Field, SortOptions};
 use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchema, DataFusionError, Result, ScalarValue};
-use datafusion::logical_expr::expr::ScalarFunction;
+use datafusion::logical_expr::expr::{ScalarFunction, Sort as SortExpr};
+use datafusion::logical_expr::logical_plan::{Join, Sort};
 use datafusion::logical_expr::{
-    ColumnarValue, Expr, Filter, LogicalPlan, Projection, ScalarFunctionArgs, ScalarUDF,
-    ScalarUDFImpl, Signature, SubqueryAlias, TableScan, TableSource, Volatility,
+    BinaryExpr as LogicalBinaryExpr, ColumnarValue, Expr, Filter, JoinType, LogicalPlan, Operator,
+    Projection, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, SubqueryAlias, TableScan,
+    TableSource, Volatility,
 };
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
+use datafusion::physical_expr::expressions::{
+    BinaryExpr as PhysicalBinaryExpr, CastExpr, Column as PhysicalColumn, Literal, TryCastExpr,
+};
+use datafusion::physical_expr::{PhysicalExpr, PhysicalSortExpr, ScalarFunctionExpr};
 
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +60,10 @@ use crate::postgres::customscan::datafusion::translator::make_source_col;
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelationAlias};
 use crate::query::SearchQueryInput;
+use crate::scan::late_materialization::{get_deferred_fields, trace_column};
+use crate::scan::rank_join_rule::{
+    MAX_RANK_JOIN_K, SubtreeScoreStats, analyze_join_score_expr, is_score_column_name,
+};
 use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::scan::{GlobalPredicateIndex, ScanMode, TagIndex, TaggedQuery};
 
@@ -170,11 +181,23 @@ pub fn make_search_predicate_expr(source: &JoinSource, query: &SearchQueryInput)
 
 /// Logical optimizer rule that resolves `SearchPredicateUdf` expressions in a `LogicalPlan`.
 #[derive(Debug, Default)]
-pub struct JoinSearchPredicateRule;
+pub struct JoinSearchPredicateRule {
+    /// Optional override for `paradedb.rank_join_min_rows` in unit tests.
+    min_rows_override: Option<usize>,
+}
 
 impl JoinSearchPredicateRule {
     pub fn new() -> Self {
-        Self
+        Self {
+            min_rows_override: None,
+        }
+    }
+
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn new_with_min_rows(min_rows: usize) -> Self {
+        Self {
+            min_rows_override: Some(min_rows),
+        }
     }
 }
 
@@ -197,9 +220,21 @@ impl OptimizerRule for JoinSearchPredicateRule {
             return Ok(Transformed::no(plan));
         }
 
-        let tags_by_position = build_tagged_queries(collected);
+        let tags_by_position = build_tagged_queries(collected.clone());
+        let elided_positions = if self.min_rows_override.is_some()
+            || (crate::gucs::enable_rank_join()
+                && !crate::postgres::customscan::mpp::glue::mpp_is_active())
+        {
+            let min_rows = self
+                .min_rows_override
+                .unwrap_or_else(crate::gucs::rank_join_min_rows);
+            find_elidable_rank_join_positions(&plan, &tags_by_position, &collected, min_rows)
+        } else {
+            BTreeSet::new()
+        };
+
         let original_schema = Arc::clone(plan.schema());
-        let rewritten = rewrite_plan(plan, &tags_by_position, &BTreeSet::new())?;
+        let rewritten = rewrite_plan(plan, &tags_by_position, &elided_positions, &BTreeSet::new())?;
         if !rewritten.transformed {
             return Ok(rewritten);
         }
@@ -277,6 +312,397 @@ fn build_tagged_queries(
     by_position
 }
 
+/// Identifies `plan_position`s whose `SearchPredicateUdf`s sit in the root `Join.filter` of an
+/// eligible `RankJoin` subtree and can therefore be executed via `SA` + `RA` without materializing
+/// boolean match-tag columns or a post-join `OR` filter.
+fn find_elidable_rank_join_positions(
+    plan: &LogicalPlan,
+    tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    all_predicates: &[SearchPredicateUdf],
+    min_rows: usize,
+) -> BTreeSet<usize> {
+    let mut elided = BTreeSet::new();
+    let _ = plan.apply(|node| {
+        if let LogicalPlan::Sort(sort) = node
+            && let Some(positions) =
+                try_elide_under_sort(sort, tags_by_position, all_predicates, min_rows)
+        {
+            elided.extend(positions);
+            return Ok(TreeNodeRecursion::Jump);
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    elided
+}
+
+fn try_elide_under_sort(
+    sort: &Sort,
+    tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    all_predicates: &[SearchPredicateUdf],
+    min_rows: usize,
+) -> Option<BTreeSet<usize>> {
+    let k = sort.fetch?;
+    if k == 0 || k > MAX_RANK_JOIN_K || sort.expr.is_empty() {
+        return None;
+    }
+
+    // If any sort expression (including secondary tie-breaker keys) references a deferred
+    // column, `LateMaterializationRule` will anchor a `LateMaterializeNode` (`TantivyDecodeExec`
+    // or `TantivyFetchExec`) directly below `Sort`, which changes that column's `DataType`
+    // from `UInt64` to `Utf8View`/`BinaryView` and causes `RankJoinRule::map_ordering_through_passthrough`
+    // to decline the plan.
+    if sort_references_deferred_column(sort) {
+        return None;
+    }
+
+    let phys_sort = logical_sort_to_physical(&sort.expr[0], sort.input.schema())?;
+    let (root_join, join_sort_expr) = find_root_join_under_sort(sort.input.as_ref(), phys_sort)?;
+
+    let filter_expr = root_join.filter.as_ref()?;
+    let mut filter_udfs = Vec::new();
+    if !extract_pure_or_search_predicates(filter_expr, &mut filter_udfs) || filter_udfs.is_empty() {
+        return None;
+    }
+
+    // Collect all leaf `TableScan` `plan_position`s in `root_join`'s subtree.
+    let mut leaf_positions = BTreeSet::new();
+    let mut num_leaves = 0usize;
+    let mut all_leaves_valid = true;
+    let _ = LogicalPlan::Join(root_join.clone()).apply(|n| {
+        if let LogicalPlan::TableScan(scan) = n {
+            num_leaves += 1;
+            if let Some(pos) = resolve_scan_plan_position(scan) {
+                leaf_positions.insert(pos);
+            } else {
+                all_leaves_valid = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    if !all_leaves_valid || num_leaves < 2 || leaf_positions.len() != num_leaves {
+        return None;
+    }
+
+    // Every leaf `TableScan` in `root_join`'s subtree must be covered by the pure `OR` in
+    // `root_join.filter` so that every leaf `SA` stream produces only rows satisfying the disjunction.
+    let filter_positions: BTreeSet<usize> = filter_udfs.iter().map(|u| u.plan_position).collect();
+    if filter_positions != leaf_positions {
+        return None;
+    }
+
+    // None of the leaf `plan_position`s in `root_join`'s subtree may have other `SearchPredicateUdf`s
+    // outside `root_join.filter`.
+    let filter_ordinals: BTreeSet<usize> = filter_udfs.iter().map(|u| u.ordinal).collect();
+    for udf in all_predicates {
+        if leaf_positions.contains(&udf.plan_position) && !filter_ordinals.contains(&udf.ordinal) {
+            return None;
+        }
+    }
+
+    // Verify Gates 1, 2, and 3 across the entire `root_join` subtree.
+    inspect_logical_join(root_join, &join_sort_expr, tags_by_position, min_rows, true)?;
+
+    Some(leaf_positions)
+}
+
+fn sort_references_deferred_column(sort: &Sort) -> bool {
+    let deferred = get_deferred_fields(sort.input.as_ref());
+    if deferred.is_empty() {
+        return false;
+    }
+    let mut found_deferred = false;
+    for sort_expr in &sort.expr {
+        let _ = sort_expr.expr.apply(|e| {
+            if let Expr::Column(col) = e
+                && let Some(base) = trace_column(sort.input.as_ref(), col)
+                && deferred.iter().any(|d| base.is(d))
+            {
+                found_deferred = true;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        if found_deferred {
+            return true;
+        }
+    }
+    false
+}
+
+/// Walks down from `Sort.input` through pass-through nodes (`Projection`, `SubqueryAlias`)
+/// to locate the root `LogicalPlan::Join` and map `required_sort` into `join.schema`.
+fn find_root_join_under_sort(
+    node: &LogicalPlan,
+    required_sort: PhysicalSortExpr,
+) -> Option<(&Join, PhysicalSortExpr)> {
+    match node {
+        LogicalPlan::Projection(proj) => {
+            let mapped = map_sort_through_logical_projection(proj, &required_sort)?;
+            find_root_join_under_sort(proj.input.as_ref(), mapped)
+        }
+        LogicalPlan::SubqueryAlias(alias) => {
+            find_root_join_under_sort(alias.input.as_ref(), required_sort)
+        }
+        LogicalPlan::Join(join) => Some((join, required_sort)),
+        _ => None,
+    }
+}
+
+fn map_sort_through_logical_projection(
+    proj: &Projection,
+    sort_expr: &PhysicalSortExpr,
+) -> Option<PhysicalSortExpr> {
+    let input_schema = proj.input.schema();
+    let mut valid = true;
+    let rewritten = Arc::clone(&sort_expr.expr)
+        .transform_down(|expr| {
+            if let Some(col) = expr.downcast_ref::<PhysicalColumn>() {
+                if col.index() >= proj.expr.len() {
+                    valid = false;
+                    return Ok(Transformed::no(expr));
+                }
+                let Some(mapped_expr) =
+                    logical_expr_to_physical(&proj.expr[col.index()], input_schema)
+                else {
+                    valid = false;
+                    return Ok(Transformed::no(expr));
+                };
+                return Ok(Transformed::new(mapped_expr, true, TreeNodeRecursion::Jump));
+            }
+            Ok(Transformed::no(expr))
+        })
+        .ok()?
+        .data;
+    if !valid {
+        return None;
+    }
+    Some(PhysicalSortExpr {
+        expr: rewritten,
+        options: sort_expr.options,
+    })
+}
+
+fn inspect_logical_join(
+    join: &Join,
+    required_sort: &PhysicalSortExpr,
+    tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    min_rows: usize,
+    allow_filter: bool,
+) -> Option<SubtreeScoreStats> {
+    if join.join_type != JoinType::Inner || join.null_aware || join.on.is_empty() {
+        return None;
+    }
+    if !allow_filter && join.filter.is_some() {
+        return None;
+    }
+
+    let left_schema = join.left.schema().inner();
+    let right_schema = join.right.schema().inner();
+    let decomposed = analyze_join_score_expr(required_sort, left_schema, right_schema)?;
+
+    // Disjunctive RankJoin requires two-sided scoring (`uses_left && uses_right`) at every join
+    // in the subtree, because single-sided (`NRJN`) joins disable `SA` on the unscored child.
+    if !decomposed.combiner.uses_left() || !decomposed.combiner.uses_right() {
+        return None;
+    }
+
+    let left_stats = inspect_logical_child_branch(
+        join.left.as_ref(),
+        &decomposed.left_sort_expr,
+        tags_by_position,
+        min_rows,
+    )?;
+    let right_stats = inspect_logical_child_branch(
+        join.right.as_ref(),
+        &decomposed.right_sort_expr,
+        tags_by_position,
+        min_rows,
+    )?;
+
+    SubtreeScoreStats::combine(
+        &decomposed.combiner,
+        left_stats,
+        right_stats,
+        min_rows,
+        false,
+    )
+}
+
+fn inspect_logical_child_branch(
+    node: &LogicalPlan,
+    required_sort: &PhysicalSortExpr,
+    tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    min_rows: usize,
+) -> Option<SubtreeScoreStats> {
+    match node {
+        LogicalPlan::Projection(proj) => {
+            let mapped = map_sort_through_logical_projection(proj, required_sort)?;
+            inspect_logical_child_branch(proj.input.as_ref(), &mapped, tags_by_position, min_rows)
+        }
+        LogicalPlan::SubqueryAlias(alias) => inspect_logical_child_branch(
+            alias.input.as_ref(),
+            required_sort,
+            tags_by_position,
+            min_rows,
+        ),
+        LogicalPlan::Join(join) => {
+            inspect_logical_join(join, required_sort, tags_by_position, min_rows, false)
+        }
+        LogicalPlan::TableScan(scan) => {
+            inspect_logical_leaf_scan(scan, required_sort, tags_by_position)
+        }
+        _ => None,
+    }
+}
+
+fn inspect_logical_leaf_scan(
+    scan: &TableScan,
+    required_sort: &PhysicalSortExpr,
+    tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+) -> Option<SubtreeScoreStats> {
+    let provider = pg_search_provider_from_scan(scan)?;
+    let plan_pos = resolve_scan_plan_position(scan)?;
+
+    // Multi-partition MPP scans are not eligible for `RankJoinExec`.
+    if provider.source_idx().is_some() || provider.range_split_points().is_some() {
+        return None;
+    }
+
+    let col = required_sort.expr.downcast_ref::<PhysicalColumn>()?;
+    if col.index() >= scan.projected_schema.fields().len() {
+        return None;
+    }
+    let field_name = scan.projected_schema.field(col.index()).name();
+    if provider
+        .deferred_fields()
+        .iter()
+        .any(|d| d.name == *field_name)
+    {
+        return None;
+    }
+
+    let is_score = is_score_column_name(field_name);
+    let base_query =
+        provider.combine_query_with_filters(provider.scan_info.mode.query().clone(), &scan.filters);
+    let disjunct_queries: Vec<SearchQueryInput> = tags_by_position
+        .get(&plan_pos)
+        .map(|tqs| tqs.iter().map(|tq| (*tq.query).clone()).collect())
+        .unwrap_or_default();
+
+    SubtreeScoreStats::from_leaf_queries(
+        is_score,
+        &base_query,
+        &disjunct_queries,
+        provider.scan_info.estimate.as_planner_estimate(),
+    )
+}
+
+fn logical_sort_to_physical(sort_expr: &SortExpr, schema: &DFSchema) -> Option<PhysicalSortExpr> {
+    let expr = logical_expr_to_physical(&sort_expr.expr, schema)?;
+    Some(PhysicalSortExpr {
+        expr,
+        options: SortOptions {
+            descending: !sort_expr.asc,
+            nulls_first: sort_expr.nulls_first,
+        },
+    })
+}
+
+fn logical_expr_to_physical(expr: &Expr, schema: &DFSchema) -> Option<Arc<dyn PhysicalExpr>> {
+    match expr {
+        Expr::Alias(alias) => logical_expr_to_physical(&alias.expr, schema),
+        Expr::Column(col) => {
+            let idx = schema.index_of_column(col).ok()?;
+            let name = schema.field(idx).name();
+            Some(Arc::new(PhysicalColumn::new(name, idx)))
+        }
+        Expr::Literal(scalar, _) => Some(Arc::new(Literal::new(scalar.clone()))),
+        Expr::Negative(inner) => {
+            let right = logical_expr_to_physical(inner, schema)?;
+            let zero = Arc::new(Literal::new(ScalarValue::Float64(Some(0.0))));
+            Some(Arc::new(PhysicalBinaryExpr::new(
+                zero,
+                Operator::Minus,
+                right,
+            )))
+        }
+        Expr::BinaryExpr(bin) => {
+            let left = logical_expr_to_physical(&bin.left, schema)?;
+            let right = logical_expr_to_physical(&bin.right, schema)?;
+            Some(Arc::new(PhysicalBinaryExpr::new(left, bin.op, right)))
+        }
+        Expr::Cast(cast) => {
+            let inner = logical_expr_to_physical(&cast.expr, schema)?;
+            Some(Arc::new(CastExpr::new(
+                inner,
+                cast.field.data_type().clone(),
+                None,
+            )))
+        }
+        Expr::TryCast(try_cast) => {
+            let inner = logical_expr_to_physical(&try_cast.expr, schema)?;
+            Some(Arc::new(TryCastExpr::new(
+                inner,
+                try_cast.field.data_type().clone(),
+            )))
+        }
+        Expr::ScalarFunction(sf) => {
+            let args: Option<Vec<Arc<dyn PhysicalExpr>>> = sf
+                .args
+                .iter()
+                .map(|a| logical_expr_to_physical(a, schema))
+                .collect();
+            let args = args?;
+            let return_field = Arc::new(Field::new(sf.func.name(), DataType::Float64, true));
+            Some(Arc::new(ScalarFunctionExpr::new(
+                sf.func.name(),
+                Arc::clone(&sf.func),
+                args,
+                return_field,
+                Arc::new(ConfigOptions::default()),
+            )))
+        }
+        _ => None,
+    }
+}
+
+/// Extracts all leaf `SearchPredicateUdf`s from `expr` if and only if `expr` is a pure
+/// disjunction (`OR` tree) of `SearchPredicateUdf` calls.
+fn extract_pure_or_search_predicates(expr: &Expr, out: &mut Vec<SearchPredicateUdf>) -> bool {
+    match expr {
+        Expr::Alias(alias) => extract_pure_or_search_predicates(&alias.expr, out),
+        Expr::BinaryExpr(LogicalBinaryExpr {
+            left,
+            op: Operator::Or,
+            right,
+        }) => {
+            extract_pure_or_search_predicates(left, out)
+                && extract_pure_or_search_predicates(right, out)
+        }
+        _ => {
+            if let Some(udf) = as_search_predicate_udf(expr) {
+                out.push(udf.clone());
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+
+fn is_elided_join_filter(expr: &Expr, elided_positions: &BTreeSet<usize>) -> bool {
+    if elided_positions.is_empty() {
+        return false;
+    }
+    let mut udfs = Vec::new();
+    extract_pure_or_search_predicates(expr, &mut udfs)
+        && !udfs.is_empty()
+        && udfs
+            .iter()
+            .all(|u| elided_positions.contains(&u.plan_position))
+}
+
 fn lookup_tag_name<'a>(
     udf: &SearchPredicateUdf,
     tags_by_position: &'a BTreeMap<usize, Vec<TaggedQuery>>,
@@ -293,15 +719,18 @@ fn lookup_tag_name<'a>(
         })
 }
 
-/// Collects the tag column names referenced by any `SearchPredicateUdf` in `node`'s own expressions.
+/// Collects the tag column names referenced by any non-elided `SearchPredicateUdf` in `node`'s own expressions.
 fn collect_node_referenced_tags(
     node: &LogicalPlan,
     tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    elided_positions: &BTreeSet<usize>,
     out: &mut BTreeSet<String>,
 ) -> Result<()> {
     node.apply_expressions(|expr| {
         expr.apply(|subexpr| {
-            if let Some(udf) = as_search_predicate_udf(subexpr) {
+            if let Some(udf) = as_search_predicate_udf(subexpr)
+                && !elided_positions.contains(&udf.plan_position)
+            {
                 let tag_name = lookup_tag_name(udf, tags_by_position)?;
                 out.insert(tag_name.to_string());
             }
@@ -343,6 +772,7 @@ fn resolve_scan_plan_position(scan: &TableScan) -> Option<usize> {
 fn apply_tagging_to_scan(
     mut scan: TableScan,
     tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    elided_positions: &BTreeSet<usize>,
     tags_needed_above: &BTreeSet<String>,
 ) -> Result<Transformed<LogicalPlan>> {
     let Some(provider) = pg_search_provider_from_scan(&scan) else {
@@ -353,19 +783,29 @@ fn apply_tagging_to_scan(
     };
 
     let local_queries = tags_by_position.get(&plan_pos).cloned().unwrap_or_default();
+    let is_elided = elided_positions.contains(&plan_pos);
 
     let mut new_provider = provider.clone();
     let base_query = new_provider.scan_info.mode.query().clone();
     if !local_queries.is_empty() {
         new_provider.scan_info.has_search_predicate = true;
-        for tq in &local_queries {
-            new_provider.add_match_tag_column(&tq.tag_name);
-        }
+    }
+    if is_elided {
+        let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();
+        new_provider.scan_info.mode = ScanMode::disjunctive(base_query, disjunct_queries);
+        scan.source =
+            Arc::new(DefaultTableSource::new(Arc::new(new_provider))) as Arc<dyn TableSource>;
+        return Ok(Transformed::yes(LogicalPlan::TableScan(scan)));
+    }
+
+    for tq in &local_queries {
+        new_provider.add_match_tag_column(&tq.tag_name);
     }
     new_provider.scan_info.mode = ScanMode::tagged(base_query, local_queries.clone());
 
     let new_source =
         Arc::new(DefaultTableSource::new(Arc::new(new_provider))) as Arc<dyn TableSource>;
+
     let source_schema = new_source.schema();
 
     // Project any tag columns needed by filters above this scan.
@@ -415,20 +855,26 @@ fn apply_tagging_to_scan(
 fn rewrite_plan(
     plan: LogicalPlan,
     tags_by_position: &BTreeMap<usize, Vec<TaggedQuery>>,
+    elided_positions: &BTreeSet<usize>,
     tags_needed_above: &BTreeSet<String>,
 ) -> Result<Transformed<LogicalPlan>> {
     if let LogicalPlan::TableScan(scan) = plan {
-        return apply_tagging_to_scan(scan, tags_by_position, tags_needed_above);
+        return apply_tagging_to_scan(scan, tags_by_position, elided_positions, tags_needed_above);
     }
 
     let mut children_needed = tags_needed_above.clone();
-    collect_node_referenced_tags(&plan, tags_by_position, &mut children_needed)?;
+    collect_node_referenced_tags(
+        &plan,
+        tags_by_position,
+        elided_positions,
+        &mut children_needed,
+    )?;
 
     let children: Vec<LogicalPlan> = plan.inputs().into_iter().cloned().collect();
     let mut new_children = Vec::with_capacity(children.len());
     let mut any_child_modified = false;
     for child in children {
-        let res = rewrite_plan(child, tags_by_position, &children_needed)?;
+        let res = rewrite_plan(child, tags_by_position, elided_positions, &children_needed)?;
         any_child_modified |= res.transformed;
         new_children.push(res.data);
     }
@@ -500,6 +946,10 @@ fn rewrite_plan(
             let right = iter.next().unwrap();
             let mut filter_modified = false;
             let new_filter = match join.filter {
+                Some(f) if is_elided_join_filter(&f, elided_positions) => {
+                    filter_modified = true;
+                    None
+                }
                 Some(f) => {
                     let res = rewrite_search_predicate_expr(f, tags_by_position)?;
                     filter_modified = res.transformed;
@@ -508,7 +958,7 @@ fn rewrite_plan(
                 None => None,
             };
             if any_child_modified || filter_modified {
-                let new_join = datafusion::logical_expr::logical_plan::Join::try_new(
+                let new_join = Join::try_new(
                     Arc::new(left),
                     Arc::new(right),
                     join.on,
@@ -520,18 +970,16 @@ fn rewrite_plan(
                 )?;
                 Ok(Transformed::yes(LogicalPlan::Join(new_join)))
             } else {
-                Ok(Transformed::no(LogicalPlan::Join(
-                    datafusion::logical_expr::logical_plan::Join::try_new(
-                        Arc::new(left),
-                        Arc::new(right),
-                        join.on,
-                        new_filter,
-                        join.join_type,
-                        join.join_constraint,
-                        join.null_equality,
-                        join.null_aware,
-                    )?,
-                )))
+                Ok(Transformed::no(LogicalPlan::Join(Join::try_new(
+                    Arc::new(left),
+                    Arc::new(right),
+                    join.on,
+                    new_filter,
+                    join.join_type,
+                    join.join_constraint,
+                    join.null_equality,
+                    join.null_aware,
+                )?)))
             }
         }
         other => {
@@ -803,5 +1251,165 @@ mod tests {
             Ok(TreeNodeRecursion::Continue)
         });
         assert_eq!(filter_preds, vec!["__p_0_tag_0 OR __p_0_tag_1"]);
+    }
+
+    #[test]
+    fn rank_join_elides_tags_and_join_filter_and_falls_back_when_ineligible() {
+        let make_scored_provider = |plan_position: usize, alias: &str, rows: u64| {
+            let mut scan_info = ScanInfo::new(
+                (plan_position + 1) as u32,
+                pg_sys::Oid::from_u32(1000 + plan_position as u32),
+                pg_sys::Oid::from_u32(2000 + plan_position as u32),
+                ScanMode::standard(SearchQueryInput::All),
+            )
+            .with_alias(alias);
+            scan_info.estimate = crate::scan::info::RowEstimate::Known(rows);
+
+            let fields = vec![
+                WhichFastField::DeferredCtid(format!("ctid_{plan_position}")),
+                WhichFastField::eager("id", SearchFieldType::I64(pg_sys::INT8OID)),
+                WhichFastField::Score(Some(format!("__pdb_score_{plan_position}"))),
+            ];
+
+            Arc::new(PgSearchTableProvider::new(
+                scan_info,
+                fields,
+                Some(plan_position),
+            ))
+        };
+
+        let build_disjunctive_top_k_plan =
+            |left_q: SearchQueryInput, right_q: SearchQueryInput, rows: u64, fetch: usize| {
+                let left_provider = make_scored_provider(0, "p", rows);
+                let right_provider = make_scored_provider(1, "s", rows);
+
+                let left_scan = LogicalPlanBuilder::scan(
+                    "__p_0",
+                    Arc::new(DefaultTableSource::new(left_provider)),
+                    None,
+                )
+                .unwrap()
+                .build()
+                .unwrap();
+
+                let right_scan = LogicalPlanBuilder::scan(
+                    "__s_1",
+                    Arc::new(DefaultTableSource::new(right_provider)),
+                    None,
+                )
+                .unwrap()
+                .build()
+                .unwrap();
+
+                let pred_left = make_udf_expr(0, "p", left_q);
+                let pred_right = make_udf_expr(1, "s", right_q);
+                let join_plan = LogicalPlan::Join(
+                    datafusion::logical_expr::logical_plan::Join::try_new(
+                        Arc::new(left_scan),
+                        Arc::new(right_scan),
+                        vec![(col("__p_0.id"), col("__s_1.id"))],
+                        Some(pred_left.or(pred_right)),
+                        JoinType::Inner,
+                        JoinConstraint::On,
+                        datafusion::common::NullEquality::NullEqualsNothing,
+                        false,
+                    )
+                    .unwrap(),
+                );
+
+                let score_sum = col("__p_0.__pdb_score_0") + col("__s_1.__pdb_score_1");
+                LogicalPlanBuilder::from(join_plan)
+                    .project(vec![
+                        col("__p_0.id"),
+                        col("__s_1.id"),
+                        score_sum.alias("total_score"),
+                    ])
+                    .unwrap()
+                    .sort_with_limit(vec![col("total_score").sort(false, false)], Some(fetch))
+                    .unwrap()
+                    .build()
+                    .unwrap()
+            };
+
+        let bm25_left = SearchQueryInput::Parse {
+            query_string: "running".into(),
+            lenient: None,
+            conjunction_mode: None,
+        };
+        let bm25_right = SearchQueryInput::Parse {
+            query_string: "shoes".into(),
+            lenient: None,
+            conjunction_mode: None,
+        };
+
+        // Case 1: Eligible RankJoin (BM25 queries, 50k rows >= 10k min_rows, fetch = 10 <= 1000).
+        // Tags and `Join.filter` should be elided, while `ScanMode::Disjunctive.disjunct_queries` is populated.
+        let eligible_plan =
+            build_disjunctive_top_k_plan(bm25_left.clone(), bm25_right.clone(), 50_000, 10);
+        let rule = JoinSearchPredicateRule::new_with_min_rows(10_000);
+        let rewritten = rule
+            .rewrite(eligible_plan, &OptimizerContext::new())
+            .unwrap()
+            .data;
+
+        let mut join_filters = Vec::new();
+        let mut scan_tag_cols = Vec::new();
+        let mut disjunct_query_counts = Vec::new();
+        let _ = rewritten.apply(|node| {
+            match node {
+                LogicalPlan::Join(j) => join_filters.push(j.filter.clone()),
+                LogicalPlan::TableScan(scan) => {
+                    let has_tag_col = scan
+                        .projected_schema
+                        .fields()
+                        .iter()
+                        .any(|f| f.name().contains("_tag_"));
+                    scan_tag_cols.push(has_tag_col);
+                    if let Some(provider) = pg_search_provider_from_scan(scan)
+                        && let ScanMode::Disjunctive {
+                            disjunct_queries, ..
+                        } = &provider.scan_info.mode
+                    {
+                        disjunct_query_counts.push(disjunct_queries.len());
+                    }
+                }
+                _ => {}
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        assert_eq!(join_filters, vec![None]);
+        assert_eq!(scan_tag_cols, vec![false, false]);
+        assert_eq!(disjunct_query_counts, vec![1, 1]);
+
+        // Case 2: Ineligible due to row estimate below `min_rows` (1k < 10k) -> falls back to tagging.
+        let small_plan = build_disjunctive_top_k_plan(bm25_left, bm25_right, 1_000, 10);
+        let small_rewritten = rule
+            .rewrite(small_plan, &OptimizerContext::new())
+            .unwrap()
+            .data;
+        let mut small_join_filters = Vec::new();
+        let mut small_scan_tag_cols = Vec::new();
+        let _ = small_rewritten.apply(|node| {
+            match node {
+                LogicalPlan::Join(j) => {
+                    small_join_filters.push(j.filter.as_ref().map(|e| e.to_string()));
+                }
+                LogicalPlan::TableScan(scan) => {
+                    let has_tag_col = scan
+                        .projected_schema
+                        .fields()
+                        .iter()
+                        .any(|f| f.name().contains("_tag_"));
+                    small_scan_tag_cols.push(has_tag_col);
+                }
+                _ => {}
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        assert_eq!(
+            small_join_filters,
+            vec![Some("__p_0.__p_0_tag_0 OR __s_1.__s_1_tag_0".to_string())]
+        );
+        assert_eq!(small_scan_tag_cols, vec![true, true]);
     }
 }

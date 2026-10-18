@@ -526,7 +526,7 @@ impl PgSearchTableProvider {
     /// The filters come from DataFusion's supports_filters_pushdown mechanism - these are
     /// join-level predicates that couldn't be applied at the base relation level (e.g. regular
     /// SQL predicates: equality, range, IN list on indexed columns).
-    fn combine_query_with_filters(
+    pub(crate) fn combine_query_with_filters(
         &self,
         base_query: SearchQueryInput,
         filters: &[Expr],

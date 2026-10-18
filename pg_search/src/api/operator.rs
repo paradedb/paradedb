@@ -1427,7 +1427,7 @@ unsafe fn rewrite_rhs_to_search_query_input(
     } else {
         // the rhs is a complex expression that needs to be evaluated at runtime
         // but its return type is not SearchQueryInput, so we need to rewrite it
-        operator.rewrite_exec(field, lhs, rhs).palloc().cast()
+        operator.rewrite_exec(field, lhs, rhs).cast()
     };
     rhs
 }
@@ -1452,7 +1452,7 @@ unsafe fn build_text_funcexpr(
     operator_name: &str,
     text_fn: &std::ffi::CStr,
     array_fn: &std::ffi::CStr,
-) -> pg_sys::FuncExpr {
+) -> *mut pg_sys::FuncExpr {
     let expr_type = get_expr_result_type(rhs);
     let is_array = is_text_array_like(expr_type);
     if !(is_text_like(expr_type) || is_array) {
@@ -1469,7 +1469,7 @@ unsafe fn build_text_funcexpr(
     args.push(field.into_const().cast());
     args.push(rhs.cast());
 
-    *pg_sys::makeFuncExpr(
+    pg_sys::makeFuncExpr(
         funcid,
         searchqueryinput_typoid(),
         args.into_pg(),
@@ -1537,7 +1537,7 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
     rhs: *mut pg_sys::Node,
     rhs_kind: PdbQueryRhs,
     outer_sig: &std::ffi::CStr,
-) -> pg_sys::FuncExpr {
+) -> *mut pg_sys::FuncExpr {
     let coerced_rhs: *mut pg_sys::Node = if let Some(cast_sig) = rhs_kind.cast_sig() {
         let cast_funcid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[cast_sig.into_datum()])
@@ -1566,7 +1566,7 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
     args.push(field.into_const().cast());
     args.push(coerced_rhs);
 
-    *pg_sys::makeFuncExpr(
+    pg_sys::makeFuncExpr(
         outer_funcid,
         searchqueryinput_typoid(),
         args.into_pg(),

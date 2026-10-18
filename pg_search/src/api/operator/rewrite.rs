@@ -178,7 +178,7 @@ impl SearchOperator {
         field: Option<FieldName>,
         lhs: *mut pg_sys::Node,
         rhs: *mut pg_sys::Node,
-    ) -> pg_sys::FuncExpr {
+    ) -> *mut pg_sys::FuncExpr {
         if self == Self::Parse {
             let expr_type = get_expr_result_type(rhs);
             let is_pdb_query = expr_type == pdb_query_typoid();
@@ -212,7 +212,7 @@ impl SearchOperator {
                 args.push(pg_sys::makeBoolConst(false, true));
             }
 
-            return *pg_sys::makeFuncExpr(
+            return pg_sys::makeFuncExpr(
                 funcid,
                 searchqueryinput_typoid(),
                 args.into_pg(),

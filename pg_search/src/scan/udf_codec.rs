@@ -31,6 +31,9 @@ use datafusion::logical_expr::ScalarUDF;
 use crate::postgres::customscan::datafusion::timestamp_to_date::{
     TIMESTAMP_TO_DATE_UDF_NAME, timestamp_to_date_udf,
 };
+use crate::postgres::customscan::joinscan::search_predicate_rule::{
+    SEARCH_PREDICATE_UDF_PREFIX, SearchPredicateUdf,
+};
 use crate::postgres::customscan::pg_expr_udf::{PG_EXPR_UDF_PREFIX, PgExprUdf};
 
 /// Whether `name` identifies a scalar UDF that `pg_search` owns the encoding for.
@@ -38,7 +41,9 @@ use crate::postgres::customscan::pg_expr_udf::{PG_EXPR_UDF_PREFIX, PgExprUdf};
 /// This is the single definition of that predicate; the decode/encode helpers
 /// below and the composed physical codec all agree by construction.
 pub(crate) fn is_pg_search_udf(name: &str) -> bool {
-    name.starts_with(PG_EXPR_UDF_PREFIX) || name == TIMESTAMP_TO_DATE_UDF_NAME
+    name.starts_with(PG_EXPR_UDF_PREFIX)
+        || name == TIMESTAMP_TO_DATE_UDF_NAME
+        || name.starts_with(SEARCH_PREDICATE_UDF_PREFIX)
 }
 
 /// Decode a `pg_search` scalar UDF.
@@ -57,6 +62,13 @@ pub(crate) fn try_decode_pg_search_udf(name: &str, buf: &[u8]) -> Result<Option<
 
     if name == TIMESTAMP_TO_DATE_UDF_NAME {
         return Ok(Some(timestamp_to_date_udf()));
+    }
+
+    if name.starts_with(SEARCH_PREDICATE_UDF_PREFIX) {
+        let udf: SearchPredicateUdf = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to deserialize SearchPredicateUdf: {e}"))
+        })?;
+        return Ok(Some(Arc::new(ScalarUDF::new_from_impl(udf))));
     }
 
     Ok(None)
@@ -82,6 +94,18 @@ pub(crate) fn try_encode_pg_search_udf(node: &ScalarUDF, buf: &mut Vec<u8>) -> R
     }
 
     if name == TIMESTAMP_TO_DATE_UDF_NAME {
+        return Ok(true);
+    }
+
+    if name.starts_with(SEARCH_PREDICATE_UDF_PREFIX) {
+        let udf = node
+            .inner()
+            .downcast_ref::<SearchPredicateUdf>()
+            .ok_or_else(|| DataFusionError::Internal("UDF is not a SearchPredicateUdf".into()))?;
+        let bytes = serde_json::to_vec(udf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to serialize SearchPredicateUdf: {e}"))
+        })?;
+        buf.extend_from_slice(&bytes);
         return Ok(true);
     }
 

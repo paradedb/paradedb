@@ -530,17 +530,21 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .iter()
         .position(|r| r.name() == "optimize_projections")
         .expect("optimize_projections optimizer rule not found");
-    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
-    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
-    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+    // TODO(https://github.com/apache/datafusion/issues/25642): Run `JoinSearchPredicateRule` and an
+    // initial pass of `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
+    // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
     // DataFusion dropping `projection_beneficial` across extension nodes).
-    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+    // The second pass of `OptimizeProjections` (at `pos + 3`) then prunes any unused `ctid_*` columns
     // above `VisibilityFilterNode`.
     optimizer_rules.insert(
         pos,
+        Arc::new(super::search_predicate_rule::JoinSearchPredicateRule::new()),
+    );
+    optimizer_rules.insert(
+        pos + 1,
         Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
     );
-    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
+    optimizer_rules.insert(pos + 2, Arc::new(VisibilityFilterOptimizerRule::new()));
     optimizer_rules.push(Arc::new(
         super::range_partitioning_rule::RangePartitioningRule::new(),
     ));
@@ -2125,11 +2129,6 @@ fn build_source_df<'a>(
         };
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);
-        if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
-            for tq in local_queries {
-                provider.add_match_tag_column(&tq.tag_name);
-            }
-        }
 
         // When DISTINCT is present, indexed expression projections and ORDER BY must be
         // available early for DataFusion's AggregateExec and SortExec. Plain DISTINCT columns

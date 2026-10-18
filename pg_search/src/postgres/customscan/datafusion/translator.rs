@@ -132,16 +132,21 @@ impl<'a> PredicateTranslator<'a> {
                 predicate,
             } => {
                 let source = sources.iter().find(|s| s.plan_position == *plan_position)?;
-                let tag_name = match &source.scan_info.mode {
+                match &source.scan_info.mode {
                     ScanMode::Tagged { local_queries, .. } => {
-                        &local_queries
+                        let tag_name = &local_queries
                             .iter()
                             .find(|tq| tq.query.as_ref() == &predicate.query)?
-                            .tag_name
+                            .tag_name;
+                        Some(col(tag_name))
                     }
-                    ScanMode::Standard { .. } => return None,
-                };
-                Some(col(tag_name))
+                    ScanMode::Standard { .. } => Some(
+                        crate::postgres::customscan::joinscan::search_predicate_rule::make_search_predicate_expr(
+                            source,
+                            &predicate.query,
+                        ),
+                    ),
+                }
             }
             JoinLevelExpr::MultiTablePredicate { .. } => {
                 let expr = custom_exprs.get(*custom_expr_idx).cloned();

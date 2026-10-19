@@ -2521,49 +2521,48 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             }
         }
     }
-    if let Some((col, varno, varattno, heaprelid)) = non_fast_col_info
-        && let Err(decline) = pg_project_or_decline(
+    if let Some((col, varno, varattno, heaprelid)) = non_fast_col_info {
+        return pg_project_or_decline(
             expr,
             plan_for_pg_project_fallback,
             format!(
                 "JoinScan not used: target list expression depends on '{col}' which is not columnar"
             ),
         )
-    {
-        pgrx::debug1!(
-            "JoinScan declined: expression depends on '{}' \
+        .inspect_err(|_| {
+            pgrx::debug1!(
+                "JoinScan declined: expression depends on '{}' \
                 which is not columnar (rti={}, attno={}, heaprelid={}) \
                 (tables: {})",
-            col,
-            varno,
-            varattno,
-            heaprelid,
-            tables_str
-        );
-        return Err(decline);
+                col,
+                varno,
+                varattno,
+                heaprelid,
+                tables_str
+            );
+        });
     }
 
     let result_type = pg_sys::exprType(expr);
 
     if !crate::postgres::types_arrow::is_expr_type_arrow_convertible(result_type) {
         let type_name = format_type_name(result_type);
-        if let Err(decline) = pg_project_or_decline(
+        return pg_project_or_decline(
             expr,
             plan_for_pg_project_fallback,
             format!(
                 "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
             ),
-        ) {
-            pgrx::debug1!(
-                "JoinScan declined: target list expression returns type '{}' \
+        ).inspect_err(|_| {
+                pgrx::debug1!(
+                    "JoinScan declined: target list expression returns type '{}' \
                 (OID {}) which is not supported for Arrow conversion \
                 (tables: {})",
-                type_name,
-                result_type,
-                tables_str
-            );
-            return Err(decline);
-        }
+                    type_name,
+                    result_type,
+                    tables_str
+                );
+        });
     }
 
     Ok(ResolvedExpr::Expression {

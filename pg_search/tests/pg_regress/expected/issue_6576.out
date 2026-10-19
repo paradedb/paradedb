@@ -272,7 +272,9 @@ ORDER BY s.id LIMIT 10;
 
 SET paradedb.enable_join_custom_scan = on;
 -- 5) An expression over a non-columnar column used as an ORDER BY key: the
---    scan sorts on it, so it still declines.
+--    scan sorts on it, so it should still decline, but without a message.
+--    Any SRF in the target list sets hasTargetSRFs, which will cause the query
+--    to be declined earlier by the LIMIT pushdown check.
 EXPLAIN (COSTS OFF)
 SELECT s.id, 'x/' || s.path AS url
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id

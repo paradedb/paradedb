@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792428225113,
+  "lastUpdate": 1792428237527,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21505,6 +21505,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.38203839750376,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99028ec2a39464755894225c12523c12b96de0e4",
+          "message": "fix: Improve handling of empty relations (#6888)\n\n## What\n\nReplaces DataFusion's built-in `PropagateEmptyRelation` optimizer rule\nwith `PropagateEmptyUnnestRule` (delegating non-`Unnest` and\nnon-`topk_as_agg` nodes to `PropagateEmptyRelation`) so empty relations\npropagate through arbitrary chains of `Projection`, `Unnest`, and\n`topk_as_agg` nodes in a single bottom-up optimizer pass.\n\n## Why\n\nAlthough this is unlikely to occur in production, it caused a property\ntest failure.\n\nWhen `PropagateEmptyRelation` and `PropagateEmptyUnnestRule` ran as\nseparate rules, each optimizer pass could only advance an\n`EmptyRelation` across one `Projection -> Unnest` boundary. Queries with\nmultiple chained lateral `unnest`s and `topk_as_agg` over an empty input\n(such as a `CROSS JOIN LATERAL unnest` over a relation pruned by an\nanti-join) exhausted the 3-pass optimizer budget before collapsing the\nplan, causing `datafusion-proto` deserialization to fail on the\nremaining nodes above `EmptyRelation`.\n\n## How\n\n- `PropagateEmptyUnnestRule::rewrite` now delegates non-`Unnest` /\nnon-`topk_as_agg` nodes to `PropagateEmptyRelation::rewrite`.\n- `build_base_session` replaces `propagate_empty_relation` in\n`optimizer_rules` in place instead of appending\n`PropagateEmptyUnnestRule` at the end.\n\n## Tests\n\nNew unit and regress tests.",
+          "timestamp": "2026-10-19T08:17:06-07:00",
+          "tree_id": "ec4c60e40b10042f481db127acb2d6ccc3d565f2",
+          "url": "https://github.com/paradedb/paradedb/commit/99028ec2a39464755894225c12523c12b96de0e4"
+        },
+        "date": 1792428227796,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.174054018735223,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.289978800958846,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.22440682511,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 24.864492175039,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.24454082132569,
             "unit": "queries/s"
           }
         ]

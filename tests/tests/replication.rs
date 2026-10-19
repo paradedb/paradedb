@@ -1065,6 +1065,8 @@ async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> R
 
 #[async_std::test]
 async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() -> Result<()> {
+    const TARGET_SEGMENT_COUNT: i64 = 8;
+    const WRITERS: i64 = 8;
     let postgres = EphemeralPostgres::new(
         Some(
             "shared_preload_libraries = 'pg_search'\nshared_buffers = '128MB'\nmax_worker_processes = 0\nautovacuum = off\nstatement_timeout = '30s'",
@@ -1072,15 +1074,16 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
         None,
     );
     let mut conn = postgres.connection().await?;
-    conn.execute(
+    conn.execute(sqlx::AssertSqlSafe(format!(
         "CREATE EXTENSION pg_search CASCADE;
         CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
         CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
-        WITH (target_segment_count=8, mutable_segment_rows=0)",
-    )
+        WITH (target_segment_count={TARGET_SEGMENT_COUNT}, mutable_segment_rows=0,
+              background_layer_sizes='1kb,10kb,100kb')",
+    )))
     .await?;
     let mut writers = Vec::new();
-    for writer in 0..8_i64 {
+    for writer in 0..WRITERS {
         let mut writer_conn = postgres.connection().await?;
         writers.push(async_std::task::spawn(async move {
             for row in 0..120_i64 {
@@ -1095,16 +1098,27 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
     for writer in writers {
         writer.await?;
     }
-    let segments: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable",
+    let layer_counts: Vec<i64> = sqlx::query_scalar(
+        "SELECT count(*) FROM paradedb.index_info('backpressure_idx')
+         WHERE NOT mutable
+         GROUP BY CASE WHEN byte_size <= 1024 THEN 1 WHEN byte_size <= 10240 THEN 2 ELSE 3 END",
     )
-    .fetch_one(&mut conn)
+    .fetch_all(&mut conn)
     .await?;
-    anyhow::ensure!(segments <= 32, "small segment count reached {segments}");
+    // Concurrent inserts can overshoot the per-layer trigger before a merge completes.
+    anyhow::ensure!(
+        layer_counts
+            .iter()
+            .all(|count| *count <= 4 * TARGET_SEGMENT_COUNT + WRITERS),
+        "segment counts per layer reached {layer_counts:?}"
+    );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
         .fetch_one(&mut conn)
         .await?;
-    anyhow::ensure!(count == 960, "expected 960 indexed rows, got {count}");
+    anyhow::ensure!(
+        count == WRITERS * 120,
+        "unexpected indexed row count: {count}"
+    );
     let passed: Option<bool> = sqlx::query_scalar(
         "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
     )

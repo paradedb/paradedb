@@ -22,12 +22,15 @@
 //! `Utf8View` / `BinaryView` value. `TantivyFetchExec` takes State 0 to State 1 and
 //! `TantivyDecodeExec` takes State 1 to the value. The two run as separate nodes because
 //! a fast-field fetch wants doc order while a dictionary decode is random access either
-//! way, so a planner can place each where it costs least.
+//! way, so a planner can place each where it costs least. A list column skips State 1: one
+//! row of it holds many terms, so `TantivyDecodeExec` reads it from its doc address.
 
 use std::sync::Arc;
 
 use crate::api::{HashMap, HashSet};
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{
+    CanonicalColumn, FFHelper, FieldCardinality, WhichFastField,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
@@ -60,6 +63,10 @@ pub struct PhysicalDeferredField {
     /// A human-readable name used purely for `EXPLAIN` formatting
     pub display_name: String,
     pub is_bytes: bool,
+    /// See [`DeferredField`].
+    ///
+    /// [`DeferredField`]: crate::scan::late_materialization::DeferredField
+    pub cardinality: FieldCardinality,
     pub canonical: CanonicalColumn,
     /// The range table index of the scan this column comes from. See [`DeferredField`].
     ///
@@ -71,12 +78,19 @@ pub struct PhysicalDeferredField {
 
 impl PhysicalDeferredField {
     pub fn output_data_type(&self) -> DataType {
-        if self.is_bytes {
-            DataType::BinaryView
-        } else {
-            DataType::Utf8View
-        }
+        decoded_data_type(self.is_bytes, self.cardinality)
     }
+}
+
+/// The type a deferred column decodes to. The logical plan's view of a decoded column and
+/// the decode node's output both read it here, because DataFusion requires an extension
+/// node's physical schema to match its logical one, and a list type includes its item field.
+pub(crate) fn decoded_data_type(is_bytes: bool, cardinality: FieldCardinality) -> DataType {
+    cardinality.wrap(if is_bytes {
+        DataType::BinaryView
+    } else {
+        DataType::Utf8View
+    })
 }
 
 /// The fast-field helper that reads a deferred column's index.
@@ -155,15 +169,18 @@ pub(crate) fn rebuild_missing_ffhelpers(
     context: LookupRebuildContext,
 ) -> Result<()> {
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
-    // lines up by construction); they rebuild only on a worker whose fragment has that scan
-    // behind a network boundary.
+    // lines up by construction); they rebuild on a worker whose fragment has that scan behind
+    // a network boundary. A helper a fetch below already rebuilt is kept only if it lays the
+    // column out: the fetch's covers the columns it fetches, and a list is never one of them.
     let mut rebuild_indexes: HashSet<u32> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
         }
-        let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
-        if scan_is_elsewhere {
+        let has_column = ffhelpers
+            .get(&f.canonical.indexrelid)
+            .is_some_and(|helper| helper.lays_out(f.canonical.ff_index));
+        if !has_column {
             rebuild_indexes.insert(f.canonical.indexrelid);
         }
     }
@@ -220,4 +237,71 @@ pub(crate) fn preserved_ordering(
         }
     }
     eq_props
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use arrow_array::{Array, ListArray, StringViewArray};
+    use pgrx::prelude::*;
+
+    /// A fetch below a decode rebuilds its helper for the columns it fetches, and a list is
+    /// never one of them. A decode that also reads a list must not take that helper as it is,
+    /// or the list reads as a column the segment does not have and every row comes back NULL.
+    #[pg_test]
+    fn a_reused_helper_that_misses_a_column_is_rebuilt() {
+        Spi::run(
+            "CREATE TABLE lookup_rebuild (id bigint PRIMARY KEY, title text, tags text[]);
+             CREATE INDEX lookup_rebuild_idx ON lookup_rebuild
+             USING paradedb (id, (title::pdb.literal), (tags::pdb.literal));
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO lookup_rebuild VALUES (1, 'a', ARRAY['x', 'y']);
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = crate::index::reader::index::test_support::open_index("lookup_rebuild_idx");
+        let indexrelid = index_rel.oid().to_u32();
+        let schema = index_rel.schema().unwrap();
+        let field = |ff_index: usize, name: &str, cardinality| PhysicalDeferredField {
+            col_idx: ff_index,
+            display_name: name.into(),
+            is_bytes: false,
+            cardinality,
+            canonical: CanonicalColumn {
+                indexrelid,
+                ff_index,
+            },
+            heap_rti: 1,
+            rebuild: Some(DeferredLookupRebuild {
+                field_name: name.into(),
+                field_type: schema.search_field(name).unwrap().field_type(),
+                source_idx: None,
+            }),
+        };
+        let title = field(1, "title", FieldCardinality::Scalar);
+        let tags = field(2, "tags", FieldCardinality::List);
+        let context = LookupRebuildContext {
+            parallel_state: None,
+        };
+
+        let mut ffhelpers = HashMap::default();
+        rebuild_missing_ffhelpers(std::slice::from_ref(&title), &mut ffhelpers, context).unwrap();
+        let fetch_helper = Arc::clone(&ffhelpers[&indexrelid]);
+        assert!(fetch_helper.lays_out(1) && !fetch_helper.lays_out(2));
+
+        rebuild_missing_ffhelpers(&[title, tags], &mut ffhelpers, context).unwrap();
+        let decode_helper = &ffhelpers[&indexrelid];
+        assert!(decode_helper.lays_out(1) && decode_helper.lays_out(2));
+        assert!(!Arc::ptr_eq(decode_helper, &fetch_helper));
+
+        let lists = decode_helper
+            .list_values(0, 2, &[0])
+            .unwrap()
+            .expect("the segment has the column");
+        let list = lists.as_any().downcast_ref::<ListArray>().unwrap();
+        let terms = list.value(0);
+        let terms = terms.as_any().downcast_ref::<StringViewArray>().unwrap();
+        assert_eq!(terms.iter().flatten().collect::<Vec<_>>(), ["x", "y"]);
+    }
 }

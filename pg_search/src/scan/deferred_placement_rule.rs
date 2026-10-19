@@ -81,7 +81,7 @@ use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
 use crate::gucs::{self, DeferredPlacement};
-use crate::index::fast_fields_helper::FFIndex;
+use crate::index::fast_fields_helper::{FFIndex, FieldCardinality};
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_aggregate_rule::ordinal_group_keys;
@@ -290,7 +290,12 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
                 .filter(|(_, f)| f.heap_rti == heap_rti)
             {
                 let consumer = consumer_for(column);
-                let decision = decide(&summary, consumer, ctx);
+                let mut decision = decide(&summary, consumer, ctx);
+                // A list has no term ordinals for the scan to resolve: it stays at the decode
+                // point, which reads it whole, unless the decode moves into the scan with it.
+                if field.cardinality == FieldCardinality::List {
+                    decision.fetch_at_scan = false;
+                }
                 let source = DeferredSource::of(field);
                 let merged = match ctx.decisions.get(&source) {
                     Some(existing) => existing.merge(decision),
@@ -366,7 +371,7 @@ fn segmented_topk_takes(order: &LexOrdering, decode: &TantivyDecodeExec) -> bool
     for sort in order.iter() {
         if let Some(col) = sort.expr.downcast_ref::<Column>()
             && let Some(idx) = resolve_physical_index(col, &input_schema)
-            && let Some(field) = decode.deferred_fields().iter().find(|f| f.col_idx == idx)
+            && let Some(field) = decode.ordinal_sort_key(idx)
         {
             indexes.insert(field.canonical.indexrelid);
         }
@@ -736,6 +741,7 @@ mod tests {
     use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
     use arrow_schema::{DataType, Field, Schema};
+    use datafusion::physical_expr::PhysicalSortExpr;
     use datafusion::physical_expr::projection::ProjectionExpr;
     use pgrx::prelude::*;
 
@@ -894,6 +900,7 @@ mod tests {
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: CanonicalColumn {
                     indexrelid,
                     ff_index: 1,
@@ -1033,6 +1040,98 @@ mod tests {
         ) as Arc<dyn ExecutionPlan>
     }
 
+    /// A decode of a deferred `tags` column whose rows reach it through a sort, so out of doc
+    /// order: the path on which a scalar's fetch moves into the scan.
+    fn decode_through_sort(cardinality: FieldCardinality) -> Arc<dyn ExecutionPlan> {
+        let indexrelid = 42;
+        let canonical = CanonicalColumn {
+            indexrelid,
+            ff_index: 1,
+        };
+        let scan = Arc::new(PgSearchScanPlan::new(
+            None,
+            Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Int64, true),
+                deferred_field("tags"),
+            ])),
+            SearchQueryInput::All,
+            None,
+            vec![DeferredField {
+                name: "tags".into(),
+                is_bytes: false,
+                cardinality,
+                canonical: canonical.clone(),
+                heap_rti: 1,
+                rebuild: None,
+                fetch_at_scan: false,
+            }],
+            Some(Arc::new(FFHelper::empty())),
+            indexrelid,
+            None,
+            1,
+            None,
+            None,
+        )) as Arc<dyn ExecutionPlan>;
+        let by_id = LexOrdering::new(vec![PhysicalSortExpr::new_default(Arc::new(Column::new(
+            "id", 0,
+        )))])
+        .unwrap();
+        let sort = Arc::new(SortExec::new(by_id, scan)) as Arc<dyn ExecutionPlan>;
+        let mut ffhelpers = HashMap::default();
+        ffhelpers.insert(indexrelid, Arc::new(FFHelper::empty()));
+        Arc::new(
+            TantivyDecodeExec::new(
+                sort,
+                vec![PhysicalDeferredField {
+                    col_idx: 1,
+                    display_name: "tags".into(),
+                    is_bytes: false,
+                    cardinality,
+                    canonical,
+                    heap_rti: 1,
+                    rebuild: None,
+                }],
+                ffhelpers,
+            )
+            .unwrap(),
+        )
+    }
+
+    /// Rows that reach the decode out of doc order move a scalar's fetch into the scan. A list
+    /// has no term ordinals for the scan to fetch, so it stays at its decode point.
+    #[pg_test]
+    fn a_list_is_never_fetched_in_the_scan() {
+        let decided = |cardinality| {
+            let mut ctx = ctx(true, true);
+            collect_decisions(&decode_through_sort(cardinality), Bound::None, &mut ctx).unwrap();
+            ctx.decisions[&DeferredSource {
+                heap_rti: 1,
+                ff_index: 1,
+            }]
+        };
+        assert!(decided(FieldCardinality::Scalar).fetch_at_scan);
+        assert!(!decided(FieldCardinality::List).moves());
+    }
+
+    /// The segmented Top-K ranks rows by term ordinal, and a list row holds many, so a list
+    /// sort key is left to the plain sort.
+    #[pg_test]
+    fn a_list_sort_key_is_left_to_the_plain_sort() {
+        let by_tags = LexOrdering::new(vec![PhysicalSortExpr::new_default(Arc::new(Column::new(
+            "tags", 1,
+        )))])
+        .unwrap();
+        let takes = |cardinality| {
+            let decode = decode_through_sort(cardinality);
+            segmented_topk_takes(
+                &by_tags,
+                decode.downcast_ref::<TantivyDecodeExec>().unwrap(),
+            )
+        };
+        assert!(takes(FieldCardinality::Scalar));
+        assert!(!takes(FieldCardinality::List));
+    }
+
     /// A projection between the scan and its decode point caches its output schema, so the
     /// eager rewrite must rebuild it for the scan's new column type to reach the root.
     #[pg_test]
@@ -1053,6 +1152,7 @@ mod tests {
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: canonical.clone(),
                 heap_rti: 1,
                 rebuild: None,
@@ -1084,6 +1184,7 @@ mod tests {
                     col_idx: 0,
                     display_name: "title".into(),
                     is_bytes: false,
+                    cardinality: FieldCardinality::Scalar,
                     canonical: canonical.clone(),
                     heap_rti: 1,
                     rebuild: None,

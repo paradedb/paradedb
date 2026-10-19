@@ -620,6 +620,7 @@ impl JoinScan {
         let parse = &*(*root).parse;
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
         let mut window_aggs = Vec::new();
+        let mut pg_projected_resnos = Vec::new();
         for te in target_list.iter_ptr() {
             let te = &*te;
             if te.resjunk {
@@ -665,9 +666,15 @@ impl JoinScan {
                 };
                 window_aggs.push(window_agg);
             } else {
-                match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
-                    Err(e) => {
-                        return Err(e);
+                match planning::resolve_target_entry_expr(
+                    check_expr,
+                    &all_sources,
+                    root,
+                    Some(plan),
+                ) {
+                    Err(reason) => return Err(reason),
+                    Ok(planning::ResolvedExpr::PgProjected) => {
+                        pg_projected_resnos.push(te.resno);
                     }
                     Ok(planning::ResolvedExpr::Expression { window_deps, .. })
                         if !window_deps.is_empty() =>
@@ -746,7 +753,8 @@ impl JoinScan {
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct)
-            .with_window_aggs(window_aggs);
+            .with_window_aggs(window_aggs)
+            .with_pg_projected_resnos(pg_projected_resnos);
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist = source.contains_score((*root).processed_tlist.cast());
@@ -1164,9 +1172,28 @@ impl CustomScan for JoinScan {
                 pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast::<pg_sys::List>();
             node.scan.plan.targetlist = tlist_ptr;
 
+            let mut private_data = PrivateData::from(node.custom_private);
+
             let mut custom_scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(
                 pg_sys::copyObjectImpl(tlist_ptr.cast()).cast(),
             );
+            // replace pg_projected slots with NULL placeholders, and add their inputs to the tlist.
+            for resno in &private_data.join_clause.pg_projected_resnos {
+                let te = custom_scan_tlist
+                    .get_ptr(((*resno) - 1) as usize)
+                    .expect("pg-projected resno must be in the target list");
+                assert_eq!((*te).resno, *resno);
+
+                let expr = (*te).expr.cast::<pg_sys::Node>();
+                (*te).expr = pg_sys::makeNullConst(
+                    pg_sys::exprType(expr),
+                    pg_sys::exprTypmod(expr),
+                    pg_sys::exprCollation(expr),
+                )
+                .cast();
+                crate::postgres::utils::add_vars_to_tlist(expr, &mut custom_scan_tlist);
+            }
+
             let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
             for i in 1..path_private_full.len() {
                 if let Some(node_ptr) = path_private_full.get_ptr(i) {
@@ -1183,8 +1210,6 @@ impl CustomScan for JoinScan {
 
             // Extract the column mappings from custom_scan_tlist (including any added
             // custom_exprs Vars) so INDEX_VAR references can be resolved.
-            let mut private_data = PrivateData::from(node.custom_private);
-
             private_data.output_columns =
                 compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
 
@@ -1962,7 +1987,13 @@ unsafe fn compute_output_columns(
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
     for te in original_entries.iter_ptr() {
-        let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        let te = &(*te);
+        if join_clause.pg_projected_resnos.contains(&te.resno) {
+            output_columns.push(privdat::OutputColumnInfo::Pruned);
+            continue;
+        }
+
+        let check_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
         if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
             let rti = (*var).varno as pg_sys::Index;
@@ -2004,7 +2035,7 @@ unsafe fn compute_output_columns(
         } else if is_supported_window_agg_node(check_expr) {
             let agg_index = join_clause
                 .window_aggs
-                .find_index(window_func::WindowAggId::bare((*te).resno))
+                .find_index(window_func::WindowAggId::bare(te.resno))
                 .expect(
                     "At this point, any window agg found should have successfully been extracted and be findable",
                 );
@@ -2089,7 +2120,15 @@ unsafe fn build_output_projection(
     // so DataFusion can evaluate them and exec_custom_scan can project their results.
     let all_sources = private_data.join_clause.plan.sources();
     for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
+        let te = &(*te);
         if resolved_entries[scan_idx].is_some() {
+            continue;
+        }
+        if private_data
+            .join_clause
+            .pg_projected_resnos
+            .contains(&te.resno)
+        {
             continue;
         }
         // Bare window aggregates are emitted by the direct window-output
@@ -2103,10 +2142,11 @@ unsafe fn build_output_projection(
         ) {
             continue;
         }
-        let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        let scan_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
-            && let Ok(resolved) = planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
+            && let Ok(resolved) =
+                planning::resolve_target_entry_expr(scan_expr, &all_sources, root, None)
         {
             resolved_entries[scan_idx] = Some(resolved);
         }
@@ -2186,7 +2226,7 @@ unsafe fn build_output_projection(
                             field_name: field_name.clone(),
                         }
                     }
-                    None => info.into(),
+                    Some(planning::ResolvedExpr::PgProjected) | None => info.into(),
                 }
             })
             .collect(),
@@ -2543,7 +2583,17 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         row_idx: usize,
     ) -> Option<*mut pg_sys::TupleTableSlot> {
-        let result_slot = state.custom_state().result_slot?;
+        let projecting = !state
+            .custom_state()
+            .join_clause
+            .pg_projected_resnos
+            .is_empty();
+        let target_slot = if projecting {
+            state.scanslot()
+        } else {
+            state.custom_state().result_slot?
+        };
+
         let output_columns = state.custom_state().output_columns.clone();
         let mut fetched_sources = crate::api::HashSet::default();
         // Sources whose ctid is NULL in this row: the row is null-extended by
@@ -2623,15 +2673,15 @@ impl JoinScan {
                 fetched_sources.insert(plan_position);
             }
         }
-        // Get the result tuple descriptor from the result slot
-        let result_tupdesc = (*result_slot).tts_tupleDescriptor;
-        let natts = (*result_tupdesc).natts as usize;
-        // Clear the result slot
-        pg_sys::ExecClearTuple(result_slot);
+        // Get the target tuple descriptor from the target slot
+        let target_tupdesc = (*target_slot).tts_tupleDescriptor;
+        let natts = (*target_tupdesc).natts as usize;
+        // Clear the target slot
+        pg_sys::ExecClearTuple(target_slot);
 
-        // Fill the result slot based on the output column mapping
-        let datums = (*result_slot).tts_values;
-        let nulls = (*result_slot).tts_isnull;
+        // Fill the target slot based on the output column mapping
+        let datums = (*target_slot).tts_values;
+        let nulls = (*target_slot).tts_isnull;
 
         let batch = state.custom_state().current_batch.as_ref()?;
 
@@ -2809,11 +2859,11 @@ impl JoinScan {
                     let expected_type = {
                         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                         {
-                            (*result_tupdesc).attrs.as_slice(natts)[i].atttypid
+                            (*target_tupdesc).attrs.as_slice(natts)[i].atttypid
                         }
                         #[cfg(feature = "pg18")]
                         {
-                            (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
+                            (*pg_sys::TupleDescAttr(target_tupdesc, i as i32)).atttypid
                         }
                     };
                     if col.is_null(row_idx) || col.data_type() == &arrow_schema::DataType::Null {
@@ -2841,8 +2891,21 @@ impl JoinScan {
             }
         }
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
-        pg_sys::ExecStoreVirtualTuple(result_slot);
-        Some(result_slot)
+        pg_sys::ExecStoreVirtualTuple(target_slot);
+
+        if projecting {
+            let proj_info = state.csstate.ss.ps.ps_ProjInfo;
+            assert!(!proj_info.is_null(), "should never be null");
+            let econtext = (*proj_info).pi_exprContext;
+            // Reset only the projection's per-tuple memory. `pi_exprContext` is the context
+            // ExecInitCustomScan created; begin_custom_scan replaces `ps_ExprContext` with a
+            // fresh one (where runtime params are solved and must never be reset per row),
+            // so the two are distinct.
+            pg_sys::MemoryContextReset((*econtext).ecxt_per_tuple_memory);
+            (*econtext).ecxt_scantuple = target_slot;
+            return Some(pg_sys::ExecProject(proj_info));
+        }
+        Some(target_slot)
     }
 }
 

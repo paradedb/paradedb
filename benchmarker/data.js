@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792426568854,
+  "lastUpdate": 1792428225113,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13147,6 +13147,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 184.781,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99028ec2a39464755894225c12523c12b96de0e4",
+          "message": "fix: Improve handling of empty relations (#6888)\n\n## What\n\nReplaces DataFusion's built-in `PropagateEmptyRelation` optimizer rule\nwith `PropagateEmptyUnnestRule` (delegating non-`Unnest` and\nnon-`topk_as_agg` nodes to `PropagateEmptyRelation`) so empty relations\npropagate through arbitrary chains of `Projection`, `Unnest`, and\n`topk_as_agg` nodes in a single bottom-up optimizer pass.\n\n## Why\n\nAlthough this is unlikely to occur in production, it caused a property\ntest failure.\n\nWhen `PropagateEmptyRelation` and `PropagateEmptyUnnestRule` ran as\nseparate rules, each optimizer pass could only advance an\n`EmptyRelation` across one `Projection -> Unnest` boundary. Queries with\nmultiple chained lateral `unnest`s and `topk_as_agg` over an empty input\n(such as a `CROSS JOIN LATERAL unnest` over a relation pruned by an\nanti-join) exhausted the 3-pass optimizer budget before collapsing the\nplan, causing `datafusion-proto` deserialization to fail on the\nremaining nodes above `EmptyRelation`.\n\n## How\n\n- `PropagateEmptyUnnestRule::rewrite` now delegates non-`Unnest` /\nnon-`topk_as_agg` nodes to `PropagateEmptyRelation::rewrite`.\n- `build_base_session` replaces `propagate_empty_relation` in\n`optimizer_rules` in place instead of appending\n`PropagateEmptyUnnestRule` at the end.\n\n## Tests\n\nNew unit and regress tests.",
+          "timestamp": "2026-10-19T08:17:06-07:00",
+          "tree_id": "ec4c60e40b10042f481db127acb2d6ccc3d565f2",
+          "url": "https://github.com/paradedb/paradedb/commit/99028ec2a39464755894225c12523c12b96de0e4"
+        },
+        "date": 1792428215556,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.722,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 98.013,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 365.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 107.405,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 190.694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 47.07,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 151.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 215.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 24.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 124.877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 198.207,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 86.094,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 202.036,
             "unit": "ms"
           }
         ]

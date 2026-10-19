@@ -160,8 +160,10 @@ LIMIT 5
 FOR UPDATE OF t1;
 
 -- =============================================================================
--- TEST 2.4: Volatile expression in target list declines JoinScan
+-- TEST 2.4: Volatile expression in target list is projected by Postgres
 -- =============================================================================
+-- JoinScan should be used, with random() evaluated once per output row in the
+-- Postgres projection above the scan, matching where a native plan evaluates it.
 
 SELECT setseed(0.5);
 
@@ -180,6 +182,32 @@ FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2.5: Volatile ORDER BY key in the target list declines JoinScan
+-- =============================================================================
+-- A sort key with no column references must not be treated as belonging to an
+-- outer relation and dropped from the scan's sort.
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY rand_val, t1.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2.6: Volatile ORDER BY key only in a hidden sort entry declines JoinScan
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY random(), t1.id
 LIMIT 5;
 
 -- =============================================================================

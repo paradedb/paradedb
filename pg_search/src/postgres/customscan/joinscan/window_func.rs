@@ -18,7 +18,9 @@
 use crate::api::window_aggregate::{PlaceholderId, make_window_agg_placeholder};
 use crate::api::{MvccVisibility, is_agg_funcoid, is_combine_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::datafusion_build::ResolutionSource;
+use crate::postgres::customscan::aggregatescan::datafusion_build::{
+    FilterExprBuildContext, JoinAggSource, ResolutionSource,
+};
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
     numeric_avg_func_with_args, numeric_sum_func_with_args,
 };
@@ -26,6 +28,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, lower_pdb_agg_call, unwrap_to_var,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggRequest;
+use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
 use crate::postgres::deparse::deparse_planner_expr;
@@ -35,13 +38,13 @@ use datafusion::common::DataFusionError;
 use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
 use datafusion::functions_aggregate::{average, count, min_max, sum};
 use datafusion::logical_expr::{AggregateUDF, Expr, lit};
-use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
+use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, PlannerInfo, WindowFunc};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-use super::build::JoinSource;
+use super::build::{JoinSource, PlannerRootId, RelNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupportedWindowAggType {
@@ -116,26 +119,29 @@ impl fmt::Display for SupportedWindowAggType {
 
 /// A SQL aggregate and the column it reads, `None` for `COUNT(*)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SqlWindowAggDef(pub SupportedWindowAggType, pub Option<ColumnInfo>);
+pub struct SqlWindowAggDef {
+    agg_type: SupportedWindowAggType,
+    col_info: Option<ColumnInfo>,
+}
 impl SqlWindowAggDef {
     pub fn agg_type(&self) -> SupportedWindowAggType {
-        self.0
+        self.agg_type
     }
 
     pub fn col_info(&self) -> Option<&ColumnInfo> {
-        self.1.as_ref()
+        self.col_info.as_ref()
     }
 
     pub fn arg_field_type(&self) -> Option<&SearchFieldType> {
-        self.1.as_ref().and_then(|ci| ci.field_type.as_ref())
+        self.col_info.as_ref().and_then(|ci| ci.field_type.as_ref())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WindowAggDef {
-    Sql(SqlWindowAggDef),
+    Sql(SqlWindowAggDef, Option<FilterExpr>),
     /// `pdb.agg()`, lowered to the request the aggregate scan runs.
-    PdbAgg(Box<PdbAggRequest>),
+    PdbAgg(Box<PdbAggRequest>, Option<FilterExpr>),
 }
 impl WindowAggDef {
     /// Lower a `pdb.agg(...) OVER ()` under the constraints the aggregate scan
@@ -145,6 +151,7 @@ impl WindowAggDef {
     fn try_pdb_agg_from_window_func(
         wf: &WindowFunc,
         sources: &[&JoinSource],
+        filter: Option<FilterExpr>,
     ) -> Result<Self, String> {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
         let sources: Vec<ResolutionSource> =
@@ -163,22 +170,30 @@ impl WindowAggDef {
                 MvccVisibility::default().as_sql_value()
             ));
         }
-        Ok(Self::PdbAgg(Box::new(request)))
+        Ok(Self::PdbAgg(Box::new(request), filter))
     }
 
     /// The SQL aggregate, if this is one.
     pub fn sql(&self) -> Option<&SqlWindowAggDef> {
         match self {
-            Self::Sql(sql) => Some(sql),
-            Self::PdbAgg(_) => None,
+            Self::Sql(sql, _) => Some(sql),
+            Self::PdbAgg(_, _) => None,
         }
     }
 
     /// The `pdb.agg()` request, if this is one.
     pub fn pdb_agg(&self) -> Option<&PdbAggRequest> {
         match self {
-            Self::Sql(_) => None,
-            Self::PdbAgg(request) => Some(request),
+            Self::Sql(_, _) => None,
+            Self::PdbAgg(request, _) => Some(request),
+        }
+    }
+
+    /// the filter expression for the window, if there is one
+    pub fn filter(&self) -> Option<&FilterExpr> {
+        match self {
+            Self::Sql(_, filter) => filter.as_ref(),
+            Self::PdbAgg(_, filter) => filter.as_ref(),
         }
     }
 }
@@ -382,16 +397,14 @@ pub unsafe fn has_empty_over_clause(parse: *const pg_sys::Query, winref: pg_sys:
 /// `aggregatescan::join_targetlist::extract_raw_window_entry`.
 pub fn extract_window_agg(
     wf: *const WindowFunc,
-    sources: &[&JoinSource],
-    parse: &Query,
+    root: *mut PlannerInfo,
+    plan: &RelNode,
     id: WindowAggId,
 ) -> Result<WindowAgg, String> {
     assert!(!wf.is_null());
+    assert!(!root.is_null());
     let wf = unsafe { &*wf };
-
-    if !wf.aggfilter.is_null() {
-        return Err("window function filter clause is not supported".to_string());
-    }
+    let parse = unsafe { &*((*root).parse) };
 
     if !wf.winagg {
         return Err(
@@ -405,13 +418,40 @@ pub fn extract_window_agg(
         );
     }
 
+    let outer_root_id = PlannerRootId::from(root);
+    let join_agg_sources: Vec<_> = plan
+        .output_sources()
+        .into_iter()
+        .filter(|s| s.root_id == Some(outer_root_id))
+        .map(JoinAggSource::from)
+        .collect();
+    let filter_ctx = FilterExprBuildContext::Filter {
+        root,
+        sources: &join_agg_sources,
+        plan,
+        outer_root_id,
+    };
+    let filter = if !wf.aggfilter.is_null() {
+        match FilterExpr::from_pg_node(wf.aggfilter as *mut pg_sys::Node, &filter_ctx) {
+            Some(filter) => Some(filter),
+            None => {
+                return Err("unsupported window function FILTER clause was provided".to_string());
+            }
+        }
+    } else {
+        None
+    };
+
     let agg_def = match SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar) {
-        Some(agg_type) => WindowAggDef::Sql(SqlWindowAggDef(
-            agg_type,
-            extract_column_info(wf, sources, agg_type)?,
-        )),
+        Some(agg_type) => WindowAggDef::Sql(
+            SqlWindowAggDef {
+                agg_type,
+                col_info: extract_column_info(wf, &plan.sources(), agg_type)?,
+            },
+            filter,
+        ),
         None if is_agg_funcoid(wf.winfnoid.to_u32()) => {
-            WindowAggDef::try_pdb_agg_from_window_func(wf, sources)?
+            WindowAggDef::try_pdb_agg_from_window_func(wf, &plan.sources(), filter)?
         }
         None => return Err("unsupported window function was provided".to_string()),
     };

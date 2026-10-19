@@ -108,6 +108,20 @@ impl JoinAggSource {
     }
 }
 
+impl From<&JoinSource> for JoinAggSource {
+    fn from(value: &JoinSource) -> Self {
+        Self {
+            rti: value.scan_info.heap_rti,
+            relid: value.scan_info.heaprelid,
+            alias: value.scan_info.alias.clone(),
+            bm25_index: Some(PgSearchRelation::open(value.scan_info.indexrelid)),
+            // Not `scan_info.fields`: those are only the fields the scan
+            // requires, while this holds every fast field of the relation.
+            fields: OnceLock::new(),
+        }
+    }
+}
+
 /// An index field name resolved to one of the join sources.
 pub struct ResolvedSourceField {
     pub source_rti: pg_sys::Index,

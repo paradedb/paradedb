@@ -36,7 +36,7 @@ use pgrx::prelude::*;
 /// HAVING uses `AggRef` and `GroupRef` (post-aggregate references).
 /// FILTER uses `ColumnRef` (pre-aggregate row-level references).
 /// Both share the same operator, literal, and boolean combinators.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub enum FilterExpr {
     /// Reference to an aggregate result by index (HAVING context).
     AggRef(usize),
@@ -130,7 +130,7 @@ impl FilterExpr {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub enum CompareOp {
     Eq,
     NotEq,

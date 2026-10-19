@@ -19,11 +19,12 @@ use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::is_pgoid_datetime_type;
+use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
-    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
-    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
+    is_outside_int_domain, map_bound, numeric_bound_to_bytes, scale_numeric_bound, string_to_f64,
+    string_to_i64, string_to_json_numeric,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -695,12 +696,9 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?,
-            pdb::Query::RangeTerm { value } => Box::new(range_term(
-                &field,
-                schema,
-                index_created_by_version,
-                &value,
-            )?),
+            pdb::Query::RangeTerm { value } => {
+                range_term(&field, schema, index_created_by_version, &value)?
+            }
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
@@ -717,9 +715,7 @@ impl pdb::Query {
                 slop,
                 max_expansions,
             } => Box::new(regex_phrase(&field, schema, regexes, slop, max_expansions)?),
-            pdb::Query::Term { value } => {
-                Box::new(term(field, schema, index_created_by_version, &value)?)
-            }
+            pdb::Query::Term { value } => term(field, schema, index_created_by_version, &value)?,
             pdb::Query::TermSet { terms } => {
                 Box::new(term_set(field, schema, index_created_by_version, terms)?)
             }
@@ -889,6 +885,8 @@ fn term_set(
     // Convert terms based on field type (uses same logic as term())
     let converted_terms = terms
         .into_iter()
+        // A number that no integer of the field equals matches nothing, so it is left out.
+        .filter(|term| !is_outside_int_domain(term, &search_field_type))
         .map(|term| convert_value_for_field(term, &search_field_type, index_created_by_version))
         .collect::<anyhow::Result<Vec<PdbOwnedValue>>>()?;
 
@@ -909,13 +907,18 @@ fn term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<TermQuery> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqs;
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let search_field_type = search_field.field_type();
+
+    // A number that no integer of the field equals matches nothing.
+    if is_outside_int_domain(value, &search_field_type) {
+        return Ok(Box::new(EmptyQuery));
+    }
 
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
     let value =
@@ -929,7 +932,7 @@ fn term(
         index_created_by_version,
     )?;
 
-    Ok(TermQuery::new(term, record_option.into()))
+    Ok(Box::new(TermQuery::new(term, record_option.into())))
 }
 
 fn regex_phrase(
@@ -1142,10 +1145,15 @@ fn range_term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<BooleanQuery> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // A number that no integer equals lies in no range of an integer range field.
+    if is_outside_int_domain(value, &search_field.field_type()) {
+        return Ok(Box::new(EmptyQuery));
+    }
 
     // Convert numeric values to appropriate types based on range field type.
     // Range fields are indexed as JSON with specific element types:
@@ -1252,10 +1260,10 @@ fn range_term(
         ),
     ]);
 
-    Ok(BooleanQuery::new(vec![
+    Ok(Box::new(BooleanQuery::new(vec![
         (Occur::Must, Box::new(satisfies_lower_bound)),
         (Occur::Must, Box::new(satisfies_upper_bound)),
-    ]))
+    ])))
 }
 
 fn range_intersects(
@@ -1617,14 +1625,14 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             let upper = map_bound(upper_bound, string_to_json_numeric);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::I64(_) => {
+        // Dates and times are stored in I64 fields, but they are not numbers
+        SearchFieldType::I64(oid) if is_datetime_type(oid) => {
             let lower = map_bound(lower_bound, string_to_i64);
             let upper = map_bound(upper_bound, string_to_i64);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::U64(_) => {
-            let lower = map_bound(lower_bound, string_to_u64);
-            let upper = map_bound(upper_bound, string_to_u64);
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) => {
+            let (lower, upper) = clamp_int_bounds(&search_field_type, lower_bound, upper_bound)?;
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         SearchFieldType::F64(_) => {

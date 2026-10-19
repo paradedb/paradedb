@@ -1202,7 +1202,7 @@ impl<'a> WorkerBuildState<'a> {
                 // per-row context; the insert runs outside the closure because both the writer
                 // and the context live on `self`, and the doc's values are Rust-owned by then
                 // anyway.
-                let doc = unsafe { self.per_row_context.switch_to(|_| fetcher.fetch_doc(ctid)) };
+                let doc = unsafe { self.per_row_context.switch_to(|_| fetcher.fetch_doc(ctid)) }?;
                 if let Some(doc) = doc {
                     let segment_meta = self
                         .writer

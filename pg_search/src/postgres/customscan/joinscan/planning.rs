@@ -873,6 +873,76 @@ unsafe fn collect_join_sources_join_rel(
     None
 }
 
+pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<(), String> {
+    if pg_sys::expression_returns_set(expr) {
+        pgrx::debug1!("JoinScan declined Postgres projection: expression returns a set");
+        return Err("target list expression returns a set".to_string());
+    }
+
+    let mut deps = ExprDeps {
+        vars: Vec::new(),
+        score_rtis: Vec::new(),
+        window_funcs: Vec::new(),
+    };
+    expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+
+    if !deps.score_rtis.is_empty() {
+        pgrx::debug1!(
+            "JoinScan declined Postgres projection: expression depends on a score function"
+        );
+        return Err("target list expression depends on a score function".to_string());
+    }
+
+    if !deps.window_funcs.is_empty() {
+        pgrx::debug1!(
+            "JoinScan declined Postgres projection: expression depends on a window function"
+        );
+        return Err("target list expression depends on a window function".to_string());
+    }
+
+    let tables_str = plan
+        .output_sources()
+        .iter()
+        .map(|s| source_table_name(s))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut seen = std::collections::HashSet::new();
+    for var_ptr in deps.vars {
+        let varno = (*var_ptr).varno as pg_sys::Index;
+        let varattno = (*var_ptr).varattno;
+
+        if varattno <= 0 {
+            pgrx::debug1!(
+                "JoinScan declined Postgres projection: expression depends on a system column \
+                 or whole-row reference (rti={}, attno={}) (tables: {})",
+                varno,
+                varattno,
+                tables_str
+            );
+            return Err(
+                "target list expression depends on a system column or whole-row reference"
+                    .to_string(),
+            );
+        }
+
+        if !seen.insert((varno, varattno)) {
+            continue;
+        }
+
+        if !plan.output_rtis().contains(&varno) {
+            pgrx::debug1!(
+                "JoinScan declined Postgres projection: expression depends on a relation \
+                 (rti={}) not found in any source (tables: {})",
+                varno,
+                tables_str
+            );
+            return Err("target list references a relation outside the join".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// Determines whether the provided PostgreSQL path represents a standard physical join strategy
 /// that we can intercept and execute via DataFusion.
 unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
@@ -2103,7 +2173,9 @@ pub(crate) enum ResolvedExpr {
         attno: pg_sys::AttrNumber,
     },
     /// Score function (existing behavior)
-    Score { rti: pg_sys::Index },
+    Score {
+        rti: pg_sys::Index,
+    },
     /// An indexed expression that matched via find_matching_fast_field.
     /// Handled by existing machinery — does NOT need the UDF path.
     IndexedExpression {
@@ -2124,6 +2196,7 @@ pub(crate) enum ResolvedExpr {
         /// records them stamps the owning target entry's resno.
         window_deps: Vec<WindowAgg>,
     },
+    PgProjected,
 }
 
 // ---------------------------------------------------------------------------
@@ -2221,6 +2294,46 @@ pub fn resolve_fast_field_from_join_sources(
     })
 }
 
+struct ExprDeps {
+    vars: Vec<*mut pg_sys::Var>,
+    score_rtis: Vec<pg_sys::Index>,
+    window_funcs: Vec<*mut pg_sys::WindowFunc>,
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn expr_deps_walker(
+    node: *mut pg_sys::Node,
+    context: *mut core::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let deps = context.cast::<ExprDeps>();
+    let stripped = strip_wrappers(node);
+
+    // If this node is paradedb.score(var), record the score RTI and DO NOT
+    // recurse into the argument Var.
+    if let Some(rti) = get_score_func_rti(stripped.cast()) {
+        (*deps).score_rtis.push(rti);
+        return false;
+    }
+
+    // A window function is an opaque input: the scan's window step
+    // computes it, so its argument Vars are NOT expression inputs.
+    // Record the node and DO NOT recurse into it.
+    if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, stripped) {
+        (*deps).window_funcs.push(wf);
+        return false;
+    }
+
+    if let Some(var) = nodecast!(Var, T_Var, stripped) {
+        (*deps).vars.push(var);
+        return false;
+    }
+
+    pg_sys::expression_tree_walker(node, Some(expr_deps_walker), context)
+}
+
 /// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
@@ -2239,6 +2352,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     sources: &[&JoinSource],
     root: *mut pg_sys::PlannerInfo,
+    plan_for_pg_project_fallback: Option<&RelNode>,
 ) -> Result<ResolvedExpr, JoinDeclineReason> {
     let tables_str = sources
         .iter()
@@ -2313,46 +2427,6 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         ));
     }
 
-    struct ExprDeps {
-        vars: Vec<*mut pg_sys::Var>,
-        score_rtis: Vec<pg_sys::Index>,
-        window_funcs: Vec<*mut pg_sys::WindowFunc>,
-    }
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn expr_deps_walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let deps = context.cast::<ExprDeps>();
-        let stripped = strip_wrappers(node);
-
-        // If this node is paradedb.score(var), record the score RTI and DO NOT
-        // recurse into the argument Var.
-        if let Some(rti) = get_score_func_rti(stripped.cast()) {
-            (*deps).score_rtis.push(rti);
-            return false;
-        }
-
-        // A window function is an opaque input: the scan's window step
-        // computes it, so its argument Vars are NOT expression inputs.
-        // Record the node and DO NOT recurse into it.
-        if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, stripped) {
-            (*deps).window_funcs.push(wf);
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, stripped) {
-            (*deps).vars.push(var);
-            return false;
-        }
-
-        pg_sys::expression_tree_walker(node, Some(expr_deps_walker), context)
-    }
-
     let mut deps = ExprDeps {
         vars: Vec::new(),
         score_rtis: Vec::new(),
@@ -2398,6 +2472,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     let mut input_vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let mut non_fast_col_info = None;
     for var_ptr in deps.vars {
         let varno = (*var_ptr).varno as pg_sys::Index;
         let varattno = (*var_ptr).varattno;
@@ -2414,19 +2489,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 let td = hr.tuple_desc();
                 if resolve_fast_field(varattno as i32, &td, &ir).is_none() {
                     let col = column_name_for_var(sources, varno, varattno);
-                    pgrx::debug1!(
-                        "JoinScan declined: expression depends on '{}' \
-                         which is not columnar (rti={}, attno={}, heaprelid={}) \
-                         (tables: {})",
-                        col,
-                        varno,
-                        varattno,
-                        source.scan_info.heaprelid,
-                        tables_str
-                    );
-                    return Err(JoinDeclineReason::new(format!(
-                        "JoinScan not used: target list expression depends on '{col}' which is not columnar",
-                    )));
+                    non_fast_col_info = Some((col, varno, varattno, source.scan_info.heaprelid));
+                    break;
                 }
                 input_vars.push(InputVarInfo {
                     rti: varno,
@@ -2457,22 +2521,48 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             }
         }
     }
+    if let Some((col, varno, varattno, heaprelid)) = non_fast_col_info {
+        return pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            format!(
+                "JoinScan not used: target list expression depends on '{col}' which is not columnar"
+            ),
+        )
+        .inspect_err(|_| {
+            pgrx::debug1!(
+                "JoinScan declined: expression depends on '{}' \
+                which is not columnar (rti={}, attno={}, heaprelid={}) \
+                (tables: {})",
+                col,
+                varno,
+                varattno,
+                heaprelid,
+                tables_str
+            );
+        });
+    }
 
     let result_type = pg_sys::exprType(expr);
 
     if !crate::postgres::types_arrow::is_expr_type_arrow_convertible(result_type) {
         let type_name = format_type_name(result_type);
-        pgrx::debug1!(
-            "JoinScan declined: target list expression returns type '{}' \
-             (OID {}) which is not supported for Arrow conversion \
-             (tables: {})",
-            type_name,
-            result_type,
-            tables_str
-        );
-        return Err(JoinDeclineReason::new(format!(
-            "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
-        )));
+        return pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            format!(
+                "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+            ),
+        ).inspect_err(|_| {
+                pgrx::debug1!(
+                    "JoinScan declined: target list expression returns type '{}' \
+                (OID {}) which is not supported for Arrow conversion \
+                (tables: {})",
+                    type_name,
+                    result_type,
+                    tables_str
+                );
+        });
     }
 
     Ok(ResolvedExpr::Expression {
@@ -2481,6 +2571,23 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         result_type,
         window_deps,
     })
+}
+
+unsafe fn pg_project_or_decline(
+    expr: *mut pg_sys::Node,
+    plan: Option<&RelNode>,
+    why: String,
+) -> Result<ResolvedExpr, JoinDeclineReason> {
+    let Some(plan) = plan else {
+        return Err(JoinDeclineReason::new(format!("JoinScan not used: {why}")));
+    };
+    can_pg_project(expr, plan)
+        .map(|()| ResolvedExpr::PgProjected)
+        .map_err(|cause| {
+            JoinDeclineReason::new(format!(
+                "JoinScan not used: {why}, and Postgres can't compute it after the scan because it {cause}"
+            ))
+        })
 }
 
 /// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.
@@ -2506,7 +2613,11 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .find(|te| (**te).ressortgroupref == tle_ref)?;
 
         let expr = strip_wrappers((*te).expr as *mut pg_sys::Node);
-        let resolved = resolve_target_entry_expr(expr, sources, root).ok()?;
+        let resolved = resolve_target_entry_expr(expr, sources, root, None).ok()?;
+        assert!(
+            !matches!(resolved, ResolvedExpr::PgProjected),
+            "distinct columns can never be postgres projected"
+        );
         entries.push(resolved);
     }
 

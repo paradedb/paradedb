@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed Join Scan declining queries whose `SELECT` list contains an expression over a column that is not columnar, such as `'x/' || s.path` (#6576). Postgres now computes these expressions from the rows Join Scan returns, after the `LIMIT`. An `ORDER BY` or `DISTINCT` expression still needs columnar inputs, and an expression containing a volatile function still declines Join Scan.

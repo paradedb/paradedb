@@ -266,16 +266,25 @@ impl MonotonicDirection {
         }
     }
 
-    fn to_sort_options(self, root_descending: bool) -> SortOptions {
-        let descending = match self {
-            MonotonicDirection::Increasing => root_descending,
-            MonotonicDirection::Decreasing => !root_descending,
-        };
-        SortOptions {
-            descending,
-            nulls_first: false,
+    fn to_sort_options(self, root_options: SortOptions) -> SortOptions {
+        match self {
+            MonotonicDirection::Increasing => root_options,
+            MonotonicDirection::Decreasing => SortOptions {
+                descending: !root_options.descending,
+                nulls_first: !root_options.nulls_first,
+            },
         }
     }
+}
+
+/// Controls whether leaf scans in a join branch may sort by a non-score fast-field column
+/// (`OrderByFeature::Field`). Non-score column sorting is only valid when every join from the
+/// root `RankJoinExec` down to the leaf scan is single-sided (`ScoreCombiner::LeftScore` or
+/// `ScoreCombiner::RightScore`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FieldSortPolicy {
+    Allowed,
+    Disallowed,
 }
 
 /// Result of decomposing a join's primary score sort expression across its left and right children.
@@ -301,6 +310,7 @@ fn try_rewrite_under_sort(
         required_ordering,
         min_rows,
         initial_window,
+        FieldSortPolicy::Allowed,
         &mut eager_fields,
     )?
     else {
@@ -351,6 +361,7 @@ fn try_rewrite_join_subtree(
     required_ordering: &LexOrdering,
     min_rows: usize,
     initial_window: usize,
+    field_sort_policy: FieldSortPolicy,
     eager_fields: &mut Vec<PhysicalDeferredField>,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
@@ -359,6 +370,7 @@ fn try_rewrite_join_subtree(
             &child_ordering,
             min_rows,
             initial_window,
+            field_sort_policy,
             eager_fields,
         )?
         else {
@@ -397,15 +409,28 @@ fn try_rewrite_join_subtree(
         return Ok(None);
     }
 
+    let child_field_sort_policy = if field_sort_policy == FieldSortPolicy::Allowed
+        && matches!(
+            decomposed.combiner,
+            ScoreCombiner::LeftScore | ScoreCombiner::RightScore
+        ) {
+        FieldSortPolicy::Allowed
+    } else {
+        FieldSortPolicy::Disallowed
+    };
+
     let Some((new_left, left_stats)) = (if uses_left {
         try_rewrite_child_branch(
             join.left(),
             &decomposed.left_sort_expr,
             min_rows,
             initial_window,
+            child_field_sort_policy,
         )?
     } else {
-        try_rewrite_unscored_branch(join.left())?
+        let left_keys: Vec<Arc<dyn PhysicalExpr>> =
+            join.on().iter().map(|(l, _)| Arc::clone(l)).collect();
+        try_rewrite_unscored_branch(join.left(), &left_keys)?
     }) else {
         return Ok(None);
     };
@@ -416,9 +441,12 @@ fn try_rewrite_join_subtree(
             &decomposed.right_sort_expr,
             min_rows,
             initial_window,
+            child_field_sort_policy,
         )?
     } else {
-        try_rewrite_unscored_branch(join.right())?
+        let right_keys: Vec<Arc<dyn PhysicalExpr>> =
+            join.on().iter().map(|(_, r)| Arc::clone(r)).collect();
+        try_rewrite_unscored_branch(join.right(), &right_keys)?
     }) else {
         return Ok(None);
     };
@@ -491,17 +519,136 @@ fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
         || node.is::<TantivyFetchExec>()
 }
 
-/// Inspects and rewrites an unscored child branch of a single-sided (`NRJN`) join: must be a
-/// leaf `PgSearchScanPlan` (behind optional pass-through nodes) in `ScanMode::Standard`.
+/// Inspects and rewrites an unscored child branch of a single-sided (`NRJN`) join: either a
+/// leaf `PgSearchScanPlan` in `ScanMode::Standard` or a nested `HashJoinExec` whose parent
+/// join keys map cleanly to one child side for cascading `RA` lookups.
 fn try_rewrite_unscored_branch(
     node: &Arc<dyn ExecutionPlan>,
+    parent_keys: &[Arc<dyn PhysicalExpr>],
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
-    if is_passthrough_node(node) {
-        let Some((new_child, stats)) = try_rewrite_unscored_branch(node.children()[0])? else {
+    if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
+        let mut child_keys = Vec::with_capacity(parent_keys.len());
+        for key in parent_keys {
+            let Some(col) = key.downcast_ref::<Column>() else {
+                return Ok(None);
+            };
+            let Some(proj_expr) = proj.expr().get(col.index()) else {
+                return Ok(None);
+            };
+            if !proj_expr.expr.is::<Column>() {
+                return Ok(None);
+            }
+            child_keys.push(Arc::clone(&proj_expr.expr));
+        }
+        let Some((new_child, stats)) = try_rewrite_unscored_branch(proj.input(), &child_keys)?
+        else {
             return Ok(None);
         };
         let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
         return Ok(Some((rebuilt, stats)));
+    }
+    if is_passthrough_node(node) {
+        let Some((new_child, stats)) =
+            try_rewrite_unscored_branch(node.children()[0], parent_keys)?
+        else {
+            return Ok(None);
+        };
+        let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
+        return Ok(Some((rebuilt, stats)));
+    }
+    if let Some(join) = node.downcast_ref::<HashJoinExec>() {
+        if !is_hash_join_eligible(join) {
+            return Ok(None);
+        }
+        let left_len = join.left().schema().fields().len();
+        let mut target_side: Option<ExprSide> = None;
+        let mut shifted_parent_keys = Vec::with_capacity(parent_keys.len());
+        for key in parent_keys {
+            let Some(col) = key.downcast_ref::<Column>() else {
+                return Ok(None);
+            };
+            let join_idx = match &join.projection {
+                Some(proj) => {
+                    let Some(&idx) = proj.get(col.index()) else {
+                        return Ok(None);
+                    };
+                    idx
+                }
+                None => col.index(),
+            };
+            let side = if join_idx < left_len {
+                ExprSide::LeftOnly
+            } else {
+                ExprSide::RightOnly
+            };
+            match target_side {
+                None => target_side = Some(side),
+                Some(prev) if prev != side => return Ok(None),
+                Some(_) => {}
+            }
+            let child_expr: Arc<dyn PhysicalExpr> = if side == ExprSide::LeftOnly {
+                let f = join.left().schema().field(join_idx).clone();
+                Arc::new(Column::new(f.name(), join_idx))
+            } else {
+                let r_idx = join_idx - left_len;
+                let f = join.right().schema().field(r_idx).clone();
+                Arc::new(Column::new(f.name(), r_idx))
+            };
+            shifted_parent_keys.push(child_expr);
+        }
+        if target_side.is_none() {
+            return Ok(None);
+        }
+
+        let mut left_keys: Vec<Arc<dyn PhysicalExpr>> =
+            join.on().iter().map(|(l, _)| Arc::clone(l)).collect();
+        let mut right_keys: Vec<Arc<dyn PhysicalExpr>> =
+            join.on().iter().map(|(_, r)| Arc::clone(r)).collect();
+        if target_side == Some(ExprSide::LeftOnly) {
+            left_keys.extend(shifted_parent_keys);
+        } else {
+            right_keys.extend(shifted_parent_keys);
+        }
+
+        let Some((new_left, left_stats)) = try_rewrite_unscored_branch(join.left(), &left_keys)?
+        else {
+            return Ok(None);
+        };
+        let Some((new_right, right_stats)) =
+            try_rewrite_unscored_branch(join.right(), &right_keys)?
+        else {
+            return Ok(None);
+        };
+        let stats = SubtreeScoreStats {
+            estimated_rows: left_stats.estimated_rows.min(right_stats.estimated_rows),
+            score_min: 0.0,
+            score_max: 0.0,
+        };
+        let dummy_zero = PhysicalSortExpr {
+            expr: Arc::new(Literal::new(ScalarValue::Float64(Some(0.0)))),
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        };
+        let rank_join = RankJoinExec::try_new(
+            RankJoinInputs {
+                left: new_left,
+                right: new_right,
+            },
+            join.on().to_vec(),
+            join.filter().cloned(),
+            join.projection.as_deref().map(<[usize]>::to_vec),
+            *join.partition_mode(),
+            join.null_equality(),
+            RankJoinSortExprs {
+                left: dummy_zero.clone(),
+                right: dummy_zero.clone(),
+                output: LexOrdering::new(vec![dummy_zero]).unwrap(),
+            },
+            ScoreCombiner::Constant(0.0),
+        )?;
+        return Ok(Some((Arc::new(rank_join), stats)));
     }
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
@@ -530,6 +677,7 @@ fn try_rewrite_child_branch(
     required_sort: &PhysicalSortExpr,
     min_rows: usize,
     initial_window: usize,
+    field_sort_policy: FieldSortPolicy,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     let Some(ordering) = LexOrdering::new(vec![required_sort.clone()]) else {
         return Ok(None);
@@ -540,6 +688,7 @@ fn try_rewrite_child_branch(
             &child_ordering[0],
             min_rows,
             initial_window,
+            field_sort_policy,
         )?
         else {
             return Ok(None);
@@ -553,13 +702,14 @@ fn try_rewrite_child_branch(
             &ordering,
             min_rows,
             initial_window,
+            field_sort_policy,
             &mut Vec::new(),
         );
     }
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
     };
-    let Some(order_by) = resolve_scan_order_by(scan, required_sort) else {
+    let Some(order_by) = resolve_scan_order_by(scan, required_sort, field_sort_policy) else {
         return Ok(None);
     };
     let stats = match scan.scan_mode() {
@@ -595,6 +745,7 @@ fn try_rewrite_child_branch(
 fn resolve_scan_order_by(
     scan: &PgSearchScanPlan,
     required_sort: &PhysicalSortExpr,
+    field_sort_policy: FieldSortPolicy,
 ) -> Option<OrderByInfo> {
     let col = required_sort.expr.downcast_ref::<Column>()?;
     let schema = scan.schema();
@@ -608,11 +759,15 @@ fn resolve_scan_order_by(
     }
     let feature = if is_score_column_name(field_name) {
         OrderByFeature::Score { rti: 0 }
-    } else {
+    } else if field_sort_policy == FieldSortPolicy::Allowed
+        && scan.is_sortable_fast_field(col.index())
+    {
         OrderByFeature::Field {
             name: FieldName::from(field_name.clone()),
             rti: 0,
         }
+    } else {
+        return None;
     };
     let direction = match (
         required_sort.options.descending,
@@ -940,11 +1095,11 @@ pub(crate) fn analyze_join_score_expr(
     _right_schema: &SchemaRef,
 ) -> Option<DecomposedJoinScore> {
     let left_len = left_schema.fields().len();
-    let root_descending = sort_expr.options.descending;
+    let root_options = sort_expr.options;
 
     struct BuilderState {
         left_len: usize,
-        root_descending: bool,
+        root_options: SortOptions,
         left_sort: Option<PhysicalSortExpr>,
         right_sort: Option<PhysicalSortExpr>,
     }
@@ -957,7 +1112,7 @@ pub(crate) fn analyze_join_score_expr(
         ) -> Option<ScoreCombiner> {
             let candidate = PhysicalSortExpr {
                 expr: Arc::clone(expr),
-                options: dir.to_sort_options(self.root_descending),
+                options: dir.to_sort_options(self.root_options),
             };
             if let Some(existing) = &self.left_sort {
                 if existing != &candidate {
@@ -977,7 +1132,7 @@ pub(crate) fn analyze_join_score_expr(
             let shifted = shift_right_expr(expr, self.left_len).ok()?;
             let candidate = PhysicalSortExpr {
                 expr: shifted,
-                options: dir.to_sort_options(self.root_descending),
+                options: dir.to_sort_options(self.root_options),
             };
             if let Some(existing) = &self.right_sort {
                 if existing != &candidate {
@@ -1145,7 +1300,7 @@ pub(crate) fn analyze_join_score_expr(
 
     let mut state = BuilderState {
         left_len,
-        root_descending,
+        root_options,
         left_sort: None,
         right_sort: None,
     };
@@ -1155,10 +1310,7 @@ pub(crate) fn analyze_join_score_expr(
     }
     let dummy_zero = || PhysicalSortExpr {
         expr: Arc::new(Literal::new(ScalarValue::Float64(Some(0.0)))),
-        options: SortOptions {
-            descending: root_descending,
-            nulls_first: false,
-        },
+        options: root_options,
     };
     let left_sort_expr = state.left_sort.unwrap_or_else(dummy_zero);
     let right_sort_expr = state.right_sort.unwrap_or_else(dummy_zero);
@@ -1606,5 +1758,105 @@ mod tests {
         let plan_small = make_plan(bm25_query(), bm25_query(), 1_000);
         let out_small = rule.optimize(plan_small, &config).unwrap();
         assert!(out_small.children()[0].is::<HashJoinExec>());
+    }
+
+    #[pg_test]
+    fn test_single_sided_field_sort_allowed_and_two_sided_rejected() {
+        use datafusion::common::NullEquality;
+
+        let config = ConfigOptions::default();
+        let rule = RankJoinRule::new_with_min_rows(10_000);
+
+        // 1. Single-sided sort on scalar fast-field column `id` (even with `SearchQueryInput::All`) -> allowed!
+        let left_scan = make_test_scan("l", SearchQueryInput::All, 50_000);
+        let right_scan = make_test_scan("r", SearchQueryInput::All, 50_000);
+        let join_single: Arc<dyn ExecutionPlan> = Arc::new(
+            HashJoinExec::try_new(
+                left_scan,
+                right_scan,
+                vec![(
+                    Arc::new(Column::new("id", 0)),
+                    Arc::new(Column::new("id", 0)),
+                )],
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::CollectLeft,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        );
+        let single_sort = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: Arc::new(Column::new("id", 0)),
+            options: SortOptions {
+                descending: false,
+                nulls_first: true,
+            },
+        }])
+        .unwrap();
+        let plan_single: Arc<dyn ExecutionPlan> =
+            Arc::new(SortExec::new(single_sort, join_single).with_fetch(Some(10)));
+        let out_single = rule.optimize(plan_single, &config).unwrap();
+        let rj = out_single.children()[0]
+            .downcast_ref::<RankJoinExec>()
+            .expect("single-sided fast-field sort should rewrite to RankJoinExec");
+        let left_leaf = rj.left().downcast_ref::<PgSearchScanPlan>().unwrap();
+        let right_leaf = rj.right().downcast_ref::<PgSearchScanPlan>().unwrap();
+        let left_lazy = left_leaf
+            .lazy_sort()
+            .expect("left leaf should have lazy_sort");
+        let right_lazy = right_leaf
+            .lazy_sort()
+            .expect("right leaf should have lazy_sort");
+        assert!(matches!(
+            left_lazy.orderby_info.as_ref().unwrap()[0],
+            OrderByInfo {
+                feature: OrderByFeature::Field { .. },
+                direction: SortDirection::AscNullsFirst,
+            }
+        ));
+        assert!(right_lazy.orderby_info.is_none());
+        assert_eq!(right_lazy.initial_window, 0.0);
+
+        // 2. Two-sided sort combining non-score columns (`l.id + r.id`) -> rejected!
+        let left_scan_2 = make_test_scan("l", bm25_query(), 50_000);
+        let right_scan_2 = make_test_scan("r", bm25_query(), 50_000);
+        let join_two: Arc<dyn ExecutionPlan> = Arc::new(
+            HashJoinExec::try_new(
+                left_scan_2,
+                right_scan_2,
+                vec![(
+                    Arc::new(Column::new("id", 0)),
+                    Arc::new(Column::new("id", 0)),
+                )],
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::CollectLeft,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        );
+        let two_sided_field_sort = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("id", 0)),
+                Operator::Plus,
+                Arc::new(Column::new("id", 2)),
+            )),
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        }])
+        .unwrap();
+        let plan_two: Arc<dyn ExecutionPlan> =
+            Arc::new(SortExec::new(two_sided_field_sort, join_two).with_fetch(Some(10)));
+        let out_two = rule.optimize(plan_two, &config).unwrap();
+        assert!(
+            out_two.children()[0].is::<HashJoinExec>(),
+            "two-sided non-score column sort must not rewrite to RankJoinExec"
+        );
     }
 }

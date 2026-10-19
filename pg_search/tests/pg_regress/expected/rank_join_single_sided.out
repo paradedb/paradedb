@@ -1,0 +1,253 @@
+-- Regression tests for single-sided non-score fast-field column ordering in RankJoinExec
+-- (2-way and 3-way joins across all table positions, ASC/DESC, and NULL handling).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_rank_join = on;
+SET paradedb.rank_join_min_rows = 0;
+DROP TABLE IF EXISTS rj_comments CASCADE;
+DROP TABLE IF EXISTS rj_posts CASCADE;
+DROP TABLE IF EXISTS rj_users CASCADE;
+CREATE TABLE rj_users (
+    id INT PRIMARY KEY,
+    bio TEXT NOT NULL,
+    reputation INT
+) WITH (autovacuum_enabled = false);
+CREATE TABLE rj_posts (
+    id INT PRIMARY KEY,
+    user_id INT NOT NULL,
+    title TEXT NOT NULL,
+    views INT
+) WITH (autovacuum_enabled = false);
+CREATE TABLE rj_comments (
+    id INT PRIMARY KEY,
+    post_id INT NOT NULL,
+    body TEXT NOT NULL,
+    upvotes INT
+) WITH (autovacuum_enabled = false);
+INSERT INTO rj_users
+SELECT i,
+       CASE WHEN i % 2 = 0 THEN 'rust database search' ELSE 'postgres indexing' END,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE (i * 37) % 100 - 20 END
+FROM generate_series(1, 50) i;
+INSERT INTO rj_posts
+SELECT i,
+       ((i * 7) % 50) + 1,
+       CASE WHEN i % 3 = 0 THEN 'fast columnar query' ELSE 'bm25 ranking' END,
+       CASE WHEN i % 12 = 0 THEN NULL ELSE (i * 53) % 200 - 50 END
+FROM generate_series(1, 100) i;
+INSERT INTO rj_comments
+SELECT i,
+       ((i * 11) % 100) + 1,
+       CASE WHEN i % 4 != 0 THEN 'helpful comment' ELSE 'great post' END,
+       CASE WHEN i % 15 = 0 THEN NULL ELSE (i * 71) % 300 - 100 END
+FROM generate_series(1, 150) i;
+CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation);
+CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views);
+CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, body, upvotes);
+ANALYZE rj_users, rj_posts, rj_comments;
+-- ============================================================
+-- Test 1: 3-table join ordered by 1st table (u.reputation DESC NULLS LAST)
+-- Shape: Inner RankJoinExec(u [SA], p [RA]) -> Outer RankJoinExec(inner [SA], c [RA])
+-- ============================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER c
+   Join Cond: p.id = c.post_id, u.id = p.user_id
+   Limit: 5
+   Order By: u.reputation desc nulls last, u.id asc, p.id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, id@6 as col_3, reputation@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@5 as ctid_2]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p, c]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id, ctid_2@5 as ctid_2, id@7 as id]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@4, post_id@1)], order=[reputation@2 DESC NULLS LAST, id@1 ASC NULLS LAST, id@4 ASC NULLS LAST, id@7 ASC NULLS LAST]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[reputation@2 DESC NULLS LAST]
+     :               CooperativeExec
+     :                 PgSearchScan: table=u, segments=1, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | reputation 
+------+------+------+------------
+   16 |   95 |   54 |         72
+   32 |   83 |   62 |         64
+   48 |   71 |   70 |         56
+    2 |   43 |   22 |         54
+    2 |   43 |  122 |         54
+(5 rows)
+
+-- ============================================================
+-- Test 2: 3-table join ordered by 2nd table (p.views ASC NULLS LAST)
+-- Shape: Inner RankJoinExec(u [RA], p [SA]) -> Outer RankJoinExec(inner [SA], c [RA])
+-- ============================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY p.views ASC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER c
+   Join Cond: p.id = c.post_id, u.id = p.user_id
+   Limit: 5
+   Order By: p.views asc, u.id asc, p.id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, id@6 as col_3, views@4 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@5 as ctid_2]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p, c]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, id@3 as id, views@4 as views, ctid_2@5 as ctid_2, id@7 as id]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@3, post_id@1)], order=[views@4 ASC NULLS LAST, id@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@7 ASC NULLS LAST]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, id@3 as id, views@5 as views]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[views@5 ASC NULLS LAST]
+     :               CooperativeExec
+     :                 PgSearchScan: table=u, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY p.views ASC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | views 
+------+------+------+-------
+   34 |   19 |   38 |   -43
+   34 |   19 |  138 |   -43
+   12 |   23 |    2 |   -31
+   12 |   23 |  102 |   -31
+   38 |   91 |   90 |   -27
+(5 rows)
+
+-- ============================================================
+-- Test 3: 3-table join ordered by 3rd table (c.upvotes DESC NULLS FIRST)
+-- Shape: Outer RankJoinExec(Inner RankJoinExec(u [RA], p [RA]) [cascading RA], c [SA])
+-- ============================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS FIRST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER c
+   Join Cond: p.id = c.post_id, u.id = p.user_id
+   Limit: 5
+   Order By: c.upvotes desc, u.id asc, p.id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, id@6 as col_3, upvotes@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p, c]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, id@3 as id, ctid_2@4 as ctid_2, upvotes@6 as upvotes, id@7 as id]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@3, post_id@1)], order=[upvotes@6 DESC, id@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@7 ASC NULLS LAST]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, id@3 as id]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[0 DESC NULLS LAST]
+     :               CooperativeExec
+     :                 PgSearchScan: table=u, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS FIRST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | upvotes 
+------+------+------+---------
+   18 |   31 |   30 |        
+   38 |   91 |   90 |        
+   34 |   19 |   38 |     198
+   36 |   55 |  114 |     194
+   50 |    7 |   46 |     166
+(5 rows)
+
+-- Verify identical results with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | reputation 
+------+------+------+------------
+   16 |   95 |   54 |         72
+   32 |   83 |   62 |         64
+   48 |   71 |   70 |         56
+    2 |   43 |   22 |         54
+    2 |   43 |  122 |         54
+(5 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY p.views ASC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | views 
+------+------+------+-------
+   34 |   19 |   38 |   -43
+   34 |   19 |  138 |   -43
+   12 |   23 |    2 |   -31
+   12 |   23 |  102 |   -31
+   38 |   91 |   90 |   -27
+(5 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS FIRST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | upvotes 
+------+------+------+---------
+   18 |   31 |   30 |        
+   38 |   91 |   90 |        
+   34 |   19 |   38 |     198
+   36 |   55 |  114 |     194
+   50 |    7 |   46 |     166
+(5 rows)
+
+DROP TABLE rj_comments, rj_posts, rj_users;

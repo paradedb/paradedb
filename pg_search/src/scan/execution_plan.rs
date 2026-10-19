@@ -662,6 +662,72 @@ impl PgSearchScanPlan {
         &self.deferred_fields
     }
 
+    /// Returns `true` if `col_idx` refers to a scalar, non-deferred fast-field column backed by
+    /// a static fast-value type (`U64`, `I64`, `F64`, `Bool`, or `Date`) that can be sorted via
+    /// Tantivy's specialized `SortByStaticFastValue` Top-K collector in `LazySortMode`.
+    pub fn is_sortable_fast_field(&self, col_idx: usize) -> bool {
+        let schema = self.properties.eq_properties.schema();
+        let Some(field) = schema.fields().get(col_idx) else {
+            return false;
+        };
+        let field_name = field.name();
+        if field_name == crate::api::CTID_FIELD_NAME
+            || field_name == "tableoid"
+            || crate::scan::rank_join_rule::is_score_column_name(field_name)
+            || field_name.starts_with("__")
+            || self.deferred_fields.iter().any(|d| d.name == *field_name)
+        {
+            return false;
+        }
+        if !matches!(
+            field.data_type(),
+            DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64
+                | DataType::Float32
+                | DataType::Float64
+                | DataType::Boolean
+                | DataType::Timestamp(_, _)
+                | DataType::Date32
+                | DataType::Date64
+                | DataType::Time32(_)
+                | DataType::Time64(_)
+        ) {
+            return false;
+        }
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                let Some(WhichFastField::Named {
+                    name,
+                    cardinality: crate::index::fast_fields_helper::FieldCardinality::Scalar,
+                    delivery: crate::index::fast_fields_helper::FieldDelivery::Eager,
+                    ..
+                }) = scan_state.0.scanner_config.which_fast_fields.get(col_idx)
+                else {
+                    return false;
+                };
+                scan_state
+                    .0
+                    .reader
+                    .schema()
+                    .search_field(name)
+                    .is_some_and(|sf| sf.is_numeric_fast() && sf.is_raw_sortable())
+            }
+            ExecutionState::Uninitialized => true,
+            ExecutionState::Consumed => false,
+        }
+    }
+
     /// Rebuilds this scan with deferred columns moved into it: the `fetch_at_scan` names
     /// leave as term ordinals, the `eager` names leave decoded. An eager column changes the
     /// scan's output type, so its schema and properties are rebuilt and the scanner reads the
@@ -1641,6 +1707,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                             if let Some(ref counter) = queries {
                                 counter.add(1);
                             }
+                            MetricBuilder::new(&plan_metrics)
+                                .counter("ra_queries", target_partition)
+                                .add(1);
                             if !ra_results.is_empty() {
                                 scanner.materialize_topk_window(
                                     &ra_results,
@@ -1656,6 +1725,31 @@ impl ExecutionPlan for PgSearchScanPlan {
                             None
                         };
                         timer.done();
+
+                        let tag = strategy_sink.load(Ordering::Relaxed);
+                        if tag > 0 && !pushdown_metric_recorded {
+                            let strategy = tantivy::query::StrategyTag::try_from(tag)
+                                .unwrap_or(tantivy::query::StrategyTag::None);
+                            let metric_name =
+                                if matches!(strategy, tantivy::query::StrategyTag::None) {
+                                    "dynamic_filter_pushdown".to_string()
+                                } else {
+                                    format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
+                                };
+                            MetricBuilder::new(&plan_metrics)
+                                .counter(metric_name, target_partition)
+                                .add(1);
+                            pushdown_metric_recorded = true;
+                        }
+
+                        if (scanner.score_threshold_pushed || effective_ra_threshold.is_some())
+                            && !score_pushdown_metric_recorded
+                        {
+                            MetricBuilder::new(&plan_metrics)
+                                .counter("dynamic_filter_pushdown_score", target_partition)
+                                .add(1);
+                            score_pushdown_metric_recorded = true;
+                        }
 
                         if let Some(ref counter) = rows_scanned {
                             let delta = scanner.pre_filter_rows_scanned - flushed_rows_scanned;

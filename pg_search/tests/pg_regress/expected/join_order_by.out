@@ -615,8 +615,8 @@ WHERE t1.val ||| 'val'
   AND t2.val ||| 'val'
 ORDER BY paradedb.score(t2.id) DESC, t2.id
 LIMIT 10;
-                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
    Relation Tree: t1 INNER t2
    Join Cond: t1.id = t2.t1_id
@@ -629,9 +629,9 @@ LIMIT 10;
      :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, pdb.score(t2)@2 as pdb.score(t2), ctid_1@3 as ctid_1, id@5 as id], metrics=[output_rows=20.00 K, output_bytes=703.1 KB, output_batches=1]
      :         RankJoinExec: mode=CollectLeft, on=[(id@1, t1_id@2)], order=[pdb.score(t2)@2 DESC, id@5 ASC NULLS LAST], metrics=[output_rows=20.00 K, output_bytes=859.4 KB, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=18, queries=18, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t1, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=10, dynamic_filter_pushdown_gallop=1, queries=10, ra_queries=10, rows_pruned=0, rows_scanned=20.00 K]
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=546.9 KB, output_batches=10, queries=10, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t2, segments=2, lazy_sort=20, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=546.9 KB, output_batches=10, queries=10]
 (15 rows)
 
 -- =============================================================================
@@ -871,8 +871,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.id, t1.val
    Relation Tree: t1 INNER t2
@@ -886,7 +886,7 @@ LIMIT 15;
      :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@3 as ctid_1]
      :         RankJoinExec: mode=CollectLeft, on=[(id@1, t1_id@0)], order=[id@1 DESC]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, lazy_sort=30, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+     :             PgSearchScan: table=t1, segments=2, lazy_sort=30, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :           CooperativeExec
      :             PgSearchScan: table=t2, segments=2, lazy_sort=0, dynamic_filters=1, query="all"
 (16 rows)

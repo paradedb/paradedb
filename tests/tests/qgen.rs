@@ -1918,17 +1918,26 @@ enum RankJoinQueryMode {
     Disjunctive,
     /// Single-sided (`NRJN`) `WHERE (w0) AND (w1) ...` scored by the first table only.
     SingleSided,
+    /// Single-sided (`NRJN`) `WHERE (w0) AND (w1) ...` ordered by a nullable fast-field column (`ASC` or `DESC`).
+    SingleSidedField { descending: bool },
 }
 
 impl RankJoinQueryMode {
-    fn score_sql(self, tables: &[String]) -> String {
+    fn primary_order_sql(self, tables: &[String]) -> String {
         match self {
-            Self::SingleSided => format!("pdb.score({}.id)", tables[0]),
-            Self::Conjunctive | Self::Disjunctive => tables
-                .iter()
-                .map(|t| format!("pdb.score({t}.id)"))
-                .collect::<Vec<_>>()
-                .join(" + "),
+            Self::SingleSided => format!("pdb.score({}.id) DESC", tables[0]),
+            Self::SingleSidedField { descending } => {
+                let dir = if descending { "DESC" } else { "ASC" };
+                format!("{}.quantity {dir}", tables[0])
+            }
+            Self::Conjunctive | Self::Disjunctive => {
+                let sum = tables
+                    .iter()
+                    .map(|t| format!("pdb.score({t}.id)"))
+                    .collect::<Vec<_>>()
+                    .join(" + ");
+                format!("{sum} DESC")
+            }
         }
     }
 }
@@ -1937,9 +1946,9 @@ impl RankJoinQueryMode {
 /// against `RankJoinExec` (`paradedb.enable_rank_join = on`, `paradedb.rank_join_min_rows = 0`).
 ///
 /// Covers 2-way and 3-way `INNER JOIN`s over unique (`id`) and non-unique (`age`) join keys,
-/// conjunctive (`AND`), disjunctive (`OR`), and single-sided (`NRJN`) predicates, and
-/// deterministic secondary tiebreaker `ORDER BY` expressions (including deferred string columns
-/// and expressions) with `LIMIT`/`OFFSET`.
+/// conjunctive (`AND`), disjunctive (`OR`), and single-sided (`NRJN`) predicates (both BM25 score
+/// and non-score fast-field column `ASC`/`DESC`), and deterministic secondary tiebreaker
+/// `ORDER BY` expressions (including deferred string columns and expressions) with `LIMIT`/`OFFSET`.
 #[rstest]
 #[case::clean(false)]
 #[case::churn(true)]
@@ -1986,6 +1995,8 @@ async fn generated_rank_join(database: Db, #[case] churn_on: bool) {
             Just(RankJoinQueryMode::Conjunctive),
             Just(RankJoinQueryMode::Disjunctive),
             Just(RankJoinQueryMode::SingleSided),
+            Just(RankJoinQueryMode::SingleSidedField { descending: true }),
+            Just(RankJoinQueryMode::SingleSidedField { descending: false }),
         ],
         limit in 1..=25usize,
         offset in proptest::option::of(0..=10usize),
@@ -2005,7 +2016,9 @@ async fn generated_rank_join(database: Db, #[case] churn_on: bool) {
         let target_cols_str = target_cols.join(", ");
 
         let where_join_sep = match query_mode {
-            RankJoinQueryMode::Conjunctive | RankJoinQueryMode::SingleSided => " AND ",
+            RankJoinQueryMode::Conjunctive
+            | RankJoinQueryMode::SingleSided
+            | RankJoinQueryMode::SingleSidedField { .. } => " AND ",
             RankJoinQueryMode::Disjunctive => " OR ",
         };
         let where_bm25 = table_wheres
@@ -2014,7 +2027,7 @@ async fn generated_rank_join(database: Db, #[case] churn_on: bool) {
             .collect::<Vec<_>>()
             .join(where_join_sep);
 
-        let score_expr = query_mode.score_sql(&used_tables);
+        let primary_order = query_mode.primary_order_sql(&used_tables);
         let tiebreakers = order_parts.join(", ");
         let offset_clause = match offset {
             Some(o) if o > 0 => format!(" OFFSET {o}"),
@@ -2024,7 +2037,7 @@ async fn generated_rank_join(database: Db, #[case] churn_on: bool) {
         let bm25_query = format!(
             "SELECT {target_cols_str} {join_clause} \
              WHERE {where_bm25} \
-             ORDER BY {score_expr} DESC, {tiebreakers} \
+             ORDER BY {primary_order}, {tiebreakers} \
              LIMIT {limit}{offset_clause}"
         );
 
@@ -2043,12 +2056,11 @@ async fn generated_rank_join(database: Db, #[case] churn_on: bool) {
         };
 
         // When every join step is a pure equi-join (`!join_clause.contains(" AND ")` and
-        // `!join.has_keyless_step()`), every table predicate is a single indexed `Atom`,
-        // and `SingleSided` is a 2-way join, `RankJoinRule` is guaranteed to rewrite the
-        // candidate plan into `RankJoinExec`.
+        // `!join.has_keyless_step()`) and every table predicate is a single indexed `Atom`,
+        // `RankJoinRule` is guaranteed to rewrite the candidate plan into `RankJoinExec`
+        // (for both 2-way and 3-way joins, including single-sided score and field sorts).
         let expect_rank_join = !join.has_keyless_step()
             && !join_clause.contains(" AND ")
-            && (!matches!(query_mode, RankJoinQueryMode::SingleSided) || used_tables.len() == 2)
             && table_wheres.iter().all(|w| {
                 matches!(
                     w,

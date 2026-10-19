@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792453044218,
+  "lastUpdate": 1792453058254,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21417,6 +21417,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 375.33976889257644,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58ebb88e0f40a61a4f0bfb5257879b75aa51e7e0",
+          "message": "fix: remove 1K document flush cap for vectors (#6901)\n\n## What\n\nRemove the unconditional 1,000-document flush cap for vector indexes.\nAfter each index-build worker finishes writing and merging to its\nsegment target, rewrite its remaining eligible flat-vector segments into\nIVF with single-segment foreground merges.\n\n## Why\n\nThe cap creates many small segments just to trigger vector clustering,\nincreasing build merge work and buffer-pin pressure. Vectors already\ncount toward the writer memory budget, and clustering does not require\ntwo input segments.\n\nRelated to #6900. This reduces unnecessary segment creation; it does not\nfix the underlying component-reader pin retention described there.\n\n## How\n\n- Track each worker's live output segments, including partitioned\nbuilds, so workers only convert their own segments.\n- Identify flat segments from their vector and centroid catalog entries\nwithout opening component data pages; honor the index's clustering\nthreshold and skip existing IVF segments.\n- Preserve explicit document caps supplied by the build planner.\nOrdinary inserts continue clustering through the existing merge policy.\n- Make merge regression fixtures create explicit insert batches instead\nof relying on the removed cap.",
+          "timestamp": "2026-10-19T15:54:39-07:00",
+          "tree_id": "75be9a574d33e1bde4bdf6c301a211f3a9f8487f",
+          "url": "https://github.com/paradedb/paradedb/commit/58ebb88e0f40a61a4f0bfb5257879b75aa51e7e0"
+        },
+        "date": 1792453049052,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 526.5069308373847,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 504.8708881810784,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 135.68797244572025,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 248.46387900341054,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 372.7234324847613,
             "unit": "queries/s"
           }
         ]

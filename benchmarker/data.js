@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792430984420,
+  "lastUpdate": 1792435314852,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18662,6 +18662,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.973,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c7394b37312223b7bf7eaea6dff1db273669ac7",
+          "message": "fix: Re-enable joinscan support for post-datafusion postgres projections (#6803)\n\n# Ticket(s) Closed\n\n- Closes #6576 \n\n## What\nThe `0.26.0` release raised joinscan's hook point to `UPPERREL_FINAL`,\ntaking responsibility for the entirety of query execution. That caused\ncertain expressions that postgres would evaluate after joinscan (such as\n`SELECT 'aa' || a.foo, ....`) to be rejected by join scan. This PR\nre-enables support for those expressions.\n\n## How\nFor any target expression that fails resolution due to either 1) not\nbeing columnar, or 2) not being arrow convertible, add a fallback. This\nfallback checks if postgres can evaluate the expression instead by\nchecking for the following:\n- The expression does not return a set.\n- All of the its Var dependencies are valid and do not reference pruned\nrelations\n- The expression does not depend on a score or window function (with\nadditional work, this requirement could potentially be relaxed in the\nfuture).\n\nIf that check evaluates to true, then we store the resnos for each\ntarget entry that postgres will project and add it's dependencies to our\nscan tlist. We treat that slot as `Pruned` during datafusion evaluation.\n\nWhen building the result tuple, if we have pg-projected resnos, we\ninstead fill the scan tuple and have postgres evaluate the projection.\n\n## Tests\nNew regression tests.\n\n---------\n\nSigned-off-by: RJ Barman <rjhallsted@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Walter Woodall <wwoodal@paradedb.com>\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Alan Wisper <hi.wisper@gmail.com>",
+          "timestamp": "2026-10-19T11:58:57-06:00",
+          "tree_id": "0a8a423e7c7febfc28455b204bc4222d58204388",
+          "url": "https://github.com/paradedb/paradedb/commit/1c7394b37312223b7bf7eaea6dff1db273669ac7"
+        },
+        "date": 1792435303462,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.318,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.134,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.538,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.008,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.289,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.572,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.286,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 1.749,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.625,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.38,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.896,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.198,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.034,
             "unit": "ms"
           }
         ]

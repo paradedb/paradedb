@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792437959547,
+  "lastUpdate": 1792437973024,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22245,6 +22245,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.90282072112451,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "113442152+devcool20@users.noreply.github.com",
+            "name": "Divyanshu Sharma",
+            "username": "devcool20"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc015422c9afd1fcd3edb4e81c75998980202818",
+          "message": "test: accommodate worker skew in parallel build test assertion (#6648) (#6892)\n\n# Ticket(s) Closed\n\n- Closes #6648\n\n## Related PRs & CI Runs\n\n- Closes #6648 (`pg_test_parallel_build_large_configurations fails when\nfewer parallel workers start`)\n- Fixes CI failure seen in PR #6608 (PG18 system amd64, [job\n111167257970](https://github.com/paradedb/paradedb/actions/runs/37110465933/job/111167257970),\n`got 26`)\n- Fixes CI failure seen in PR #6247 (PG16 system arm64, job\n102334942912, `got 27`)\n- Builds upon PR #4187 (which previously widened `28..=32` to `28..=33`\nwhen an extra segment was observed)\n- Originated from PR #4041 (where `parallel_build_large` was ported from\n`pg_regress` SQL to Rust `#[pg_test]`)\n\n## What\n\nWidens the segment count assertion in\n`test_parallel_build_large_configurations` for `target_segment_count =\n32` from `28..=33` to `24..=33`, using a named range in the assertion\nmessage.\n\n## Why\n\nDuring a parallel index build on an unpartitioned table\n(`parallel_build_large` with 35,000 rows), each worker is assigned a\nslice of `target_segment_count` (`worker_segment_target`) and flushes a\nsegment every `estimate_heap_reltuples / nlaunched /\nworker_segment_target` documents.\n\nOn a contended CI runner (e.g. 8 vCPUs running 7 build processes\nalongside concurrent test threads):\n1. The parallel heap scan dispenses blocks dynamically on demand, so\nparticipants do not receive an identical number of rows.\n2. A participant short on CPU scans fewer rows and flushes fewer\nsegments than its quota (each lost segment corresponds to ~1,000 rows\nthat moved to another participant).\n3. Peers that scan more rows flush extra segments, but at commit time\n(`try_merge(is_last_merge: true)`), they merge back down to their\nassigned quota.\n4. Because workers cannot split segments or compensate for peers, row\ndistribution skew only ever pulls the total below the target, producing\n26 or 27 segments (observed in CI on #6608 and #6247).\n\nThe previous assertion `(28..=33).contains(&count)` tolerated about one\nrow in seven moving between participants, whereas `24..=33` tolerates\nabout one row in four moving under CPU contention, preventing spurious\nCI failures while preserving the 35,000 document count verification.\n\n## How\n\n- In `pg_search/src/postgres/build_parallel.rs`, updated the assertion\nfor `*ts == 32` in `test_parallel_build_large_configurations` from\n`(28..=33)` to `24..=33`, using a named range `let expected = 24..=33;`\nand inline format string.\n- Updated the inline code comment to accurately document the\ndemand-driven block handout and row-movement tolerance.\n\n## Tests\n\n- Verified rustfmt formatting: `cargo fmt --all -- --check`\n- Verified destructor safety: `python\n.github/scripts/check_impl_drop.py`\n- Document count verification remains intact (`assert_eq!(num_docs,\n35000)`).",
+          "timestamp": "2026-10-19T10:57:33-07:00",
+          "tree_id": "bf2e52bc72f317d2635e47cfa42e4bedf014e593",
+          "url": "https://github.com/paradedb/paradedb/commit/dc015422c9afd1fcd3edb4e81c75998980202818"
+        },
+        "date": 1792437964421,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.53087854589474,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.435729576151143,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.479731456828972,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.396441639600344,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.229149574214524,
             "unit": "queries/s"
           }
         ]

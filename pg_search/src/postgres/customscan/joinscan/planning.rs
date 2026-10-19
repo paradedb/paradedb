@@ -2521,43 +2521,39 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             }
         }
     }
-    if let Some((col, varno, varattno, heaprelid)) = non_fast_col_info {
-        let debug = || {
-            pgrx::debug1!(
-                "JoinScan declined: expression depends on '{}' \
+    if let Some((col, varno, varattno, heaprelid)) = non_fast_col_info
+        && let Err(decline) = pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            format!(
+                "JoinScan not used: target list expression depends on '{col}' which is not columnar"
+            ),
+        )
+    {
+        pgrx::debug1!(
+            "JoinScan declined: expression depends on '{}' \
                 which is not columnar (rti={}, attno={}, heaprelid={}) \
                 (tables: {})",
-                col,
-                varno,
-                varattno,
-                heaprelid,
-                tables_str
-            );
-        };
-        if let Some(plan) = plan_for_pg_project_fallback {
-            match can_pg_project(expr, plan) {
-                Ok(()) => return Ok(ResolvedExpr::PgProjected),
-                Err(reason) => {
-                    debug();
-                    return Err(JoinDeclineReason::new(format!(
-                        "JoinScan not used: target list expression depends on '{col}' which is not columnar and cannot be projected \
-                        by Postgres because {reason}",
-                    )));
-                }
-            }
-        } else {
-            debug();
-            return Err(JoinDeclineReason::new(format!(
-                "JoinScan not used: target list expression depends on '{col}' which is not columnar",
-            )));
-        }
+            col,
+            varno,
+            varattno,
+            heaprelid,
+            tables_str
+        );
+        return Err(decline);
     }
 
     let result_type = pg_sys::exprType(expr);
 
     if !crate::postgres::types_arrow::is_expr_type_arrow_convertible(result_type) {
         let type_name = format_type_name(result_type);
-        let debug = || {
+        if let Err(decline) = pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            format!(
+                "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+            ),
+        ) {
             pgrx::debug1!(
                 "JoinScan declined: target list expression returns type '{}' \
                 (OID {}) which is not supported for Arrow conversion \
@@ -2566,23 +2562,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 result_type,
                 tables_str
             );
-        };
-        if let Some(plan) = plan_for_pg_project_fallback {
-            match can_pg_project(expr, plan) {
-                Ok(()) => return Ok(ResolvedExpr::PgProjected),
-                Err(reason) => {
-                    debug();
-                    return Err(JoinDeclineReason::new(format!(
-                        "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow \
-                        conversion. This expression cannot be projected by Postgres because {reason}",
-                    )));
-                }
-            }
-        } else {
-            debug();
-            return Err(JoinDeclineReason::new(format!(
-                "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
-            )));
+            return Err(decline);
         }
     }
 
@@ -2592,6 +2572,23 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         result_type,
         window_deps,
     })
+}
+
+unsafe fn pg_project_or_decline(
+    expr: *mut pg_sys::Node,
+    plan: Option<&RelNode>,
+    why: String,
+) -> Result<ResolvedExpr, JoinDeclineReason> {
+    let Some(plan) = plan else {
+        return Err(JoinDeclineReason::new(format!("JoinScan not used: {why}")));
+    };
+    can_pg_project(expr, plan)
+        .map(|()| ResolvedExpr::PgProjected)
+        .map_err(|cause| {
+            JoinDeclineReason::new(format!(
+                "JoinScan not used: {why}, and Postgres can't compute it after the scan because it {cause}"
+            ))
+        })
 }
 
 /// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.

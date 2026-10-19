@@ -263,6 +263,10 @@ impl JoinDeclineReason {
 
     pub fn with_details(self, new_details: Vec<String>) -> Self {
         match self {
+            Self::ContainsAggregate => {
+                debug_assert!(false, "Cannot add details to ContainsAggregate");
+                self
+            }
             Self::Message {
                 message,
                 details: _,
@@ -270,10 +274,6 @@ impl JoinDeclineReason {
                 message,
                 details: Some(new_details),
             },
-            _ => {
-                debug_assert!(false, "Only Message can have details");
-                self
-            }
         }
     }
 
@@ -292,8 +292,9 @@ impl JoinDeclineReason {
                     return;
                 }
                 JoinScan::add_planner_warning(
-                   "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.".to_string(),
-                     aliases);
+                    "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.",
+                    aliases,
+                );
             }
             Self::Message { message, details } => {
                 if let Some(details) = details {

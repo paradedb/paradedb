@@ -20,7 +20,7 @@
 //! not be a reason for the custom scans to decline (issue #5637). The plan
 //! assertions verify the JoinScan absorbs the window aggregates into its Top-K
 //! aggregate node; the value assertions must hold no matter which plan
-//! executes. The pg_regress twins are Tests 27b/27c in
+//! executes. The pg_regress twins are Tests 27b/27c/27h in
 //! `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
 
 use rstest::*;
@@ -93,11 +93,20 @@ enum WindowJoinCase {
     /// with a window value in one expression, and two window functions in a
     /// single entry.
     InExpressions,
+    /// `agg FILTER (WHERE ...) OVER ()` for every SQL-native aggregate, with
+    /// filters on either side of the join, a compound filter, a filter that
+    /// matches no rows, and an unfiltered aggregate next to the same aggregate
+    /// filtered (the two must not be deduplicated into one column).
+    Filtered,
+    /// Filtered window aggregates embedded in target list expressions.
+    FilteredInExpressions,
 }
 
 #[rstest]
 #[case::bare(WindowJoinCase::Bare)]
 #[case::in_expressions(WindowJoinCase::InExpressions)]
+#[case::filtered(WindowJoinCase::Filtered)]
+#[case::filtered_in_expressions(WindowJoinCase::FilteredInExpressions)]
 fn global_window_aggregates_over_join(
     mut conn: PgConnection,
     #[case] case: WindowJoinCase,
@@ -169,6 +178,108 @@ fn global_window_aggregates_over_join(
                 assert_eq!(*count_plus_sum, 1_001_000);
             }
         }
+        WindowJoinCase::Filtered => {
+            // The joined scores are the odd numbers 1..1999. Those above 1000
+            // are the 500 odd numbers 1001..1999 (sum 750_000, avg 1500); those
+            // below 1000 the 500 odd numbers 1..999 (sum 250_000). Products
+            // with id < 101 are the 50 odd ids 1..99, two reviews each.
+            let query = r#"
+                SELECT p.id,
+                       r.score,
+                       COUNT(*) OVER () AS total_count,
+                       COUNT(*) FILTER (WHERE r.score > 1000) OVER () AS high_count,
+                       COUNT(r.score) FILTER (WHERE p.id < 101) OVER () AS low_product_count,
+                       SUM(r.score) FILTER (WHERE r.score < 1000) OVER () AS low_sum,
+                       AVG(r.score) FILTER (WHERE r.score > 1000) OVER ()::float8 AS high_avg,
+                       MIN(r.score) FILTER (WHERE r.score > 1000) OVER () AS high_min,
+                       MAX(r.score) FILTER (WHERE r.score < 1000 AND p.id > 10) OVER () AS low_max,
+                       COUNT(*) FILTER (WHERE r.score < 0) OVER () AS none_count,
+                       SUM(r.score) FILTER (WHERE r.score < 0) OVER () AS none_sum
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.score DESC
+                LIMIT 3
+            "#;
+
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
+
+            #[allow(clippy::type_complexity)]
+            let rows = query.fetch_result::<(
+                i32,
+                i32,
+                i64,
+                i64,
+                i64,
+                i64,
+                f64,
+                i32,
+                i32,
+                i64,
+                Option<i64>,
+            )>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert_eq!(
+                rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+                vec![(999, 1999), (997, 1997), (995, 1995)]
+            );
+            for row in &rows {
+                let (
+                    _,
+                    _,
+                    total_count,
+                    high_count,
+                    low_product_count,
+                    low_sum,
+                    high_avg,
+                    high_min,
+                    low_max,
+                    none_count,
+                    none_sum,
+                ) = row;
+                assert_eq!(*total_count, 1000, "{row:?}");
+                assert_eq!(*high_count, 500, "{row:?}");
+                assert_eq!(*low_product_count, 100, "{row:?}");
+                assert_eq!(*low_sum, 250_000, "{row:?}");
+                assert_eq!(*high_avg, 1500.0, "{row:?}");
+                assert_eq!(*high_min, 1001, "{row:?}");
+                assert_eq!(*low_max, 999, "{row:?}");
+                assert_eq!(*none_count, 0, "{row:?}");
+                assert_eq!(*none_sum, None, "{row:?}");
+            }
+        }
+        WindowJoinCase::FilteredInExpressions => {
+            let query = r#"
+                SELECT p.id,
+                       r.score,
+                       COUNT(*) FILTER (WHERE r.score > 1000) OVER () + 1 AS high_plus_one,
+                       r.score + COUNT(*) FILTER (WHERE r.score > 1000) OVER () AS score_plus_high,
+                       COUNT(*) FILTER (WHERE r.score > 1000) OVER ()
+                           + COUNT(*) FILTER (WHERE r.score < 1000) OVER () AS high_plus_low,
+                       (COUNT(*) FILTER (WHERE r.score > 1000) OVER ())::float8
+                           / COUNT(*) OVER () AS high_ratio
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.score DESC
+                LIMIT 3
+            "#;
+
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
+
+            let rows = query.fetch_result::<(i32, i32, i64, i64, i64, f64)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert_eq!(
+                rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+                vec![(999, 1999), (997, 1997), (995, 1995)]
+            );
+            for (_, score, high_plus_one, score_plus_high, high_plus_low, high_ratio) in &rows {
+                assert_eq!(*high_plus_one, 501);
+                assert_eq!(*score_plus_high, (*score as i64) + 500);
+                assert_eq!(*high_plus_low, 1000);
+                assert_eq!(*high_ratio, 0.5);
+            }
+        }
     }
 
     Ok(())
@@ -222,11 +333,15 @@ enum NumericWindowJoinCase {
     /// (falling back to PostgreSQL's WindowAgg) rather than erroring at
     /// execution.
     NumericResultDeclines,
+    /// FILTER clauses that compare the NUMERIC column itself, so the filter
+    /// has to read the storage-encoded value as well as the aggregate.
+    Filtered,
 }
 
 #[rstest]
 #[case::wrapped(NumericWindowJoinCase::Wrapped)]
 #[case::numeric_result_declines(NumericWindowJoinCase::NumericResultDeclines)]
+#[case::filtered(NumericWindowJoinCase::Filtered)]
 fn global_window_aggregates_over_join_numeric(
     mut conn: PgConnection,
     #[case] case: NumericWindowJoinCase,
@@ -289,6 +404,39 @@ fn global_window_aggregates_over_join_numeric(
             let expected: bigdecimal::BigDecimal = "500000.00".parse().unwrap();
             for (_, doubled_total) in &rows {
                 assert_eq!(*doubled_total, expected);
+            }
+        }
+        NumericWindowJoinCase::Filtered => {
+            // Prices above 250 are the 500 odd ids 1001..1999 at 0.25 each:
+            // 0.25 * 750_000 = 187_500, avg 375, min 250.25. Prices at most
+            // 250 are the odd ids 1..999: max 249.75.
+            let query = r#"
+                SELECT p.id,
+                       COUNT(*) FILTER (WHERE r.price > 250) OVER () AS high_count,
+                       SUM(r.price) FILTER (WHERE r.price > 250) OVER ()::float8 AS high_total,
+                       AVG(r.price) FILTER (WHERE r.price > 250) OVER ()::float8 AS high_avg,
+                       MIN(r.price) FILTER (WHERE r.price > 250) OVER ()::float8 AS high_min,
+                       MAX(r.price) FILTER (WHERE r.price <= 250.00) OVER ()::float8 AS low_max
+                FROM wjn_products p
+                JOIN wjn_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.id DESC
+                LIMIT 3
+            "#;
+
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
+
+            let rows = query.fetch_result::<(i32, i64, f64, f64, f64, f64)>(&mut conn)?;
+            assert_eq!(
+                rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+                vec![999, 997, 995]
+            );
+            for (_, high_count, high_total, high_avg, high_min, low_max) in &rows {
+                assert_eq!(*high_count, 500);
+                assert_eq!(*high_total, 187_500.0);
+                assert_eq!(*high_avg, 375.0);
+                assert_eq!(*high_min, 250.25);
+                assert_eq!(*low_max, 249.75);
             }
         }
     }
@@ -795,6 +943,13 @@ enum WindowShape {
     /// A parameterized LIMIT under a generic plan: the Top-K aggregate's k is
     /// bound at execution, so the window aggregates are still computed in it.
     ParameterizedLimit,
+    /// DISTINCT with filtered window aggregates: the filter applies to the
+    /// join rows before DISTINCT.
+    DistinctFiltered,
+    /// A filtered window aggregate in a subquery without a LIMIT: there is no
+    /// Top-K aggregate, so the JoinScan computes it in a DataFusion window
+    /// node instead.
+    FilteredSubqueryWithoutLimit,
 }
 
 #[rstest]
@@ -802,6 +957,8 @@ enum WindowShape {
 #[case::distinct(WindowShape::Distinct)]
 #[case::distinct_windows_only(WindowShape::DistinctWindowsOnly)]
 #[case::parameterized_limit(WindowShape::ParameterizedLimit)]
+#[case::distinct_filtered(WindowShape::DistinctFiltered)]
+#[case::filtered_subquery_without_limit(WindowShape::FilteredSubqueryWithoutLimit)]
 fn global_window_aggregates_query_shapes(
     mut conn: PgConnection,
     #[case] shape: WindowShape,
@@ -892,7 +1049,108 @@ fn global_window_aggregates_query_shapes(
 
             "DEALLOCATE wj_page".execute(&mut conn);
         }
+        WindowShape::DistinctFiltered => {
+            // Each laptop product has two reviews (scores id and id + 1000),
+            // so exactly one review per product clears the filter.
+            let query = r#"
+                SELECT DISTINCT p.id,
+                       COUNT(*) FILTER (WHERE r.score > 1000) OVER () AS high_count,
+                       COUNT(*) FILTER (WHERE r.score > 1000) OVER () + 1 AS high_plus_one
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY p.id DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("topk_as_agg(DISTINCT "), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i64, i64)>(&mut conn)?;
+            assert_eq!(
+                rows,
+                vec![(999, 500, 501), (997, 500, 501), (995, 500, 501)]
+            );
+        }
+        WindowShape::FilteredSubqueryWithoutLimit => {
+            let query = r#"
+                SELECT * FROM (
+                    SELECT p.id,
+                           COUNT(*) OVER () AS total_count,
+                           COUNT(*) FILTER (WHERE r.score > 1000) OVER () AS high_count,
+                           SUM(r.score) FILTER (WHERE r.score < 1000) OVER () AS low_sum
+                    FROM wj_products p
+                    JOIN wj_reviews r ON p.id = r.product_id
+                    WHERE p.description ||| 'laptop'
+                ) s
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert!(plan.contains(JOIN_SCAN), "{plan}");
+            assert!(!plan.contains("WindowAgg "), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i64, i64, i64)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert!(
+                rows.iter()
+                    .all(|r| r.0 % 2 == 1 && r.1 == 1000 && r.2 == 500 && r.3 == 250_000),
+                "{rows:?}"
+            );
+        }
     }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FilterFallback {
+    /// The filter reads a column that is not columnar, so the scan cannot
+    /// evaluate it.
+    NonColumnarColumn,
+    /// The filter holds a search operator.
+    SearchOperator,
+    /// The filter holds a volatile function.
+    Volatile,
+}
+
+/// Filters JoinScan cannot evaluate. Whichever plan runs, the values must match
+/// PostgreSQL's WindowAgg. The tablets are filtered out by the WHERE clause, so
+/// every surviving product is a 'sturdy laptop'.
+#[rstest]
+#[case::non_columnar_column(FilterFallback::NonColumnarColumn)]
+#[case::search_operator(FilterFallback::SearchOperator)]
+#[case::volatile(FilterFallback::Volatile)]
+fn filtered_window_aggregates_fallback(
+    mut conn: PgConnection,
+    #[case] case: FilterFallback,
+) -> Result<(), sqlx::Error> {
+    setup(&mut conn);
+
+    let filter = match case {
+        FilterFallback::NonColumnarColumn => "p.description LIKE '%sturdy%'",
+        FilterFallback::SearchOperator => "p.description ||| 'sturdy'",
+        FilterFallback::Volatile => "random() >= 0",
+    };
+    let query = format!(
+        r#"
+        SELECT p.id,
+               r.score,
+               COUNT(*) FILTER (WHERE {filter}) OVER () AS filtered_count
+        FROM wj_products p
+        JOIN wj_reviews r ON p.id = r.product_id
+        WHERE p.description ||| 'laptop'
+        ORDER BY r.score DESC
+        LIMIT 3
+        "#
+    );
+
+    let rows = query.fetch_result::<(i32, i32, i64)>(&mut conn)?;
+    assert_eq!(
+        rows,
+        vec![(999, 1999, 1000), (997, 1997, 1000), (995, 1995, 1000)]
+    );
 
     Ok(())
 }

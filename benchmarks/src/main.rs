@@ -855,7 +855,6 @@ async fn score_recall(
 
 /// Recall targets a sweep reports, lowest first.
 const RECALL_TARGETS: [(&str, f64); 3] = [("r90", 0.90), ("r95", 0.95), ("r99", 0.99)];
-const RECALL_PLATEAU_PATIENCE: usize = 3;
 
 /// One measured point of a sweep.
 struct SweepPoint {
@@ -879,20 +878,16 @@ struct SelectedPoint {
 
 /// For each target, the cheapest point that reaches it, or the best recall without a latency query.
 ///
-/// Recall rises monotonically with these knobs, so the cheapest qualifying point is the
-/// lowest-recall one at or above the target -- which avoids having to order the swept values
-/// themselves, since they are opaque SQL expressions.
+/// Points follow the configured cheapest-first order, regardless of measurement order.
 fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
-    let mut by_recall: Vec<&SweepPoint> = points.iter().collect();
-    by_recall.sort_by(|a, b| a.recall.total_cmp(&b.recall));
-
     RECALL_TARGETS
         .iter()
         .filter_map(|(label, target)| {
-            let best_recall = by_recall.last()?.recall;
-            let point = by_recall
+            let best_recall = points.iter().map(|p| p.recall).reduce(f64::max)?;
+            let point = points
                 .iter()
-                .find(|p| p.recall >= *target || p.recall == best_recall)?;
+                .find(|p| p.recall >= *target)
+                .or_else(|| points.iter().find(|p| p.recall == best_recall))?;
             Some(SelectedPoint {
                 label,
                 target: *target,
@@ -905,20 +900,27 @@ fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
         .collect()
 }
 
-fn recall_plateau(points: &[SweepPoint]) -> Option<f64> {
-    let split = points.len().checked_sub(RECALL_PLATEAU_PATIENCE)?;
-    let (previous, recent) = points.split_at(split);
-    let best_recall = previous.iter().map(|p| p.recall).reduce(f64::max)?;
-    recent
-        .iter()
-        .all(|p| p.recall <= best_recall)
-        .then_some(best_recall)
+/// Find the next measurement for a lower-bound search, assuming nondecreasing recall.
+fn next_sweep_index(points: &[Option<SweepPoint>], target: f64) -> Option<usize> {
+    match points.first()? {
+        None => return Some(0),
+        Some(point) if point.recall >= target => return None,
+        Some(_) => {}
+    }
+
+    let (mut low, mut high) = (1, points.len());
+    while low < high {
+        let mid = low + (high - low) / 2;
+        match &points[mid] {
+            None => return Some(mid),
+            Some(point) if point.recall >= target => high = mid,
+            Some(_) => low = mid + 1,
+        }
+    }
+    None
 }
 
-/// Measure recall at each value of `sweep` for one query, reusing a single set of fixtures.
-///
-/// Values are ordered cheapest first. Stop at the highest recall target or after three
-/// consecutive larger values fail to improve the best recall measured so far.
+/// Binary-search the configured values for each recall target, sharing measured points.
 async fn sweep_query(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
@@ -968,42 +970,32 @@ async fn sweep_query(
     )
     .await?;
     let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
-    let (_, top_target) = RECALL_TARGETS[RECALL_TARGETS.len() - 1];
+    let mut points: Vec<Option<SweepPoint>> = (0..sweep.values.len()).map(|_| None).collect();
+    for (_, target) in RECALL_TARGETS {
+        while let Some(index) = next_sweep_index(&points, target) {
+            let value = &sweep.values[index];
+            let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
+            let mut params = base_params.clone();
+            params.insert(sweep.param.clone(), resolved);
 
-    let mut points = Vec::new();
-    for value in &sweep.values {
-        let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
-        let mut params = base_params.clone();
-        params.insert(sweep.param.clone(), resolved);
-
-        let query = substitute_vars(raw_variant, &params)?;
-        let (sets, knn_query) = split_operating_point(&query)?;
-        for stmt in &sets {
-            sqlx::query(AssertSqlSafe(stmt.as_str()))
-                .execute(&mut *conn)
-                .await
-                .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
-        }
-        let recall = score_recall(conn, &knn_query, &fixtures).await?;
-        println!("  {} = {value} -> recall {recall:.4}", sweep.param);
-        points.push(SweepPoint {
-            value: value.clone(),
-            recall,
-            query,
-        });
-        if recall >= top_target {
-            println!("  reached {top_target:.2} recall; skipping larger values");
-            break;
-        }
-        if let Some(best_recall) = recall_plateau(&points) {
-            println!(
-                "  no recall improvement across {RECALL_PLATEAU_PATIENCE} larger values \
-                 (best {best_recall:.4}); skipping remaining values"
-            );
-            break;
+            let query = substitute_vars(raw_variant, &params)?;
+            let (sets, knn_query) = split_operating_point(&query)?;
+            for stmt in &sets {
+                sqlx::query(AssertSqlSafe(stmt.as_str()))
+                    .execute(&mut *conn)
+                    .await
+                    .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
+            }
+            let recall = score_recall(conn, &knn_query, &fixtures).await?;
+            println!("  {} = {value} -> recall {recall:.4}", sweep.param);
+            points[index] = Some(SweepPoint {
+                value: value.clone(),
+                recall,
+                query,
+            });
         }
     }
-    Ok(points)
+    Ok(points.into_iter().flatten().collect())
 }
 
 /// One selected operating point, held until latency has been measured for it so the run's summary
@@ -1047,7 +1039,7 @@ async fn expand_sweeps(
         };
 
         println!(
-            "Sweeping {} over {} ({} values)",
+            "Binary-searching {} over {} ({} configured values)",
             query_item.query_type,
             sweep.param,
             sweep.values.len()
@@ -2399,6 +2391,82 @@ mod tests {
         }
     }
 
+    fn search_points(recalls: &[f64]) -> (Vec<SweepPoint>, Vec<usize>) {
+        let mut points: Vec<Option<SweepPoint>> = (0..recalls.len()).map(|_| None).collect();
+        let mut measured = Vec::new();
+        for (_, target) in RECALL_TARGETS {
+            while let Some(index) = next_sweep_index(&points, target) {
+                assert!(points[index].is_none(), "point {index} measured twice");
+                points[index] = Some(point(&index.to_string(), recalls[index]));
+                measured.push(index);
+            }
+        }
+        (points.into_iter().flatten().collect(), measured)
+    }
+
+    #[test]
+    fn binary_search_passes_flat_prefix() {
+        let (points, measured) = search_points(&[
+            0.859, 0.859, 0.859, 0.859, 0.88, 0.90, 0.94, 0.95, 0.98, 0.99, 0.995,
+        ]);
+        let selected = select_points(&points);
+        assert_eq!(
+            selected
+                .iter()
+                .map(|p| p.value.as_str())
+                .collect::<Vec<_>>(),
+            ["5", "7", "9"]
+        );
+        assert!(selected.iter().all(|p| p.reached));
+        assert!(measured.len() < 11);
+    }
+
+    #[test]
+    fn binary_search_checks_maximum_before_reporting_unreached() {
+        let (points, measured) = search_points(&[0.85; 17]);
+        assert!(measured.contains(&16));
+        assert!(measured.len() <= 6);
+        assert!(
+            select_points(&points)
+                .iter()
+                .all(|p| !p.reached && p.query.is_none())
+        );
+    }
+
+    #[test]
+    fn binary_search_reuses_minimum_for_all_targets() {
+        let (points, measured) = search_points(&[1.0; 17]);
+        assert_eq!(measured, [0]);
+        assert!(
+            select_points(&points)
+                .iter()
+                .all(|p| p.value == "0" && p.reached)
+        );
+    }
+
+    #[test]
+    fn binary_search_matches_linear_lower_bound() {
+        for len in 1..=64 {
+            for offset in 0..=len {
+                let recalls: Vec<_> = (0..len)
+                    .map(|i| ((i + offset) as f64 / len as f64).min(1.0))
+                    .collect();
+                let (points, measured) = search_points(&recalls);
+                for selected in select_points(&points) {
+                    let expected = recalls.iter().position(|r| *r >= selected.target);
+                    assert_eq!(selected.reached, expected.is_some());
+                    if let Some(index) = expected {
+                        assert_eq!(selected.value, index.to_string());
+                        assert_eq!(selected.recall, recalls[index]);
+                    } else {
+                        assert!(measured.contains(&(len - 1)));
+                        assert!(selected.query.is_none());
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn selects_cheapest_point_reaching_each_target() {
         let points = vec![
@@ -2442,7 +2510,7 @@ mod tests {
     }
 
     #[test]
-    fn unreached_target_uses_cheapest_point_on_recall_plateau() {
+    fn unreached_target_uses_cheapest_best_measured_point() {
         let points = vec![
             point("0.003", 0.919),
             point("0.0075", 0.953),
@@ -2455,12 +2523,7 @@ mod tests {
             point("0.75", 0.975),
             point("1.0", 0.975),
         ];
-        let stop = (1..=points.len())
-            .find(|&len| recall_plateau(&points[..len]).is_some())
-            .unwrap();
-        assert_eq!(points[stop - 1].value, "0.2");
-
-        let selected = select_points(&points[..stop]);
+        let selected = select_points(&points);
         let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
 
         assert_eq!(by_label["r90"].value, "0.003");
@@ -2472,40 +2535,18 @@ mod tests {
     }
 
     #[test]
-    fn selection_ignores_the_order_values_were_measured_in() {
-        let ascending = vec![point("0.1", 0.88), point("0.3", 0.96)];
-        let descending = vec![point("0.3", 0.96), point("0.1", 0.88)];
-        let pick = |pts: &[SweepPoint]| {
-            select_points(pts)
-                .into_iter()
-                .map(|s| s.value)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(pick(&ascending), pick(&descending));
+    fn selection_prefers_cheaper_measured_point_when_recall_fluctuates() {
+        let points = vec![point("0.1", 0.96), point("0.3", 0.95)];
+        let selected = select_points(&points);
+        assert_eq!(selected[0].value, "0.1");
+        assert_eq!(selected[1].value, "0.1");
     }
 
     #[test]
     fn empty_sweep_selects_nothing() {
-        assert!(select_points(&[]).is_empty());
-    }
-
-    #[rstest::rstest]
-    #[case::empty(&[], None)]
-    #[case::single_point(&[0.97], None)]
-    #[case::two_larger_values(&[0.97, 0.97, 0.97], None)]
-    #[case::three_larger_values(&[0.97, 0.97, 0.97, 0.97], Some(0.97))]
-    #[case::declining_recall(&[0.97, 0.96, 0.95, 0.94], Some(0.97))]
-    #[case::recovery_below_best(&[0.97, 0.94, 0.95, 0.96], Some(0.97))]
-    #[case::improvement_resets_patience(&[0.95, 0.95, 0.97, 0.97, 0.97], None)]
-    #[case::later_plateau(&[0.95, 0.95, 0.97, 0.97, 0.97, 0.97], Some(0.97))]
-    #[case::zero_recall(&[0.0, 0.0, 0.0, 0.0], Some(0.0))]
-    fn detects_recall_plateau(#[case] recalls: &[f64], #[case] expected: Option<f64>) {
-        let points: Vec<_> = recalls
-            .iter()
-            .enumerate()
-            .map(|(i, recall)| point(&i.to_string(), *recall))
-            .collect();
-        assert_eq!(recall_plateau(&points), expected);
+        let (points, measured) = search_points(&[]);
+        assert!(measured.is_empty());
+        assert!(select_points(&points).is_empty());
     }
 
     fn query_result(per_vector: bool, samples: Vec<f64>) -> QueryResult {

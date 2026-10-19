@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`pg_stat_user_indexes` now counts the scans of a ParadeDB index. `idx_scan` moves for every executor path that reads the index, so an unused-index check no longer reports a live ParadeDB index as unused.

@@ -2914,8 +2914,8 @@ unsafe fn resolve_topk_sort_target(
 /// `DataFusionTopK` describing the sort targets, limit, and offset.
 ///
 /// At `UPPERREL_GROUP_AGG`, TopK pushdown is an optional optimization for
-/// single-key `ORDER BY ... LIMIT K` queries (when unsupported, returns
-/// `Ok(None)` and PostgreSQL places its own `Sort` + `Limit` above the scan).
+/// `ORDER BY ... LIMIT K` queries (when unsupported, returns `Ok(None)` and
+/// PostgreSQL places its own `Sort` + `Limit` above the scan).
 ///
 /// At `UPPERREL_FINAL` (used for `pdb.combine_agg(pdb.agg(...)) OVER ()` with
 /// `GROUP BY`), there is no `Sort` or `Limit` node above `AggregateScan`, so
@@ -2992,43 +2992,42 @@ unsafe fn detect_join_aggregate_topk(
         return Ok(None);
     };
 
-    // Only single sort clause for TopK at UPPERREL_GROUP_AGG
-    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-    if sort_clauses.len() != 1 {
-        return Ok(None);
-    }
-
-    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
-        return Ok(None);
-    };
-    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    let Some(direction) =
-        SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
-    else {
-        return Ok(None);
-    };
-
-    let sort_expr_is_output = shape
-        .target_exprs()
-        .iter_ptr()
-        .any(|target_expr| pg_sys::equal(sort_expr.cast(), target_expr.cast()));
-    if !sort_expr_is_output {
-        return Ok(None);
-    }
-
     // Grouping sets carry every bucket level in one stream; a sort + limit over
     // that stream would cut across levels.
     if targetlist.pdb_agg_requests().any(|r| r.has_terms()) {
         return Ok(None);
     }
 
-    let Ok(sort_target) = resolve_topk_sort_target(sort_expr, extracted_target) else {
-        return Ok(None);
-    };
+    // All keys or none: a TopK over a prefix of the ORDER BY can drop rows that
+    // the full ordering ranks inside the first K, and the Sort above the scan
+    // only sees what the scan returns.
+    let target_exprs = shape.target_exprs();
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    let mut sorts = Vec::with_capacity(sort_clauses.len());
+    for sort_clause_ptr in sort_clauses.iter_ptr() {
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+        let Some(direction) =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
+        else {
+            return Ok(None);
+        };
+
+        let sort_expr_is_output = target_exprs
+            .iter_ptr()
+            .any(|target_expr| pg_sys::equal(sort_expr.cast(), target_expr.cast()));
+        if !sort_expr_is_output {
+            return Ok(None);
+        }
+
+        let Ok(sort_target) = resolve_topk_sort_target(sort_expr, extracted_target) else {
+            return Ok(None);
+        };
+        sorts.push((sort_target, direction));
+    }
 
     Ok(Some(privdat::DataFusionTopK {
-        sorts: vec![(sort_target, direction)],
+        sorts,
         limit: Some(
             crate::postgres::customscan::parameterized_value::ParameterizedValue::Static(k as i64),
         ),

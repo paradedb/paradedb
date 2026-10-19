@@ -132,8 +132,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, (count(*))
    ->  Sort
@@ -146,13 +146,14 @@ LIMIT 6;
                Group By: id, kind
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-                 :   TantivyDecodeExec: decode=[kind]
-                 :     AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-                 :       TantivyFetchExec: fetch=[kind]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-(18 rows)
+                 : SortExec: TopK(fetch=6), expr=[id@0 ASC NULLS LAST, kind@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :     TantivyDecodeExec: decode=[kind]
+                 :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :         TantivyFetchExec: fetch=[kind]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(19 rows)
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
@@ -273,8 +274,8 @@ GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
 LIMIT 5;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                        QUERY PLAN                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, (count(*))
    ->  Sort
@@ -287,13 +288,14 @@ LIMIT 5;
                Group By: id, kind
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-                 :   TantivyDecodeExec: decode=[kind]
-                 :     AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-                 :       TantivyFetchExec: fetch=[kind]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"a"}}]}}]}}
-(18 rows)
+                 : SortExec: TopK(fetch=5), expr=[kind@1 DESC, id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :     TantivyDecodeExec: decode=[kind]
+                 :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :         TantivyFetchExec: fetch=[kind]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"a"}}]}}]}}
+(19 rows)
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items

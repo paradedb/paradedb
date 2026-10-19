@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use tantivy::schema::Field;
 use tantivy::{
     DocId, DocSet, Score, SeekDangerResult, SegmentReader, TERMINATED, Term,
-    query::{EnableScoring, Explanation, Query, Scorer, Weight},
+    query::{EnableScoring, Explanation, PruningScorer, Query, Scorer, Weight},
 };
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression
@@ -392,10 +392,14 @@ struct HeapFilterWeight {
 unsafe impl Send for HeapFilterWeight {}
 unsafe impl Sync for HeapFilterWeight {}
 
-impl Weight for HeapFilterWeight {
-    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
-
+impl HeapFilterWeight {
+    fn cursor_and_ctid(
+        &self,
+        reader: &SegmentReader,
+    ) -> (
+        Option<BitmapCursor>,
+        crate::index::fast_fields_helper::FFType,
+    ) {
         // Get ctid fast field for heap access
         let fast_fields_reader = reader.fast_fields();
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
@@ -412,8 +416,15 @@ impl Weight for HeapFilterWeight {
             }
             _ => None,
         };
+        (cursor, ctid_ff)
+    }
+}
 
-        let scorer = HeapFilterScorer::new(
+impl Weight for HeapFilterWeight {
+    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+        let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        let (cursor, ctid_ff) = self.cursor_and_ctid(reader);
+        let scorer = HeapFilterScorer::<dyn Scorer>::new(
             indexed_scorer,
             self.always_filters.clone(),
             self.recheck_filters.clone(),
@@ -427,14 +438,39 @@ impl Weight for HeapFilterWeight {
         Ok(Box::new(scorer))
     }
 
+    // Top K: the heap filters run only on the documents the indexed query's pruning scorer
+    // returns, those that can still beat the threshold. The collector raises the threshold
+    // only from documents that passed the filters, so nothing that belongs in the top K is skipped.
+    fn pruning_scorer(
+        &self,
+        reader: &SegmentReader,
+        boost: Score,
+        init_threshold: Score,
+    ) -> tantivy::Result<Box<dyn PruningScorer>> {
+        let indexed_scorer = self
+            .indexed_weight
+            .pruning_scorer(reader, boost, init_threshold)?;
+        let (cursor, ctid_ff) = self.cursor_and_ctid(reader);
+        Ok(Box::new(HeapFilterScorer::<dyn PruningScorer>::new(
+            indexed_scorer,
+            self.always_filters.clone(),
+            self.recheck_filters.clone(),
+            cursor,
+            ctid_ff,
+            self.rel_oid,
+            self.expr_context,
+            self.planstate,
+        )))
+    }
+
     fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
         let indexed_explanation = self.indexed_weight.explain(reader, doc)?;
         Ok(Explanation::new("HeapFilter", indexed_explanation.value()))
     }
 }
 
-struct HeapFilterScorer {
-    indexed_scorer: Box<dyn Scorer>,
+struct HeapFilterScorer<S: Scorer + ?Sized = dyn Scorer> {
+    indexed_scorer: Box<S>,
     /// Evaluated on every doc that survives the bitmap probe (or every doc when no
     /// bitmap set is attached). See `SearchQueryInput::HeapFilter`.
     always_filters: Vec<HeapFieldFilter>,
@@ -452,13 +488,13 @@ struct HeapFilterScorer {
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
-unsafe impl Send for HeapFilterScorer {}
-unsafe impl Sync for HeapFilterScorer {}
+unsafe impl<S: Scorer + ?Sized> Send for HeapFilterScorer<S> {}
+unsafe impl<S: Scorer + ?Sized> Sync for HeapFilterScorer<S> {}
 
-impl HeapFilterScorer {
+impl<S: Scorer + ?Sized> HeapFilterScorer<S> {
     #[allow(clippy::too_many_arguments)]
     fn new(
-        indexed_scorer: Box<dyn Scorer>,
+        indexed_scorer: Box<S>,
         always_filters: Vec<HeapFieldFilter>,
         recheck_filters: Vec<HeapFieldFilter>,
         bitmap_cursor: Option<BitmapCursor>,
@@ -555,14 +591,14 @@ impl HeapFilterScorer {
     }
 }
 
-impl Scorer for HeapFilterScorer {
+impl<S: Scorer + ?Sized> Scorer for HeapFilterScorer<S> {
     fn score(&mut self) -> Score {
         // Return the score from the indexed query (preserving BM25 scores)
         self.indexed_scorer.score()
     }
 }
 
-impl DocSet for HeapFilterScorer {
+impl<S: Scorer + ?Sized> DocSet for HeapFilterScorer<S> {
     fn advance(&mut self) -> DocId {
         self.in_danger = false;
         loop {
@@ -637,5 +673,11 @@ impl DocSet for HeapFilterScorer {
 
     fn size_hint(&self) -> u32 {
         self.indexed_scorer.size_hint()
+    }
+}
+
+impl PruningScorer for HeapFilterScorer<dyn PruningScorer> {
+    fn set_threshold(&mut self, score: Score) {
+        self.indexed_scorer.set_threshold(score);
     }
 }

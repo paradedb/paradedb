@@ -134,7 +134,31 @@ WHERE body @@@ 'sheriff'
 ORDER BY id;
 COMMIT;
 
+--------------------------------------------------------------------------------
+-- CASE F: the policy is a NOT over an indexed condition. It joins the heap filter's
+-- indexed query, so the leaky predicate is pushed down but only sees rows the policy
+-- accepted. Safe = rows 1,2 and NO error.
+--------------------------------------------------------------------------------
 DROP POLICY org_isolation ON leaky_rls_docs;
+CREATE POLICY not_org2 ON leaky_rls_docs FOR SELECT
+    USING (NOT (secret @@@ 'org2'));
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF)
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND secret::int > 0
+ORDER BY id;
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND secret::int > 0
+ORDER BY id;
+COMMIT;
+
+DROP POLICY not_org2 ON leaky_rls_docs;
 DROP TABLE leaky_rls_docs CASCADE;
 DROP TABLE memberships CASCADE;
 

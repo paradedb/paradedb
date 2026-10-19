@@ -67,8 +67,8 @@ pub struct SweepConfig {
     /// The name this sweep varies. The query file must reference it as `{{ param }}`; it is
     /// supplied by the sweep, so it needs no `[params]` entry.
     pub param: String,
-    /// Operating points to try, ordered cheapest first. Stop at the highest recall target or
-    /// after three consecutive larger values fail to improve the best measured recall.
+    /// Operating points, ordered cheapest first with nondecreasing expected recall.
+    /// Binary-searched for the first value reaching each recall target.
     /// Each is a SQL scalar expression, like any other param value.
     pub values: Vec<String>,
 }

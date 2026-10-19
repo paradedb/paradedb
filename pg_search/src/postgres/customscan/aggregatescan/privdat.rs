@@ -17,6 +17,7 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::is_lateral_unnest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     GroupingTransform, JoinAggregateTargetList,
 };
@@ -178,7 +179,15 @@ impl TopKSortTarget {
                 };
 
                 match gc.transform {
-                    GroupingTransform::Identity => Column::new(Some(alias), &gc.field_name),
+                    GroupingTransform::Identity => {
+                        // A LATERAL unnest column reaches the aggregate under its
+                        // projected name, with no source qualifier to bind to.
+                        if is_lateral_unnest(plan, gc.plan_position, &gc.field_name) {
+                            Column::new_unqualified(format!("{alias}_{}", gc.field_name))
+                        } else {
+                            Column::new(Some(alias), &gc.field_name)
+                        }
+                    }
                     GroupingTransform::TimestampToDate => Column::new_unqualified(format!(
                         "{TIMESTAMP_TO_DATE_UDF_NAME}({alias}.{})",
                         gc.field_name

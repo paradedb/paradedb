@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792438046124,
+  "lastUpdate": 1792439434721,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18959,6 +18959,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.034,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "113442152+devcool20@users.noreply.github.com",
+            "name": "Divyanshu Sharma",
+            "username": "devcool20"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84d2be45271ad294e2a1682e3c89a6eb27b313a2",
+          "message": "fix: reject out-of-range date values during index build and insert (#6730) (#6876)\n\n### Summary\nFixes #6730 - Rejects PostgreSQL `date` values exceeding year 294276 AD\nduring index build and mutable insert with a specific error message,\npreventing deferred indexing panics and table search corruption.\n\n### Root Cause\nPostgreSQL `date` values support years up to 5,874,897 AD, whereas\n`timestamp` (and Tantivy datetime fast fields) are stored as signed\n64-bit microseconds from the PostgreSQL epoch, bounding finite values to\n4713-11-24 BC through 294276-12-31 AD (`MAX_PG_MICROS =\n9_223_371_331_200_000_000 - 1`).\n\nPrior to this fix:\n1. `From<pgrx::datum::Date> for PostgresDateTime` panicked via\n`.expect(...)` when converting dates beyond 294276 AD (either by integer\noverflow in `checked_mul(ONE_DAY_MICROS)` for year >= ~300,000 AD or in\n`try_from_raw` for years 294,277-300,000 AD).\n2. `TantivyValue::try_from(Date)` called `PostgresDateTime::from(val)`\ndirectly, bypassing fallible error handling.\n3. In `InsertMode::Mutable` (the default when `mutable_segment_rows >\n0`), `aminsert` buffered `ctid`s without validating date values.\nOut-of-range dates were committed to the PostgreSQL heap table, and\nsubsequent searches reading the mutable segment panicked inside\n`utils::row_to_search_document`, permanently breaking all future\nsearches on that table.\n\n### Solution\n- **Fallible Date Conversion:** Replaced `impl From<pgrx::datum::Date>\nfor PostgresDateTime` with `impl TryFrom<pgrx::datum::Date> for\nPostgresDateTime`, returning `DateTimeConversionError::FieldOverflow` or\n`DateTimeConversionError::OutOfRange`.\n- **Specific Error Variant:** Updated `TryFrom<pgrx::datum::Date> for\nTantivyValue` to map conversion failures to\n`TantivyValueError::DateOutOfRange`, raising a clear, actionable error:\n`could not parse field <field>: Date value out of range`.\n- **Eager Validation for Mutable Inserts:** Added date and date-range\nfield validation in `InsertMode::Mutable` within\n`state.per_row_context`. An out-of-range date raises a clean PostgreSQL\n`ERROR` at `INSERT` time, aborting the transaction before the bad row is\nwritten to the table heap and keeping the table healthy and searchable.\n\n### Testing\n- Added SQL integration test in\n`pg_search/tests/pg_regress/sql/issue_6730.sql` (and\n`expected/issue_6730.out`) covering:\n- `CREATE INDEX` rejecting pre-existing out-of-range dates with `ERROR:\ncould not parse field d: Date value out of range`.\n- Mutable `INSERT` rejecting out-of-range dates with `ERROR: could not\nparse field d: Date value out of range` while preserving subsequent\nquery searchability on the table.\n- Immutable `INSERT` (`mutable_segment_rows = 0`) rejecting out-of-range\ndates.\n- Date arrays (`date[]`) rejecting out-of-range dates with `ERROR: could\nnot parse field dates: Date value out of range`.\n- Valid upper boundary date (`294276-12-31`) successfully indexing and\nsearching.\n- Added Rust unit test `date_bounds_conversion` in\n`pg_search/src/postgres/datetime.rs` covering lower bound (-4713-11-24\nBC), upper bound (294276-12-31 AD), first overflow date (294277-01-01\nAD), and extreme day counts (`i32::MAX - 1`, `i32::MIN + 1`).\n- Added unit test `convert_pg_date_string_test` in\n`pg_search/src/postgres/utils.rs`.\n- Verified formatting and linting via `rustfmt --edition 2024 --check`\nand `python .github/scripts/check_impl_drop.py`.",
+          "timestamp": "2026-10-19T13:07:39-06:00",
+          "tree_id": "a2f1bdc8610212d513575622304c784497b9ff14",
+          "url": "https://github.com/paradedb/paradedb/commit/84d2be45271ad294e2a1682e3c89a6eb27b313a2"
+        },
+        "date": 1792439425230,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.309,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.682,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.519,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.982,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.342,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.535,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.189,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.475,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.308,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.105,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.157,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.937,
             "unit": "ms"
           }
         ]

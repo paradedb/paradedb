@@ -20,6 +20,7 @@ use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::index_only::IndexOnlyScanState;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::PgMemoryContextsExt;
@@ -38,6 +39,8 @@ pub struct Bm25ScanState {
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
     ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
+    /// Set once the scan is counted in the index statistics.
+    scan_counted: bool,
 }
 
 #[pg_guard]
@@ -250,6 +253,7 @@ pub extern "C-unwind" fn amrescan(
         index_only,
         ambulkdelete_epoch,
         ctid_cache: None,
+        scan_counted: false,
     };
 
     scan.opaque = PgMemoryContexts::CurrentMemoryContext
@@ -292,6 +296,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
             .expect("opaque should be a Bm25ScanState")
     };
 
+    count_scan_once(scan, state);
     (*scan).xs_recheck = false;
     (*scan).xs_hitup = std::ptr::null_mut();
     if let Some(index_only) = &mut state.index_only {
@@ -347,6 +352,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
             .expect("opaque should be a Bm25ScanState")
     };
 
+    count_scan_once(scan, state);
     let mut cnt = 0i64;
     loop {
         // Clone the Searcher (cheap Arc clone) to avoid holding a borrow on
@@ -377,6 +383,16 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     }
 
     cnt
+}
+
+/// The builtin access methods count a scan on its first fetch, so a rescan that never fetches,
+/// as a parallel worker's can, is not a scan. The entries a scan returns are counted by the
+/// executor itself.
+unsafe fn count_scan_once(scan: IndexScanDesc, state: &mut Bm25ScanState) {
+    if !state.scan_counted {
+        state.scan_counted = true;
+        unsafe { count_index_scan((*scan).indexRelation) };
+    }
 }
 
 /// Wait for parallel scan state to be initialized by the leader, then return its segment view.

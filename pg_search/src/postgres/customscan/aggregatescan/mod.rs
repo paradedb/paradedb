@@ -118,6 +118,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
@@ -2101,6 +2102,7 @@ impl AggregateScan {
             ExecutionState::Completed => return None,
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
+                unsafe { count_index_scan(state.custom_state().indexrel().as_ptr()) };
                 let mut row_iter = aggregation_results_iter(state);
                 let first = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
@@ -2292,6 +2294,10 @@ impl AggregateScan {
                 let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
                 for source in df_state.plan.sources() {
                     predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
+                        let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                        unsafe { count_index_scan(indexrel.as_ptr()) };
+                    }
                 }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(

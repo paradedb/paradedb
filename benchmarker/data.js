@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792429154795,
+  "lastUpdate": 1792429171087,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21801,6 +21801,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.24454082132569,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hi.wisper@gmail.com",
+            "name": "Alan Wisper",
+            "username": "wisper-dev"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ee7d22bf094ab8b3b7ef662762908aee8b56181",
+          "message": "fix: handle range bounds at and beyond the edges of integer fields (#6757)\n\n# Ticket(s) Closed\n\n- Closes #6673\n\n## What\n\nRange and term queries on integer fields and on `int4range`/`int8range`\nfields return the same rows as plain SQL at the edges of the type, for\nfractions, NaN and infinities.\n\n## How\n\nOne function, `clamp_to_int_domain`, on `Decimal`. Bounds on int4range\nand int8range are converted to integers the same way as on bigint.\n\n## Not included\n\nJSON numbers outside `i64`/`u64` (they are read as `f64`).\n\n## Tests\n\n`integer_range_bounds` checks against plain SQL.",
+          "timestamp": "2026-10-19T09:33:15-06:00",
+          "tree_id": "f4c791b47b15e51c04cd23d7e3fe3ea426cfd811",
+          "url": "https://github.com/paradedb/paradedb/commit/4ee7d22bf094ab8b3b7ef662762908aee8b56181"
+        },
+        "date": 1792429160758,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.88663629397267,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.815473627715573,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.63764708473596,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.20530078865869,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.92265347334189,
             "unit": "queries/s"
           }
         ]

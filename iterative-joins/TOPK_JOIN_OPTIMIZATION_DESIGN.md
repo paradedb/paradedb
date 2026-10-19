@@ -48,13 +48,13 @@ Because `RankJoinExec` supports both `SA` and `RA` on each input, `RankJoinRule`
 
 ### Gate 2: Score Contribution & Combiner Selection
 
-- If both `left` and `right` contribute positively to the monotonic `ORDER BY` expression (`uses_left && uses_right`), their maximum score contributions $\Delta_L, \Delta_R$ must satisfy $\min(\Delta_L, \Delta_R) \ge 0.20 \cdot \max(\Delta_L, \Delta_R)$, and both inputs are configured for `SA + RA`.
+- If both `left` and `right` contribute positively to the monotonic `ORDER BY` expression (`uses_left && uses_right`), their maximum score contributions $\Delta_L, \Delta_R$ must satisfy $\min(\Delta_L, \Delta_R) \ge 0.20 \cdot \max(\Delta_L, \Delta_R)$, and both inputs are configured for `SA + RA`. When `paradedb.rank_join_min_rows > 0`, two-sided `RankJoinExec` is restricted to disjunctive (`ScanMode::Disjunctive`) subtrees, leaving conjunctive (`ScanMode::Standard`) two-sided score joins on parallel `HashJoinExec` with dynamic filter pushdown.
 - If only `left` (resp. `right`) contributes to the `ORDER BY` expression, the scored side is configured for `SA` and the unscored side is configured for `RA`-only (`initial_window = 0.0`, score contribution $= 0$).
 
-### Gate 3: Cardinality & Initial Window Size
+### Gate 3: Cardinality, Unscored Selectivity & Initial Window Size
 
 1. `LIMIT K` is small: $K \le \text{MAX\_RANK\_JOIN\_K}$ (`1,000`).
-2. Both inputs must meet the minimum estimated row threshold (`paradedb.rank_join_min_rows`, default `10,000`; set to `0` in unit/regression tests to bypass the size floor).
+2. Both inputs must meet the minimum estimated row threshold (`paradedb.rank_join_min_rows`, default `50,000`; set to `0` in unit/regression tests to bypass the size floor), and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must have combined estimated selectivity $\ge \text{UNSCORED\_SELECTIVITY\_THRESHOLD}$ (`0.20`).
 3. Because `RankJoinExec` resolves unmatched top keys directly via `RA` point lookups rather than waiting for random `SA` window intersections, each scored `SA` leaf scan starts with a small initial window:
    $$W_{\text{init}} = \min\bigl(\max(K \cdot \text{topk\_retry\_scale\_factor},\; 1),\; \text{max\_topk\_chunk\_size}\bigr)$$
    while unscored `RA`-only leaf scans use $W_{\text{init}} = 0$.

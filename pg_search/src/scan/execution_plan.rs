@@ -257,6 +257,9 @@ pub struct PgSearchScanPlan {
     /// but no external ExprContext was supplied through the codec. Kept alive on the plan so
     /// the underlying ExprContext remains valid across execution.
     _expr_context_guard: Option<Arc<ExprContextGuard>>,
+    /// Optional override for total index document count in unit tests without an open reader.
+    #[cfg(any(test, feature = "pg_test"))]
+    test_total_docs: Option<u64>,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -286,6 +289,8 @@ impl Clone for PgSearchScanPlan {
             lazy_sort: self.lazy_sort.clone(),
             lazy_sort_telemetry: self.lazy_sort_telemetry.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
+            #[cfg(any(test, feature = "pg_test"))]
+            test_total_docs: self.test_total_docs,
         }
     }
 }
@@ -416,6 +421,8 @@ impl PgSearchScanPlan {
             lazy_sort: None,
             lazy_sort_telemetry: None,
             _expr_context_guard: None,
+            #[cfg(any(test, feature = "pg_test"))]
+            test_total_docs: None,
         }
     }
 
@@ -430,15 +437,53 @@ impl PgSearchScanPlan {
         self
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn with_total_docs_for_test(mut self, total_docs: u64) -> Self {
+        self.test_total_docs = Some(total_docs);
+        self
+    }
+
     /// Configures this scan to execute iterative, expanding-window Top-K pulls via
     /// `SearchIndexReader::search_top_k_in_segments` instead of streaming segment-by-segment.
     pub fn with_lazy_sort(mut self, lazy_sort: LazySortConfig) -> Self {
         let schema = self.properties.eq_properties.schema().clone();
         let eq_properties =
             build_equivalence_properties(schema, self.sort_order.as_ref(), Some(&lazy_sort));
+        self.global_partition_count = 1;
+        self.range_split_points = None;
+        self.assigned_partition = None;
+        self.partition_segments = None;
+        {
+            let mut state_guard = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let new_state =
+                match std::mem::replace(&mut *state_guard, ExecutionState::Uninitialized) {
+                    ExecutionState::RangePartitioned { scan_state, .. } => ExecutionState::Shared {
+                        parallel_state: None,
+                        scan_state,
+                    },
+                    ExecutionState::Shared {
+                        parallel_state,
+                        scan_state,
+                    } => ExecutionState::Shared {
+                        parallel_state: if lazy_sort.shared_threshold
+                            == SharedThresholdMode::Disabled
+                        {
+                            None
+                        } else {
+                            parallel_state
+                        },
+                        scan_state,
+                    },
+                    other => other,
+                };
+            *state_guard = new_state;
+        }
         self.properties = Arc::new(PlanProperties::new(
             eq_properties,
-            self.properties.output_partitioning().clone(),
+            Partitioning::UnknownPartitioning(1),
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
@@ -555,6 +600,8 @@ impl PgSearchScanPlan {
             lazy_sort: self.lazy_sort.clone(),
             lazy_sort_telemetry: self.lazy_sort_telemetry.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
+            #[cfg(any(test, feature = "pg_test"))]
+            test_total_docs: self.test_total_docs,
         })
     }
 
@@ -625,6 +672,13 @@ impl PgSearchScanPlan {
     /// the only reader of the field. `RangePartitioned` and `Uninitialized` scans never consult
     /// the pointer, so they are left untouched.
     pub(crate) fn set_parallel_state(&self, ps: *mut ParallelScanState) {
+        if self
+            .lazy_sort
+            .as_ref()
+            .is_some_and(|ls| ls.shared_threshold == SharedThresholdMode::Disabled)
+        {
+            return;
+        }
         let mut state_guard = self
             .state
             .lock()
@@ -642,6 +696,39 @@ impl PgSearchScanPlan {
     /// partitions the way `partition_statistics` divides it.
     pub fn planner_estimated_rows(&self) -> u64 {
         self.planner_estimated_rows
+    }
+
+    /// Estimated fraction `[0.0, 1.0]` of index documents matched by this scan
+    /// (`planner_estimated_rows / total_docs`).
+    pub fn estimated_selectivity(&self) -> f64 {
+        #[cfg(any(test, feature = "pg_test"))]
+        if let Some(total_docs) = self.test_total_docs {
+            return if total_docs == 0 {
+                1.0
+            } else {
+                (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0)
+            };
+        }
+        let total_docs = {
+            let state_guard = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match &*state_guard {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => {
+                    scan_state.0.reader.total_docs()
+                }
+                ExecutionState::Consumed | ExecutionState::Uninitialized => {
+                    self.planner_estimated_rows
+                }
+            }
+        };
+        if total_docs == 0 {
+            1.0
+        } else {
+            (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0)
+        }
     }
 
     pub fn resolved_query(&self) -> &SearchQueryInput {
@@ -2390,14 +2477,22 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
     }
 }
 
-/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks.
+/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks (or `1` task for
+/// `RankJoinExec` and lazy-sorted scans so all components of a rank join execute in a
+/// single `datafusion-distributed` task where in-memory dynamic filters work).
 ///
-/// This preserves useful scan parallelism: a single-segment scan has one task, while larger or
-/// range-partitioned scans expose their partitions to the distributed planner.
+/// This preserves useful scan parallelism: a single-segment or lazy-sorted scan has one task,
+/// while larger or range-partitioned scans expose their partitions to the distributed planner.
 pub(crate) fn pg_search_scan_desired_task_count(
     ev: DesiredTaskCountEvent,
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
-    let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
+    if ev.plan.is::<crate::scan::rank_join_exec::RankJoinExec>() {
+        return Some(Ok(DesiredTaskCountEventResponse::maximum(1)));
+    }
+    let scan = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
+    if scan.lazy_sort().is_some() {
+        return Some(Ok(DesiredTaskCountEventResponse::maximum(1)));
+    }
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
     // `maximum` rather than `desired`: `partition_count` is already clamped to the number
     // of physical index segments (when range partitioning is off). A single segment cannot

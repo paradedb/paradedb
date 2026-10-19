@@ -37,12 +37,10 @@ use datafusion::physical_expr::expressions::{BinaryExpr, CastExpr, Column, Liter
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr, ScalarFunctionExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::joins::HashJoinExec;
+use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
-use datafusion::physical_plan::{
-    ExecutionPlan, ExecutionPlanProperties, replace_children_if_necessary,
-};
+use datafusion::physical_plan::{ExecutionPlan, replace_children_if_necessary};
 
 use crate::api::{FieldName, OrderByFeature, OrderByInfo, SortDirection};
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
@@ -64,6 +62,15 @@ pub(crate) const MAX_RANK_JOIN_K: usize = 1_000;
 /// required by Gate 2 so heavily lopsided two-sided score queries do not force `RankJoinExec`
 /// to scan the weaker-scored input to completion.
 pub(crate) const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
+
+/// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `min_rows > 0`.
+///
+/// When the unscored build side is selective (`< 20%`), most rows pulled from the `SA` stream
+/// miss during `RA` point lookups, requiring repeated `SA` window expansions on a single thread
+/// while parallel `HashJoinExec` can build a small hash table on the selective input and push a
+/// join dynamic filter into the `SA` scan.
+pub(crate) const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.20;
 
 /// Physical optimizer rule that replaces top-K scored `HashJoinExec`s with `RankJoinExec`.
 #[derive(Debug, Default)]
@@ -101,14 +108,7 @@ impl PhysicalOptimizerRule for RankJoinRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        // RankJoin relies on dynamic filters (`FilterPushdown`) to prune the random-access
-        // probe side on the fly. Because cross-process dynamic filters are disabled under MPP
-        // (`with_distributed_remote_dynamic_filters(false)`), do not plan `RankJoinExec` when
-        // MPP is active.
-        if self.min_rows_override.is_none()
-            && (!crate::gucs::enable_rank_join()
-                || crate::postgres::customscan::mpp::glue::mpp_is_active())
-        {
+        if self.min_rows_override.is_none() && !crate::gucs::enable_rank_join() {
             return Ok(plan);
         }
         let min_rows = self
@@ -148,10 +148,15 @@ impl PhysicalOptimizerRule for RankJoinRule {
     }
 }
 
+/// Estimated fraction `[0.0, 1.0]` of rows surviving `RA` point lookups across unscored join inputs.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub(crate) struct UnscoredSelectivity(pub f64);
+
 /// Statistics and score range for a join input subtree used by Gates 2 and 3.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SubtreeScoreStats {
     pub estimated_rows: u64,
+    pub unscored_selectivity: UnscoredSelectivity,
     pub score_min: f64,
     pub score_max: f64,
 }
@@ -187,13 +192,15 @@ impl SubtreeScoreStats {
         };
         Some(Self {
             estimated_rows,
+            unscored_selectivity: UnscoredSelectivity(1.0),
             score_min: 0.0,
             score_max,
         })
     }
 
-    /// Verifies Gate 2 (score balance when both sides are scored) and Gate 3 (`min_rows`),
-    /// and computes the combined `[score_min, score_max]` across `combiner`.
+    /// Verifies Gate 2 (score balance when both sides are scored) and Gate 3 (`min_rows` and
+    /// `UNSCORED_SELECTIVITY_THRESHOLD`), and computes the combined `[score_min, score_max]`
+    /// across `combiner`.
     pub(crate) fn combine(
         combiner: &ScoreCombiner,
         left: Self,
@@ -226,10 +233,20 @@ impl SubtreeScoreStats {
             }
         }
 
-        // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`).
         let min_matched = left.estimated_rows.min(right.estimated_rows);
-        if min_rows > 0 && min_matched < min_rows as u64 && !skip_min_rows_gate {
-            return None;
+        let unscored_selectivity =
+            UnscoredSelectivity(left.unscored_selectivity.0 * right.unscored_selectivity.0);
+
+        // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`),
+        // and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must meet
+        // `UNSCORED_SELECTIVITY_THRESHOLD`.
+        if min_rows > 0 && !skip_min_rows_gate {
+            if min_matched < min_rows as u64 {
+                return None;
+            }
+            if unscored_selectivity.0 < UNSCORED_SELECTIVITY_THRESHOLD {
+                return None;
+            }
         }
 
         let corners = [
@@ -243,6 +260,7 @@ impl SubtreeScoreStats {
         ];
         Some(Self {
             estimated_rows: min_matched,
+            unscored_selectivity,
             score_min: corners.into_iter().fold(f64::INFINITY, f64::min),
             score_max: corners.into_iter().fold(f64::NEG_INFINITY, f64::max),
         })
@@ -409,6 +427,17 @@ fn try_rewrite_join_subtree(
         return Ok(None);
     }
 
+    // Two-sided score joins (`uses_left && uses_right`) over conjunctive (`ScanMode::Standard`)
+    // inputs suffer from multiplicative RA miss rates across independent predicates and slow
+    // additive upper-bound decay compared to parallel MPP `HashJoinExec` with dynamic filter
+    // pushdown. Only plan two-sided `RankJoinExec` when the subtree contains tagless disjunctive
+    // (`ScanMode::Disjunctive`) scans (where the alternative `ScanMode::Tagged` must scan 100%
+    // of every table), or when `min_rows == 0` (used in tests to force `RankJoinExec`).
+    let has_disjunctive_scans = subtree_has_tagless_disjunctive_scans(node);
+    if uses_left && uses_right && min_rows > 0 && !has_disjunctive_scans {
+        return Ok(None);
+    }
+
     let child_field_sort_policy = if field_sort_policy == FieldSortPolicy::Allowed
         && matches!(
             decomposed.combiner,
@@ -454,7 +483,7 @@ fn try_rewrite_join_subtree(
     // If `JoinSearchPredicateRule` already elided predicate tagging on this subtree
     // (based on logical `scan_info.estimate`), do not reject if segment pruning at reader
     // open time lowered `planner_estimated_rows`.
-    let skip_min_rows_gate = subtree_has_tagless_disjunctive_scans(node);
+    let skip_min_rows_gate = has_disjunctive_scans;
     let Some(combined_stats) = SubtreeScoreStats::combine(
         &decomposed.combiner,
         left_stats,
@@ -473,7 +502,7 @@ fn try_rewrite_join_subtree(
         join.on().to_vec(),
         join.filter().cloned(),
         join.projection.as_deref().map(<[usize]>::to_vec),
-        *join.partition_mode(),
+        PartitionMode::CollectLeft,
         join.null_equality(),
         RankJoinSortExprs {
             left: decomposed.left_sort_expr,
@@ -621,6 +650,9 @@ fn try_rewrite_unscored_branch(
         };
         let stats = SubtreeScoreStats {
             estimated_rows: left_stats.estimated_rows.min(right_stats.estimated_rows),
+            unscored_selectivity: UnscoredSelectivity(
+                left_stats.unscored_selectivity.0 * right_stats.unscored_selectivity.0,
+            ),
             score_min: 0.0,
             score_max: 0.0,
         };
@@ -639,7 +671,7 @@ fn try_rewrite_unscored_branch(
             join.on().to_vec(),
             join.filter().cloned(),
             join.projection.as_deref().map(<[usize]>::to_vec),
-            *join.partition_mode(),
+            PartitionMode::CollectLeft,
             join.null_equality(),
             RankJoinSortExprs {
                 left: dummy_zero.clone(),
@@ -658,6 +690,7 @@ fn try_rewrite_unscored_branch(
     }
     let stats = SubtreeScoreStats {
         estimated_rows: scan.planner_estimated_rows(),
+        unscored_selectivity: UnscoredSelectivity(scan.estimated_selectivity()),
         score_min: 0.0,
         score_max: 0.0,
     };
@@ -782,11 +815,7 @@ fn resolve_scan_order_by(
 }
 
 fn is_hash_join_eligible(join: &HashJoinExec) -> bool {
-    *join.join_type() == JoinType::Inner
-        && !join.null_aware
-        && !join.on().is_empty()
-        && join.left().output_partitioning().partition_count() == 1
-        && join.right().output_partitioning().partition_count() == 1
+    *join.join_type() == JoinType::Inner && !join.null_aware && !join.on().is_empty()
 }
 
 /// Maps `ordering` across a pass-through single-child operator (`ProjectionExec`,
@@ -1449,9 +1478,9 @@ fn estimate_pdb_query_max_score(query: &pdb::Query) -> f64 {
 mod tests {
     use super::*;
     use arrow_schema::Field;
-    use datafusion::physical_plan::joins::PartitionMode;
     use pgrx::prelude::*;
 
+    #[allow(dead_code)]
     fn test_schemas() -> (SchemaRef, SchemaRef) {
         let left = Arc::new(Schema::new(vec![
             Field::new("l_id", DataType::Int32, false),
@@ -1658,7 +1687,7 @@ mod tests {
             Arc::new(SortExec::new(sort_order, proj).with_fetch(Some(10)));
 
         let config = ConfigOptions::default();
-        let rule = RankJoinRule::new_with_min_rows(10_000);
+        let rule = RankJoinRule::new_with_min_rows(0);
         let after_rank_join = rule.optimize(top_sort, &config).unwrap();
 
         // Now run `EnsureRequirements` and verify `SortExec(fetch=10)`
@@ -1738,11 +1767,12 @@ mod tests {
         };
 
         let config = ConfigOptions::default();
-        let rule = RankJoinRule::new_with_min_rows(10_000);
+        let rule_zero = RankJoinRule::new_with_min_rows(0);
+        let rule_min_rows = RankJoinRule::new_with_min_rows(10_000);
 
         // Gate 1 rejection: `SearchQueryInput::All` is a constant-score query.
         let plan_const = make_plan(SearchQueryInput::All, bm25_query(), 50_000);
-        let out_const = rule.optimize(plan_const, &config).unwrap();
+        let out_const = rule_zero.optimize(plan_const, &config).unwrap();
         assert!(out_const.children()[0].is::<HashJoinExec>());
 
         // Gate 2 rejection: 100x boost imbalance (`ratio = 0.01 < 0.20`).
@@ -1751,13 +1781,90 @@ mod tests {
             factor: 100.0,
         };
         let plan_imbalanced = make_plan(boosted, bm25_query(), 50_000);
-        let out_imbalanced = rule.optimize(plan_imbalanced, &config).unwrap();
+        let out_imbalanced = rule_zero.optimize(plan_imbalanced, &config).unwrap();
         assert!(out_imbalanced.children()[0].is::<HashJoinExec>());
 
+        // Two-sided conjunctive (`ScanMode::Standard`) rejection when `min_rows > 0`,
+        // but allowed when `min_rows == 0`.
+        let plan_two_sided_conj = make_plan(bm25_query(), bm25_query(), 50_000);
+        let out_two_sided_rejected = rule_min_rows
+            .optimize(Arc::clone(&plan_two_sided_conj), &config)
+            .unwrap();
+        assert!(out_two_sided_rejected.children()[0].is::<HashJoinExec>());
+        let out_two_sided_allowed = rule_zero.optimize(plan_two_sided_conj, &config).unwrap();
+        assert!(out_two_sided_allowed.children()[0].is::<RankJoinExec>());
+
+        // Single-sided helper (`ORDER BY l.__pdb_score DESC LIMIT 10`).
+        let make_single_sided_plan =
+            |l_rows: u64, r_rows: u64, r_total_docs: u64| -> Arc<dyn ExecutionPlan> {
+                let schema = Arc::new(Schema::new(vec![
+                    Field::new("id", DataType::Int32, false),
+                    Field::new("__pdb_score", DataType::Float32, false),
+                ]));
+                let left_scan = make_test_scan("l", bm25_query(), l_rows);
+                let right_scan: Arc<dyn ExecutionPlan> = Arc::new(
+                    PgSearchScanPlan::new(
+                        None,
+                        schema,
+                        bm25_query(),
+                        None,
+                        vec![],
+                        None,
+                        1,
+                        None,
+                        1,
+                        None,
+                        None,
+                    )
+                    .with_table_alias("r")
+                    .with_estimated_rows_for_test(r_rows)
+                    .with_total_docs_for_test(r_total_docs),
+                );
+                let join: Arc<dyn ExecutionPlan> = Arc::new(
+                    HashJoinExec::try_new(
+                        left_scan,
+                        right_scan,
+                        vec![(
+                            Arc::new(Column::new("id", 0)),
+                            Arc::new(Column::new("id", 0)),
+                        )],
+                        None,
+                        &JoinType::Inner,
+                        None,
+                        PartitionMode::CollectLeft,
+                        NullEquality::NullEqualsNothing,
+                        false,
+                    )
+                    .unwrap(),
+                );
+                let sort_order = LexOrdering::new(vec![PhysicalSortExpr {
+                    expr: Arc::new(Column::new("__pdb_score", 1)),
+                    options: SortOptions {
+                        descending: true,
+                        nulls_first: false,
+                    },
+                }])
+                .unwrap();
+                Arc::new(SortExec::new(sort_order, join).with_fetch(Some(10)))
+            };
+
         // Gate 3 rejection: row count below `min_rows` (1,000 < 10,000).
-        let plan_small = make_plan(bm25_query(), bm25_query(), 1_000);
-        let out_small = rule.optimize(plan_small, &config).unwrap();
+        let plan_small = make_single_sided_plan(1_000, 1_000, 1_000);
+        let out_small = rule_min_rows.optimize(plan_small, &config).unwrap();
         assert!(out_small.children()[0].is::<HashJoinExec>());
+
+        // Gate 3 rejection: unscored (`RA`) selectivity below `UNSCORED_SELECTIVITY_THRESHOLD`
+        // (`50,000 / 1,000,000 = 0.05 < 0.20`).
+        let plan_selective_ra = make_single_sided_plan(500_000, 50_000, 1_000_000);
+        let out_selective_ra = rule_min_rows.optimize(plan_selective_ra, &config).unwrap();
+        assert!(out_selective_ra.children()[0].is::<HashJoinExec>());
+
+        // Gate 3 acceptance: unscored (`RA`) selectivity >= `0.20` (`300,000 / 1,000,000 = 0.30`).
+        let plan_unselective_ra = make_single_sided_plan(500_000, 300_000, 1_000_000);
+        let out_unselective_ra = rule_min_rows
+            .optimize(plan_unselective_ra, &config)
+            .unwrap();
+        assert!(out_unselective_ra.children()[0].is::<RankJoinExec>());
     }
 
     #[pg_test]
@@ -1857,6 +1964,198 @@ mod tests {
         assert!(
             out_two.children()[0].is::<HashJoinExec>(),
             "two-sided non-score column sort must not rewrite to RankJoinExec"
+        );
+    }
+
+    #[pg_test]
+    fn test_rank_join_rule_normalizes_mpp_range_partitioned_scans() {
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::scan::execution_plan::{
+            pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
+        };
+        use crate::scan::physical_codec::PgSearchPhysicalExtensionCodec;
+        use crate::scan::range_partitioning::RangeSplitPoints;
+        use async_trait::async_trait;
+        use datafusion::catalog::Session;
+        use datafusion::common::NullEquality;
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion::execution::context::QueryPlanner;
+        use datafusion::logical_expr::{EmptyRelation, LogicalPlan};
+        use datafusion::physical_optimizer::optimizer::PhysicalOptimizer;
+        use datafusion::physical_plan::ExecutionPlanProperties;
+        use datafusion::physical_plan::limit::GlobalLimitExec;
+        use datafusion::prelude::SessionConfig;
+        use datafusion_distributed::shm::InProcessWorkerResolver;
+        use datafusion_distributed::{
+            DesiredTaskCountEvent, DistributedConfig, DistributedExt, SessionStateBuilderExt,
+        };
+
+        #[derive(Debug)]
+        struct FixedPhysicalPlanner(Arc<dyn ExecutionPlan>);
+
+        #[async_trait]
+        impl QueryPlanner for FixedPhysicalPlanner {
+            async fn create_physical_plan(
+                &self,
+                _logical_plan: &LogicalPlan,
+                _session_state: &dyn Session,
+            ) -> Result<Arc<dyn ExecutionPlan>> {
+                Ok(Arc::clone(&self.0))
+            }
+        }
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("__pdb_score", DataType::Float32, false),
+        ]));
+        let split_points = RangeSplitPoints {
+            partition_by: FieldName::from("id"),
+            points: vec![
+                PdbOwnedValue::I64(100),
+                PdbOwnedValue::I64(200),
+                PdbOwnedValue::I64(300),
+            ],
+        };
+        let make_mpp_scan = |alias: &str| -> Arc<dyn ExecutionPlan> {
+            Arc::new(
+                PgSearchScanPlan::new(
+                    None,
+                    Arc::clone(&schema),
+                    bm25_query(),
+                    None,
+                    vec![],
+                    None,
+                    1,
+                    None,
+                    4,
+                    None,
+                    Some(split_points.clone()),
+                )
+                .with_table_alias(alias)
+                .with_estimated_rows_for_test(50_000),
+            )
+        };
+
+        let left_scan = make_mpp_scan("l");
+        let right_scan = make_mpp_scan("r");
+        assert_eq!(left_scan.output_partitioning().partition_count(), 4);
+        assert_eq!(right_scan.output_partitioning().partition_count(), 4);
+
+        let join: Arc<dyn ExecutionPlan> = Arc::new(
+            HashJoinExec::try_new(
+                left_scan,
+                right_scan,
+                vec![(
+                    Arc::new(Column::new("id", 0)),
+                    Arc::new(Column::new("id", 0)),
+                )],
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::Partitioned,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        );
+        let sum_expr: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+            Arc::new(Column::new("__pdb_score", 1)),
+            Operator::Plus,
+            Arc::new(Column::new("__pdb_score", 3)),
+        ));
+        let sort_order = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: sum_expr,
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        }])
+        .unwrap();
+        let top_sort: Arc<dyn ExecutionPlan> =
+            Arc::new(SortExec::new(sort_order, join).with_fetch(Some(10)));
+
+        let mut config = ConfigOptions::default();
+        config.execution.target_partitions = 4;
+        let rule = RankJoinRule::new_with_min_rows(0);
+        let after_rank_join = rule.optimize(top_sort, &config).unwrap();
+
+        let ensure_requirements = PhysicalOptimizer::default()
+            .rules
+            .into_iter()
+            .find(|r| r.name() == "EnsureRequirements")
+            .expect("EnsureRequirements rule should exist");
+        let after_enforce = ensure_requirements
+            .optimize(after_rank_join, &config)
+            .unwrap();
+
+        assert!(
+            after_enforce.is::<GlobalLimitExec>(),
+            "expected GlobalLimitExec at root after EnsureRequirements, got: {}",
+            after_enforce.name()
+        );
+        let rj_plan = Arc::clone(after_enforce.children()[0]);
+        let rj = rj_plan
+            .downcast_ref::<RankJoinExec>()
+            .expect("expected RankJoinExec directly under GlobalLimitExec");
+        assert_eq!(rj_plan.output_partitioning().partition_count(), 1);
+        assert_eq!(rj.left().output_partitioning().partition_count(), 1);
+        assert_eq!(rj.right().output_partitioning().partition_count(), 1);
+
+        // Verify DesiredTaskCount handler returns Maximum(1) for both RankJoinExec and its leaves.
+        let session_config = SessionConfig::from(config);
+        assert!(
+            pg_search_scan_desired_task_count(DesiredTaskCountEvent {
+                plan: &rj_plan,
+                session_config: &session_config,
+            })
+            .expect("RankJoinExec should be handled")
+            .is_ok()
+        );
+        assert!(
+            pg_search_scan_desired_task_count(DesiredTaskCountEvent {
+                plan: rj.left(),
+                session_config: &session_config,
+            })
+            .expect("PgSearchScanPlan should be handled")
+            .is_ok()
+        );
+
+        // Verify DistributedQueryPlanner elides all network boundaries
+        // and returns the single-task plan with no DistributedExec wrapper.
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_config(session_config)
+            .with_query_planner(Arc::new(FixedPhysicalPlanner(Arc::clone(&after_enforce))))
+            .with_distributed_option_extension(DistributedConfig::default())
+            .with_distributed_worker_resolver(InProcessWorkerResolver::new(4))
+            .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::default())
+            .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
+            .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
+            .with_distributed_desired_task_count_handler(4)
+            .with_distributed_broadcast_joins(true)
+            .unwrap()
+            .with_distributed_remote_dynamic_filters(false)
+            .unwrap()
+            .with_distributed_planner()
+            .build();
+        let dummy_logical = LogicalPlan::EmptyRelation(EmptyRelation {
+            produce_one_row: false,
+            schema: Arc::new(datafusion::common::DFSchema::empty()),
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let distributed_plan = runtime
+            .block_on(
+                state
+                    .query_planner()
+                    .create_physical_plan(&dummy_logical, &state),
+            )
+            .unwrap();
+        assert!(
+            distributed_plan.is::<GlobalLimitExec>(),
+            "expected DistributedQueryPlanner to return unwrapped GlobalLimitExec, got: {}",
+            distributed_plan.name()
         );
     }
 }

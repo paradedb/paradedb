@@ -220,17 +220,15 @@ impl OptimizerRule for JoinSearchPredicateRule {
         }
 
         let tags_by_position = build_tagged_queries(collected.clone());
-        let elided_positions = if self.min_rows_override.is_some()
-            || (crate::gucs::enable_rank_join()
-                && !crate::postgres::customscan::mpp::glue::mpp_is_active())
-        {
-            let min_rows = self
-                .min_rows_override
-                .unwrap_or_else(crate::gucs::rank_join_min_rows);
-            find_elidable_rank_join_positions(&plan, &tags_by_position, &collected, min_rows)
-        } else {
-            BTreeSet::new()
-        };
+        let elided_positions =
+            if self.min_rows_override.is_some() || crate::gucs::enable_rank_join() {
+                let min_rows = self
+                    .min_rows_override
+                    .unwrap_or_else(crate::gucs::rank_join_min_rows);
+                find_elidable_rank_join_positions(&plan, &tags_by_position, &collected, min_rows)
+            } else {
+                BTreeSet::new()
+            };
 
         let original_schema = Arc::clone(plan.schema());
         let rewritten = rewrite_plan(plan, &tags_by_position, &elided_positions, &BTreeSet::new())?;
@@ -529,11 +527,6 @@ fn inspect_logical_leaf_scan(
 ) -> Option<SubtreeScoreStats> {
     let provider = pg_search_provider_from_scan(scan)?;
     let plan_pos = resolve_scan_plan_position(scan)?;
-
-    // Multi-partition MPP scans are not eligible for `RankJoinExec`.
-    if provider.source_idx().is_some() || provider.range_split_points().is_some() {
-        return None;
-    }
 
     let col = required_sort.expr.downcast_ref::<PhysicalColumn>()?;
     if col.index() >= scan.projected_schema.fields().len() {

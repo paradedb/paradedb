@@ -117,7 +117,7 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 | `paradedb.enable_join_custom_scan`       | `on`    | Master switch                                                                                       |
 | `paradedb.enable_range_partitioned_join` | `true`  | Range co-partitioned joins                                                                          |
 | `paradedb.enable_rank_join`              | `true`  | `RankJoinExec` (`SA + RA` Rank Join) injection for top-K scored joins                               |
-| `paradedb.rank_join_min_rows`            | `10000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`   |
+| `paradedb.rank_join_min_rows`            | `50000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`   |
 | `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection                                                                       |
 | `paradedb.defer_column_fetch`            | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`) |
 | `paradedb.defer_string_decode`           | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)      |

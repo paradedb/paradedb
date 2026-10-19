@@ -49,23 +49,24 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DOCS_ROOT = SCRIPT_DIR.parent.parent / "docs"
 OUTPUT_ROOT = SCRIPT_DIR / "verify"
 COVERAGE_PATH = SCRIPT_DIR / "docs_snippet_coverage.json"
-VERSION_SNIPPET = DOCS_ROOT / "snippets" / "version.mdx"
+DOCS_JSON_PATH = DOCS_ROOT / "docs.json"
 
 
 @cache
 def current_docs_version():
     """The release version that the deploy docs are pinned to."""
-    match = re.search(r'version = "([^"]+)"', VERSION_SNIPPET.read_text())
-    if not match:
-        raise ValueError(f"No version found in {VERSION_SNIPPET}")
-    return match[1]
+    docs_data = json.loads(DOCS_JSON_PATH.read_text(encoding="utf-8"))
+    versions = docs_data.get("navigation", {}).get("versions", [])
+    if not versions or "version" not in versions[0]:
+        raise ValueError(f"No navigation version found in {DOCS_JSON_PATH}")
+    return versions[0]["version"].lstrip("v")
 
 
 def fence_digest(info, body):
     """Fingerprint a fence's language label and unchanged source.
 
     The release process rewrites the current version into deploy examples
-    alongside docs/snippets/version.mdx, so it is masked out: a release bump
+    alongside docs/docs.json, so it is masked out: a release bump
     is not an edit that needs a new review.
     """
     normalized = body.replace(current_docs_version(), "{version}")

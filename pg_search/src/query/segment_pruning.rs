@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 use std::ops::Bound;
 
 use super::SearchQueryInput;
-use super::numeric::convert_value_for_field;
+use super::numeric::{convert_value_for_field, is_outside_int_domain};
 use super::pdb_query::{canonicalize_range_bounds_for_field, pdb};
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
@@ -121,8 +121,11 @@ impl<'a> SegmentPruner<'a> {
         };
         let stats = self.snapshot.empirical(segment as usize, &field);
         terms.any(|value| {
-            self.term_value(&field, value)
-                .is_none_or(|value| term_can_match(stats.as_ref(), &value))
+            // A number that no integer of the field equals matches nothing.
+            !is_outside_int_domain(value, &field.field_type())
+                && self
+                    .term_value(&field, value)
+                    .is_none_or(|value| term_can_match(stats.as_ref(), &value))
         })
     }
 
@@ -295,8 +298,8 @@ impl<'a> SegmentPruner<'a> {
     }
 }
 
-/// `value_to_term` casts unsigned inputs on I64 fields with `as i64`; overflowing values wrap
-/// into negative terms. Numerical bounds cannot prove what those terms match.
+/// `value_to_term` rejects an unsigned input above `i64::MAX` on an I64 field, so numerical
+/// bounds cannot prove what it matches.
 fn value_preserves_term_order(field: &SearchField, value: &PdbOwnedValue) -> bool {
     !matches!((field.field_entry().field_type(), value),
         (FieldType::I64(_), PdbOwnedValue::U64(value)) if i64::try_from(*value).is_err())

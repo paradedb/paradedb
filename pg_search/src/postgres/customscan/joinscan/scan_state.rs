@@ -520,6 +520,12 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
 
     let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+    let propagate_empty_pos = optimizer_rules
+        .iter()
+        .position(|r| r.name() == "propagate_empty_relation")
+        .expect("propagate_empty_relation optimizer rule not found");
+    optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
+
     let pos = optimizer_rules
         .iter()
         .position(|r| r.name() == "optimize_projections")
@@ -538,7 +544,6 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     optimizer_rules.push(Arc::new(
         super::range_partitioning_rule::RangePartitioningRule::new(),
     ));
-    optimizer_rules.push(Arc::new(PropagateEmptyUnnestRule));
     builder = builder.with_optimizer_rules(optimizer_rules);
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));

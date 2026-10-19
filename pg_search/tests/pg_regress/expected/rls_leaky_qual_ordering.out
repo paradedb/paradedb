@@ -152,7 +152,48 @@ ORDER BY id;
 (2 rows)
 
 COMMIT;
+--------------------------------------------------------------------------------
+-- CASE F: the policy is a NOT over an indexed condition. It joins the heap filter's
+-- indexed query, so the leaky predicate is pushed down but only sees rows the policy
+-- accepted. Safe = rows 1,2 and NO error.
+--------------------------------------------------------------------------------
 DROP POLICY org_isolation ON leaky_rls_docs;
+CREATE POLICY not_org2 ON leaky_rls_docs FOR SELECT
+    USING (NOT (secret @@@ 'org2'));
+BEGIN;
+SET LOCAL ROLE authenticated;
+EXPLAIN (COSTS OFF)
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND secret::int > 0
+ORDER BY id;
+                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_docs
+         Table: leaky_rls_docs
+         Index: leaky_rls_bm25
+         Exec Method: ColumnarExecState
+         Columnar: id, org_id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"secret","query_string":"org2","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+(9 rows)
+
+SELECT id, org_id
+FROM leaky_rls_docs
+WHERE body @@@ 'sheriff'
+  AND secret::int > 0
+ORDER BY id;
+ id | org_id 
+----+--------
+  1 |      1
+  2 |      1
+(2 rows)
+
+COMMIT;
+DROP POLICY not_org2 ON leaky_rls_docs;
 DROP TABLE leaky_rls_docs CASCADE;
 DROP TABLE memberships CASCADE;
 --------------------------------------------------------------------------------

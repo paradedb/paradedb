@@ -15,13 +15,13 @@ CREATE TABLE hf_topk (
 );
 -- "kiwi" is in a third of the rows, 1 to 4 times, in documents of varying length, so its
 -- scores spread over many values; the rows with id % 4 = 3 have it 4 times and score
--- highest. "apple" is in every row, so its scores tie.
+-- highest. "apple" is in every row, so its scores tie. Every 50th price is NULL.
 INSERT INTO hf_topk (id, body, title, price, qty)
 SELECT i,
        CASE WHEN i % 3 = 0 THEN repeat('kiwi ', 1 + i % 4) ELSE '' END
            || repeat('filler ', i % 13) || 'apple fruit ' || i,
        'item ' || i,
-       (i % 100)::FLOAT8,
+       CASE WHEN i % 50 = 0 THEN NULL ELSE (i % 100)::FLOAT8 END,
        i % 7
 FROM generate_series(1, 20000) i;
 CREATE INDEX hf_topk_idx ON hf_topk USING bm25 (id, body, qty)
@@ -93,22 +93,26 @@ FROM (VALUES
     ($$body ||| 'kiwi'$$, 'price < 0', 10),
     ($$body ||| 'kiwi' AND qty <> 6$$, 'price * qty > 300', 10),
     ($$body ||| 'kiwi apple'$$, 'id % 4 <> 3', 10),
+    ($$body ||| 'kiwi' AND NOT (body ||| '12')$$, 'price * qty > 300', 10),
+    ($$body ||| 'kiwi'$$, 'NOT (price * qty > 300 OR length(title) > 9)', 10),
     ($$body ||| 'apple'$$, 'price * qty > 300', 10)
 ) v(indexed, heap, k);
-           indexed            |                  heap                   |  k   | rows_differ 
-------------------------------+-----------------------------------------+------+-------------
- body ||| 'kiwi'              | price * qty > 300                       |   10 |           0
- body ||| 'kiwi'              | id % 4 <> 3                             |   10 |           0
- body ||| 'kiwi'              | length(title) > 9                       |   10 |           0
- body ||| 'kiwi'              | title LIKE 'item 1%'                    |   25 |           0
- body ||| 'kiwi'              | price * qty > 300 AND length(title) > 9 |   10 |           0
- body ||| 'kiwi'              | price < 3                               |   10 |           0
- body ||| 'kiwi'              | price * qty > 300                       | 5000 |           0
- body ||| 'kiwi'              | price < 0                               |   10 |           0
- body ||| 'kiwi' AND qty <> 6 | price * qty > 300                       |   10 |           0
- body ||| 'kiwi apple'        | id % 4 <> 3                             |   10 |           0
- body ||| 'apple'             | price * qty > 300                       |   10 |           0
-(11 rows)
+                 indexed                 |                     heap                     |  k   | rows_differ 
+-----------------------------------------+----------------------------------------------+------+-------------
+ body ||| 'kiwi'                         | price * qty > 300                            |   10 |           0
+ body ||| 'kiwi'                         | id % 4 <> 3                                  |   10 |           0
+ body ||| 'kiwi'                         | length(title) > 9                            |   10 |           0
+ body ||| 'kiwi'                         | title LIKE 'item 1%'                         |   25 |           0
+ body ||| 'kiwi'                         | price * qty > 300 AND length(title) > 9      |   10 |           0
+ body ||| 'kiwi'                         | price < 3                                    |   10 |           0
+ body ||| 'kiwi'                         | price * qty > 300                            | 5000 |           0
+ body ||| 'kiwi'                         | price < 0                                    |   10 |           0
+ body ||| 'kiwi' AND qty <> 6            | price * qty > 300                            |   10 |           0
+ body ||| 'kiwi apple'                   | id % 4 <> 3                                  |   10 |           0
+ body ||| 'kiwi' AND NOT (body ||| '12') | price * qty > 300                            |   10 |           0
+ body ||| 'kiwi'                         | NOT (price * qty > 300 OR length(title) > 9) |   10 |           0
+ body ||| 'apple'                        | price * qty > 300                            |   10 |           0
+(13 rows)
 
 -- Two heap filters with an indexed range.
 EXPLAIN (COSTS OFF)
@@ -126,6 +130,44 @@ ORDER BY pdb.score(id) DESC LIMIT 10;
             TopK Order By: pdb.score() desc
             TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"kiwi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":[{"exists":{"field":"qty"}}],"must_not":[{"term":{"field":"qty","value":6}}]}}]}},"always_filters":[{"heap_filter":"((price * (qty)::double precision) > '300'::double precision)"}]}},"always_filters":[{"heap_filter":"(length(title) > 9)"}]}}]}}
+(9 rows)
+
+-- A NOT without heap conditions joins the indexed query, so the heap filter is the only
+-- top-level clause.
+EXPLAIN (COSTS OFF)
+SELECT id FROM hf_topk
+WHERE body ||| 'kiwi' AND NOT (body ||| '12') AND price * qty > 300
+ORDER BY pdb.score(id) DESC LIMIT 10;
+                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on hf_topk
+         Table: hf_topk
+         Index: hf_topk_idx
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc
+            TopK Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"kiwi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"body","value":"12","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}},"always_filters":[{"heap_filter":"((price * (qty)::double precision) > '300'::double precision)"}]}}]}}
+(9 rows)
+
+-- A NOT over heap conditions becomes negated heap filters, which still compare as
+-- Postgres does when price is NULL.
+EXPLAIN (COSTS OFF)
+SELECT id FROM hf_topk
+WHERE body ||| 'kiwi' AND NOT (price * qty > 300 OR length(title) > 9)
+ORDER BY pdb.score(id) DESC LIMIT 10;
+                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on hf_topk
+         Table: hf_topk
+         Index: hf_topk_idx
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc
+            TopK Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"kiwi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"((price * (qty)::double precision) <= '300'::double precision)"}]}},"always_filters":[{"heap_filter":"(length(title) <= 9)"}]}}]}}
 (9 rows)
 
 -- A filter no row passes.
@@ -163,6 +205,30 @@ ORDER BY pdb.score(id) DESC, id LIMIT 10;
 SELECT nextval('hf_topk_checks') < 1000 AS checked_few_rows;
  checked_few_rows 
 ------------------
+ t
+(1 row)
+
+ALTER SEQUENCE hf_topk_checks RESTART;
+SELECT id FROM hf_topk
+WHERE body ||| 'kiwi' AND NOT (body ||| '12') AND hf_topk_expensive(price, qty)
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
+  id  
+------
+  195
+  663
+ 1287
+ 2379
+ 3471
+ 4563
+ 5499
+ 5655
+ 6591
+ 7683
+(10 rows)
+
+SELECT nextval('hf_topk_checks') < 1000 AS checked_few_rows_with_not;
+ checked_few_rows_with_not 
+---------------------------
  t
 (1 row)
 

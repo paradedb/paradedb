@@ -261,17 +261,20 @@ impl Qual {
     /// True if, as a top-level AND branch, [`optimize_quals_with_heap_expr`] merges this qual
     /// into the `indexed_query` of the innermost sibling heap filter.
     pub fn is_indexed_conjunct(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Qual::OpExpr { .. }
-                | Qual::PushdownExpr { .. }
-                | Qual::PushdownVarEqTrue { .. }
-                | Qual::PushdownVarEqFalse { .. }
-                | Qual::PushdownVarIsTrue { .. }
-                | Qual::PushdownVarIsFalse { .. }
-                | Qual::PushdownIsNotNull { .. }
-                | Qual::Or(_)
-        )
+            | Qual::PushdownExpr { .. }
+            | Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. }
+            | Qual::Or(_) => true,
+            // A NOT over a heap filter stays outside: a NULL filter result must exclude the
+            // row, while a must_not inside the indexed query would keep it.
+            Qual::Not(inner) => !inner.contains_heap_expr(),
+            _ => false,
+        }
     }
 
     /// Replace each heap filter with `All`, so the qual matches a superset of its rows without

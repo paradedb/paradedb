@@ -1820,14 +1820,15 @@ mod tests {
                                 mw, lp, mwm, ts, count
                             );
                         } else if *ts == 32 {
+                            // The parallel heap scan hands out blocks on demand, so a participant
+                            // short on CPU scans fewer rows and flushes fewer segments than its
+                            // quota, while its peers merge back down to theirs. Skew only ever
+                            // pulls the total below the target. The floor tolerates about a
+                            // quarter of the rows moving between participants.
+                            let expected = 24..=33;
                             assert!(
-                                (28..=33).contains(&count),
-                                "Expected 28-33 segments with workers={}, leader={}, mem={}, segments={}, got {}",
-                                mw,
-                                lp,
-                                mwm,
-                                ts,
-                                count
+                                expected.contains(&count),
+                                "Expected {expected:?} segments with workers={mw}, leader={lp}, mem={mwm}, segments={ts}, got {count}"
                             );
                         }
 

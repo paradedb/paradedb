@@ -309,6 +309,15 @@ mod tests {
             prop_assert_eq!(us, pg);
         });
     }
+
+    #[pg_test]
+    fn convert_pg_date_string_test() {
+        use crate::postgres::utils::convert_pg_date_string;
+        use pgrx::PgBuiltInOids;
+
+        let dt = convert_pg_date_string(PgBuiltInOids::DATEOID.into(), "2024-01-01");
+        assert!(!dt.is_infinity());
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1075,7 +1084,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDate
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
                 .expect("must be valid postgres date format");
-            PostgresDateTime::from(d)
+            PostgresDateTime::try_from(d).expect("date out of range")
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {

@@ -1,0 +1,62 @@
+-- Tests that date values beyond 294276 AD are rejected during index build and insert,
+-- and that failed inserts do not corrupt subsequent searches on the table (issue #6730).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- 1. Far date in table before index build: CREATE INDEX fails with clean error.
+CREATE TABLE issue_6730_build (id serial PRIMARY KEY, d date);
+INSERT INTO issue_6730_build (d) VALUES ('294277-01-01');
+CREATE INDEX issue_6730_build_idx ON issue_6730_build USING paradedb (id, d);
+ERROR:  could not parse field `d`: Date value out of range
+-- 2. Clean table with index: inserting far date fails immediately and does not poison searches.
+CREATE TABLE issue_6730_insert (id serial PRIMARY KEY, d date);
+CREATE INDEX issue_6730_insert_idx ON issue_6730_insert USING paradedb (id, d);
+INSERT INTO issue_6730_insert (d) VALUES ('2024-01-01');
+-- Mutable insert of out-of-range date fails.
+INSERT INTO issue_6730_insert (d) VALUES ('294277-01-01');
+ERROR:  could not parse field `d`: Date value out of range
+-- The table remains clean and searchable; subsequent search succeeds.
+SELECT id, d FROM issue_6730_insert WHERE id @@@ pdb.all() ORDER BY id;
+ id |     d      
+----+------------
+  1 | 01-01-2024
+(1 row)
+
+-- 3. Immutable insert mode (mutable_segment_rows = 0) also rejects out-of-range dates.
+CREATE TABLE issue_6730_immutable (id serial PRIMARY KEY, d date);
+CREATE INDEX issue_6730_immutable_idx ON issue_6730_immutable
+USING paradedb (id, d) WITH (mutable_segment_rows = 0);
+INSERT INTO issue_6730_immutable (d) VALUES ('2024-01-01');
+INSERT INTO issue_6730_immutable (d) VALUES ('294277-01-01');
+ERROR:  could not parse field `d`: Date value out of range
+SELECT id, d FROM issue_6730_immutable WHERE id @@@ pdb.all() ORDER BY id;
+ id |     d      
+----+------------
+  1 | 01-01-2024
+(1 row)
+
+-- 4. Upper bound date 294276-12-31 is supported and succeeds.
+CREATE TABLE issue_6730_boundary (id serial PRIMARY KEY, d date);
+CREATE INDEX issue_6730_boundary_idx ON issue_6730_boundary USING paradedb (id, d);
+INSERT INTO issue_6730_boundary (d) VALUES ('294276-12-31');
+SELECT count(*) FROM issue_6730_boundary WHERE id @@@ pdb.all();
+ count 
+-------
+     1
+(1 row)
+
+-- 5. Date array field: inserting out-of-range date in array fails cleanly and preserves table searchability.
+CREATE TABLE issue_6730_array (id serial PRIMARY KEY, dates date[]);
+CREATE INDEX issue_6730_array_idx ON issue_6730_array USING paradedb (id, dates);
+INSERT INTO issue_6730_array (dates) VALUES ('{2024-01-01}');
+INSERT INTO issue_6730_array (dates) VALUES ('{294277-01-01}');
+ERROR:  could not parse field `dates`: Date value out of range
+SELECT count(*) FROM issue_6730_array WHERE id @@@ pdb.all();
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE issue_6730_build;
+DROP TABLE issue_6730_insert;
+DROP TABLE issue_6730_immutable;
+DROP TABLE issue_6730_boundary;
+DROP TABLE issue_6730_array;

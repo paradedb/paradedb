@@ -1028,7 +1028,8 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let pg_dt = PostgresDateTime::try_from(val)?;
+        let pg_dt =
+            PostgresDateTime::try_from(val).map_err(|_| TantivyValueError::DateOutOfRange)?;
         Ok(TantivyValue(PdbOwnedValue::Date(pg_dt)))
     }
 }
@@ -1278,6 +1279,9 @@ pub enum TantivyValueError {
 
     #[error(transparent)]
     UuidError(#[from] uuid::Error),
+
+    #[error("Date value out of range")]
+    DateOutOfRange,
 
     #[error("Could not generate datetime datum")]
     DateTimeConversionError(#[from] DateTimeConversionError),

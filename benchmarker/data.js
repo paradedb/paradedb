@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792449161880,
+  "lastUpdate": 1792449180115,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -23133,6 +23133,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.49963851792824,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d9e5536c13bdc9745880f0817793fcaf425e59ea",
+          "message": "chore: update Tantivy to latest main (#6916)\n\n## What\n\nUpdate the Tantivy dependency and crates.io patches from\n`101c4337ac0593e09e6e06ceff7dd042493285dc` to the latest Tantivy `main`,\n`dd6c6003f2a40ef95c3e5ec729f3c830c49fcbc3`.\n\n## Why\n\nPick up the recently merged changes:\n\n- [Router clustering uses the default iteration\ncount](https://github.com/paradedb/tantivy/pull/333).\n- [Interrupt polling during IVF training and term dictionary\nwalks](https://github.com/paradedb/tantivy/pull/331).\n- [Faster layer-0 vector scans through sign kernels, admission pruning,\nand single-sqrt sigma](https://github.com/paradedb/tantivy/pull/329).\n\n## How\n\nKeep all four manifest pins synchronized and refresh the ten Tantivy Git\npackage sources in `Cargo.lock`.\n\n## Tests\n\n- `cargo check --locked -p pg_search`\n- `cargo fmt --all -- --check`\n- `cargo metadata --locked --offline --format-version 1`; verified all\nten Tantivy Git packages resolve to the new revision.\n- `git diff --check`\n\nRun the Cohere 1M and 10M pg_search vector benchmarks using\n`benchmark-cohere-pg_search`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-19T14:03:50-07:00",
+          "tree_id": "ecb2542a6f9163c6aab72466857792858f3200da",
+          "url": "https://github.com/paradedb/paradedb/commit/d9e5536c13bdc9745880f0817793fcaf425e59ea"
+        },
+        "date": 1792449168391,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.76066833915309,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.1431805044526,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.5432707694176,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.281780653557806,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.10783253668656,
             "unit": "queries/s"
           }
         ]

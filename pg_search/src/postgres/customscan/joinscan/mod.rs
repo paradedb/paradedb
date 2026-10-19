@@ -2555,6 +2555,17 @@ impl JoinScan {
         let (join_clause, limit_offset) =
             Self::validate_and_build_clause(root, plan, &join_keys, has_distinct).map_err(warn)?;
 
+        let mut predicates = plan.search_predicates();
+        for p in join_clause.window_agg_filter_predicates() {
+            if !predicates.contains(&p) {
+                predicates.push(p);
+            }
+        }
+        crate::postgres::customscan::joinscan::build::assign_tagged_queries(
+            plan.sources_mut(),
+            &predicates,
+        );
+
         let path = Self::finalize_clause_into_path(
             root,
             output_rel,

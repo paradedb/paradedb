@@ -2090,6 +2090,19 @@ impl JoinCSClause {
             q.solve_postgres_expressions_no_reset(expr_context);
         });
     }
+
+    pub fn window_agg_filter_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
+        let mut predicates = Vec::new();
+        for w in self.window_aggs.iter() {
+            if let Some(filter) = w.agg_def.filter() {
+                filter.collect_search_predicates(&mut predicates);
+            }
+        }
+        predicates
+            .into_iter()
+            .map(|(i, p)| (i, p.clone()))
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------

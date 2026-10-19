@@ -410,7 +410,7 @@ impl TryFrom<i32> for UnicodeWordsTypmod {
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
-        let remove_emojis = parsed.try_get("remove_emojis", 0).is_some();
+        let remove_emojis = parsed.get_flag("remove_emojis", 0).unwrap_or(false);
         Ok(UnicodeWordsTypmod {
             remove_emojis,
             filters,

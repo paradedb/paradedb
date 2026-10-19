@@ -25,7 +25,7 @@
 //! lower into a DataFusion plan.
 
 use super::join_targetlist::ExtractedDataFusionTarget;
-use super::privdat::{CompareOp, FilterExpr};
+use super::privdat::{ColumnRef, CompareOp, FilterExpr};
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -1578,12 +1578,12 @@ impl FilterExpr {
                         let source = sources.iter().find(|s| s.rti == rti)?;
                         let field_name =
                             unsafe { fieldname_from_var(source.relid, var, attno) }?.into_inner();
-                        Some(Self::ColumnRef {
+                        Some(Self::ColumnRef(ColumnRef {
                             plan_position: pp,
                             rti,
                             attno,
                             field_name,
-                        })
+                        }))
                     }
                     FilterExprBuildContext::Having {
                         extracted_target, ..
@@ -1904,11 +1904,16 @@ pub unsafe fn populate_required_fields(
             let Some(ref filter) = agg.filter else {
                 continue;
             };
-            for (plan_position, field_name) in collect_filter_column_refs(filter) {
+            for ColumnRef {
+                plan_position,
+                field_name,
+                ..
+            } in filter.collect_column_refs()
+            {
                 if source.plan_position != plan_position {
                     continue;
                 }
-                if let Some(attno) = get_attno_by_name(field_name, &tupdesc) {
+                if let Some(attno) = get_attno_by_name(&field_name, &tupdesc) {
                     require_fast_field(source, &tupdesc, indexrel, attno, || {
                         format!("FILTER column '{field_name}'")
                     })?;
@@ -2178,39 +2183,4 @@ pub(crate) fn nodes_equal_modulo_commutation(a: *mut pg_sys::Node, b: *mut pg_sy
         }
     }
     false
-}
-
-/// Collect all `(plan_position, field_name)` column references from an [`FilterExpr`] tree.
-fn collect_filter_column_refs(expr: &FilterExpr) -> Vec<(usize, &str)> {
-    let mut refs = Vec::new();
-    match expr {
-        FilterExpr::ColumnRef {
-            plan_position,
-            field_name,
-            ..
-        } => {
-            refs.push((*plan_position, field_name.as_str()));
-        }
-        FilterExpr::BinOp { left, right, .. } => {
-            refs.extend(collect_filter_column_refs(left));
-            refs.extend(collect_filter_column_refs(right));
-        }
-        FilterExpr::And(children) | FilterExpr::Or(children) => {
-            for c in children {
-                refs.extend(collect_filter_column_refs(c));
-            }
-        }
-        FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-            refs.extend(collect_filter_column_refs(inner));
-        }
-        FilterExpr::AggRef(_)
-        | FilterExpr::GroupRef(_)
-        | FilterExpr::LitInt(_)
-        | FilterExpr::LitFloat(_)
-        | FilterExpr::LitBool(_)
-        | FilterExpr::LitString(_)
-        // Tag columns are synthesized by the scan, not read from fast fields.
-        | FilterExpr::SearchTag { .. } => {}
-    }
-    refs
 }

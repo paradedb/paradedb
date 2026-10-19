@@ -45,7 +45,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList, WindowAggInput, WindowAggKind,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{
-    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+    ColumnRef, CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
 };
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
@@ -1280,11 +1280,11 @@ impl FilterExpr {
                     Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
                 })
             }
-            FilterExpr::ColumnRef {
+            FilterExpr::ColumnRef(ColumnRef {
                 plan_position,
                 field_name,
                 ..
-            } => {
+            }) => {
                 let plan = ctx.plan?;
                 Some(make_plan_position_col(plan, *plan_position, field_name))
             }

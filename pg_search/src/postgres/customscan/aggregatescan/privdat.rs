@@ -30,6 +30,14 @@ use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ColumnRef {
+    pub plan_position: usize,
+    pub rti: pgrx::pg_sys::Index,
+    pub attno: pgrx::pg_sys::AttrNumber,
+    pub field_name: String,
+}
+
 /// Serializable boolean expression IR used for both HAVING clauses and
 /// per-aggregate FILTER clauses.
 ///
@@ -47,12 +55,7 @@ pub enum FilterExpr {
     /// Execution identity is `plan_position`, resolved against the
     /// `RelNode` tree at construction; rti/attno are kept for diagnostics
     /// and for fast-field projection in `populate_required_fields`.
-    ColumnRef {
-        plan_position: usize,
-        rti: pgrx::pg_sys::Index,
-        attno: pgrx::pg_sys::AttrNumber,
-        field_name: String,
-    },
+    ColumnRef(ColumnRef),
     LitInt(i64),
     LitFloat(f64),
     LitBool(bool),
@@ -127,6 +130,37 @@ impl FilterExpr {
             | FilterExpr::LitBool(_)
             | FilterExpr::LitString(_) => {}
         }
+    }
+
+    /// Collect all `(plan_position, field_name)` column references from an [`FilterExpr`] tree.
+    pub fn collect_column_refs(&self) -> Vec<ColumnRef> {
+        let mut refs = Vec::new();
+        match self{
+        FilterExpr::ColumnRef(column_ref) => {
+            refs.push(column_ref.clone());
+        }
+        FilterExpr::BinOp { left, right, .. } => {
+            refs.extend(left.collect_column_refs());
+            refs.extend(right.collect_column_refs());
+        }
+        FilterExpr::And(children) | FilterExpr::Or(children) => {
+            for c in children {
+                refs.extend(c.collect_column_refs());
+            }
+        }
+        FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+            refs.extend(inner.collect_column_refs());
+        }
+        FilterExpr::AggRef(_)
+        | FilterExpr::GroupRef(_)
+        | FilterExpr::LitInt(_)
+        | FilterExpr::LitFloat(_)
+        | FilterExpr::LitBool(_)
+        | FilterExpr::LitString(_)
+        // Tag columns are synthesized by the scan, not read from fast fields.
+        | FilterExpr::SearchTag { .. } => {}
+    }
+        refs
     }
 }
 

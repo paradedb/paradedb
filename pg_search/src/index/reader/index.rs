@@ -1546,7 +1546,11 @@ impl SearchIndexReader {
                         return;
                     }
                     let mut lookup_scorer = lookup_weight
-                        .scorer(segment_reader, 1.0)
+                        .scorer_for_candidates(
+                            segment_reader,
+                            1.0,
+                            tag_pruning_scorer.size_hint().max(1),
+                        )
                         .expect("lookup scorer should be constructable");
                     let first_lookup_doc = lookup_scorer.doc();
                     if first_lookup_doc == tantivy::TERMINATED {
@@ -1634,7 +1638,11 @@ impl SearchIndexReader {
                     return;
                 }
                 let mut lookup_scorer = lookup_weight
-                    .scorer(segment_reader, 1.0)
+                    .scorer_for_candidates(
+                        segment_reader,
+                        1.0,
+                        base_pruning_scorer.size_hint().max(1),
+                    )
                     .expect("lookup scorer should be constructable");
                 let first_lookup_doc = lookup_scorer.doc();
                 if first_lookup_doc == tantivy::TERMINATED {
@@ -1694,7 +1702,7 @@ impl SearchIndexReader {
                 return;
             }
             let mut lookup_scorer = lookup_weight
-                .scorer(segment_reader, 1.0)
+                .scorer_for_candidates(segment_reader, 1.0, base_scorer.size_hint().max(1))
                 .expect("lookup scorer should be constructable");
             let first_lookup_doc = lookup_scorer.doc();
             if first_lookup_doc == tantivy::TERMINATED {

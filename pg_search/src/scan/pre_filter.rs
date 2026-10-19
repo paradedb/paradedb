@@ -144,6 +144,22 @@ impl RankLookupPhysicalExpr {
         self
     }
 
+    pub fn with_keys_and_threshold(
+        &self,
+        keys: Vec<Vec<ScalarValue>>,
+        score_threshold: Option<Score>,
+    ) -> Self {
+        Self {
+            cols: self.cols.clone(),
+            keys,
+            score_threshold,
+        }
+    }
+
+    pub fn keys(&self) -> &[Vec<ScalarValue>] {
+        &self.keys
+    }
+
     pub fn score_threshold(&self) -> Option<Score> {
         self.score_threshold
     }

@@ -1665,7 +1665,7 @@ impl SearchIndexReader {
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
                 let max_scan_levels = crate::gucs::vector_max_scan_levels();
-                let collector = TopDocs::with_limit(n)
+                let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
@@ -1676,6 +1676,11 @@ impl SearchIndexReader {
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
+                if let Some(state) = parallel_state_holding_shared_threshold {
+                    collector = collector.with_shared_threshold(Some(std::sync::Arc::new(
+                        crate::postgres::shared_threshold::new_score_threshold(state),
+                    )));
+                }
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792430963978,
+  "lastUpdate": 1792430984420,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21949,6 +21949,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.92265347334189,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "47521537+wankhede04@users.noreply.github.com",
+            "name": "Vijay Wankhede",
+            "username": "wankhede04"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eebf862a9f71291b60eabdeb04c44f9cc69f7f1b",
+          "message": "fix: unicode_words only removes emojis when remove_emojis is set (#6873)\n\n# Ticket(s) Closed\n\n- Closes #6872\n\n## What\n\n`pdb.unicode_words` only removes emojis for the bare `remove_emojis`\nflag or `remove_emojis=true`.\n`remove_emojis=false`, and any other first option (`columnar=true`,\n`pnorms=true`, `bitmap_postings=false`,\n`lowercase=false`, ...), keep them, as documented.\n\n## Why\n\n`UnicodeWordsTypmod::try_from` read the option with\n`parsed.try_get(\"remove_emojis\", 0).is_some()`. `try_get`\nfalls back to the property in slot 0 when the key is absent, so any\nfirst option made it true.\n\n## How\n\nAdd `ParsedTypmod::get_flag(key, index)`. It reads `key=true`,\n`key=false`, or the bare `key` (true), and a\nkeyless `true`/`false` only in the option's positional slot. It never\ntreats a different option as `key`.\n`UnicodeWordsTypmod` uses it. Existing forms\n(`unicode_words(remove_emojis)`, `'remove_emojis=true'`) behave as\nbefore. Indexes created with one of the affected options were built with\nemojis removed, so the changelog note\nsays to reindex them.\n\n## Tests\n\n- `pg_regress` `unicode_words`: added `remove_emojis=true`,\n`remove_emojis=false`, `columnar=true` and\n  `columnar=true, remove_emojis=true` cases\n- `cargo check -p pg_search` and `rustfmt --check`\n- Ran `cargo pgrx regress pg17 unicode_words` locally (PostgreSQL\n17.11). Every result row matches. The only\ndifference is the width of psql's header underline on the emoji-result\nblocks (one character), which also shows\nup on the existing default-query block I did not touch, so it comes from\nmy local psql's emoji width. On the\nunfixed code the new `remove_emojis=false` and `columnar=true` cases\nfail with the emojis removed from the\n  result.\n\n---------\n\nSigned-off-by: wankhede04 <wankhedevijay04@gmail.com>",
+          "timestamp": "2026-10-19T10:00:56-06:00",
+          "tree_id": "408e5ce7b43381725a8ad85d1f7cc30511575037",
+          "url": "https://github.com/paradedb/paradedb/commit/eebf862a9f71291b60eabdeb04c44f9cc69f7f1b"
+        },
+        "date": 1792430972028,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.577377607374785,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.14608451718617,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.455455642513947,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.60279207531905,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.90282072112451,
             "unit": "queries/s"
           }
         ]

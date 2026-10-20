@@ -1,6 +1,7 @@
 -- Unsupported vector storage must identify the index and require a rebuild.
 SET enable_seqscan = off;
 SET max_parallel_workers_per_gather = 0;
+SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
 DO $body$

@@ -246,73 +246,65 @@ values = [
   "2000",
 ]
 
-# pg_search: the work-budget ceiling (the bounds gate skips provably-useless
-# clusters within it, so the ceiling is the recall/latency knob). 1.0 allows
-# an exhaustive scan.
+# pg_search: keep the requested recall fixed at each reporting target and sweep gamma.
 [sweeps.pg_search.knn_top10_unfiltered]
-param = "pg_search_max_probe_unfiltered"
+param = "pg_search_recall_exponent_unfiltered"
+recall_target_param = "pg_search_recall_target"
 values = [
-  "0.001",
-  "0.002",
-  "0.003",
-  "0.005",
-  "0.0075",
-  "0.01",
-  "0.015",
-  "0.02",
-  "0.03",
-  "0.05",
-  "0.08",
-  "0.12",
-  "0.2",
-  "0.35",
   "0.5",
   "0.75",
   "1.0",
+  "1.2",
+  "1.35",
+  "1.5",
+  "1.6",
+  "1.75",
+  "2.0",
+  "2.5",
+  "3.0",
+  "4.0",
+  "6.0",
+  "10.0",
 ]
 
 [sweeps.pg_search.knn_top10_10pct]
-param = "pg_search_max_probe_10pct"
+param = "pg_search_recall_exponent_10pct"
+recall_target_param = "pg_search_recall_target"
 values = [
-  "0.001",
-  "0.002",
-  "0.003",
-  "0.005",
-  "0.0075",
-  "0.01",
-  "0.015",
-  "0.02",
-  "0.03",
-  "0.05",
-  "0.08",
-  "0.12",
-  "0.2",
-  "0.35",
   "0.5",
   "0.75",
   "1.0",
+  "1.2",
+  "1.35",
+  "1.5",
+  "1.6",
+  "1.75",
+  "2.0",
+  "2.5",
+  "3.0",
+  "4.0",
+  "6.0",
+  "10.0",
 ]
 
 [sweeps.pg_search.knn_top10_1pct]
-param = "pg_search_max_probe_1pct"
+param = "pg_search_recall_exponent_1pct"
+recall_target_param = "pg_search_recall_target"
 values = [
-  "0.001",
-  "0.002",
-  "0.003",
-  "0.005",
-  "0.0075",
-  "0.01",
-  "0.015",
-  "0.02",
-  "0.03",
-  "0.05",
-  "0.08",
-  "0.12",
-  "0.2",
-  "0.35",
   "0.5",
   "0.75",
   "1.0",
+  "1.2",
+  "1.35",
+  "1.5",
+  "1.6",
+  "1.75",
+  "2.0",
+  "2.5",
+  "3.0",
+  "4.0",
+  "6.0",
+  "10.0",
 ]
 
 # pgvectorscale StreamingDiskANN on the default SBQ-compressed build. Each arm sweeps whichever GUC

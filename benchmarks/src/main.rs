@@ -855,6 +855,7 @@ async fn score_recall(
 
 /// Recall targets a sweep reports, lowest first.
 const RECALL_TARGETS: [(&str, f64); 3] = [("r90", 0.90), ("r95", 0.95), ("r99", 0.99)];
+const RECALL_REFINEMENT_STEPS: usize = 6;
 
 /// One measured point of a sweep.
 struct SweepPoint {
@@ -920,6 +921,74 @@ fn next_sweep_index(points: &[Option<SweepPoint>], target: f64) -> Option<usize>
     None
 }
 
+fn recall_bracket_midpoint(points: &[SweepPoint], target: f64) -> Option<String> {
+    let numeric: Vec<_> = points
+        .iter()
+        .map(|point| {
+            point
+                .value
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| (value, point.recall))
+        })
+        .collect::<Option<_>>()?;
+    let upper = numeric
+        .iter()
+        .filter(|(_, recall)| *recall >= target)
+        .map(|(value, _)| *value)
+        .reduce(f64::min)?;
+    let lower = numeric
+        .iter()
+        .filter(|(value, recall)| *value < upper && *recall < target)
+        .map(|(value, _)| *value)
+        .reduce(f64::max)?;
+    let midpoint = lower / 2.0 + upper / 2.0;
+    (lower < midpoint && midpoint < upper).then(|| midpoint.to_string())
+}
+
+async fn calibrate_sweep(
+    values: &[String],
+    independent_targets: bool,
+    mut measure: impl AsyncFnMut(&str, f64) -> anyhow::Result<SweepPoint>,
+) -> anyhow::Result<Vec<SelectedPoint>> {
+    let mut points: Vec<Option<SweepPoint>> = (0..values.len()).map(|_| None).collect();
+    let mut selected = Vec::new();
+    for (label, target) in RECALL_TARGETS {
+        while let Some(index) = next_sweep_index(&points, target) {
+            points[index] = Some(measure(&values[index], target).await?);
+        }
+        if independent_targets {
+            let mut measured: Vec<_> = points.iter_mut().filter_map(Option::take).collect();
+            let mut refined = false;
+            for _ in 0..RECALL_REFINEMENT_STEPS {
+                let Some(midpoint) = recall_bracket_midpoint(&measured, target) else {
+                    break;
+                };
+                measured.push(measure(&midpoint, target).await?);
+                refined = true;
+            }
+            if refined {
+                measured.sort_by(|a, b| {
+                    a.value
+                        .parse::<f64>()
+                        .unwrap()
+                        .total_cmp(&b.value.parse::<f64>().unwrap())
+                });
+            }
+            selected.extend(
+                select_points(&measured)
+                    .into_iter()
+                    .filter(|point| point.label == label),
+            );
+        }
+    }
+    if !independent_targets {
+        selected = select_points(&points.into_iter().flatten().collect::<Vec<_>>());
+    }
+    Ok(selected)
+}
+
 /// Binary-search the configured values for each recall target, sharing measured points.
 async fn sweep_query(
     conn: &mut PgConnection,
@@ -929,7 +998,7 @@ async fn sweep_query(
     query_stem: &str,
     raw_variant: &str,
     sweep: &SweepConfig,
-) -> anyhow::Result<Vec<SweepPoint>> {
+) -> anyhow::Result<Vec<SelectedPoint>> {
     // The exact top-10 depends only on filter selectivity, so variants of the same filter share
     // one ground truth (vchord ships prefilter on/off variants of each).
     let gt_stem = query_stem
@@ -960,7 +1029,15 @@ async fn sweep_query(
     }
     // Resolve the variant's *other* params once; the swept one comes from the sweep per point, so
     // it needs no `[params]` entry of its own.
-    let swept = HashSet::from([sweep.param.clone()]);
+    let mut swept = HashSet::from([sweep.param.clone()]);
+    if let Some(param) = &sweep.recall_target_param {
+        if param == &sweep.param || !template_names(raw_variant).contains(param) {
+            bail!(
+                "Recall target parameter `{param}` must be distinct from the swept parameter and referenced by the query"
+            );
+        }
+        swept.insert(param.clone());
+    }
     let base_params = resolve_template_params_except(
         conn,
         &args.dataset,
@@ -970,32 +1047,33 @@ async fn sweep_query(
     )
     .await?;
     let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
-    let mut points: Vec<Option<SweepPoint>> = (0..sweep.values.len()).map(|_| None).collect();
-    for (_, target) in RECALL_TARGETS {
-        while let Some(index) = next_sweep_index(&points, target) {
-            let value = &sweep.values[index];
-            let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
-            let mut params = base_params.clone();
-            params.insert(sweep.param.clone(), resolved);
-
-            let query = substitute_vars(raw_variant, &params)?;
-            let (sets, knn_query) = split_operating_point(&query)?;
-            for stmt in &sets {
-                sqlx::query(AssertSqlSafe(stmt.as_str()))
-                    .execute(&mut *conn)
-                    .await
-                    .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
-            }
-            let recall = score_recall(conn, &knn_query, &fixtures).await?;
-            println!("  {} = {value} -> recall {recall:.4}", sweep.param);
-            points[index] = Some(SweepPoint {
-                value: value.clone(),
-                recall,
-                query,
-            });
+    let measure = async |value: &str, target: f64| -> anyhow::Result<SweepPoint> {
+        let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
+        let mut params = base_params.clone();
+        params.insert(sweep.param.clone(), resolved);
+        if let Some(param) = &sweep.recall_target_param {
+            params.insert(param.clone(), target.to_string());
         }
-    }
-    Ok(points.into_iter().flatten().collect())
+        let query = substitute_vars(raw_variant, &params)?;
+        let (sets, knn_query) = split_operating_point(&query)?;
+        for stmt in &sets {
+            sqlx::query(AssertSqlSafe(stmt.as_str()))
+                .execute(&mut *conn)
+                .await
+                .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
+        }
+        let recall = score_recall(conn, &knn_query, &fixtures).await?;
+        println!(
+            "  target {target:.2}: {} = {value} -> recall {recall:.4}",
+            sweep.param
+        );
+        Ok(SweepPoint {
+            value: value.to_owned(),
+            recall,
+            query,
+        })
+    };
+    calibrate_sweep(&sweep.values, sweep.recall_target_param.is_some(), measure).await
 }
 
 /// One selected operating point, held until latency has been measured for it so the run's summary
@@ -1044,7 +1122,7 @@ async fn expand_sweeps(
             sweep.param,
             sweep.values.len()
         );
-        let points = sweep_query(
+        let selected_points = sweep_query(
             conn,
             args,
             &config,
@@ -1054,7 +1132,7 @@ async fn expand_sweeps(
             sweep,
         )
         .await?;
-        for selected in select_points(&points) {
+        for selected in selected_points {
             if !selected.reached {
                 println!(
                     "  WARNING: no measured value reached {:.0}% recall for {}; \
@@ -2388,6 +2466,86 @@ mod tests {
             value: value.to_owned(),
             recall,
             query: format!("SET eps={value}; SELECT 1"),
+        }
+    }
+
+    #[test]
+    fn refinement_preserves_a_passing_point_while_narrowing_the_bracket() {
+        let mut points = vec![point("1.5", 0.989), point("1.6", 0.992)];
+        let midpoint = recall_bracket_midpoint(&points, 0.99).unwrap();
+        assert_eq!(midpoint, "1.55");
+        points.push(point(&midpoint, 0.990));
+        assert_eq!(
+            recall_bracket_midpoint(&points, 0.99).as_deref(),
+            Some("1.525")
+        );
+        points.push(point("1.525", 0.989));
+        assert_eq!(
+            recall_bracket_midpoint(&points, 0.99)
+                .unwrap()
+                .parse::<f64>()
+                .unwrap(),
+            1.5375
+        );
+        points.sort_by(|a, b| {
+            a.value
+                .parse::<f64>()
+                .unwrap()
+                .total_cmp(&b.value.parse::<f64>().unwrap())
+        });
+        let selected = select_points(&points);
+        let selected = selected.iter().find(|p| p.label == "r99").unwrap();
+        assert_eq!(selected.value, "1.55");
+        assert!(selected.reached && selected.query.is_some());
+    }
+
+    #[test]
+    fn refinement_requires_a_finite_numeric_bracket() {
+        for points in [
+            vec![],
+            vec![point("1.5", 0.98)],
+            vec![point("1.5", 0.99)],
+            vec![point("1.5", 0.99), point("1.6", 0.98)],
+            vec![point("1.0 + 0.5", 0.98), point("1.6", 0.99)],
+            vec![point("NaN", 0.98), point("1.6", 0.99)],
+            vec![point("1.5", 0.98), point("inf", 0.99)],
+        ] {
+            assert!(recall_bracket_midpoint(&points, 0.99).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn adaptive_calibration_keeps_each_targets_measurements_separate() {
+        let values = ["1", "2", "4"].map(String::from);
+        for independent in [false, true] {
+            let mut calls = Vec::new();
+            let selected =
+                calibrate_sweep(&values, independent, async |value: &str, target: f64| {
+                    calls.push((value.to_owned(), target));
+                    let mut measured = point(
+                        value,
+                        (value.parse::<f64>()? / (2.0 * if independent { target } else { 1.0 }))
+                            .min(1.0),
+                    );
+                    measured.query = target.to_string();
+                    Ok(measured)
+                })
+                .await
+                .unwrap();
+            assert_eq!(selected.len(), 3);
+            assert_eq!(
+                calls.iter().filter(|(value, _)| value == "1").count(),
+                if independent { 3 } else { 1 }
+            );
+            if independent {
+                for selected in selected {
+                    assert!(selected.reached);
+                    assert_eq!(selected.query, Some(selected.target.to_string()));
+                    let value = selected.value.parse::<f64>().unwrap();
+                    let minimum = 2.0 * selected.target * selected.target;
+                    assert!(value >= minimum && value - minimum <= 1.0 / 64.0);
+                }
+            }
         }
     }
 

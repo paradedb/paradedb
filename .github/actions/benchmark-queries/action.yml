@@ -80,6 +80,14 @@ runs:
 
         echo "ROWS_LABEL=${SIZE}" >> "$GITHUB_ENV"
 
+    - name: Print Cohere vector layout
+      if: ${{ inputs.dataset == 'cohere' && inputs.index == 'pg_search' }}
+      shell: bash
+      run: |
+        psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+          -X -v ON_ERROR_STOP=1 -P pager=off \
+          -c "SELECT * FROM paradedb.vector_info('cohere_wiki_bm25_idx', 'emb') ORDER BY segno;"
+
     - name: Upload Query Benchmark Results
       if: always()
       uses: actions/upload-artifact@v7

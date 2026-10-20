@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792518788626,
+  "lastUpdate": 1792518804346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24317,6 +24317,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.08378011642494,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63e360cae427a4680a2aecba8bd232f873f6691e",
+          "message": "refactor: use pg_sys constants for built-in function OIDs (#6913)\n\n## What\n\nReplaces runtime `regprocedurein` lookups of built-in `pg_catalog`\nfunctions with the fixed OID constants that pgrx exposes from\n`fmgroids.h`:\n\n| Function | Location | Constant |\n|---|---|---|\n| `pg_catalog.unnest(anyarray)` | `postgres/utils.rs` `is_unnest_func` |\n`pg_sys::F_UNNEST_ANYARRAY` |\n| `pg_catalog.lower(text)` | `customscan/orderby.rs`\n`text_lower_funcoid` | `pg_sys::F_LOWER_TEXT` |\n| `now()` | `customscan/projections.rs` `placeholder_procid` |\n`pg_sys::F_NOW` |\n\n## Why\n\nBuilt-in function OIDs are assigned in `pg_proc.dat` and are identical\nacross all supported Postgres versions (verified for PG15–18 in pgrx\n0.19.3: 2331, 870 and 1299), so looking them up by signature at runtime\nadds cost and complexity for no benefit:\n\n- `is_unnest_func` used `static mut` + `Once` caching and silently\ndisabled itself (`false`) if the lookup ever failed.\n- `text_lower_funcoid` had no caching, so it did a catalog lookup on\nevery call.\n- The `now()` lookup wasn't schema-qualified, so it resolved through\n`search_path`.\n\nThe codebase already uses `pg_sys::F_*` constants elsewhere (e.g.\n`F_DATE_TIMESTAMP`, `F_ROW_NUMBER`), and `node.rs` tests already\nconstruct `FuncExpr`s with `F_UNNEST_ANYARRAY`. These constants have\nbeen available since pgrx 0.12 (pgcentralfoundation/pgrx#1726).\n\nLookups of ParadeDB's own `paradedb.*` / `pdb.*` functions and types are\nleft alone, since those OIDs are assigned at extension install time.\n\n## How\n\nSwapped each lookup for the corresponding constant and removed the\nnow-unused imports and an unneeded `unsafe` block in\n`placeholder_procid`.",
+          "timestamp": "2026-10-20T10:24:22-06:00",
+          "tree_id": "62d95b40ce4780cae26c3316d8e165bfed5a3d61",
+          "url": "https://github.com/paradedb/paradedb/commit/63e360cae427a4680a2aecba8bd232f873f6691e"
+        },
+        "date": 1792518793606,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.06479340908603,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.999060332897493,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.253385130416806,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.07780044493039,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.985500202430686,
             "unit": "queries/s"
           }
         ]

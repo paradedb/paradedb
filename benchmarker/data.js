@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792534219656,
+  "lastUpdate": 1792534234661,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22553,6 +22553,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 373.8235497783879,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b8738860d5240af77ef1544ef147df0931a02c6",
+          "message": "fix: Improve column naming for whole-row references and non-columnar system columns in joinscan decline messages (#6917)\n\n# Ticket(s) Closed\n\n- Closes #6908\n\n## What\nImprove the user UX for joinscan decline messages by adding specific\nsupport for system columns and whole-row references to\n`column_name_for_var`. Also cleans up some error message text from #6803\n\n## Why\nBetter UX.\n\n## Tests\n- 2 new regression tests covering those column \"names\"",
+          "timestamp": "2026-10-20T15:27:35-06:00",
+          "tree_id": "681007edbdf2e66e3170ba4bd2a70beafa19d928",
+          "url": "https://github.com/paradedb/paradedb/commit/5b8738860d5240af77ef1544ef147df0931a02c6"
+        },
+        "date": 1792534224836,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 521.7958734418199,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 503.4035290357424,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 134.8631094407204,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 246.78546107899774,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 370.5749819295742,
             "unit": "queries/s"
           }
         ]

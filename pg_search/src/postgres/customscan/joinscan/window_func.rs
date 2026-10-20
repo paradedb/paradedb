@@ -196,6 +196,13 @@ impl WindowAggDef {
             Self::PdbAgg(_, filter) => filter.as_ref(),
         }
     }
+
+    pub fn filter_mut(&mut self) -> Option<&mut FilterExpr> {
+        match self {
+            Self::Sql(_, filter) => filter.as_mut(),
+            Self::PdbAgg(_, filter) => filter.as_mut(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -346,6 +353,10 @@ impl WindowAggList {
 
     pub fn iter(&self) -> impl Iterator<Item = &WindowAgg> {
         self.0.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut WindowAgg> {
+        self.0.iter_mut()
     }
 
     pub fn iter_indexed(&self) -> impl Iterator<Item = (WindowAggIndex, &WindowAgg)> {

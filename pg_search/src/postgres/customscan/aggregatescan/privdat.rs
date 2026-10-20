@@ -25,6 +25,7 @@ use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DAT
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, RelNode, RelationAlias,
 };
+use crate::query::SearchQueryInput;
 use datafusion::common::Column;
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
@@ -121,6 +122,59 @@ impl FilterExpr {
             }
             FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
                 inner.collect_search_predicates(out);
+            }
+            FilterExpr::AggRef(_)
+            | FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => {}
+        }
+    }
+
+    /// Visit the query of every [`FilterExpr::SearchTag`] in this tree.
+    ///
+    /// The scan carries its own copy of each query as a tagged query, and the
+    /// tag column is found by comparing the two. Whatever solves Params and
+    /// Postgres expressions in the scan's copy has to solve this one too, or
+    /// the comparison fails.
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        match self {
+            FilterExpr::SearchTag { predicate, .. } => f(&mut predicate.query),
+            FilterExpr::BinOp { left, right, .. } => {
+                left.visit_queries_mut(f);
+                right.visit_queries_mut(f);
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children.iter_mut().for_each(|c| c.visit_queries_mut(f));
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.visit_queries_mut(f);
+            }
+            FilterExpr::AggRef(_)
+            | FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => {}
+        }
+    }
+
+    /// Read-only counterpart of [`FilterExpr::visit_queries_mut`].
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        match self {
+            FilterExpr::SearchTag { predicate, .. } => f(&predicate.query),
+            FilterExpr::BinOp { left, right, .. } => {
+                left.visit_queries(f);
+                right.visit_queries(f);
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children.iter().for_each(|c| c.visit_queries(f));
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.visit_queries(f);
             }
             FilterExpr::AggRef(_)
             | FilterExpr::GroupRef(_)

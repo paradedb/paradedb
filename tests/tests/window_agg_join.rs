@@ -992,6 +992,10 @@ enum WindowShape {
     /// DISTINCT with filtered window aggregates: the filter applies to the
     /// join rows before DISTINCT.
     DistinctFiltered,
+    /// A search operator with a parameter in a FILTER, under a generic plan:
+    /// execution solves the parameter in the scan's tagged query and in the
+    /// filter's copy alike, so the filter still finds its tag column.
+    ParameterizedSearchFilter,
     /// A filtered window aggregate in a subquery without a LIMIT: there is no
     /// Top-K aggregate, so the JoinScan computes it in a DataFusion window
     /// node instead.
@@ -1015,6 +1019,7 @@ enum WindowShape {
 #[case::distinct_windows_only(WindowShape::DistinctWindowsOnly)]
 #[case::parameterized_limit(WindowShape::ParameterizedLimit)]
 #[case::distinct_filtered(WindowShape::DistinctFiltered)]
+#[case::parameterized_search_filter(WindowShape::ParameterizedSearchFilter)]
 #[case::filtered_subquery_without_limit(WindowShape::FilteredSubqueryWithoutLimit)]
 #[case::distinct_argument_aggregates(WindowShape::DistinctArgumentAggregates)]
 #[case::distinct_avg(WindowShape::DistinctAvg)]
@@ -1132,6 +1137,33 @@ fn global_window_aggregates_query_shapes(
                 rows,
                 vec![(999, 500, 501), (997, 500, 501), (995, 500, 501)]
             );
+        }
+        WindowShape::ParameterizedSearchFilter => {
+            // Every joined product is a 'sturdy laptop': 'sturdy' matches all
+            // 1000 rows and 'tablet' none, on the same generic plan.
+            r#"
+            SET plan_cache_mode = force_generic_plan;
+            PREPARE wj_filter_page(text) AS
+                SELECT p.id,
+                       COUNT(*) FILTER (WHERE p.description ||| $1) OVER () AS matched
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.score DESC
+                LIMIT 3;
+            "#
+            .execute(&mut conn);
+
+            let plan = explain(&mut conn, "EXECUTE wj_filter_page('sturdy')");
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("FILTER (WHERE p_0.__p_0_tag_0)"), "{plan}");
+
+            let rows = "EXECUTE wj_filter_page('sturdy')".fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows, vec![(999, 1000), (997, 1000), (995, 1000)]);
+            let rows = "EXECUTE wj_filter_page('tablet')".fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows, vec![(999, 0), (997, 0), (995, 0)]);
+
+            "DEALLOCATE wj_filter_page".execute(&mut conn);
         }
         WindowShape::DistinctArgumentAggregates => {
             for order_by in ["ORDER BY p.id DESC", ""] {

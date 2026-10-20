@@ -2034,9 +2034,17 @@ impl JoinCSClause {
             None
         }
     }
-    /// Visit every `SearchQueryInput` in this clause via `plan`.
+    /// Visit every `SearchQueryInput` in this clause: those in `plan`, and the
+    /// copies in window aggregate FILTER clauses. A FILTER's search predicate
+    /// finds its tag column by comparing its query with the scan's tagged copy,
+    /// so both copies must be solved alike.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         self.plan.visit_queries_mut(f);
+        for window_agg in self.window_aggs.iter_mut() {
+            if let Some(filter) = window_agg.agg_def.filter_mut() {
+                filter.visit_queries_mut(f);
+            }
+        }
     }
 
     /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
@@ -2044,6 +2052,11 @@ impl JoinCSClause {
     /// to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         self.plan.visit_queries(f);
+        for window_agg in self.window_aggs.iter() {
+            if let Some(filter) = window_agg.agg_def.filter() {
+                filter.visit_queries(f);
+            }
+        }
     }
 
     pub fn has_postgres_expressions(&self) -> bool {

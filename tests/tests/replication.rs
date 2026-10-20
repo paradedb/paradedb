@@ -902,7 +902,7 @@ async fn test_ephemeral_background_merge_releases_merged_segment_pins() -> Resul
     let (before,): (i64,) = sqlx::query_as(segments).fetch_one(&mut conn).await?;
     conn.execute("ALTER INDEX merge_pins_idx SET (background_layer_sizes = '1kb,10kb,64kb')")
         .await?;
-    // There are no mutable segments, so no backpressure: this insert launches the merger.
+    // This insert launches the background merger.
     conn.execute("INSERT INTO merge_pins VALUES (500, 'beer wine cheese 500')")
         .await?;
 
@@ -927,10 +927,7 @@ async fn test_ephemeral_background_merge_releases_merged_segment_pins() -> Resul
     Ok(())
 }
 
-// With more than 2 mutable segments an insert is under backpressure and merges them in the
-// foreground. With no foreground layers configured that merge leaves the immutable segments
-// alone, so the insert must still launch the background merger, or concurrent writers keep it
-// from ever running (paradedb/paradedb#6796).
+// Backpressure must not prevent an available background worker from starting.
 #[async_std::test]
 async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -> Result<()> {
     let postgres = EphemeralPostgres::new(
@@ -970,8 +967,8 @@ async fn test_ephemeral_insert_under_backpressure_launches_background_merger() -
     let (before,): (i64,) = sqlx::query_as(immutable).fetch_one(&mut conn).await?;
     conn.execute("ALTER INDEX merge_launch_idx SET (background_layer_sizes = '1mb')")
         .await?;
-    // A third mutable segment puts this insert under backpressure.
-    conn.execute("INSERT INTO merge_launch VALUES (4, 'single row')")
+    // The next inserts leave three frozen mutable segments eligible for backpressure.
+    conn.execute("INSERT INTO merge_launch VALUES (4, 'single row'); INSERT INTO merge_launch VALUES (5, 'single row'); INSERT INTO merge_launch VALUES (6, 'single row')")
         .await?;
 
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -1031,7 +1028,9 @@ async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> R
     anyhow::ensure!(mutable_before == 2, "expected two mutable segments");
     conn.execute(
         "ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100mb');
-        INSERT INTO backpressure VALUES (16, 'beer wine cheese')",
+        INSERT INTO backpressure VALUES (16, 'beer wine cheese');
+        INSERT INTO backpressure VALUES (17, 'beer wine cheese');
+        INSERT INTO backpressure VALUES (18, 'beer wine cheese')",
     )
     .await?;
     let after: Vec<String> = sqlx::query_scalar(immutable).fetch_all(&mut conn).await?;
@@ -1043,14 +1042,80 @@ async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> R
     anyhow::ensure!(mutable_after < 3, "mutable segments were not merged");
     conn.execute(
         "ALTER INDEX backpressure_idx SET (target_segment_count=1, mutable_segment_rows=0);
-        INSERT INTO backpressure VALUES (17, 'beer wine cheese')",
+        INSERT INTO backpressure VALUES (19, 'beer wine cheese')",
     )
     .await?;
+    conn.execute("INSERT INTO backpressure VALUES (20, 'beer wine cheese')")
+        .await?;
     let merged: Vec<String> = sqlx::query_scalar(immutable).fetch_all(&mut conn).await?;
     anyhow::ensure!(
         before.iter().any(|id| !merged.contains(id)),
         "immutable backpressure did not merge immutable segments"
     );
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(
+        passed == Some(true),
+        "verify_index failed after backpressure"
+    );
+    Ok(())
+}
+
+#[async_std::test]
+async fn test_ephemeral_backpressure_merges_each_statement_in_transaction() -> Result<()> {
+    let postgres = EphemeralPostgres::new(
+        Some("shared_preload_libraries = 'pg_search'\nmax_worker_processes = 0\nautovacuum = off"),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute(
+        "CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE backpressure (id bigint, body text);
+        CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
+        WITH (target_segment_count=2, mutable_segment_rows=0, background_layer_sizes='0')",
+    )
+    .await?;
+    for id in 0..40_i64 {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    conn.execute("ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100kb')")
+        .await?;
+    let count_segments = "SELECT count(*) FROM paradedb.index_info('backpressure_idx')";
+    conn.execute("BEGIN; INSERT INTO backpressure VALUES (40, 'beer wine cheese')")
+        .await?;
+    let first: i64 = sqlx::query_scalar(count_segments)
+        .fetch_one(&mut conn)
+        .await?;
+    anyhow::ensure!(first < 41, "the first insert did not merge");
+    conn.execute("INSERT INTO backpressure VALUES (41, 'beer wine cheese')")
+        .await?;
+    let second: i64 = sqlx::query_scalar(count_segments)
+        .fetch_one(&mut conn)
+        .await?;
+    anyhow::ensure!(
+        second <= first,
+        "the second statement in the same transaction did not merge"
+    );
+    conn.execute("COMMIT").await?;
+    conn.execute("INSERT INTO backpressure VALUES (42, 'beer wine cheese')")
+        .await?;
+    let third: i64 = sqlx::query_scalar(count_segments)
+        .fetch_one(&mut conn)
+        .await?;
+    anyhow::ensure!(
+        third <= second,
+        "the next transaction did not resume merging"
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
+        .fetch_one(&mut conn)
+        .await?;
+    anyhow::ensure!(count == 43, "unexpected indexed row count: {count}");
     let passed: Option<bool> = sqlx::query_scalar(
         "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
     )

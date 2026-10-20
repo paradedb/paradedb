@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashSet;
+use crate::index::SearchIndexMerger;
 use crate::index::merge_policy::LayeredMergePolicy;
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::merge::{MergeMode, merge_index};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
@@ -56,7 +58,7 @@ pub(crate) unsafe fn merge_pause() {
     pause(c"pg_search.test_merge_ready", c"pg_search.test_merge_gate");
 }
 
-/// Runs inside `merge_index` after the merger loaded segment metadata and before selection.
+/// Runs after the merger loaded segment metadata and before selection.
 pub(crate) unsafe fn selection_pause() {
     pause(
         c"pg_search.test_selection_ready",
@@ -89,9 +91,19 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
     let before: HashSet<SegmentId> = before.iter().map(SegmentMetaEntry::segment_id).collect();
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
+    let merger = SearchIndexMerger::open(&index, MvccSatisfies::Mergeable).unwrap();
+    selection_pause();
+    let mut policy = LayeredMergePolicy::new(vec![layer_size]);
+    policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+    let (candidates, _, _) = policy.simulate_supported(&merger).unwrap();
+    let candidates = candidates
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .collect::<Vec<_>>();
     merge_index(
         &index,
-        LayeredMergePolicy::new(vec![layer_size]),
+        merger,
+        &candidates,
         merge_lock,
         merge_pins,
         MergeMode::Foreground,

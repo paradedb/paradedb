@@ -27,6 +27,8 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
+pub type LayeredMergeCandidate = (u64, MergeCandidate);
+
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
     layer_sizes: Vec<u64>,
@@ -100,7 +102,7 @@ impl LayeredMergePolicy {
 
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
     /// implementation
-    pub fn simulate(&mut self) -> (Vec<MergeCandidate>, u64) {
+    pub fn simulate(&mut self) -> (Vec<LayeredMergeCandidate>, u64) {
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
             fn from(value: SegmentMetaEntry) -> Self {
@@ -133,7 +135,7 @@ impl LayeredMergePolicy {
                 segment_ids.insert(seg_id);
             }
 
-            candidates.push(candidate);
+            candidates.push((layer_size, candidate));
         }
 
         // prune mergeable_segments to only those used in candidates
@@ -149,7 +151,7 @@ impl LayeredMergePolicy {
     pub fn simulate_supported(
         &mut self,
         merger: &SearchIndexMerger,
-    ) -> tantivy::Result<(Vec<MergeCandidate>, u64, usize)> {
+    ) -> tantivy::Result<(Vec<LayeredMergeCandidate>, u64, usize)> {
         self.simulate_with_validation(|candidates| merger.unsupported_vector_segments(candidates))
     }
 
@@ -158,7 +160,7 @@ impl LayeredMergePolicy {
         mut unsupported: impl FnMut(
             &HashMap<SegmentId, SegmentMetaEntry>,
         ) -> tantivy::Result<HashSet<SegmentId>>,
-    ) -> tantivy::Result<(Vec<MergeCandidate>, u64, usize)> {
+    ) -> tantivy::Result<(Vec<LayeredMergeCandidate>, u64, usize)> {
         let full_mergeable_set = self.mergeable_segments.clone();
         let mut excluded = HashSet::default();
         loop {
@@ -183,10 +185,6 @@ impl LayeredMergePolicy {
     fn retain(&mut self, to_keep: HashSet<SegmentId>) {
         self.mergeable_segments
             .retain(|segment_id, _| to_keep.contains(segment_id));
-    }
-
-    pub fn mergeable_segments(&self) -> impl Iterator<Item = &SegmentId> {
-        self.mergeable_segments.keys()
     }
 
     fn collect_mergeable_segments<'a>(
@@ -215,7 +213,7 @@ impl LayeredMergePolicy {
         &self,
         directory: Option<&dyn Directory>,
         original_segments: &[SegmentMeta],
-    ) -> Vec<(u64, MergeCandidate)> {
+    ) -> Vec<LayeredMergeCandidate> {
         let logger = |directory: Option<&dyn Directory>, message: &str| {
             if self.enable_logging {
                 if let Some(directory) = directory {
@@ -253,7 +251,7 @@ impl LayeredMergePolicy {
                 .map(|entry| (entry.num_docs() + entry.num_deleted_docs()) as u64)
                 .sum::<u64>();
 
-        let mut candidates: Vec<(u64, MergeCandidate)> = Vec::new();
+        let mut candidates: Vec<LayeredMergeCandidate> = Vec::new();
         let mut merged_segments = HashSet::default();
 
         // aggressively merge away any mutable or completely empty segments
@@ -412,7 +410,7 @@ fn adjusted_byte_size(
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::postgres::storage::block::{
         DeleteEntry, FileEntry, SegmentMetaEntry, SegmentMetaEntryImmutable,
@@ -422,7 +420,7 @@ mod tests {
     use pgrx::prelude::*;
     use tantivy::index::SegmentId;
 
-    fn create_segment_meta_entry(
+    pub(crate) fn create_segment_meta_entry(
         byte_size: u64,
         num_docs: u32,
         num_deleted_docs: u32,
@@ -487,7 +485,7 @@ mod tests {
 
         // We expect one candidate for converting the mutable segment
         assert_eq!(candidates.len(), 1);
-        let candidate_ids: Vec<_> = candidates[0].0.to_vec();
+        let candidate_ids: Vec<_> = candidates[0].1.0.to_vec();
 
         // The candidate should contain only our single mutable segment
         assert_eq!(candidate_ids.len(), 1);
@@ -508,7 +506,7 @@ mod tests {
         let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 1);
-        let candidate_ids: Vec<_> = candidates[0].0.to_vec();
+        let candidate_ids: Vec<_> = candidates[0].1.0.to_vec();
         assert_eq!(candidate_ids.len(), 2);
         assert!(candidate_ids.contains(&segment_ids[0]));
         assert!(candidate_ids.contains(&segment_ids[1]));
@@ -586,7 +584,7 @@ mod tests {
         assert_eq!(checks, 3);
         assert_eq!(skipped, 2);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].0, vec![retained]);
+        assert_eq!(candidates[0].1.0, vec![retained]);
     }
 
     #[pg_test]
@@ -627,11 +625,15 @@ mod tests {
         assert_eq!(largest_layer_size, 1000);
         assert_eq!(candidates.len(), 1);
         assert_eq!(
-            candidates[0].0.iter().copied().collect::<HashSet<_>>(),
+            candidates[0].1.0.iter().copied().collect::<HashSet<_>>(),
             supported
         );
         assert_eq!(
-            policy.mergeable_segments().copied().collect::<HashSet<_>>(),
+            policy
+                .mergeable_segments
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
             supported
         );
     }
@@ -668,8 +670,8 @@ mod tests {
 
         assert_eq!(candidates.len(), 2);
 
-        let candidate1_ids: HashSet<_> = candidates[0].0.iter().cloned().collect();
-        let candidate2_ids: HashSet<_> = candidates[1].0.iter().cloned().collect();
+        let candidate1_ids: HashSet<_> = candidates[0].1.0.iter().cloned().collect();
+        let candidate2_ids: HashSet<_> = candidates[1].1.0.iter().cloned().collect();
 
         let small_segment_ids: HashSet<_> = segment_ids[0..2].iter().cloned().collect();
         let large_segment_ids: HashSet<_> = segment_ids[2..4].iter().cloned().collect();

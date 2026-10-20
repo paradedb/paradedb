@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Join Scan now pushes down window aggregates with a `FILTER` clause, such as `COUNT(*) FILTER (WHERE r.score > 80) OVER ()`, over joins. The filter can compare columnar fields from either side of the join and can include search operators like `|||`. Filters that cannot be evaluated in the scan fall back to PostgreSQL. Join Scan also no longer declines `SELECT DISTINCT` queries with window aggregates over a column, such as `SUM(r.score) OVER ()` or `AVG(r.score) OVER ()` (#6501).

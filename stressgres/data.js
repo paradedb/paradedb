@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792475672016,
+  "lastUpdate": 1792476926114,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111460,6 +111460,52 @@ window.BENCHMARK_DATA = {
             "value": 3481.213743070074,
             "unit": "median tps",
             "extra": "avg tps: 3388.5910822779297, max tps: 3645.513636821129, count: 59430"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "message": "fix: binary-search benchmark recall targets (#6918)\n\n## What\n\nWe are going to replace this with pdbench but in the meantime it would\nbe nice to hit the recall targets in CI.",
+          "timestamp": "2026-10-19T23:04:17Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9aa24da283d6532d0c9c47f846d72894a6a25d4b"
+        },
+        "date": 1792476916291,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 950.1287886009054,
+            "unit": "median tps",
+            "extra": "avg tps: 860.993274112579, max tps: 1300.3847144694516, count: 59416"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.9314349985370947,
+            "unit": "median tps",
+            "extra": "avg tps: 3.2456432224678657, max tps: 5.078536765181976, count: 59416"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1875.1595655879714,
+            "unit": "median tps",
+            "extra": "avg tps: 1876.6211316255358, max tps: 1922.3813621531865, count: 59416"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2805.801306358834,
+            "unit": "median tps",
+            "extra": "avg tps: 2773.3478673271384, max tps: 3161.342277256064, count: 59416"
           }
         ]
       }

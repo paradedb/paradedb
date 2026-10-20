@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792478508152,
+  "lastUpdate": 1792479217076,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -466070,6 +466070,58 @@ window.BENCHMARK_DATA = {
             "value": 24.0449362952644,
             "unit": "median tps",
             "extra": "avg tps: 40.623975018375454, max tps: 571.2507540299935, count: 59232"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9bb50ab6a219c10e48d99d6dc887cac77045723e",
+          "message": "Merge 512b601ac7dae89db1933420489833f1a6fd5333 into 9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "timestamp": "2026-10-20T06:21:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9bb50ab6a219c10e48d99d6dc887cac77045723e"
+        },
+        "date": 1792479206879,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3856.923472029495,
+            "unit": "median tps",
+            "extra": "avg tps: 3868.386977813172, max tps: 5225.517362507203, count: 59250"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4511.6670199807995,
+            "unit": "median tps",
+            "extra": "avg tps: 4559.870841580883, max tps: 5648.234139501798, count: 59250"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.47684781185758,
+            "unit": "median tps",
+            "extra": "avg tps: 166.88846104534719, max tps: 3016.6188273579905, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.675243009772288,
+            "unit": "median tps",
+            "extra": "avg tps: 40.201150776535336, max tps: 587.2425849116291, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.558502730627584,
+            "unit": "median tps",
+            "extra": "avg tps: 39.853696963854034, max tps: 570.3254756908663, count: 59250"
           }
         ]
       }

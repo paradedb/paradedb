@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Aggregate Scan pushes every `ORDER BY` key of a `GROUP BY ... LIMIT` query into the DataFusion TopK, joins included, and declares the ordering to Postgres so no `Sort` sits above the scan. Only a single key was pushed before.

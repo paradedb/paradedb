@@ -970,6 +970,17 @@ enum WindowShape {
     /// Top-K aggregate, so the JoinScan computes it in a DataFusion window
     /// node instead.
     FilteredSubqueryWithoutLimit,
+    /// DISTINCT with window aggregates that read a column (#6501), with and
+    /// without an ORDER BY. The DISTINCT pathkeys include every target entry;
+    /// a window-only entry is the same on every row, so it orders nothing.
+    DistinctArgumentAggregates,
+    /// DISTINCT with `AVG(col) OVER ()` (#6501), whose unbounded NUMERIC
+    /// result type must not stop the DISTINCT column check.
+    DistinctAvg,
+    /// DISTINCT over an entry that mixes a column with a window aggregate is
+    /// not window-only: it varies by row, the scan cannot compute it, and
+    /// JoinScan must decline at planning rather than fail building its plan.
+    DistinctColumnPlusWindowDeclines,
 }
 
 #[rstest]
@@ -979,6 +990,9 @@ enum WindowShape {
 #[case::parameterized_limit(WindowShape::ParameterizedLimit)]
 #[case::distinct_filtered(WindowShape::DistinctFiltered)]
 #[case::filtered_subquery_without_limit(WindowShape::FilteredSubqueryWithoutLimit)]
+#[case::distinct_argument_aggregates(WindowShape::DistinctArgumentAggregates)]
+#[case::distinct_avg(WindowShape::DistinctAvg)]
+#[case::distinct_column_plus_window_declines(WindowShape::DistinctColumnPlusWindowDeclines)]
 fn global_window_aggregates_query_shapes(
     mut conn: PgConnection,
     #[case] shape: WindowShape,
@@ -1092,6 +1106,88 @@ fn global_window_aggregates_query_shapes(
                 rows,
                 vec![(999, 500, 501), (997, 500, 501), (995, 500, 501)]
             );
+        }
+        WindowShape::DistinctArgumentAggregates => {
+            for order_by in ["ORDER BY p.id DESC", ""] {
+                let query = format!(
+                    r#"
+                    SELECT DISTINCT p.id,
+                           SUM(r.score) OVER () AS total_score,
+                           MIN(r.score) OVER () AS min_score,
+                           MAX(r.score) OVER () AS max_score,
+                           COUNT(r.score) OVER () AS score_count
+                    FROM wj_products p
+                    JOIN wj_reviews r ON p.id = r.product_id
+                    WHERE p.description ||| 'laptop'
+                    {order_by}
+                    LIMIT 3
+                    "#
+                );
+
+                let plan = explain(&mut conn, &query);
+                assert_windows_in_topk_agg(&plan);
+                assert!(plan.contains("topk_as_agg(DISTINCT "), "{plan}");
+
+                let rows = query.fetch_result::<(i32, i64, i32, i32, i64)>(&mut conn)?;
+                assert_eq!(rows.len(), 3, "{order_by}: {rows:?}");
+                if !order_by.is_empty() {
+                    assert_eq!(
+                        rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+                        vec![999, 997, 995]
+                    );
+                }
+                for row in &rows {
+                    assert_eq!(row.0 % 2, 1, "{order_by}: {row:?}");
+                    assert_eq!(
+                        (row.1, row.2, row.3, row.4),
+                        (1_000_000, 1, 1999, 1000),
+                        "{order_by}: {row:?}"
+                    );
+                }
+            }
+        }
+        WindowShape::DistinctAvg => {
+            let query = r#"
+                SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY p.id DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("topk_as_agg(DISTINCT "), "{plan}");
+
+            let rows = query.fetch_result::<(i32, bigdecimal::BigDecimal)>(&mut conn)?;
+            assert_eq!(
+                rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+                vec![999, 997, 995]
+            );
+            let expected: bigdecimal::BigDecimal = "1000".parse().unwrap();
+            for (_, avg_score) in &rows {
+                assert_eq!(*avg_score, expected);
+            }
+        }
+        WindowShape::DistinctColumnPlusWindowDeclines => {
+            // Product 999's reviews score 999 and 1999; adding the count of
+            // 1000 gives two distinct rows for it.
+            let query = r#"
+                SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY p.id DESC, score_plus_count
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert!(!plan.contains(JOIN_SCAN), "{plan}");
+            assert!(plan.contains("WindowAgg"), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows, vec![(999, 1999), (999, 2999), (997, 1997)]);
         }
         WindowShape::FilteredSubqueryWithoutLimit => {
             let query = r#"

@@ -1235,6 +1235,82 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 LIMIT 3;
 
+-- DISTINCT with window aggregates that read a column (#6501). The DISTINCT
+-- pathkeys include every target entry; a window-only entry is the same on
+-- every row, so it orders nothing and JoinScan still absorbs the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    SUM(r.score) OVER () AS total_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score,
+    COUNT(r.score) OVER () AS score_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT
+    p.id,
+    SUM(r.score) OVER () AS total_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score,
+    COUNT(r.score) OVER () AS score_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- The same without an ORDER BY: the DISTINCT pathkeys alone.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 2;
+
+SELECT DISTINCT SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 2;
+
+-- AVG returns an unbounded NUMERIC, which must not stop the DISTINCT column
+-- check for a window-only entry (#6501).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- An entry mixing a column with a window aggregate varies by row: it is part
+-- of the DISTINCT key, which the scan cannot compute, so JoinScan declines.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC, score_plus_count
+LIMIT 3;
+
+SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC, score_plus_count
+LIMIT 3;
+
 -- Test 27h: Window aggregates with a FILTER clause over a JOIN. JoinScan
 -- computes `agg FILTER (WHERE ...) OVER ()` in its Top-K aggregate node.
 -- The join has four rows: scores 95 and 70 (product 1), 91 (product 3) and

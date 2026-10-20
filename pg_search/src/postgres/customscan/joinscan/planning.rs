@@ -2037,7 +2037,7 @@ fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
 
         unsafe {
             // window functions come back whole, un-recursed, so any vars in this list sit outside
-            // of thew window function
+            // of the window function
             let nodes = PgList::<pg_sys::Node>::from_pg(pg_sys::pull_var_clause(
                 check_expr,
                 (pg_sys::PVC_INCLUDE_WINDOWFUNCS
@@ -2046,7 +2046,7 @@ fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
             ));
             nodes
                 .iter_ptr()
-                .any(|n| (*n).type_ != pg_sys::NodeTag::T_Var)
+                .all(|n| (*n).type_ != pg_sys::NodeTag::T_Var)
         }
     })
 }

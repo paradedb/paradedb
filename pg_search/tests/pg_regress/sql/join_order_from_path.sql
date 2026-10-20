@@ -1,6 +1,7 @@
--- The nesting of an all-inner join follows the planner's path, so the sides
--- it found most selective join first. The query text puts the two large
--- tables first; the planner starts from the two-author side.
+-- An all-inner join runs as a left-deep chain in the order the planner joined
+-- the relations, so the sides it found most selective join first. The query
+-- text puts the two large tables first; the planner starts from the
+-- two-author side.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 CREATE TABLE jo_authors (id INT PRIMARY KEY, name TEXT, bio TEXT);
@@ -51,6 +52,23 @@ JOIN jo_authors a ON a.id = b.author_id
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
 
+-- The selective table written last. The chain still starts from the join the
+-- planner ran first, and the physical plan follows it.
+EXPLAIN (COSTS OFF)
+SELECT b.id, r.id
+FROM jo_reviews r
+JOIN jo_books b ON r.book_id = b.id
+JOIN jo_authors a ON a.id = b.author_id
+WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
+ORDER BY b.id, r.id LIMIT 5;
+
+SELECT b.id, r.id
+FROM jo_reviews r
+JOIN jo_books b ON r.book_id = b.id
+JOIN jo_authors a ON a.id = b.author_id
+WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
+ORDER BY b.id, r.id LIMIT 5;
+
 -- A non-equi ON condition between books and reviews moves up to the join
 -- that sees both.
 EXPLAIN (COSTS OFF)
@@ -68,7 +86,7 @@ JOIN jo_authors a ON a.id = b.author_id
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
 
--- Comma joins carry their keys in WHERE; they land on the new nesting too.
+-- Comma joins carry their keys in WHERE; they join in the planner's order too.
 EXPLAIN (COSTS OFF)
 SELECT b.id, r.id
 FROM jo_books b, jo_reviews r, jo_authors a
@@ -113,7 +131,7 @@ JOIN jo_books b ON a.id = b.author_id
 WHERE b.title @@@ 'gardens'
 ORDER BY a.id, b.id LIMIT 5;
 
--- The aggregate path builds the same nesting.
+-- The aggregate path builds the same chain.
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT a.name, COUNT(*)
 FROM jo_books b

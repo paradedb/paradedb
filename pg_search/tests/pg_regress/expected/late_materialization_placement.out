@@ -373,8 +373,8 @@ LIMIT 5;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.author, c2.id
-   Relation Tree: (c INNER p) INNER c2
-   Join Cond: c2.post_id = p.id, c.post_id = p.id
+   Relation Tree: c INNER (p INNER c2)
+   Join Cond: c.post_id = p.id, c2.post_id = p.id
    Limit: 5
    Order By: c.author asc, c.id asc, c2.id asc
    DataFusion Physical Plan: 

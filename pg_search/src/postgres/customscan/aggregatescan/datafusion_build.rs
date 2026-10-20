@@ -24,9 +24,10 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 //!
-//! The parse tree fixes the join semantics. The nesting of an all-inner join
-//! tree follows the path the planner picked instead, so the relations it found
-//! most selective join first.
+//! The parse tree fixes the join semantics. An all-inner join tree is rebuilt
+//! as a left-deep chain in the order the planner joined the relations, which
+//! is the order DataFusion keeps, so the relations it found most selective
+//! join first.
 
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{ColumnRef, CompareOp, FilterExpr};
@@ -54,6 +55,7 @@ use crate::postgres::customscan::qual_inspect::{
     has_leaky_heap_filter, optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::range_table::bms_iter;
+use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::missing_partial_index_predicate;
@@ -71,6 +73,7 @@ type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
 type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::sync::OnceLock;
 
 /// Metadata about a table participating in the join, collected during parse-tree walk.
@@ -349,7 +352,13 @@ pub unsafe fn extract_join_tree_from_parse(
 
     let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
     if let Some(shape) = &path_info.join_shape {
-        plan = follow_path_join_order(plan, shape);
+        let path_keys: Vec<JoinKeyPair> = path_info
+            .equi_keys
+            .iter()
+            .chain(&path_info.wrapped_equi_keys)
+            .cloned()
+            .collect();
+        plan = follow_path_join_order(plan, shape, &path_keys);
     }
 
     // Wrapper-only keys supplement the query tree, which already supplies every
@@ -959,7 +968,7 @@ unsafe fn extract_non_equi_filter_from_quals(
         pg_sys::make_andclause(list.into_pg()).cast()
     };
 
-    let pg_node_string = crate::postgres::deparse::node_to_string_owned(combined_node.cast());
+    let pg_node_string = node_to_string_owned(combined_node.cast());
     let input_vars = crate::postgres::customscan::joinscan::collect_input_vars(combined_node);
     Ok(Some(JoinLevelExpr::PgExpression {
         pg_node_string,
@@ -1069,137 +1078,90 @@ pub(crate) enum PathJoinShape {
 }
 
 impl PathJoinShape {
-    fn collect_rtis(&self, acc: &mut Vec<pg_sys::Index>) {
+    /// The order in which a left-deep chain joins the relations the way the
+    /// planner did. DataFusion's `EliminateCrossJoin` flattens every inner-join
+    /// subtree into its leaves and rebuilds a left-deep chain from that order,
+    /// each time taking the first leaf that shares a key with what it has so
+    /// far. The nesting of a [`RelNode`] tree never reaches execution, only its
+    /// leaf order does. A relation the planner joined onto a join follows that
+    /// join's leaves, so DataFusion builds the join first. Two base relations
+    /// keep the order the query wrote them, since DataFusion picks the build
+    /// side from row estimates on its own. A join of two joins has no
+    /// left-deep equivalent and yields `None`.
+    fn leaf_order(
+        &self,
+        parse_index: &HashMap<pg_sys::Index, usize>,
+        out: &mut Vec<pg_sys::Index>,
+    ) -> Option<()> {
         match self {
-            Self::Base(rti) => acc.push(*rti),
-            Self::Join(outer, inner) => {
-                outer.collect_rtis(acc);
-                inner.collect_rtis(acc);
-            }
-        }
-    }
-}
-
-/// A join nesting over base relations, with the two inputs of every join in
-/// the order the query wrote them.
-#[derive(Debug, PartialEq, Eq)]
-enum JoinNesting {
-    Leaf(pg_sys::Index),
-    Pair(Box<JoinNesting>, Box<JoinNesting>),
-}
-
-impl JoinNesting {
-    /// The nesting of a plain inner-join tree: scans under inner joins that
-    /// carry no subplan and whose filters name their relations. Any other
-    /// node makes the tree `None`.
-    fn from_plan(plan: &RelNode) -> Option<Self> {
-        match plan {
-            RelNode::Scan(s) => Some(Self::Leaf(s.scan_info.heap_rti)),
-            RelNode::Join(j) => {
-                if j.join_type != JoinType::Inner
-                    || j.subplan_id.is_some()
-                    || !j.absorbed_search_clauses.is_empty()
-                    || j.filter
-                        .as_ref()
-                        .is_some_and(|f| join_filter_rtis(f).is_none())
-                {
-                    return None;
+            Self::Base(rti) => out.push(*rti),
+            Self::Join(outer, inner) => match (outer.as_ref(), inner.as_ref()) {
+                (Self::Base(a), Self::Base(b)) => {
+                    let index =
+                        |rti: &pg_sys::Index| parse_index.get(rti).copied().unwrap_or(usize::MAX);
+                    let (first, second) = if index(a) <= index(b) { (a, b) } else { (b, a) };
+                    out.push(*first);
+                    out.push(*second);
                 }
-                Some(Self::Pair(
-                    Box::new(Self::from_plan(&j.left)?),
-                    Box::new(Self::from_plan(&j.right)?),
-                ))
-            }
-            RelNode::Filter(_) | RelNode::Unnest(_) => None,
-        }
-    }
-
-    /// The planner's nesting, each pair ordered by the query text.
-    fn from_shape(shape: &PathJoinShape, parse_index: &HashMap<pg_sys::Index, usize>) -> Self {
-        match shape {
-            PathJoinShape::Base(rti) => Self::Leaf(*rti),
-            PathJoinShape::Join(outer, inner) => {
-                let a = Self::from_shape(outer, parse_index);
-                let b = Self::from_shape(inner, parse_index);
-                if a.first_parse_index(parse_index) <= b.first_parse_index(parse_index) {
-                    Self::Pair(Box::new(a), Box::new(b))
-                } else {
-                    Self::Pair(Box::new(b), Box::new(a))
+                (Self::Base(leaf), tree) | (tree, Self::Base(leaf)) => {
+                    tree.leaf_order(parse_index, out)?;
+                    out.push(*leaf);
                 }
-            }
+                (Self::Join(..), Self::Join(..)) => return None,
+            },
         }
-    }
-
-    fn contains(&self, rti: pg_sys::Index) -> bool {
-        match self {
-            Self::Leaf(leaf) => *leaf == rti,
-            Self::Pair(a, b) => a.contains(rti) || b.contains(rti),
-        }
-    }
-
-    /// Whether every pair has an equi-key or a filter that straddles its two
-    /// inputs. A pair without one would run as a cross join.
-    fn is_keyed(&self, keys: &[JoinKeyPair], filters: &[JoinFilter]) -> bool {
-        let Self::Pair(a, b) = self else {
-            return true;
-        };
-        let straddles = |x: pg_sys::Index, y: pg_sys::Index| {
-            (a.contains(x) && b.contains(y)) || (a.contains(y) && b.contains(x))
-        };
-        let keyed = keys.iter().any(|k| straddles(k.outer_rti, k.inner_rti))
-            || filters.iter().any(|(_, rtis)| {
-                rtis.iter().any(|r| a.contains(*r)) && rtis.iter().any(|r| b.contains(*r))
-            });
-        keyed && a.is_keyed(keys, filters) && b.is_keyed(keys, filters)
-    }
-
-    fn first_parse_index(&self, parse_index: &HashMap<pg_sys::Index, usize>) -> usize {
-        match self {
-            Self::Leaf(rti) => parse_index.get(rti).copied().unwrap_or(usize::MAX),
-            Self::Pair(a, b) => a
-                .first_parse_index(parse_index)
-                .min(b.first_parse_index(parse_index)),
-        }
-    }
-
-    fn build(self, scans: &mut HashMap<pg_sys::Index, Box<JoinSource>>) -> Option<RelNode> {
-        match self {
-            Self::Leaf(rti) => scans.remove(&rti).map(RelNode::Scan),
-            Self::Pair(a, b) => Some(RelNode::Join(Box::new(JoinNode {
-                join_type: JoinType::Inner,
-                left: a.build(scans)?,
-                right: b.build(scans)?,
-                equi_keys: Vec::new(),
-                filter: None,
-                subplan_id: None,
-                absorbed_search_clauses: Vec::new(),
-            }))),
-        }
+        Some(())
     }
 }
 
-/// The relations a join filter reads, when every leaf of the filter names them.
+/// A tree of scans under inner joins that carry no subplan or search clause
+/// and whose filters name their relations. The chain rebuild can take that
+/// shape apart and put it back together.
+fn is_plain_inner_tree(plan: &RelNode) -> bool {
+    !plan
+        .exists(|node| {
+            Ok(match node {
+                RelNode::Scan(_) => false,
+                RelNode::Join(j) => {
+                    j.join_type != JoinType::Inner
+                        || j.subplan_id.is_some()
+                        || !j.absorbed_search_clauses.is_empty()
+                        || j.filter
+                            .as_ref()
+                            .is_some_and(|f| join_filter_rtis(f).is_none())
+                }
+                RelNode::Filter(_) | RelNode::Unnest(_) => true,
+            })
+        })
+        .expect("inspecting the join tree cannot fail")
+}
+
+/// Whether every relation of a left-deep chain joins onto the relations before
+/// it with an equi-key or a filter. One without either would run as a cross
+/// join.
+fn chain_is_keyed(order: &[pg_sys::Index], keys: &[JoinKeyPair], filters: &[JoinFilter]) -> bool {
+    (1..order.len()).all(|i| {
+        let (prefix, leaf) = (&order[..i], order[i]);
+        keys.iter().any(|k| {
+            (k.outer_rti == leaf && prefix.contains(&k.inner_rti))
+                || (k.inner_rti == leaf && prefix.contains(&k.outer_rti))
+        }) || filters
+            .iter()
+            .any(|(_, rtis)| rtis.contains(&leaf) && rtis.iter().any(|r| prefix.contains(r)))
+    })
+}
+
+/// The relations a join filter reads. Only a bare `PgExpression` qualifies,
+/// the one filter shape the DataFusion lowering takes, and it has to name a
+/// relation so the filter can find a join to land on.
 fn join_filter_rtis(expr: &JoinLevelExpr) -> Option<Vec<pg_sys::Index>> {
-    fn collect(expr: &JoinLevelExpr, acc: &mut Vec<pg_sys::Index>) -> Option<()> {
-        match expr {
-            JoinLevelExpr::PgExpression { input_vars, .. } => {
-                acc.extend(input_vars.iter().map(|v| v.rti));
-                Some(())
-            }
-            JoinLevelExpr::And(children) | JoinLevelExpr::Or(children) => {
-                children.iter().try_for_each(|c| collect(c, acc))
-            }
-            JoinLevelExpr::Not(inner) => collect(inner, acc),
-            JoinLevelExpr::SingleTablePredicate { .. }
-            | JoinLevelExpr::MultiTablePredicate { .. }
-            | JoinLevelExpr::MarkOrNull { .. } => None,
-        }
-    }
-    let mut rtis = Vec::new();
-    collect(expr, &mut rtis)?;
+    let JoinLevelExpr::PgExpression { input_vars, .. } = expr else {
+        return None;
+    };
+    let mut rtis: Vec<pg_sys::Index> = input_vars.iter().map(|v| v.rti).collect();
     rtis.sort_unstable();
     rtis.dedup();
-    Some(rtis)
+    (!rtis.is_empty()).then_some(rtis)
 }
 
 /// A join filter with the relations it reads.
@@ -1220,17 +1182,53 @@ fn join_filters(plan: &RelNode) -> Vec<JoinFilter> {
     filters
 }
 
+/// Both filters as one `PgExpression`, the only join filter shape the
+/// DataFusion lowering takes.
+fn and_pg_expressions(a: JoinLevelExpr, b: JoinLevelExpr) -> JoinLevelExpr {
+    let (
+        JoinLevelExpr::PgExpression {
+            pg_node_string: a_string,
+            mut input_vars,
+        },
+        JoinLevelExpr::PgExpression {
+            pg_node_string: b_string,
+            input_vars: b_vars,
+        },
+    ) = (a, b)
+    else {
+        unreachable!("join_filter_rtis admits only PgExpression filters");
+    };
+    let pg_node_string = unsafe {
+        let mut list = PgList::<pg_sys::Expr>::new();
+        for string in [a_string, b_string] {
+            let c_string = CString::new(string).expect("a node string has no NUL byte");
+            list.push(pg_sys::stringToNode(c_string.as_ptr().cast_mut()).cast());
+        }
+        node_to_string_owned(pg_sys::make_andclause(list.into_pg()).cast())
+    };
+    for var in b_vars {
+        if !input_vars
+            .iter()
+            .any(|v| v.rti == var.rti && v.attno == var.attno)
+        {
+            input_vars.push(var);
+        }
+    }
+    JoinLevelExpr::PgExpression {
+        pg_node_string,
+        input_vars,
+    }
+}
+
 /// Place a join filter at the lowest join that sees every relation it reads.
-/// A filter over one relation that sits directly under a join is left out:
-/// the planner keeps that clause in the relation's `baserestrictinfo`, which
-/// the scan node enforces or declines on.
+/// A filter over one relation that sits directly under a join is left out,
+/// since the planner keeps that clause in the relation's `baserestrictinfo`,
+/// which the scan node enforces or declines on.
 fn attach_join_filter(plan: RelNode, filter: JoinLevelExpr, rtis: &[pg_sys::Index]) -> RelNode {
-    let within = |side: &RelNode| !rtis.is_empty() && rtis.iter().all(|r| side.contains_rti(*r));
+    let within = |side: &RelNode| rtis.iter().all(|r| side.contains_rti(*r));
     let covers = |j: &JoinNode| {
-        !rtis.is_empty()
-            && rtis
-                .iter()
-                .all(|r| j.left.contains_rti(*r) || j.right.contains_rti(*r))
+        rtis.iter()
+            .all(|r| j.left.contains_rti(*r) || j.right.contains_rti(*r))
     };
     let mut filter = Some(filter);
     plan.transform_down(|node| match node {
@@ -1238,16 +1236,12 @@ fn attach_join_filter(plan: RelNode, filter: JoinLevelExpr, rtis: &[pg_sys::Inde
             let filter = filter.take().expect("a join filter lands on one join");
             j.filter = Some(match j.filter.take() {
                 None => filter,
-                Some(JoinLevelExpr::And(mut children)) => {
-                    children.push(filter);
-                    JoinLevelExpr::And(children)
-                }
-                Some(existing) => JoinLevelExpr::And(vec![existing, filter]),
+                Some(existing) => and_pg_expressions(existing, filter),
             });
             Ok(Transformed::new(
                 RelNode::Join(j),
                 true,
-                TreeNodeRecursion::Jump,
+                TreeNodeRecursion::Stop,
             ))
         }
         node => Ok(Transformed::no(node)),
@@ -1256,43 +1250,51 @@ fn attach_join_filter(plan: RelNode, filter: JoinLevelExpr, rtis: &[pg_sys::Inde
     .data
 }
 
-/// Rebuild an all-inner join tree in the nesting the planner chose, so the
-/// relations it found most selective join first. The parse tree keeps every
-/// join key and ON filter; only the nesting moves. Within one join the two
-/// inputs stay in the order the query wrote them, since DataFusion picks the
-/// build side from row estimates on its own. Outer, semi, anti, and lateral
-/// nodes, and a planner tree over a different relation set, keep the
-/// parse-tree order. So does a nesting that would leave a join with no key
-/// and no filter: the planner picks such a join only over tiny inputs, and
-/// DataFusion would restructure the cross join anyway.
-fn follow_path_join_order(plan: RelNode, shape: &PathJoinShape) -> RelNode {
-    let Some(parse_nesting) = JoinNesting::from_plan(&plan) else {
+/// Rebuild an all-inner join tree as a left-deep chain in the order the
+/// planner joined the relations, so the ones it found most selective join
+/// first. The parse tree keeps every join key and ON filter. Only the leaf
+/// order moves, which is all DataFusion keeps of the tree (see
+/// [`PathJoinShape::leaf_order`]). Outer, semi, anti, and lateral nodes, a
+/// planner tree over a different relation set, and a bushy planner tree keep
+/// the parse-tree order. So does an order that would leave a join with no key
+/// and no filter. The planner picks such a join only over tiny inputs, and
+/// DataFusion would restructure the cross join anyway. `path_keys` are the
+/// equi-keys the planner path carries beyond the query text. The caller
+/// injects them after the rebuild, so here they only inform that gate.
+fn follow_path_join_order(
+    plan: RelNode,
+    shape: &PathJoinShape,
+    path_keys: &[JoinKeyPair],
+) -> RelNode {
+    if !is_plain_inner_tree(&plan) {
         return plan;
-    };
-    let mut parse_rtis: Vec<pg_sys::Index> = plan
+    }
+    let parse_order: Vec<pg_sys::Index> = plan
         .sources()
         .iter()
         .map(|s| s.scan_info.heap_rti)
         .collect();
-    let parse_index: HashMap<pg_sys::Index, usize> = parse_rtis
+    let parse_index: HashMap<pg_sys::Index, usize> = parse_order
         .iter()
         .enumerate()
         .map(|(i, rti)| (*rti, i))
         .collect();
-    let mut shape_rtis = Vec::new();
-    shape.collect_rtis(&mut shape_rtis);
-    parse_rtis.sort_unstable();
-    shape_rtis.sort_unstable();
-    if parse_rtis != shape_rtis {
+    let mut planner_order = Vec::new();
+    if shape.leaf_order(&parse_index, &mut planner_order).is_none() || planner_order == parse_order
+    {
         return plan;
     }
-    let planner_nesting = JoinNesting::from_shape(shape, &parse_index);
-    if planner_nesting == parse_nesting {
+    let mut parse_rtis = parse_order;
+    let mut planner_rtis = planner_order.clone();
+    parse_rtis.sort_unstable();
+    planner_rtis.sort_unstable();
+    if parse_rtis != planner_rtis {
         return plan;
     }
     let keys = plan.join_keys();
     let filters = join_filters(&plan);
-    if !planner_nesting.is_keyed(&keys, &filters) {
+    let all_keys: Vec<JoinKeyPair> = keys.iter().chain(path_keys).cloned().collect();
+    if !chain_is_keyed(&planner_order, &all_keys, &filters) {
         return plan;
     }
 
@@ -1301,9 +1303,27 @@ fn follow_path_join_order(plan: RelNode, shape: &PathJoinShape) -> RelNode {
         .into_iter()
         .map(|s| (s.scan_info.heap_rti, Box::new(s.clone())))
         .collect();
-    let mut rebuilt = planner_nesting
-        .build(&mut scans)
-        .expect("the planner nesting and the parse tree cover the same relations");
+    let mut leaves = planner_order.iter().map(|rti| {
+        RelNode::Scan(
+            scans
+                .remove(rti)
+                .expect("the planner order and the parse tree cover the same relations"),
+        )
+    });
+    let first = leaves
+        .next()
+        .expect("a join path has at least two relations");
+    let mut rebuilt = leaves.fold(first, |left, right| {
+        RelNode::Join(Box::new(JoinNode {
+            join_type: JoinType::Inner,
+            left,
+            right,
+            equi_keys: Vec::new(),
+            filter: None,
+            subplan_id: None,
+            absorbed_search_clauses: Vec::new(),
+        }))
+    });
     rebuilt.inject_equi_keys(keys);
     filters.into_iter().fold(rebuilt, |tree, (filter, rtis)| {
         attach_join_filter(tree, filter, &rtis)

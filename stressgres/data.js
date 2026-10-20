@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792485461276,
+  "lastUpdate": 1792486154266,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -413824,6 +413824,88 @@ window.BENCHMARK_DATA = {
             "value": 593.2768627917374,
             "unit": "median tps",
             "extra": "avg tps: 592.7273583308142, max tps: 614.1411888498619, count: 55313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c0e8e052b66d6ab3468cbcde8117459d0bac5336",
+          "message": "Merge d89c0f6aeb4155d8cb713f86235ee97bf0524e1f into 9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "timestamp": "2026-10-20T08:15:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c0e8e052b66d6ab3468cbcde8117459d0bac5336"
+        },
+        "date": 1792486144409,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 590.5820774840964,
+            "unit": "median tps",
+            "extra": "avg tps: 590.9712409338819, max tps: 602.5940056060457, count: 55293"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 548.1256165520639,
+            "unit": "median tps",
+            "extra": "avg tps: 547.4813300791112, max tps: 591.3537386241362, count: 55293"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 202.59181687454577,
+            "unit": "median tps",
+            "extra": "avg tps: 202.63046549550398, max tps: 212.73144552943828, count: 55293"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 608.7543211874091,
+            "unit": "median tps",
+            "extra": "avg tps: 606.1403540211204, max tps: 638.5361936182138, count: 55293"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 426.57053481594215,
+            "unit": "median tps",
+            "extra": "avg tps: 426.7749130764857, max tps: 455.58145583588384, count: 55293"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.63188429534097,
+            "unit": "median tps",
+            "extra": "avg tps: 14.626533175277231, max tps: 15.211558564490694, count: 55293"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 694.1685008448435,
+            "unit": "median tps",
+            "extra": "avg tps: 696.6231336720215, max tps: 786.2610962311935, count: 55293"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 705.0661724547826,
+            "unit": "median tps",
+            "extra": "avg tps: 709.2426366326375, max tps: 812.9244142879595, count: 55293"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 319.3495683867566,
+            "unit": "median tps",
+            "extra": "avg tps: 319.408779301447, max tps: 331.9745269667301, count: 55293"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 639.1282502224808,
+            "unit": "median tps",
+            "extra": "avg tps: 635.1275440477095, max tps: 671.0056126264469, count: 55293"
           }
         ]
       }

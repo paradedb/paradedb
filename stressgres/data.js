@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792483450263,
+  "lastUpdate": 1792483470525,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -451154,6 +451154,58 @@ window.BENCHMARK_DATA = {
             "value": 37.18373724266514,
             "unit": "median tps",
             "extra": "avg tps: 56.16120381444254, max tps: 524.3939559262908, count: 58742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6f757ee6bc484d67f8c72cea4cfdc8a4d22aad79",
+          "message": "Merge d53627a5c242f825d6e64adfc02ad7192951cb3a into 9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "timestamp": "2026-10-20T07:04:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6f757ee6bc484d67f8c72cea4cfdc8a4d22aad79"
+        },
+        "date": 1792483450226,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.55251623158922,
+            "unit": "median tps",
+            "extra": "avg tps: 57.40611218210504, max tps: 520.7904203255264, count: 58739"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.365771936337083,
+            "unit": "median tps",
+            "extra": "avg tps: 31.97383981857945, max tps: 363.9821678456712, count: 58739"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.8900815507644,
+            "unit": "median tps",
+            "extra": "avg tps: 133.32505876361006, max tps: 1176.9354200332946, count: 58739"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.36709494450034,
+            "unit": "median tps",
+            "extra": "avg tps: 30.760146836439795, max tps: 272.5198325236412, count: 58739"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.71304040749129,
+            "unit": "median tps",
+            "extra": "avg tps: 60.27844843833351, max tps: 556.1759807338168, count: 58739"
           }
         ]
       }

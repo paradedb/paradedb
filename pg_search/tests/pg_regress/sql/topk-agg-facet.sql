@@ -1455,8 +1455,32 @@ WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 
--- A filter JoinScan cannot evaluate (LIKE on a column that is not columnar):
--- it declines, and PostgreSQL's WindowAgg computes the value.
+-- A comparison the scan could translate, on a column that is not columnar
+-- (content is tokenized): the scan has no values to compare, so JoinScan
+-- declines at planning and PostgreSQL's WindowAgg computes the value.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content = 'Battery could be better') OVER () AS battery_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content = 'Battery could be better') OVER () AS battery_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- An operator the scan cannot translate (LIKE): JoinScan declines, and
+-- PostgreSQL's WindowAgg computes the value.
 EXPLAIN (COSTS OFF)
 SELECT
     p.id,

@@ -432,12 +432,24 @@ pub fn extract_window_agg(
         outer_root_id,
     };
     let filter = if !wf.aggfilter.is_null() {
-        match FilterExpr::from_pg_node(wf.aggfilter as *mut pg_sys::Node, &filter_ctx) {
-            Some(filter) => Some(filter),
+        let f = match FilterExpr::from_pg_node(wf.aggfilter as *mut pg_sys::Node, &filter_ctx) {
+            Some(filter) => filter,
             None => {
                 return Err("unsupported window function FILTER clause was provided".to_string());
             }
+        };
+        // verify each field the filter needs is columnar
+        if f.collect_column_refs().iter().any(|cr| {
+            resolve_fast_field_from_join_sources(
+                &plan.sources(),
+                cr.rti as pg_sys::Index,
+                cr.attno as i32,
+            )
+            .is_none()
+        }) {
+            return Err("window function FILTER clause depends on non-columnar field".to_string());
         }
+        Some(f)
     } else {
         None
     };
@@ -485,7 +497,11 @@ fn extract_column_info(
             assert!(!var.is_null());
             let var = unsafe { *var };
 
-            let Some(ff) = resolve_fast_field_from_join_sources(sources, &var) else {
+            let Some(ff) = resolve_fast_field_from_join_sources(
+                sources,
+                var.varno as pg_sys::Index,
+                var.varattno as i32,
+            ) else {
                 return Err("arguments to window aggregate must be fast fields".to_string());
             };
 

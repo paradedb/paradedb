@@ -1248,18 +1248,21 @@ fn global_window_aggregates_query_shapes(
 
 #[derive(Debug, Clone, Copy)]
 enum FilterFallback {
-    /// The filter reads a column that is not columnar, so the scan cannot
-    /// evaluate it.
+    /// A comparison the scan could translate, on a column that is not
+    /// columnar: the scan has no values to compare.
     NonColumnarColumn,
+    /// An operator the scan cannot translate.
+    UnsupportedOperator,
     /// The filter holds a volatile function.
     Volatile,
 }
 
-/// Filters JoinScan cannot evaluate: it declines, and PostgreSQL's WindowAgg
-/// computes the value. The tablets are filtered out by the WHERE clause, so
-/// every surviving product is a 'sturdy laptop'.
+/// Filters JoinScan cannot evaluate: it declines at planning, and PostgreSQL's
+/// WindowAgg computes the value. The tablets are filtered out by the WHERE
+/// clause, so every surviving product is a 'sturdy laptop'.
 #[rstest]
 #[case::non_columnar_column(FilterFallback::NonColumnarColumn)]
+#[case::unsupported_operator(FilterFallback::UnsupportedOperator)]
 #[case::volatile(FilterFallback::Volatile)]
 fn filtered_window_aggregates_fallback(
     mut conn: PgConnection,
@@ -1268,7 +1271,8 @@ fn filtered_window_aggregates_fallback(
     setup(&mut conn);
 
     let filter = match case {
-        FilterFallback::NonColumnarColumn => "p.description LIKE '%sturdy%'",
+        FilterFallback::NonColumnarColumn => "p.description = 'sturdy laptop'",
+        FilterFallback::UnsupportedOperator => "p.description LIKE '%sturdy%'",
         FilterFallback::Volatile => "random() >= 0",
     };
     let query = format!(

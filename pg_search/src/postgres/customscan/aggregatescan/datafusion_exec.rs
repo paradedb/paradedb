@@ -1458,7 +1458,7 @@ async fn build_source_df(
     }
 }
 
-fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
+pub(super) fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
     let Some(source) = plan.source_at_plan_position(plan_position) else {
         return false;
     };

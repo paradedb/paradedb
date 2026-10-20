@@ -60,13 +60,13 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
+use crate::postgres::customscan::joinscan::ScoreColumn;
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
-use crate::postgres::customscan::joinscan::ScoreColumn;
 use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;

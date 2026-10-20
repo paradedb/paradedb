@@ -450,11 +450,12 @@ impl BM25IndexOptions {
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
-        match gucs::global_mutable_segment_rows() {
-            Some(rows) if rows > 0 => NonZeroUsize::new(rows),
-            Some(0) => None,
-            _ => self.options_data().mutable_segment_rows(),
-        }
+        NonZeroUsize::new(
+            self.options_data()
+                .mutable_segment_rows()
+                .or_else(gucs::global_mutable_segment_rows)
+                .unwrap_or(DEFAULT_MUTABLE_SEGMENT_ROWS),
+        )
     }
 
     /// Returns the maximum number of training vectors per clustering leaf.
@@ -830,7 +831,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     inet_fields_offset: 0,
     target_segment_count: 0,
     background_layer_sizes_offset: 0,
-    mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+    mutable_segment_rows: -1,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
@@ -867,9 +868,9 @@ impl BM25IndexOptionsData {
         }
     }
 
-    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
-        if self.mutable_segment_rows > 0 {
-            NonZeroUsize::new(self.mutable_segment_rows as usize)
+    pub fn mutable_segment_rows(&self) -> Option<usize> {
+        if self.mutable_segment_rows >= 0 {
+            Some(self.mutable_segment_rows as usize)
         } else {
             None
         }
@@ -1095,7 +1096,8 @@ pub unsafe fn init() {
         RELOPT_KIND_PDB,
         "mutable_segment_rows".as_pg_cstr(),
         "The size of mutable segments.".as_pg_cstr(),
-        DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+        // An omitted option inherits the GUC; explicit values must be nonnegative.
+        -1,
         0,
         MAX_MUTABLE_SEGMENT_ROWS as i32,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,

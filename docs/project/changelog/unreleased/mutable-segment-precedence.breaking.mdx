@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- An explicit index `mutable_segment_rows` setting now takes precedence over `paradedb.global_mutable_segment_rows`, including `0` to disable mutable segments. Use `ALTER INDEX ... RESET (mutable_segment_rows)` to inherit the global setting again. Indexes without an explicit setting continue to use the global value, or 1000 rows when the global value is `-1`.

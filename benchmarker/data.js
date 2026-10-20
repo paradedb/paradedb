@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792516113825,
+  "lastUpdate": 1792518788626,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -14137,6 +14137,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 191.154,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63e360cae427a4680a2aecba8bd232f873f6691e",
+          "message": "refactor: use pg_sys constants for built-in function OIDs (#6913)\n\n## What\n\nReplaces runtime `regprocedurein` lookups of built-in `pg_catalog`\nfunctions with the fixed OID constants that pgrx exposes from\n`fmgroids.h`:\n\n| Function | Location | Constant |\n|---|---|---|\n| `pg_catalog.unnest(anyarray)` | `postgres/utils.rs` `is_unnest_func` |\n`pg_sys::F_UNNEST_ANYARRAY` |\n| `pg_catalog.lower(text)` | `customscan/orderby.rs`\n`text_lower_funcoid` | `pg_sys::F_LOWER_TEXT` |\n| `now()` | `customscan/projections.rs` `placeholder_procid` |\n`pg_sys::F_NOW` |\n\n## Why\n\nBuilt-in function OIDs are assigned in `pg_proc.dat` and are identical\nacross all supported Postgres versions (verified for PG15–18 in pgrx\n0.19.3: 2331, 870 and 1299), so looking them up by signature at runtime\nadds cost and complexity for no benefit:\n\n- `is_unnest_func` used `static mut` + `Once` caching and silently\ndisabled itself (`false`) if the lookup ever failed.\n- `text_lower_funcoid` had no caching, so it did a catalog lookup on\nevery call.\n- The `now()` lookup wasn't schema-qualified, so it resolved through\n`search_path`.\n\nThe codebase already uses `pg_sys::F_*` constants elsewhere (e.g.\n`F_DATE_TIMESTAMP`, `F_ROW_NUMBER`), and `node.rs` tests already\nconstruct `FuncExpr`s with `F_UNNEST_ANYARRAY`. These constants have\nbeen available since pgrx 0.12 (pgcentralfoundation/pgrx#1726).\n\nLookups of ParadeDB's own `paradedb.*` / `pdb.*` functions and types are\nleft alone, since those OIDs are assigned at extension install time.\n\n## How\n\nSwapped each lookup for the corresponding constant and removed the\nnow-unused imports and an unneeded `unsafe` block in\n`placeholder_procid`.",
+          "timestamp": "2026-10-20T10:24:22-06:00",
+          "tree_id": "62d95b40ce4780cae26c3316d8e165bfed5a3d61",
+          "url": "https://github.com/paradedb/paradedb/commit/63e360cae427a4680a2aecba8bd232f873f6691e"
+        },
+        "date": 1792518775811,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 26.036,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 98.806,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 346.317,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.317,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 183.222,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 47.064,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 151.247,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 215.087,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 25.221,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 125.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 204.489,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 84.587,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 189.3,
             "unit": "ms"
           }
         ]

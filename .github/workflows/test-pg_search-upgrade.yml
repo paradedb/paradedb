@@ -1,137 +1,154 @@
-# workflows/test-pg_search-upgrade.yml
-#
-# Test pg_search (Upgrade)
-# Test that the pg_search extension can upgrade via ALTER EXTENSION.
-
-name: Test pg_search (Upgrade)
+name: Verify range tokenizer upgrade regression
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - ".github/actions/test-pg_search-upgrade/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/workflows/test-pg_search-upgrade.yml"
-      - "pg_search/**"
-      - "!pg_search/README.md"
-      - "tests/**"
-      - "tokenizers/**"
-      - "Cargo.toml"
-      - "rust-toolchain.toml"
   workflow_dispatch:
-
-concurrency:
-  group: test-pg_search-upgrade-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  # Resolves the immediately preceding released version on the upgrade path
-  # (the highest semver tag less than the current Cargo.toml version) plus its
-  # matching pgrx version, and emits the full matrix of upgrade starting points.
-  discover-upgrade-starting-points:
-    name: Discover upgrade starting points
-    runs-on: ubuntu-latest
-    outputs:
-      prior_matrix: ${{ steps.compute.outputs.prior_matrix }}
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-
-      - name: Fetch Release Tags
-        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
-
-      - name: Compute prior versions
-        id: compute
-        run: |
-          set -euo pipefail
-          TAGS=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
-          LATEST_TAG=$(echo "$TAGS" | tail -n 1)
-          if [ -z "$LATEST_TAG" ]; then
-            echo "Could not determine latest tag" >&2
-            exit 1
-          fi
-          LATEST_PGRX=$(git show "$LATEST_TAG:Cargo.toml" | sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' | head -1)
-          if [ -z "$LATEST_PGRX" ]; then
-            echo "Could not determine pgrx version at $LATEST_TAG" >&2
-            exit 1
-          fi
-          echo "Resolved latest tag=$LATEST_TAG pgrx=$LATEST_PGRX"
-
-          # v0.25.0 is the first stable release with vector indexes and also
-          # preserves legacy tokenizer coverage. Dedup if it is the latest tag.
-          MATRIX=$(jq -nc --arg p "$LATEST_TAG" --arg pgrx "$LATEST_PGRX" '[
-            { "pg_search_version": "v0.25.0", "pgrx_version": "0.19.0" },
-            { "pg_search_version": $p, "pgrx_version": $pgrx }
-          ] | unique_by(.pg_search_version)')
-          echo "prior_matrix=$MATRIX" >> $GITHUB_OUTPUT
-
-  test-pg_search-upgrade:
-    name: Test upgrading pg_search via ALTER EXTENSION
-    needs: discover-upgrade-starting-points
+  reproduce-and-fix:
     runs-on:
-      # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
-      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c7g+c8g
       - cpu=8
       - ram=16
       - image=ubuntu26-full-arm64
-      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
+      - volume=80gb
       - extras=s3-cache
-    strategy:
-      fail-fast: false
-      matrix:
-        pg_version: [18]
-        prior: ${{ fromJSON(needs.discover-upgrade-starting-points.outputs.prior_matrix) }}
-
+    env:
+      PGHOST: /tmp/range-upgrade-socket
+      PGPORT: 55487
+      PGDATABASE: postgres
+      PGDATA: /tmp/range-upgrade-data
     steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 1
-
-      - name: Fetch Release Tags
-        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
-
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
-
-      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-      # See test-pg_search.yml for rationale.
-      - name: Set Up pg_search Toolchain
-        uses: ./.github/actions/setup-pg-search-toolchain
+          fetch-depth: 0
+      - uses: runs-on/action@v2
+      - uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          pg_version: ${{ matrix.pg_version }}
-          # The upgrade action intentionally installs the prior and current
-          # cargo-pgrx versions itself as it switches source revisions.
-          install_cargo_pgrx: "false"
-
-      - name: Install required system tools
-        uses: paradedb/actions/apt-install@v14
+          pg_version: 18
+      - uses: paradedb/actions/apt-install@v14
         with:
-          packages: lsof libopenblas-dev lld gdb
-
-      - name: Enable Crash Dumps
-        run: ./.github/scripts/setup_crashdumps.sh
-
-      - name: Install & Configure Supported PostgreSQL Version
-        uses: ./.github/actions/setup-postgres
+          packages: libopenblas-dev lld
+      - uses: ./.github/actions/setup-postgres
         with:
-          pg_version: ${{ matrix.pg_version }}
-          initialize_pgrx: "false"
+          pg_version: 18
 
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
+      - name: Download the released 0.25.11 and 0.26.2 packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/range-upgrade-evidence /tmp/range-upgrade-packages "$PGHOST"
+          for version in 0.25.11 0.26.2; do
+            gh release download "v$version" --repo paradedb/paradedb \
+              --pattern "postgresql-18-pg-search_${version}-1PARADEDB-resolute_arm64.deb" \
+              --dir /tmp/range-upgrade-packages
+          done
+          git diff v0.26.2 -- pg_search/src/index/search.rs | tee /tmp/range-upgrade-evidence/fix.patch
+          test "$(git diff --name-only v0.26.2 -- '*.rs')" = pg_search/src/index/search.rs
 
-      - name: Test Upgrade from ${{ matrix.prior.pg_search_version }}
-        uses: ./.github/actions/test-pg_search-upgrade
+      - name: Create and query the range index on released 0.25.11
+        run: |
+          set -euo pipefail
+          sudo dpkg -i /tmp/range-upgrade-packages/postgresql-18-pg-search_0.25.11-1PARADEDB-resolute_arm64.deb
+          initdb -D "$PGDATA" -A trust --no-locale
+          cat >> "$PGDATA/postgresql.conf" <<'CONF'
+          shared_preload_libraries = 'pg_search'
+          port = 55487
+          unix_socket_directories = '/tmp/range-upgrade-socket'
+          listen_addresses = ''
+          CONF
+          pg_ctl -D "$PGDATA" -l /tmp/range-upgrade-evidence/postgres.log -w start
+          psql -X -v ON_ERROR_STOP=1 <<'SQL' | tee /tmp/range-upgrade-evidence/old-version.log
+          CREATE EXTENSION pg_search CASCADE;
+          SELECT version();
+          SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+          CREATE TABLE range_tokenizers (id INTEGER PRIMARY KEY, amount_range INT8RANGE, date_range DATERANGE);
+          INSERT INTO range_tokenizers VALUES (1, '[100,200)', '[2026-01-01,2026-02-01)');
+          CREATE INDEX range_tokenizers_idx ON range_tokenizers USING paradedb (id, amount_range, date_range)
+              WITH (key_field = 'id', layer_sizes = '0', background_layer_sizes = '0');
+          CREATE TABLE original_index AS
+              SELECT 'range_tokenizers_idx'::regclass::oid AS index_oid,
+                  pg_relation_filenode('range_tokenizers_idx') AS filenode;
+          CREATE TABLE original_schema AS SELECT name, tokenizer FROM paradedb.schema('range_tokenizers_idx');
+          TABLE original_schema;
+          SELECT * FROM range_tokenizers WHERE id @@@ paradedb.all() ORDER BY id;
+          DO $$ BEGIN
+              ASSERT (SELECT extversion FROM pg_extension WHERE extname = 'pg_search') = '0.25.11';
+              ASSERT (SELECT tokenizer FROM original_schema WHERE name = 'amount_range') = 'unicode_words_removeemojis:false';
+          END $$;
+          SQL
+          pg_ctl -D "$PGDATA" -m fast -w stop
+
+      - name: Upgrade to released 0.26.2 and verify the mutable segment error
+        run: |
+          set -euo pipefail
+          sudo dpkg -i /tmp/range-upgrade-packages/postgresql-18-pg-search_0.26.2-1PARADEDB-resolute_arm64.deb
+          pg_ctl -D "$PGDATA" -l /tmp/range-upgrade-evidence/postgres.log -w start
+          psql -X -v ON_ERROR_STOP=1 <<'SQL' | tee /tmp/range-upgrade-evidence/unpatched-upgrade.log
+          ALTER EXTENSION pg_search UPDATE TO '0.26.2';
+          SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+          SET paradedb.global_mutable_segment_rows = 1000;
+          INSERT INTO range_tokenizers VALUES (2, '[200,300)', '[2026-02-01,2026-03-01)');
+          SELECT mutable, num_docs FROM paradedb.index_info('range_tokenizers_idx');
+          DO $$ BEGIN
+              ASSERT (SELECT extversion FROM pg_extension WHERE extname = 'pg_search') = '0.26.2';
+              ASSERT EXISTS (SELECT 1 FROM paradedb.index_info('range_tokenizers_idx') WHERE mutable);
+          END $$;
+          SQL
+          if psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM range_tokenizers WHERE id @@@ paradedb.all() ORDER BY id' \
+              > /tmp/range-upgrade-evidence/expected-error.log 2>&1; then
+            cat /tmp/range-upgrade-evidence/expected-error.log
+            echo 'Unpatched 0.26.2 unexpectedly succeeded'
+            exit 1
+          fi
+          cat /tmp/range-upgrade-evidence/expected-error.log
+          grep -F 'Failed to index mutable segment.' /tmp/range-upgrade-evidence/expected-error.log
+          grep -F 'Error getting tokenizer for field: amount_range' /tmp/range-upgrade-evidence/expected-error.log
+          pg_ctl -D "$PGDATA" -m fast -w stop
+
+      - name: Build and install 0.26.2 with only the tokenizer fix
+        working-directory: pg_search
+        run: cargo pgrx install --sudo --pg-config=/usr/lib/postgresql/18/bin/pg_config
+
+      - name: Verify the same database succeeds with the patch and without REINDEX
+        run: |
+          set -euo pipefail
+          pg_ctl -D "$PGDATA" -l /tmp/range-upgrade-evidence/postgres.log -w start
+          psql -X -v ON_ERROR_STOP=1 <<'SQL' | tee /tmp/range-upgrade-evidence/patched-success.log
+          SET plpgsql.check_asserts = on;
+          SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+          SELECT * FROM range_tokenizers WHERE id @@@ paradedb.all() ORDER BY id;
+          DO $$ BEGIN
+              ASSERT (SELECT extversion FROM pg_extension WHERE extname = 'pg_search') = '0.26.2';
+              ASSERT (SELECT array_agg(id ORDER BY id) FROM range_tokenizers WHERE id @@@ paradedb.all()) = ARRAY[1, 2];
+              ASSERT (SELECT array_agg(id ORDER BY id) FROM range_tokenizers
+                  WHERE amount_range @@@ pdb.range_term('[250,260)'::int8range, 'Intersects')) = ARRAY[2];
+              ASSERT (SELECT array_agg(id ORDER BY id) FROM range_tokenizers
+                  WHERE date_range @@@ pdb.range_term('[2026-02-10,2026-02-11)'::daterange, 'Intersects')) = ARRAY[2];
+              ASSERT (SELECT index_oid = 'range_tokenizers_idx'::regclass::oid
+                  AND filenode = pg_relation_filenode('range_tokenizers_idx') FROM original_index);
+              ASSERT NOT EXISTS (SELECT 1 FROM paradedb.schema('range_tokenizers_idx') current
+                  FULL JOIN original_schema old USING (name)
+                  WHERE current.tokenizer IS DISTINCT FROM old.tokenizer);
+          END $$;
+          SET paradedb.global_mutable_segment_rows = 0;
+          INSERT INTO range_tokenizers VALUES (3, '[300,400)', '[2026-03-01,2026-04-01)');
+          SELECT * FROM range_tokenizers WHERE id @@@ paradedb.all() ORDER BY id;
+          DO $$ BEGIN
+              ASSERT (SELECT array_agg(id ORDER BY id) FROM range_tokenizers WHERE id @@@ paradedb.all()) = ARRAY[1, 2, 3];
+          END $$;
+          SQL
+      - name: Stop the test database
+        if: always()
+        run: pg_ctl -D "$PGDATA" -m fast -w stop || true
+      - name: Save reproduction evidence
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          prior_pg_search_version: ${{ matrix.prior.pg_search_version }}
-          prior_pgrx_version: ${{ matrix.prior.pgrx_version }}
-          pg_version: ${{ matrix.pg_version }}
+          name: range-upgrade-before-after
+          path: /tmp/range-upgrade-evidence

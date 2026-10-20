@@ -136,37 +136,34 @@ WHERE id @@@ pdb.all()
 GROUP BY DATE(created_at)
 ORDER BY day DESC
 LIMIT 2;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (date(created_at)), (count(*)), (sum(amount))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: (date(created_at)), (count(*)), (sum(amount))
-         Sort Key: (date(mpp_date_events.created_at)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: (date(created_at)), (count(*)), (sum(amount))
-               Backend: DataFusion
-               Indexes: mpp_date_events_idx (mpp_date_events)
-               Group By: date(created_at)
-               Aggregates: COUNT(*), SUM(amount)
-               DataFusion Physical Plan: 
-                 : ┌───── DistributedExec
-                 : │ SortPreservingMergeExec: [pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 DESC], fetch=2
-                 : │   [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
-                 : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 2 ── tasks=2, partitions=3
-                 :   │ SortExec: TopK(fetch=2), expr=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 DESC], preserve_partitioning=[true]
-                 :   │   AggregateExec: mode=FinalPartitioned, gby=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
-                 :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-                 :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 1 ── tasks=2, partitions=6
-                 :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 6), input_partitions=1
-                 :     │   AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
-                 :     │     DistributedLeafExec:
-                 :     │       t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-                 :     │       t1: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-                 :     └──────────────────────────────────────────────────
-(28 rows)
+         Backend: DataFusion
+         Indexes: mpp_date_events_idx (mpp_date_events)
+         Group By: date(created_at)
+         Aggregates: COUNT(*), SUM(amount)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ SortPreservingMergeExec: [pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 DESC], fetch=2
+           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── tasks=2, partitions=3
+           :   │ SortExec: TopK(fetch=2), expr=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 DESC], preserve_partitioning=[true]
+           :   │   AggregateExec: mode=FinalPartitioned, gby=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
+           :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 6), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
+           :     │     DistributedLeafExec:
+           :     │       t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :     │       t1: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :     └──────────────────────────────────────────────────
+(25 rows)
 
 CREATE TEMP TABLE mpp_date_distributed_topk AS
 SELECT DATE(created_at) AS day,

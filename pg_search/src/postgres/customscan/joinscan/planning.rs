@@ -2024,6 +2024,33 @@ fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
     })
 }
 
+/// Returns true if every member is an `OVER ()` window function, or an expression containing such a
+/// function and constants only, meaning it will not effect the sort order of the result
+fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
+    let members = unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members) };
+    members.iter_ptr().any(|member| {
+        let member = unsafe { &*member };
+        let check_expr = strip_wrappers(member.em_expr.cast());
+        if !check_expr.contains_window_func() {
+            return false;
+        }
+
+        unsafe {
+            // window functions come back whole, un-recursed, so any vars in this list sit outside
+            // of thew window function
+            let nodes = PgList::<pg_sys::Node>::from_pg(pg_sys::pull_var_clause(
+                check_expr,
+                (pg_sys::PVC_INCLUDE_WINDOWFUNCS
+                    | pg_sys::PVC_RECURSE_AGGREGATES
+                    | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32,
+            ));
+            nodes
+                .iter_ptr()
+                .any(|n| (*n).type_ != pg_sys::NodeTag::T_Var)
+        }
+    })
+}
+
 /// Check if all ORDER BY columns are fast fields.
 ///
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields

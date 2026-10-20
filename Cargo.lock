@@ -3147,7 +3147,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "atomic-traits",
  "bitflags 2.9.1",
@@ -3170,7 +3170,7 @@ dependencies = [
 [[package]]
 name = "pgrx-bindgen"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
@@ -3188,7 +3188,7 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -3199,7 +3199,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-config"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "cargo_toml",
  "codepage",
@@ -3219,7 +3219,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "cee-scape",
  "libc",
@@ -3233,7 +3233,7 @@ dependencies = [
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "convert_case 0.8.0",
  "eyre",
@@ -3248,7 +3248,7 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.15.0"
-source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev#9d59f591bb652cb8ea4e42143d25c3b7605ce32a"
+source = "git+https://github.com/cloudberry-contrib/pgrx?branch=dev3.0#19cc2860c11eb28011dbb4df413f93f7b19c3f04"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -3620,9 +3620,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.14"
+version = "0.11.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
+checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
 dependencies = [
  "bytes",
  "getrandom 0.3.3",

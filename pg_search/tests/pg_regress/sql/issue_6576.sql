@@ -200,8 +200,9 @@ FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
 ORDER BY s.id LIMIT 5;
 
--- 9) An expression over a whole-row reference or a system column. Neither is
---    columnar, so it declines, and the warning names the column (issue #6908).
+-- 9) An expression over a whole-row reference or a non-columnar system
+--    column (xmin). It declines, and the warning names the column (issue #6908).
+--    ctid and tableoid are columnar, so they don't take this path.
 EXPLAIN (COSTS OFF)
 SELECT s.id, s::text || s.path AS x
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id

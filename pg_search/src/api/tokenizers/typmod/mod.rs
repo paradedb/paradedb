@@ -516,6 +516,23 @@ impl ParsedTypmod {
         }
         Some(prop)
     }
+
+    /// Reads a boolean option written as `key=true`, `key=false`, or just `key` (which means
+    /// true). A keyless `true`/`false` only counts at `index`, the option's positional slot.
+    ///
+    /// Unlike [`Self::try_get`], this never mistakes a different option for `key`: with
+    /// `try_get`, `columnar=true` in slot 0 would be read as a value for `remove_emojis`.
+    pub fn get_flag(&self, key: &str, index: usize) -> Option<bool> {
+        for (i, prop) in self.properties.iter().enumerate() {
+            match prop {
+                Property::Boolean(Some(k), b) if k == key => return Some(*b),
+                Property::String(None, s) if s == key => return Some(true),
+                Property::Boolean(None, b) if i == index => return Some(*b),
+                _ => {}
+            }
+        }
+        None
+    }
 }
 
 /// A prepared statement kept for the life of the backend.

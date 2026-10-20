@@ -66,7 +66,7 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
-use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
+use crate::postgres::customscan::joinscan::ScoreColumn;
 use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;

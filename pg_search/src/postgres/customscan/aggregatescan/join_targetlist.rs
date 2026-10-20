@@ -420,7 +420,8 @@ impl JoinAggregateTargetList {
 
     /// Whether `name` is a prefixed internal CTID column for this target list.
     pub fn is_ctid_column_name(&self, name: &str) -> bool {
-        name.strip_prefix(self.internal_prefix())
+        let prefix = self.internal_prefix();
+        name.strip_prefix(prefix.as_str())
             .and_then(|suffix| CtidColumn::try_from(suffix).ok())
             .is_some()
     }

@@ -1333,6 +1333,7 @@ impl FilterExpr {
 }
 
 /// Build a DataFusion [`DataFrame`] for a single scan source.
+#[allow(clippy::too_many_arguments)]
 async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,

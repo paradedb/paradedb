@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792539133272,
+  "lastUpdate": 1792539894747,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20642,6 +20642,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.047,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ca0aac4f55e7eb5074c8441a66e8b1b38d4cd95",
+          "message": "fix: restore legacy range tokenizers after upgrade (#6940)\n\nRange indexes created before 0.26.0 can fail after upgrade when a query\nmaterializes recently written rows: `Failed to index mutable segment.:\nSchema error: 'Error getting tokenizer for field: amount_range'`. #6441\nchanged the default range configuration from JSON to Range, so tokenizer\ncollection stopped registering the default JSON tokenizer still\nreferenced by the stored schema.\n\nRestore that tokenizer for range fields through the existing\nregistration path, including its deprecated name. Existing indexes keep\ntheir schema and do not need REINDEX. Add an upgrade fixture with only\ninteger and range fields, so another text/JSON field cannot mask the\nmissing registration. Cover mutable reads, range queries, immutable\nwrites, and unchanged stored tokenizer names. This needs the 0.26.x\nbackport.\n\nValidation:\n- [End-to-end reproduction and\nrecovery](https://github.com/paradedb/paradedb/actions/runs/39511220206)\npassed on PostgreSQL 18.6: create an index with INT8RANGE and DATERANGE\nunder released 0.25.11, upgrade the same database to released 0.26.2,\ninsert a mutable row, and require the exact reported error. Build 0.26.2\nwith only this Rust patch, restart the same database, and verify the\npreviously failing query returns both rows. Both range predicates and a\nsubsequent immutable write also pass. Assertions verify the original\nindex OID, relfilenode, and stored tokenizer names are unchanged; no\nREINDEX is performed. Logs and the exact source diff are saved in the\nrun's `range-upgrade-before-after` artifact.\n- [PR upgrade\nCI](https://github.com/paradedb/paradedb/actions/runs/39508215602)\npassed from both 0.25.0 and 0.26.2, including the new range-only\nfixture.\n- The isolated tokenizer harness also verifies both legacy names and\nboth setup paths. Rust lint CI passed. Full local workspace build hooks\nwere skipped due to low disk space; the patched extension was compiled\nand exercised in the dedicated CI reproduction above.",
+          "timestamp": "2026-10-20T16:02:07-07:00",
+          "tree_id": "1962998512674ebed091778e1c5eeeb478a0f4a5",
+          "url": "https://github.com/paradedb/paradedb/commit/2ca0aac4f55e7eb5074c8441a66e8b1b38d4cd95"
+        },
+        "date": 1792539884384,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.33,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.713,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.195,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.529,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.357,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.661,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.492,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.429,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.89,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.004,
             "unit": "ms"
           }
         ]

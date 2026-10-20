@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Aggregate Scan now pushes a multi-key `ORDER BY ... LIMIT` into the DataFusion TopK for `GROUP BY` queries on the DataFusion backend, joins included, such as `ORDER BY MAX(item_date) DESC, researcher_id ASC LIMIT 3`. Only a single sort key was pushed before, and every grouped row went to the Postgres `Sort`. Under parallel execution each task now returns at most `K` rows to the leader.
+Aggregate Scan pushes every `ORDER BY` key of a `GROUP BY ... LIMIT` query into the DataFusion TopK, joins included, and declares the ordering to Postgres so no `Sort` sits above the scan. Only a single key was pushed before.

@@ -2,4 +2,4 @@
 header: stability
 ---
 
-Aggregate Scan no longer fails with a `No field named ...` schema error when a `GROUP BY` over a `LATERAL unnest` column has an `ORDER BY ... LIMIT` on that column. A sort key whose collation is not byte-ordered, such as `STRING_AGG(... COLLATE "en-US")`, now stays with the Postgres `Sort` instead of a byte-ordered TopK.
+Aggregate Scan no longer fails on an `ORDER BY ... LIMIT` over a `LATERAL unnest` group column, and keeps a sort key with a non byte-ordered collation on the Postgres `Sort`. A `LIMIT` above a `DISTINCT` or a window function over a `GROUP BY` no longer loses rows.

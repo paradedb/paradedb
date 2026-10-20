@@ -497,8 +497,9 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 }
             }
         };
-        // LimitOffset is optional - returns None when there is no LIMIT clause.
-        let limit_offset = LimitOffset::from_parse(args.root().parse);
+        // `None` without a LIMIT, or when a DISTINCT or window stage above the
+        // grouping needs every bucket.
+        let limit_offset = args.grouping_limit_offset();
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         // The planner can simplify the operator out of the quals, so the query as written counts too.
@@ -530,11 +531,12 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
     }
 }
 
-/// Returns true when the query has ORDER BY on any aggregate + LIMIT.
-/// These queries are routed to DataFusion instead of Tantivy because:
+/// Returns true when the query has ORDER BY with an aggregate among its keys
+/// + LIMIT. These queries are routed to DataFusion instead of Tantivy because:
 /// - Tantivy's max_buckets (65000) silently drops groups beyond that limit,
 ///   which could exclude groups that belong in the top-K.
-/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K).
+/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K),
+///   over the whole key list.
 ///
 /// This is a lightweight parse-tree check used before building the full
 /// AggregateCSClause — it only looks at the sort clause structure.
@@ -550,19 +552,13 @@ pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHoo
         return false;
     }
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-    if sort_clauses.len() != 1 {
-        return false;
-    }
-    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
-        return false;
-    };
-    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    // The sort expression must BE an aggregate — not merely contain one.
-    let Some(aggref) = sort_expr.find_single_node::<pg_sys::Aggref>() else {
-        return false;
-    };
-    aggref as *mut pg_sys::Node == sort_expr
+    sort_clauses.iter_ptr().any(|sort_clause_ptr| {
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        // The sort expression must BE an aggregate — not merely contain one.
+        sort_expr
+            .find_single_node::<pg_sys::Aggref>()
+            .is_some_and(|aggref| aggref as *mut pg_sys::Node == sort_expr)
+    })
 }
 
 /// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)

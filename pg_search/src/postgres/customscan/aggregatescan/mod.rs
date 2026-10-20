@@ -1944,13 +1944,10 @@ impl AggregateScan {
             source.scan_info.mvcc_visibility = visibility;
         }
 
-        // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
-        // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
-        // At UPPERREL_GROUP_AGG we do NOT declare pathkeys to Postgres because
-        // scanrelid=0 CustomScans cannot resolve pathkey items through setrefs.c
-        // when Postgres builds a Sort node above them. At UPPERREL_FINAL there is
-        // no Sort/Limit node above us, so ORDER BY and LIMIT/OFFSET must be pushed
-        // down completely into DataFusion.
+        // Detect ORDER BY + LIMIT for TopK pushdown into DataFusion, whose
+        // SortExec(fetch=K) keeps a bounded TopK heap. At UPPERREL_FINAL there
+        // is no Sort/Limit node above us, so ORDER BY and LIMIT/OFFSET must be
+        // pushed down completely into DataFusion.
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &extracted_target, shape) }
             .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
@@ -2008,7 +2005,6 @@ impl AggregateScan {
         // nodes above can resolve their Var references. Required for DISTINCT
         // (output_rel.reltarget.exprs is empty); for GROUP BY it equals the
         // builder's default.
-        let stage = builder.args().stage;
         let has_pushed_order = topk.as_ref().is_some_and(|t| !t.sorts.is_empty());
         let builder = builder
             .set_pathtarget(shape.reltarget())
@@ -2027,8 +2023,10 @@ impl AggregateScan {
             having_filter,
             parallel_mode_ok,
         });
-        if stage == pg_sys::UpperRelationKind::UPPERREL_FINAL && has_pushed_order {
-            custom_path.path.pathkeys = unsafe { (*root).query_pathkeys };
+        // The scan returns its rows in ORDER BY order, so Postgres can put its
+        // Limit straight on top instead of sorting the K rows again.
+        if has_pushed_order {
+            custom_path.path.pathkeys = unsafe { (*root).sort_pathkeys };
         }
 
         // Sidecar layout, checked by plan_custom_path:
@@ -2859,6 +2857,13 @@ unsafe fn resolve_topk_sort_target(
     sort_expr: *mut pg_sys::Node,
     extracted_target: &ExtractedDataFusionTarget,
 ) -> Result<privdat::TopKSortTarget, String> {
+    // DataFusion compares text by bytes, for an aggregate result such as
+    // `STRING_AGG` as much as for a group column.
+    let collation = pg_sys::exprCollation(sort_expr);
+    if !collation_supports(collation, CollationOperation::Ordering) {
+        return Err("ORDER BY uses a collation whose ordering cannot be pushed down".into());
+    }
+
     let targetlist = extracted_target.targetlist();
     if let Some(agg_idx) = extracted_target.aggregate_index(sort_expr) {
         let agg = &targetlist.aggregates[agg_idx];
@@ -2899,23 +2904,52 @@ unsafe fn resolve_topk_sort_target(
             }
         }
 
-        let collation = pg_sys::exprCollation(sort_expr);
-        if !collation_supports(collation, CollationOperation::Ordering) {
-            return Err("ORDER BY uses a collation whose ordering cannot be pushed down".into());
-        }
-
         return Ok(privdat::TopKSortTarget::GroupColumn(gc_idx));
     }
 
     Err("ORDER BY expression must be a direct GROUP BY column or aggregate for pushdown".into())
 }
 
+/// Resolves every `ORDER BY` clause of `parse` to a TopK sort target, in
+/// query order. All keys or none: a TopK over a prefix of the ordering can
+/// drop rows that the full ordering ranks inside the first K, and the `Sort`
+/// above the scan only sees what the scan returns.
+///
+/// `output_exprs`, when given, must contain every sort expression.
+unsafe fn resolve_topk_sorts(
+    parse: *mut pg_sys::Query,
+    extracted_target: &ExtractedDataFusionTarget,
+    output_exprs: Option<&PgList<pg_sys::Expr>>,
+) -> Result<Vec<(privdat::TopKSortTarget, SortDirection)>, String> {
+    let mut sorts = Vec::new();
+    if (*parse).sortClause.is_null() {
+        return Ok(sorts);
+    }
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    for sort_clause_ptr in sort_clauses.iter_ptr() {
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        let direction =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
+                .ok_or_else(|| "ORDER BY sort operator is not supported".to_string())?;
+        if let Some(output_exprs) = output_exprs
+            && !output_exprs
+                .iter_ptr()
+                .any(|output_expr| pg_sys::equal(sort_expr.cast(), output_expr.cast()))
+        {
+            return Err("ORDER BY expression is not an output column".into());
+        }
+        let sort_target = resolve_topk_sort_target(sort_expr, extracted_target)?;
+        sorts.push((sort_target, direction));
+    }
+    Ok(sorts)
+}
+
 /// Detects ORDER BY + LIMIT for join aggregate queries and returns a
 /// `DataFusionTopK` describing the sort targets, limit, and offset.
 ///
 /// At `UPPERREL_GROUP_AGG`, TopK pushdown is an optional optimization for
-/// single-key `ORDER BY ... LIMIT K` queries (when unsupported, returns
-/// `Ok(None)` and PostgreSQL places its own `Sort` + `Limit` above the scan).
+/// `ORDER BY ... LIMIT K` queries (when unsupported, returns `Ok(None)` and
+/// PostgreSQL places its own `Sort` + `Limit` above the scan).
 ///
 /// At `UPPERREL_FINAL` (used for `pdb.combine_agg(pdb.agg(...)) OVER ()` with
 /// `GROUP BY`), there is no `Sort` or `Limit` node above `AggregateScan`, so
@@ -2938,21 +2972,7 @@ unsafe fn detect_join_aggregate_topk(
                 "`FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`".into(),
             );
         }
-        let mut sorts = Vec::new();
-        if !(*parse).sortClause.is_null() {
-            let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-            for sort_clause_ptr in sort_clauses.iter_ptr() {
-                let sort_expr =
-                    pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-                let direction = SortDirection::from_sort_op(
-                    (*sort_clause_ptr).sortop,
-                    (*sort_clause_ptr).nulls_first,
-                )
-                .ok_or_else(|| "ORDER BY sort operator is not supported".to_string())?;
-                let sort_target = resolve_topk_sort_target(sort_expr, extracted_target)?;
-                sorts.push((sort_target, direction));
-            }
-        }
+        let sorts = resolve_topk_sorts(parse, extracted_target, None)?;
         use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
         let limit = LimitOffset::parse_bound((*parse).limitCount, LimitClauseKind::Limit)
             .map_err(|e| e.into_message("`pdb.combine_agg()`"))?;
@@ -2975,47 +2995,14 @@ unsafe fn detect_join_aggregate_topk(
         return Ok(None);
     }
 
-    // A WindowAgg above the aggregate consumes every grouped row: the WINDOW
-    // stage sits between UPPERREL_GROUP_AGG and the LIMIT, so pushing the
-    // fetch into the scan starves it — `count(*) OVER ()` above a GROUP BY
-    // would return the fetch instead of the qualifying-group count (issue
-    // #5561's shape, one stage down). The scan still engages; only the
-    // sort+limit pushdown stays out.
-    if (*parse).hasWindowFuncs {
-        return Ok(None);
-    }
-
-    // Must have a LIMIT for TopK to matter. We require a STATIC value here
+    // Must have a LIMIT for TopK to matter, and one the grouping stage may
+    // apply. Under a DISTINCT or a window function the scan still engages, only
+    // the sort+limit pushdown stays out. We require a STATIC value here
     // because DataFusion's TopK rule needs a concrete K at planning time.
     // Parameterized LIMIT is left as a regular sort+limit pipeline.
     let Some(k) = args.limit_plus_offset() else {
         return Ok(None);
     };
-
-    // Only single sort clause for TopK at UPPERREL_GROUP_AGG
-    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-    if sort_clauses.len() != 1 {
-        return Ok(None);
-    }
-
-    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
-        return Ok(None);
-    };
-    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    let Some(direction) =
-        SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
-    else {
-        return Ok(None);
-    };
-
-    let sort_expr_is_output = shape
-        .target_exprs()
-        .iter_ptr()
-        .any(|target_expr| pg_sys::equal(sort_expr.cast(), target_expr.cast()));
-    if !sort_expr_is_output {
-        return Ok(None);
-    }
 
     // Grouping sets carry every bucket level in one stream; a sort + limit over
     // that stream would cut across levels.
@@ -3023,12 +3010,12 @@ unsafe fn detect_join_aggregate_topk(
         return Ok(None);
     }
 
-    let Ok(sort_target) = resolve_topk_sort_target(sort_expr, extracted_target) else {
+    let Ok(sorts) = resolve_topk_sorts(parse, extracted_target, Some(&shape.target_exprs())) else {
         return Ok(None);
     };
 
     Ok(Some(privdat::DataFusionTopK {
-        sorts: vec![(sort_target, direction)],
+        sorts,
         limit: Some(
             crate::postgres::customscan::parameterized_value::ParameterizedValue::Static(k as i64),
         ),

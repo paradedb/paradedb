@@ -81,5 +81,15 @@ SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() AND id = 7 GROUP B
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY sub;
 
+-- An aggregate among several ORDER BY keys, with a LIMIT: DataFusion, whose
+-- TopK takes the whole key list. Both groups count the same, so the second
+-- key picks the row.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY sub ORDER BY COUNT(*) DESC, sub LIMIT 1;
+
+SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY sub ORDER BY COUNT(*) DESC, sub LIMIT 1;
+
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE routing_test;

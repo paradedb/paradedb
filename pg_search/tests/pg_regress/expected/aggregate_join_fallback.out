@@ -520,31 +520,28 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY 1 DESC
 LIMIT 3;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (count(*)), p.category
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: (count(*)), p.category
-         Sort Key: (count(*)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: (count(*)), p.category
-               Backend: DataFusion
-               Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
-               Group By: category
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0), (product_id@2, product_id@0)], projection=[category@0]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-                 :         CooperativeExec
-                 :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
-                 :       CooperativeExec
-                 :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(22 rows)
+         Backend: DataFusion
+         Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0), (product_id@2, product_id@0)], projection=[category@0]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(19 rows)
 
 SELECT COUNT(*)
 FROM fb_products p

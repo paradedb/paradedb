@@ -34,21 +34,18 @@ use crate::postgres::customscan::basescan::projections::snippet::{
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
-use pgrx::{Internal, IntoDatum, PgList, direct_function_call, pg_extern, pg_guard, pg_sys};
+use pgrx::{Internal, PgList, pg_extern, pg_guard, pg_sys};
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
 
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
 pub(crate) fn placeholder_procid() -> pg_sys::Oid {
-    unsafe {
-        let agg_fn_oid = agg_fn_oid();
-        if agg_fn_oid != pg_sys::InvalidOid {
-            agg_fn_oid
-        } else {
-            // Fallback to now() if pdb.agg_fn doesn't exist yet (e.g., during extension creation)
-            direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
-                .expect("the `now()` function should exist")
-        }
+    let agg_fn_oid = agg_fn_oid();
+    if agg_fn_oid != pg_sys::InvalidOid {
+        agg_fn_oid
+    } else {
+        // Fallback to now() if pdb.agg_fn doesn't exist yet (e.g., during extension creation)
+        pg_sys::F_NOW.into()
     }
 }
 

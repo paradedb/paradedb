@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792485445318,
+  "lastUpdate": 1792485461276,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -153694,6 +153694,106 @@ window.BENCHMARK_DATA = {
             "value": 42.875,
             "unit": "median mem",
             "extra": "avg mem: 42.84757154882155, max mem: 42.875, count: 59400"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ee32791152989d60d5e2e18a0c750549138f72e2",
+          "message": "perf: push every ORDER BY key into the join aggregate TopK (#6921)\n\n## Ticket(s) Closed\n\n- None. Repro from the `stuhood.aggregate-join-multicolumn` branch in\n`paradedb-enterprise`.\n\n## What\n\nThis PR pushes a multi-key `ORDER BY ... LIMIT` into the DataFusion TopK\nfor `GROUP BY` queries on the DataFusion backend, joins included.\n\n## Why\n\n`detect_join_aggregate_topk` declined any `ORDER BY` with more than one\nkey. A tie-breaker such as `ORDER BY MAX(w.item_date) DESC,\nw.researcher_id ASC LIMIT 3` lost the `SortExec: TopK`, so every grouped\nrow went to the Postgres `Sort`. Under MPP each task streamed all of its\ngroups to the leader.\n\n## How\n\nEvery sort key is resolved, all or none. A TopK over a prefix of the\nkeys could drop a row that the full ordering ranks inside the first `K`.\nAlong the way, a `LATERAL unnest` sort key gets its projected name, and\nthe collation check now covers aggregate keys such as `STRING_AGG`.\n\n## Tests\n\n`aggregate_join_multicolumn_topk` has a tie on the `LIMIT` boundary that\nonly the second key settles, and an MPP plan with the per-task TopK.\nSome existing plans gained the multi-key TopK with unchanged rows.",
+          "timestamp": "2026-10-20T08:23:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ee32791152989d60d5e2e18a0c750549138f72e2"
+        },
+        "date": 1792485452803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0497391889618038, max background_merging: 1.0, count: 59430"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708085903873418, max cpu: 9.57606, count: 59430"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.432606638061586, max mem: 26.4375, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.985011863994615, max cpu: 28.814407, count: 59430"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 59.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.70496908127208, max mem: 59.66015625, count: 59430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55816,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55523.75147232038, max block_count: 55816.0, count: 59430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.433686690223793, max segment_count: 21.0, count: 59430"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.645319,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.158830478009794, max cpu: 33.768845, count: 59430"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 95.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.1288054880742, max mem: 95.47265625, count: 59430"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.124399769006257, max cpu: 23.727139, count: 59430"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 56.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.36893870677688, max mem: 62.44921875, count: 59430"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.614048776891671, max cpu: 18.851252, count: 59430"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 52.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.20596999621403, max mem: 52.46484375, count: 59430"
           }
         ]
       }

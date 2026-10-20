@@ -185,5 +185,36 @@ SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY sub;
      Aggregate Definition: {"grouped":{"terms":{"field":"sub","segment_size":10,"size":10}}}
 (6 rows)
 
+-- An aggregate among several ORDER BY keys, with a LIMIT: DataFusion, whose
+-- TopK takes the whole key list. Both groups count the same, so the second
+-- key picks the row.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY sub ORDER BY COUNT(*) DESC, sub LIMIT 1;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: routing_test_idx (routing_test)
+         Group By: sub
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC, sub@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Final, gby=[sub@0 as sub], aggr=[count(1) as agg_0]
+           :     TantivyDecodeExec: decode=[sub]
+           :       AggregateExec: mode=Partial, gby=[sub@0 as sub], aggr=[count(1) as agg_0]
+           :         TantivyFetchExec: fetch=[sub]
+           :           CooperativeExec
+           :             PgSearchScan: table=routing_test, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
+
+SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY sub ORDER BY COUNT(*) DESC, sub LIMIT 1;
+  sub  | count 
+-------+-------
+ sub_0 | 50000
+(1 row)
+
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE routing_test;

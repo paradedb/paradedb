@@ -36,21 +36,21 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: name, (pdb.agg_fn('COUNT'::text))
-   ->  Sort
-         Output: name, (pdb.agg_fn('COUNT'::text))
-         Sort Key: (pdb.agg_fn('COUNT'::text)) DESC, test_text_agg.name DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
-               Output: name, pdb.agg_fn('COUNT'::text)
-               Index: test_text_agg_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(name)
-                 Group By: name
-                 Limit: 5
-                 Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"name","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
+   Output: name, (count(name))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: name, (count(name))
+         Backend: DataFusion
+         Indexes: test_text_agg_idx (test_text_agg)
+         Group By: name
+         Aggregates: COUNT(name)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=5), expr=[agg_0@1 DESC, name@0 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[name@0 as name], aggr=[count(test_text_agg_0.name) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=test_text_agg, segments=1, eager=[name], visibility=eager, query={"with_index":{"query":"all"}}
 (13 rows)
 
 SELECT name AS value
@@ -81,22 +81,24 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: name, (pdb.agg_fn('pdb.agg'::text))
+   Output: name, (pdb.agg('{"value_count": {"field": "name"}}'::jsonb))
    ->  Sort
-         Output: name, (pdb.agg_fn('pdb.agg'::text))
-         Sort Key: (pdb.agg_fn('pdb.agg'::text)) DESC, test_text_agg.name DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
-               Output: name, pdb.agg_fn('pdb.agg'::text)
-               Index: test_text_agg_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"name"}})
-                 Group By: name
-                 Limit: 5
-                 Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"name","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
-(13 rows)
+         Output: name, (pdb.agg('{"value_count": {"field": "name"}}'::jsonb))
+         Sort Key: (pdb.agg('{"value_count": {"field": "name"}}'::jsonb)) DESC, test_text_agg.name DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: name, (pdb.agg('{"value_count": {"field": "name"}}'::jsonb))
+               Backend: DataFusion
+               Indexes: test_text_agg_idx (test_text_agg)
+               Group By: name
+               Aggregates: pdb.agg({"value_count":{"field":"name"}})
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[name@0 as name], aggr=[count(test_text_agg_0.name) as __pdb_m0]
+                 :   CooperativeExec
+                 :     PgSearchScan: table=test_text_agg, segments=1, eager=[name], visibility=eager, query={"with_index":{"query":"all"}}
+(15 rows)
 
 SELECT
     name AS value,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792487220260,
+  "lastUpdate": 1792489929588,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -14038,6 +14038,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 188.934,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee32791152989d60d5e2e18a0c750549138f72e2",
+          "message": "perf: push every ORDER BY key into the join aggregate TopK (#6921)\n\n## Ticket(s) Closed\n\n- None. Repro from the `stuhood.aggregate-join-multicolumn` branch in\n`paradedb-enterprise`.\n\n## What\n\nThis PR pushes a multi-key `ORDER BY ... LIMIT` into the DataFusion TopK\nfor `GROUP BY` queries on the DataFusion backend, joins included.\n\n## Why\n\n`detect_join_aggregate_topk` declined any `ORDER BY` with more than one\nkey. A tie-breaker such as `ORDER BY MAX(w.item_date) DESC,\nw.researcher_id ASC LIMIT 3` lost the `SortExec: TopK`, so every grouped\nrow went to the Postgres `Sort`. Under MPP each task streamed all of its\ngroups to the leader.\n\n## How\n\nEvery sort key is resolved, all or none. A TopK over a prefix of the\nkeys could drop a row that the full ordering ranks inside the first `K`.\nAlong the way, a `LATERAL unnest` sort key gets its projected name, and\nthe collation check now covers aggregate keys such as `STRING_AGG`.\n\n## Tests\n\n`aggregate_join_multicolumn_topk` has a tie on the `LIMIT` boundary that\nonly the second key settles, and an MPP plan with the per-task TopK.\nSome existing plans gained the multi-key TopK with unchanged rows.",
+          "timestamp": "2026-10-20T01:23:59-07:00",
+          "tree_id": "44ac90cc888725faeb2418270e82760eade2fd54",
+          "url": "https://github.com/paradedb/paradedb/commit/ee32791152989d60d5e2e18a0c750549138f72e2"
+        },
+        "date": 1792489920588,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.868,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 99.319,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 350.942,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 106.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 189.688,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.91,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 151.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 216.405,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.855,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 124.658,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 201.829,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.574,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 86.362,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 191.154,
             "unit": "ms"
           }
         ]

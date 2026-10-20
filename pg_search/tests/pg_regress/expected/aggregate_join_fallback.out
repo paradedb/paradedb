@@ -52,7 +52,7 @@ WHERE p.description ||| 'laptop';
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (count(*))
    Backend: DataFusion
-   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Indexes: fb_products_idx (p), fb_reviews_idx (r), fb_tags_idx (t)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
@@ -61,9 +61,9 @@ WHERE p.description ||| 'laptop';
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (15 rows)
 
 SELECT COUNT(*)
@@ -121,19 +121,19 @@ GROUP BY p.category;
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating)), (min(r.rating)), (max(r.rating))
    Backend: DataFusion
-   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Indexes: fb_products_idx (p), fb_reviews_idx (r), fb_tags_idx (t)
    Group By: category
    Aggregates: COUNT(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, id@1]
+     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1, avg(r_1.rating) as agg_2, min(r_1.rating) as agg_3, max(r_1.rating) as agg_4]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, rating@2]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, id@1, rating@2]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)

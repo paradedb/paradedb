@@ -244,19 +244,19 @@ ORDER BY p.category;
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
-         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Indexes: ec_products_idx (p), ec_suppliers_idx (s), ec_reviews_idx (r)
          Group By: category
          Aggregates: COUNT(*), SUM(rating)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :       CooperativeExec
-           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :         PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)

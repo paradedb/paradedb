@@ -508,8 +508,8 @@ LIMIT 10;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: documents.id, files.id, pages.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), (paradedb.score(pages.id)), (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
-   Relation Tree: (documents INNER files) INNER pages
-   Join Cond: pages.fileId = files.id, documents.id = files.documentId
+   Relation Tree: documents INNER (files INNER pages)
+   Join Cond: documents.id = files.documentId, pages.fileId = files.id
    Join Predicate: (files:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR pages:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: pdb.score(documents) + pdb.score(files) + pdb.score(pages) desc, documents.id asc, pages.fileId asc, pages.id asc
@@ -519,7 +519,7 @@ LIMIT 10;
      :     SegmentedTopKExec: expr=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC, id@2 ASC NULLS LAST, fileId@8 ASC NULLS LAST, id@9 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[documents, files, pages]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@5, fileId@2)], filter=__files_1_tag_0@0 OR __pages_2_tag_0@1, projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5, pdb.score(pages)@7, ctid_2@8, fileId@9, id@10]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@3)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5, __files_1_tag_0@7]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@6, __files_1_tag_0@7]
      :             CooperativeExec
      :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec

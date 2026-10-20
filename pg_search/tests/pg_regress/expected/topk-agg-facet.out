@@ -2716,13 +2716,66 @@ LIMIT 5;
   5 |    65 |          2
 (4 rows)
 
--- A filter JoinScan cannot evaluate (a search operator, a column that is not
--- columnar): the values must match PostgreSQL's WindowAgg whichever plan runs.
+-- Search operators in a filter, on either side of the join and combined with a
+-- column comparison. Each becomes a tagged query on its source scan, and the
+-- filter reads the tag column. Plain EXPLAIN: the VERBOSE output list
+-- deparses the operator with the index OID, which changes from run to run.
 EXPLAIN (COSTS OFF)
 SELECT
     p.id,
     r.score,
     COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
+    COUNT(*) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_count,
+    COUNT(*) FILTER (WHERE r.content ||| 'battery' OR r.score > 90) OVER () AS battery_or_high
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE r_1.__r_1_tag_0) as window_agg_1, count(1) FILTER (WHERE p_0.__p_0_tag_0) as window_agg_2, count(1) FILTER (WHERE r_1.__r_1_tag_1 OR r_1.score > Int64(90)) as window_agg_3]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@5, ctid_0@0, ctid_1@3, __p_0_tag_0@2, __r_1_tag_0@6, __r_1_tag_1@7]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"gaming","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"match":{"field":"content","value":"battery","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
+    COUNT(*) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_count,
+    COUNT(*) FILTER (WHERE r.content ||| 'battery' OR r.score > 90) OVER () AS battery_or_high
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | keyboard_count | gaming_count | battery_or_high 
+----+-------+----------------+--------------+-----------------
+  1 |    95 |              1 |            1 |               3
+  3 |    91 |              1 |            1 |               3
+  1 |    70 |              1 |            1 |               3
+(3 rows)
+
+-- A filter JoinScan cannot evaluate (LIKE on a column that is not columnar):
+-- it declines, and PostgreSQL's WindowAgg computes the value.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
     COUNT(*) FILTER (WHERE r.content LIKE '%better%') OVER () AS better_count
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
@@ -2753,7 +2806,6 @@ WARNING:  JoinScan not used: unsupported window function FILTER clause was provi
 SELECT
     p.id,
     r.score,
-    COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
     COUNT(*) FILTER (WHERE r.content LIKE '%better%') OVER () AS better_count
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
@@ -2761,11 +2813,11 @@ WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 WARNING:  JoinScan not used: unsupported window function FILTER clause was provided (tables: p, r)
- id | score | keyboard_count | better_count 
-----+-------+----------------+--------------
-  1 |    95 |              1 |            1
-  3 |    91 |              1 |            1
-  1 |    70 |              1 |            1
+ id | score | better_count 
+----+-------+--------------
+  1 |    95 |            1
+  3 |    91 |            1
+  1 |    70 |            1
 (3 rows)
 
 -- Test 28: Window function in subquery

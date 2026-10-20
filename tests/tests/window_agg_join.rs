@@ -100,6 +100,10 @@ enum WindowJoinCase {
     Filtered,
     /// Filtered window aggregates embedded in target list expressions.
     FilteredInExpressions,
+    /// Search operators in FILTER clauses, alone and combined with a column
+    /// comparison. Each becomes a tagged query on its source scan, and the
+    /// filter reads the tag column.
+    FilteredBySearchOperator,
 }
 
 #[rstest]
@@ -107,6 +111,7 @@ enum WindowJoinCase {
 #[case::in_expressions(WindowJoinCase::InExpressions)]
 #[case::filtered(WindowJoinCase::Filtered)]
 #[case::filtered_in_expressions(WindowJoinCase::FilteredInExpressions)]
+#[case::filtered_by_search_operator(WindowJoinCase::FilteredBySearchOperator)]
 fn global_window_aggregates_over_join(
     mut conn: PgConnection,
     #[case] case: WindowJoinCase,
@@ -279,6 +284,47 @@ fn global_window_aggregates_over_join(
                 assert_eq!(*high_plus_low, 1000);
                 assert_eq!(*high_ratio, 0.5);
             }
+        }
+        WindowJoinCase::FilteredBySearchOperator => {
+            // Every joined product is a 'sturdy laptop': 'sturdy' matches all
+            // 1000 rows, 'tablet' none, and with `r.score > 1000` 500 remain.
+            let query = r#"
+                SELECT p.id,
+                       r.score,
+                       COUNT(*) FILTER (WHERE p.description ||| 'sturdy') OVER () AS sturdy_count,
+                       COUNT(*) FILTER (WHERE p.description ||| 'tablet') OVER () AS tablet_count,
+                       COUNT(*) FILTER (WHERE p.description ||| 'sturdy' AND r.score > 1000)
+                           OVER () AS sturdy_high_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.score DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            // The two 'sturdy' filters share one tagged query.
+            let aggregate = plan
+                .lines()
+                .find(|line| line.contains("AggregateExec"))
+                .unwrap();
+            assert!(
+                aggregate.contains("FILTER (WHERE p_0.__p_0_tag_0)")
+                    && aggregate.contains("FILTER (WHERE p_0.__p_0_tag_1)")
+                    && aggregate.contains("FILTER (WHERE p_0.__p_0_tag_0 AND "),
+                "{aggregate}"
+            );
+
+            let rows = query.fetch_result::<(i32, i32, i64, i64, i64)>(&mut conn)?;
+            assert_eq!(
+                rows,
+                vec![
+                    (999, 1999, 1000, 0, 500),
+                    (997, 1997, 1000, 0, 500),
+                    (995, 1995, 1000, 0, 500)
+                ]
+            );
         }
     }
 
@@ -1205,18 +1251,15 @@ enum FilterFallback {
     /// The filter reads a column that is not columnar, so the scan cannot
     /// evaluate it.
     NonColumnarColumn,
-    /// The filter holds a search operator.
-    SearchOperator,
     /// The filter holds a volatile function.
     Volatile,
 }
 
-/// Filters JoinScan cannot evaluate. Whichever plan runs, the values must match
-/// PostgreSQL's WindowAgg. The tablets are filtered out by the WHERE clause, so
+/// Filters JoinScan cannot evaluate: it declines, and PostgreSQL's WindowAgg
+/// computes the value. The tablets are filtered out by the WHERE clause, so
 /// every surviving product is a 'sturdy laptop'.
 #[rstest]
 #[case::non_columnar_column(FilterFallback::NonColumnarColumn)]
-#[case::search_operator(FilterFallback::SearchOperator)]
 #[case::volatile(FilterFallback::Volatile)]
 fn filtered_window_aggregates_fallback(
     mut conn: PgConnection,
@@ -1226,7 +1269,6 @@ fn filtered_window_aggregates_fallback(
 
     let filter = match case {
         FilterFallback::NonColumnarColumn => "p.description LIKE '%sturdy%'",
-        FilterFallback::SearchOperator => "p.description ||| 'sturdy'",
         FilterFallback::Volatile => "random() >= 0",
     };
     let query = format!(
@@ -1241,6 +1283,10 @@ fn filtered_window_aggregates_fallback(
         LIMIT 3
         "#
     );
+
+    let plan = explain(&mut conn, &query);
+    assert!(!plan.contains(JOIN_SCAN), "{plan}");
+    assert!(plan.contains("WindowAgg"), "{plan}");
 
     let rows = query.fetch_result::<(i32, i32, i64)>(&mut conn)?;
     assert_eq!(

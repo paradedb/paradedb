@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792453628945,
+  "lastUpdate": 1792455759778,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -13840,6 +13840,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 184.894,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58ebb88e0f40a61a4f0bfb5257879b75aa51e7e0",
+          "message": "fix: remove 1K document flush cap for vectors (#6901)\n\n## What\n\nRemove the unconditional 1,000-document flush cap for vector indexes.\nAfter each index-build worker finishes writing and merging to its\nsegment target, rewrite its remaining eligible flat-vector segments into\nIVF with single-segment foreground merges.\n\n## Why\n\nThe cap creates many small segments just to trigger vector clustering,\nincreasing build merge work and buffer-pin pressure. Vectors already\ncount toward the writer memory budget, and clustering does not require\ntwo input segments.\n\nRelated to #6900. This reduces unnecessary segment creation; it does not\nfix the underlying component-reader pin retention described there.\n\n## How\n\n- Track each worker's live output segments, including partitioned\nbuilds, so workers only convert their own segments.\n- Identify flat segments from their vector and centroid catalog entries\nwithout opening component data pages; honor the index's clustering\nthreshold and skip existing IVF segments.\n- Preserve explicit document caps supplied by the build planner.\nOrdinary inserts continue clustering through the existing merge policy.\n- Make merge regression fixtures create explicit insert batches instead\nof relying on the removed cap.",
+          "timestamp": "2026-10-19T15:54:39-07:00",
+          "tree_id": "75be9a574d33e1bde4bdf6c301a211f3a9f8487f",
+          "url": "https://github.com/paradedb/paradedb/commit/58ebb88e0f40a61a4f0bfb5257879b75aa51e7e0"
+        },
+        "date": 1792455750226,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.041,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 335.323,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.152,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.762,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 181.023,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.296,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.613,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.192,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.621,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 197.818,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 77.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 159.326,
             "unit": "ms"
           }
         ]

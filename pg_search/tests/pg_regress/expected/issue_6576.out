@@ -517,7 +517,7 @@ SELECT s.id, s::text || s.path AS x
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon')
 ORDER BY s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.*' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
+WARNING:  JoinScan not used: target list expression depends on 's.*' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
                                                                                                   QUERY PLAN                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -540,7 +540,7 @@ SELECT s.id, s.xmin::text || s.path AS x
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon')
 ORDER BY s.id LIMIT 5;
-WARNING:  JoinScan not used: target list expression depends on 'issue_6576_s.xmin' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
+WARNING:  JoinScan not used: target list expression depends on 's.xmin' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
                                                                                                   QUERY PLAN                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

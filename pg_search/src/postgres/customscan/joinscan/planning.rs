@@ -26,13 +26,14 @@
 use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, RelNode, UnnestNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode, RelationAlias, UnnestNode,
 };
 use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
 use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
+use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
@@ -2231,18 +2232,14 @@ unsafe fn column_name_for_var(
 ) -> String {
     for source in sources {
         if source.contains_rti(varno) {
-            let tbl = source_table_name(source);
+            // Match the `(tables: ...)` suffix, which names relations the way the query wrote them.
+            let tbl = RelationAlias::new(source.scan_info.alias.as_deref())
+                .warning_context(source.scan_info.heaprelid);
             // attno 0 is a whole-row reference.
             if varattno == 0 {
-                return format!("{}.*", tbl);
+                return format!("{tbl}.*");
             }
-            // `pg_attribute` has rows for system columns too, so this covers
-            // negative attnos as well as user columns.
-            let name_ptr = pg_sys::get_attname(source.scan_info.heaprelid, varattno, true);
-            if !name_ptr.is_null() {
-                let name = std::ffi::CStr::from_ptr(name_ptr).to_string_lossy();
-                return format!("{}.{}", tbl, name);
-            }
+            return get_attname_safe(Some(source.scan_info.heaprelid), varattno, &tbl);
         }
     }
     format!("rti {}, attno {}", varno, varattno)

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792486188647,
+  "lastUpdate": 1792486206620,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -223002,6 +223002,124 @@ window.BENCHMARK_DATA = {
             "value": 43.6484375,
             "unit": "median mem",
             "extra": "avg mem: 42.92222705442791, max mem: 47.71484375, count: 59317"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c0e8e052b66d6ab3468cbcde8117459d0bac5336",
+          "message": "Merge d89c0f6aeb4155d8cb713f86235ee97bf0524e1f into 9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "timestamp": "2026-10-20T08:15:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c0e8e052b66d6ab3468cbcde8117459d0bac5336"
+        },
+        "date": 1792486196785,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.980582,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.605635521414245, max cpu: 28.728182, count: 59305"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.50346797013321, max mem: 47.51171875, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.220780775497026, max cpu: 37.463413, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.85463520150072, max mem: 32.8828125, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.641850490362266, max cpu: 18.851252, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.284483680760474, max mem: 51.49609375, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15983,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16329.700699772364, max block_count: 31906.0, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8657080524431855, max cpu: 4.68979, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.677329390966193, max mem: 29.73046875, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.010623050333024, max segment_count: 37.0, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.430255,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.315431634299987, max cpu: 28.656715, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 47.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.08591945240705, max mem: 47.09765625, count: 59305"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7619047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.250773649558049, max cpu: 37.463413, count: 118610"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.75392354012099, max mem: 58.1953125, count: 118610"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.509658,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.159398642961898, max cpu: 23.692005, count: 59305"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 43.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.27614279466318, max mem: 47.74609375, count: 59305"
           }
         ]
       }

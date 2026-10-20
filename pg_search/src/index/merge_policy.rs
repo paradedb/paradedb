@@ -54,7 +54,8 @@ impl MergePolicy for LayeredMergePolicy {
 }
 
 impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
+    pub fn new(mut layer_sizes: Vec<u64>) -> LayeredMergePolicy {
+        layer_sizes.sort_by_key(|size| Reverse(*size));
         Self {
             layer_sizes,
             min_merge_count: 2,
@@ -63,6 +64,11 @@ impl LayeredMergePolicy {
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
         }
+    }
+
+    pub fn prefer_small_merges(&mut self) {
+        self.layer_sizes.sort_unstable();
+        self.already_processed.store(false, Ordering::Relaxed);
     }
 
     pub fn set_mergeable_segment_entries(
@@ -280,12 +286,9 @@ impl LayeredMergePolicy {
             }
         }
 
-        let mut layer_sizes = self.layer_sizes.clone();
-        layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
-
         logger(directory, &format!("merged segments: {merged_segments:?}"));
 
-        for layer_size in layer_sizes {
+        for &layer_size in &self.layer_sizes {
             // individual segments that total a certain byte amount typically merge together into
             // a segment of a smaller size than the individual source segments.  So we fudge things
             // by a third more in the hopes the final segment will be >= to this layer size, ensuring
@@ -652,6 +655,50 @@ pub(crate) mod tests {
 
         assert_eq!(candidates.len(), 0);
         assert_eq!(largest_layer_size, 0);
+    }
+
+    #[pg_test]
+    fn test_small_segments_form_small_candidates() {
+        let mut policy = LayeredMergePolicy::new(vec![1000, 10000]);
+        let mut segments = (0..20)
+            .map(|_| create_segment_meta_entry(700, 70, 0))
+            .collect::<Vec<_>>();
+        let large_segments = [
+            create_segment_meta_entry(7000, 700, 0),
+            create_segment_meta_entry(7000, 700, 0),
+        ];
+        let large_ids = large_segments
+            .iter()
+            .map(SegmentMetaEntry::segment_id)
+            .collect::<HashSet<_>>();
+        segments.extend(large_segments);
+        segments.push(create_mutable_segment_meta_entry(100, 0, true));
+        policy.set_mergeable_segments_for_test(segments);
+
+        let (candidates, _) = policy.simulate();
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[1].0, 10000);
+        assert_eq!(candidates[2].1.0.len(), 20);
+        policy.prefer_small_merges();
+        let (candidates, largest_layer_size) = policy.simulate();
+        assert_eq!(largest_layer_size, 10000);
+        assert_eq!(candidates.len(), 12);
+        assert_eq!(candidates[0].0, 0);
+        let large_candidate = candidates.last().unwrap();
+        assert_eq!(large_candidate.0, 10000);
+        assert_eq!(
+            large_candidate.1.0.iter().copied().collect::<HashSet<_>>(),
+            large_ids
+        );
+        for (layer, candidate) in &candidates[1..candidates.len() - 1] {
+            assert_eq!(*layer, 1000);
+            assert_eq!(candidate.0.len(), 2);
+        }
+        let selected = candidates
+            .iter()
+            .flat_map(|(_, candidate)| &candidate.0)
+            .collect::<HashSet<_>>();
+        assert_eq!(selected.len(), 23);
     }
 
     #[pg_test]

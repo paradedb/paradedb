@@ -208,7 +208,7 @@ pub fn run(
 
     if !finished.load(std::sync::atomic::Ordering::Relaxed) {
         eprintln!("suite did not finish after 60 seconds");
-        std::process::exit(0);
+        std::process::exit(1);
     }
 
     Ok(())

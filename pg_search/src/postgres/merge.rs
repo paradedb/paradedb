@@ -331,7 +331,7 @@ pub unsafe fn do_merge(
     let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
     let mut merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
     merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-    let (candidates, largest_layer_size, skipped) = merge_policy.simulate_supported(&merger)?;
+    let (mut candidates, largest_layer_size, skipped) = merge_policy.simulate_supported(&merger)?;
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
@@ -340,14 +340,20 @@ pub unsafe fn do_merge(
         return Ok(());
     }
     if style == MergeStyle::Insert {
-        let candidate =
-            backpressure(&candidates, index.options().target_segment_count()).or_else(|| {
-                candidates
-                    .iter()
-                    .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
-                    .min_by_key(|(layer, _)| *layer)
-                    .map(|(_, candidate)| candidate)
-            });
+        let needs_backpressure =
+            backpressure(&candidates, index.options().target_segment_count()).is_some();
+        if needs_backpressure && candidates.iter().all(|(layer, _)| *layer != 0) {
+            merge_policy.prefer_small_merges();
+            merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+            (candidates, _, _) = merge_policy.simulate_supported(&merger)?;
+        }
+        let candidate = candidates
+            .iter()
+            .filter(|(layer, _)| {
+                needs_backpressure || layer_sizes.foreground_layer_sizes.contains(layer)
+            })
+            .min_by_key(|(layer, _)| *layer)
+            .map(|(_, candidate)| candidate);
         if let Some(candidate) = candidate {
             merge_index(
                 index,

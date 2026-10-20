@@ -947,6 +947,48 @@ fn recall_bracket_midpoint(points: &[SweepPoint], target: f64) -> Option<String>
     (lower < midpoint && midpoint < upper).then(|| midpoint.to_string())
 }
 
+async fn calibrate_sweep(
+    values: &[String],
+    independent_targets: bool,
+    mut measure: impl AsyncFnMut(&str, f64) -> anyhow::Result<SweepPoint>,
+) -> anyhow::Result<Vec<SelectedPoint>> {
+    let mut points: Vec<Option<SweepPoint>> = (0..values.len()).map(|_| None).collect();
+    let mut selected = Vec::new();
+    for (label, target) in RECALL_TARGETS {
+        while let Some(index) = next_sweep_index(&points, target) {
+            points[index] = Some(measure(&values[index], target).await?);
+        }
+        if independent_targets {
+            let mut measured: Vec<_> = points.iter_mut().filter_map(Option::take).collect();
+            let mut refined = false;
+            for _ in 0..RECALL_REFINEMENT_STEPS {
+                let Some(midpoint) = recall_bracket_midpoint(&measured, target) else {
+                    break;
+                };
+                measured.push(measure(&midpoint, target).await?);
+                refined = true;
+            }
+            if refined {
+                measured.sort_by(|a, b| {
+                    a.value
+                        .parse::<f64>()
+                        .unwrap()
+                        .total_cmp(&b.value.parse::<f64>().unwrap())
+                });
+            }
+            selected.extend(
+                select_points(&measured)
+                    .into_iter()
+                    .filter(|point| point.label == label),
+            );
+        }
+    }
+    if !independent_targets {
+        selected = select_points(&points.into_iter().flatten().collect::<Vec<_>>());
+    }
+    Ok(selected)
+}
+
 /// Binary-search the configured values for each recall target, sharing measured points.
 async fn sweep_query(
     conn: &mut PgConnection,
@@ -1005,7 +1047,7 @@ async fn sweep_query(
     )
     .await?;
     let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
-    let mut measure = async |value: &str, target: f64| -> anyhow::Result<SweepPoint> {
+    let measure = async |value: &str, target: f64| -> anyhow::Result<SweepPoint> {
         let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
         let mut params = base_params.clone();
         params.insert(sweep.param.clone(), resolved);
@@ -1031,41 +1073,7 @@ async fn sweep_query(
             query,
         })
     };
-    let mut points: Vec<Option<SweepPoint>> = (0..sweep.values.len()).map(|_| None).collect();
-    let mut selected = Vec::new();
-    for (label, target) in RECALL_TARGETS {
-        while let Some(index) = next_sweep_index(&points, target) {
-            points[index] = Some(measure(&sweep.values[index], target).await?);
-        }
-        if sweep.recall_target_param.is_some() {
-            let mut measured: Vec<_> = points.iter_mut().filter_map(Option::take).collect();
-            let mut refined = false;
-            for _ in 0..RECALL_REFINEMENT_STEPS {
-                let Some(midpoint) = recall_bracket_midpoint(&measured, target) else {
-                    break;
-                };
-                measured.push(measure(&midpoint, target).await?);
-                refined = true;
-            }
-            if refined {
-                measured.sort_by(|a, b| {
-                    a.value
-                        .parse::<f64>()
-                        .unwrap()
-                        .total_cmp(&b.value.parse::<f64>().unwrap())
-                });
-            }
-            selected.extend(
-                select_points(&measured)
-                    .into_iter()
-                    .filter(|point| point.label == label),
-            );
-        }
-    }
-    if sweep.recall_target_param.is_none() {
-        selected = select_points(&points.into_iter().flatten().collect::<Vec<_>>());
-    }
-    Ok(selected)
+    calibrate_sweep(&sweep.values, sweep.recall_target_param.is_some(), measure).await
 }
 
 /// One selected operating point, held until latency has been measured for it so the run's summary
@@ -2503,6 +2511,41 @@ mod tests {
             vec![point("1.5", 0.98), point("inf", 0.99)],
         ] {
             assert!(recall_bracket_midpoint(&points, 0.99).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn adaptive_calibration_keeps_each_targets_measurements_separate() {
+        let values = ["1", "2", "4"].map(String::from);
+        for independent in [false, true] {
+            let mut calls = Vec::new();
+            let selected =
+                calibrate_sweep(&values, independent, async |value: &str, target: f64| {
+                    calls.push((value.to_owned(), target));
+                    let mut measured = point(
+                        value,
+                        (value.parse::<f64>()? / (2.0 * if independent { target } else { 1.0 }))
+                            .min(1.0),
+                    );
+                    measured.query = target.to_string();
+                    Ok(measured)
+                })
+                .await
+                .unwrap();
+            assert_eq!(selected.len(), 3);
+            assert_eq!(
+                calls.iter().filter(|(value, _)| value == "1").count(),
+                if independent { 3 } else { 1 }
+            );
+            if independent {
+                for selected in selected {
+                    assert!(selected.reached);
+                    assert_eq!(selected.query, Some(selected.target.to_string()));
+                    let value = selected.value.parse::<f64>().unwrap();
+                    let minimum = 2.0 * selected.target * selected.target;
+                    assert!(value >= minimum && value - minimum <= 1.0 / 64.0);
+                }
+            }
         }
     }
 

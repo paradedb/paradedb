@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792475591076,
+  "lastUpdate": 1792475610533,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -458396,6 +458396,94 @@ window.BENCHMARK_DATA = {
             "value": 47.87109375,
             "unit": "median mem",
             "extra": "avg mem: 49.50260192910556, max mem: 56.1484375, count: 58774"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "message": "fix: binary-search benchmark recall targets (#6918)\n\n## What\n\nWe are going to replace this with pdbench but in the meantime it would\nbe nice to hit the recall targets in CI.",
+          "timestamp": "2026-10-19T23:04:17Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9aa24da283d6532d0c9c47f846d72894a6a25d4b"
+        },
+        "date": 1792475600704,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 42.2421875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 32.31543691120955, max partition_index_size:MB: 42.25, count: 58807"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.070732481582827, max cpu: 33.366436, count: 58807"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.709583295249715, max mem: 56.19140625, count: 58807"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.798307233284657, max cpu: 33.300297, count: 58807"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 50.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.35613884454657, max mem: 62.0859375, count: 58807"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.519089,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.046428861212318, max cpu: 27.988338, count: 58807"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 41.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.53959595849559, max mem: 41.578125, count: 58807"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.801773490338384, max cpu: 33.333336, count: 58807"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.40738553392878, max mem: 62.7265625, count: 58807"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.041451369988557, max cpu: 32.98969, count: 58807"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 48.375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.91071162871767, max mem: 56.43359375, count: 58807"
           }
         ]
       }

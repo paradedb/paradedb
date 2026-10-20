@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792474394907,
+  "lastUpdate": 1792475221940,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -464656,6 +464656,58 @@ window.BENCHMARK_DATA = {
             "value": 24.06675865906579,
             "unit": "median tps",
             "extra": "avg tps: 40.79119277122562, max tps: 606.4269809209333, count: 59236"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "message": "fix: binary-search benchmark recall targets (#6918)\n\n## What\n\nWe are going to replace this with pdbench but in the meantime it would\nbe nice to hit the recall targets in CI.",
+          "timestamp": "2026-10-19T23:04:17Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9aa24da283d6532d0c9c47f846d72894a6a25d4b"
+        },
+        "date": 1792475212601,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3878.974099486167,
+            "unit": "median tps",
+            "extra": "avg tps: 3854.957827276801, max tps: 4250.359391499659, count: 59232"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4568.36336669309,
+            "unit": "median tps",
+            "extra": "avg tps: 4621.280546374932, max tps: 5702.877084716071, count: 59232"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.32268508242058,
+            "unit": "median tps",
+            "extra": "avg tps: 166.99024759231662, max tps: 2923.112572785503, count: 59232"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.03172037097262,
+            "unit": "median tps",
+            "extra": "avg tps: 40.435613501124195, max tps: 558.1949970164477, count: 59232"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.0449362952644,
+            "unit": "median tps",
+            "extra": "avg tps: 40.623975018375454, max tps: 571.2507540299935, count: 59232"
           }
         ]
       }

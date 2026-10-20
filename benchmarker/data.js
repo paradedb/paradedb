@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792518804346,
+  "lastUpdate": 1792531782507,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20246,6 +20246,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.106,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62fbb07df281d4ce83e6d1c9a689d0b0727d5a27",
+          "message": "chore: bump rustls-webpki and webpki-roots to fix RUSTSEC advisories (#6936)\n\n## Summary\n`cargo audit` reports two vulnerabilities in `Cargo.lock`. This PR bumps\nboth crates with `cargo update`:\n\n- `rustls-webpki` 0.103.15 → 0.103.16\n([RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382):\ncertificate verification may accept distrusted intermediates)\n- `webpki-roots` 1.0.9 → 1.0.10\n([RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381):\nbundled roots allow trust in distrusted emSign intermediates)\n\nOnly `Cargo.lock` changes.\n\n## Testing\n- `cargo audit`: 0 vulnerabilities (only the 7 existing\nunmaintained-crate warnings remain)\n- `cargo check --workspace --locked` passes\n\n🤖 Generated with Claude Code\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-20T14:46:50-06:00",
+          "tree_id": "06c6202417700ada4ccc89c87d5a78954c7de571",
+          "url": "https://github.com/paradedb/paradedb/commit/62fbb07df281d4ce83e6d1c9a689d0b0727d5a27"
+        },
+        "date": 1792531771107,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.319,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.71,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.149,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.534,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.016,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.328,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.98,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.53,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.483,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.321,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.136,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.882,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.189,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.004,
             "unit": "ms"
           }
         ]

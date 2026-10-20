@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792482432509,
+  "lastUpdate": 1792483013715,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -176508,6 +176508,64 @@ window.BENCHMARK_DATA = {
             "value": 21.04996383356948,
             "unit": "median tps",
             "extra": "avg tps: 20.92528609007134, max tps: 34.312999198379714, count: 59297"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "message": "fix: binary-search benchmark recall targets (#6918)\n\n## What\n\nWe are going to replace this with pdbench but in the meantime it would\nbe nice to hit the recall targets in CI.",
+          "timestamp": "2026-10-19T23:04:17Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9aa24da283d6532d0c9c47f846d72894a6a25d4b"
+        },
+        "date": 1792483004368,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 136.07486034136093,
+            "unit": "median tps",
+            "extra": "avg tps: 134.43111486796764, max tps: 138.339570266564, count: 59317"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 523.1795268226665,
+            "unit": "median tps",
+            "extra": "avg tps: 566.3367811719093, max tps: 5873.0971626733, count: 59317"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 788.3646293104894,
+            "unit": "median tps",
+            "extra": "avg tps: 759.9810968255237, max tps: 1031.8673267386553, count: 59317"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 171.46334934202338,
+            "unit": "median tps",
+            "extra": "avg tps: 169.42332857494114, max tps: 183.44173438496685, count: 59317"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 242.7255567800226,
+            "unit": "median tps",
+            "extra": "avg tps: 318.0720829275651, max tps: 1926.2867533596084, count: 118634"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.715120640651314,
+            "unit": "median tps",
+            "extra": "avg tps: 21.599391261745087, max tps: 35.274518294705615, count: 59317"
           }
         ]
       }

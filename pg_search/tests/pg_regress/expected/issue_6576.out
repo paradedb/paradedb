@@ -510,5 +510,54 @@ ORDER BY s.id LIMIT 5;
                                        Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
 (20 rows)
 
+-- 9) An expression over a whole-row reference or a non-columnar system
+--    column (xmin). It declines, and the warning names the column (issue #6908).
+--    ctid and tableoid are columnar, so they don't take this path.
+EXPLAIN (COSTS OFF)
+SELECT s.id, s::text || s.path AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 5;
+WARNING:  JoinScan not used: target list expression depends on 's.*' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: s.id
+         ->  Hash Join
+               Hash Cond: (s.id = e.s_id)
+               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                     Table: issue_6576_s
+                     Index: issue_6576_s_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Seq Scan on issue_6576_e e
+(13 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.xmin::text || s.path AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 5;
+WARNING:  JoinScan not used: target list expression depends on 's.xmin' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: s.id
+         ->  Hash Join
+               Hash Cond: (s.id = e.s_id)
+               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                     Table: issue_6576_s
+                     Index: issue_6576_s_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Seq Scan on issue_6576_e e
+(13 rows)
+
 RESET paradedb.enable_join_custom_scan;
 DROP TABLE issue_6576_s, issue_6576_e CASCADE;

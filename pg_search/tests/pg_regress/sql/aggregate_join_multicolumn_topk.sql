@@ -183,6 +183,31 @@ GROUP BY w.researcher_id
 ORDER BY MAX(w.item_date) DESC NULLS LAST, (w.researcher_id % 2) ASC
 LIMIT 1;
 
+-- An aggregate key under a collation that is not byte-ordered keeps the
+-- whole sort in Postgres as well. The aggregate itself is still pushed.
+CREATE COLLATION IF NOT EXISTS multicolumn_topk_icu (provider = icu, locale = 'en-US');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT w.researcher_id
+FROM multicolumn_topk_work_items w
+JOIN multicolumn_topk_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY
+  MAX(w.item_date) DESC NULLS LAST,
+  STRING_AGG(w.category COLLATE "multicolumn_topk_icu", ',' ORDER BY w.category) ASC
+LIMIT 1;
+
+SELECT w.researcher_id
+FROM multicolumn_topk_work_items w
+JOIN multicolumn_topk_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY
+  MAX(w.item_date) DESC NULLS LAST,
+  STRING_AGG(w.category COLLATE "multicolumn_topk_icu", ',' ORDER BY w.category) ASC
+LIMIT 1;
+
 -- Under MPP every task bounds its own output with the multi-key TopK before
 -- the rows cross to the leader.
 SET paradedb.mpp_min_rows TO 0;
@@ -219,5 +244,6 @@ RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 
 DROP FUNCTION multicolumn_topk_explain(text);
+DROP COLLATION multicolumn_topk_icu;
 DROP TABLE multicolumn_topk_work_items;
 DROP TABLE multicolumn_topk_researchers;

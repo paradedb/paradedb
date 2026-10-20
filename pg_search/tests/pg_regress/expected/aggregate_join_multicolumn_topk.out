@@ -336,6 +336,58 @@ LIMIT 1;
              2
 (1 row)
 
+-- An aggregate key under a collation that is not byte-ordered keeps the
+-- whole sort in Postgres as well. The aggregate itself is still pushed.
+CREATE COLLATION IF NOT EXISTS multicolumn_topk_icu (provider = icu, locale = 'en-US');
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT w.researcher_id
+FROM multicolumn_topk_work_items w
+JOIN multicolumn_topk_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY
+  MAX(w.item_date) DESC NULLS LAST,
+  STRING_AGG(w.category COLLATE "multicolumn_topk_icu", ',' ORDER BY w.category) ASC
+LIMIT 1;
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: w.researcher_id, (max(w.item_date)), (string_agg((w.category)::text, ','::text ORDER BY w.category))
+   ->  Sort
+         Output: w.researcher_id, (max(w.item_date)), (string_agg((w.category)::text, ','::text ORDER BY w.category))
+         Sort Key: (max(w.item_date)) DESC NULLS LAST, (string_agg((w.category)::text, ','::text ORDER BY w.category)) COLLATE multicolumn_topk_icu
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: w.researcher_id, (max(w.item_date)), (string_agg((w.category)::text, ','::text ORDER BY w.category))
+               Backend: DataFusion
+               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+               Group By: researcher_id
+               Aggregates: MAX(item_date), STRING_AGG(category)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0, string_agg(w_0.category, ,) ORDER BY [w_0.category ASC NULLS LAST] as agg_1]
+                 :   SortExec: expr=[category@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     TantivyDecodeExec: decode=[category]
+                 :       TantivyFetchExec: fetch=[category]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3, category@4]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT w.researcher_id
+FROM multicolumn_topk_work_items w
+JOIN multicolumn_topk_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY
+  MAX(w.item_date) DESC NULLS LAST,
+  STRING_AGG(w.category COLLATE "multicolumn_topk_icu", ',' ORDER BY w.category) ASC
+LIMIT 1;
+ researcher_id 
+---------------
+             2
+(1 row)
+
 -- Under MPP every task bounds its own output with the multi-key TopK before
 -- the rows cross to the leader.
 SET paradedb.mpp_min_rows TO 0;
@@ -414,5 +466,6 @@ RESET parallel_tuple_cost;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 DROP FUNCTION multicolumn_topk_explain(text);
+DROP COLLATION multicolumn_topk_icu;
 DROP TABLE multicolumn_topk_work_items;
 DROP TABLE multicolumn_topk_researchers;

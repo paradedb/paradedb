@@ -132,7 +132,7 @@ impl FilterExpr {
         }
     }
 
-    /// Collect all `(plan_position, field_name)` column references from an [`FilterExpr`] tree.
+    /// Collect all `ColumnRef` column references from an [`FilterExpr`] tree.
     pub fn collect_column_refs(&self) -> Vec<ColumnRef> {
         let mut refs = Vec::new();
         match self{

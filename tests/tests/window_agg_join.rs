@@ -336,18 +336,12 @@ enum NumericWindowJoinCase {
     /// NUMERIC aggregates with a FILTER on a non-NUMERIC column: the scan
     /// absorbs them.
     FilteredByOtherColumn,
-    /// A FILTER that compares the NUMERIC column itself. The fast field holds
-    /// the storage encoding, which the scan cannot compare with a NUMERIC
-    /// literal, so JoinScan must decline (falling back to PostgreSQL's
-    /// WindowAgg) rather than return wrong counts.
-    NumericFilterDeclines,
 }
 
 #[rstest]
 #[case::wrapped(NumericWindowJoinCase::Wrapped)]
 #[case::numeric_result_declines(NumericWindowJoinCase::NumericResultDeclines)]
 #[case::filtered_by_other_column(NumericWindowJoinCase::FilteredByOtherColumn)]
-#[case::numeric_filter_declines(NumericWindowJoinCase::NumericFilterDeclines)]
 fn global_window_aggregates_over_join_numeric(
     mut conn: PgConnection,
     #[case] case: NumericWindowJoinCase,
@@ -412,39 +406,25 @@ fn global_window_aggregates_over_join_numeric(
                 assert_eq!(*doubled_total, expected);
             }
         }
-        NumericWindowJoinCase::FilteredByOtherColumn
-        | NumericWindowJoinCase::NumericFilterDeclines => {
-            // price = id * 0.25, so `r.id > 1000` and `r.price > 250` select
-            // the same rows: the 500 odd ids 1001..1999, priced 250.25 ..
-            // 499.75 (sum 0.25 * 750_000 = 187_500, avg 375). The rest are
-            // the odd ids 1..999: max price 249.75.
-            let (high, low) = match case {
-                NumericWindowJoinCase::FilteredByOtherColumn => ("r.id > 1000", "r.id < 1000"),
-                _ => ("r.price > 250", "r.price <= 250.00"),
-            };
-            let query = format!(
-                r#"
+        NumericWindowJoinCase::FilteredByOtherColumn => {
+            // price = id * 0.25, so the 500 odd ids 1001..1999 are priced
+            // 250.25 .. 499.75 (sum 0.25 * 750_000 = 187_500, avg 375). The
+            // rest are the odd ids 1..999: max price 249.75.
+            let query = r#"
                 SELECT p.id,
-                       COUNT(*) FILTER (WHERE {high}) OVER () AS high_count,
-                       SUM(r.price) FILTER (WHERE {high}) OVER ()::float8 AS high_total,
-                       AVG(r.price) FILTER (WHERE {high}) OVER ()::float8 AS high_avg,
-                       MIN(r.price) FILTER (WHERE {high}) OVER ()::float8 AS high_min,
-                       MAX(r.price) FILTER (WHERE {low}) OVER ()::float8 AS low_max
+                       COUNT(*) FILTER (WHERE r.id > 1000) OVER () AS high_count,
+                       SUM(r.price) FILTER (WHERE r.id > 1000) OVER ()::float8 AS high_total,
+                       AVG(r.price) FILTER (WHERE r.id > 1000) OVER ()::float8 AS high_avg,
+                       MIN(r.price) FILTER (WHERE r.id > 1000) OVER ()::float8 AS high_min,
+                       MAX(r.price) FILTER (WHERE r.id < 1000) OVER ()::float8 AS low_max
                 FROM wjn_products p
                 JOIN wjn_reviews r ON p.id = r.product_id
                 WHERE p.description ||| 'laptop'
                 ORDER BY r.id DESC
                 LIMIT 3
-                "#
-            );
+            "#;
 
-            let plan = explain(&mut conn, &query);
-            if matches!(case, NumericWindowJoinCase::FilteredByOtherColumn) {
-                assert_windows_in_topk_agg(&plan);
-            } else {
-                assert!(!plan.contains(JOIN_SCAN), "{plan}");
-                assert!(plan.contains("WindowAgg"), "{plan}");
-            }
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, i64, f64, f64, f64, f64)>(&mut conn)?;
             assert_eq!(

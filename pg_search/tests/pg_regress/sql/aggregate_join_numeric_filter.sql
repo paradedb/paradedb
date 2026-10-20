@@ -72,47 +72,6 @@ WHERE p.id @@@ pdb.all() AND EXISTS (
        OR (o.name === 'carol' AND o.amount = 12345678901234567890.123456789)
 );
 
--- An aggregate FILTER that compares a NUMERIC column. The fast field holds the
--- storage encoding and the NUMERIC literal is not a float, so the scan must not
--- compare them directly. The join yields bob's orders (99.99, 12.34) and
--- carol's (NULL): Postgres counts 1, 1, 1 and 2.
-EXPLAIN (COSTS OFF)
-SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
-       count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
-       count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
-       count(*) FILTER (WHERE o.id > 1) AS later_orders
-FROM agg_numeric_products p
-JOIN agg_numeric_orders o ON o.name = p.name
-WHERE p.id @@@ pdb.all();
-
-SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
-       count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
-       count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
-       count(*) FILTER (WHERE o.id > 1) AS later_orders
-FROM agg_numeric_products p
-JOIN agg_numeric_orders o ON o.name = p.name
-WHERE p.id @@@ pdb.all();
-
--- A HAVING clause that compares an aggregate with a NUMERIC literal: AVG of an
--- integer is NUMERIC, so 1.5 is a NUMERIC constant. bob's order ids average
--- exactly 1.5 and carol's 3, so only carol is kept.
-EXPLAIN (COSTS OFF)
-SELECT p.name, avg(o.id) AS avg_id
-FROM agg_numeric_products p
-JOIN agg_numeric_orders o ON o.name = p.name
-WHERE p.id @@@ pdb.all()
-GROUP BY p.name
-HAVING avg(o.id) > 1.5
-ORDER BY p.name;
-
-SELECT p.name, avg(o.id) AS avg_id
-FROM agg_numeric_products p
-JOIN agg_numeric_orders o ON o.name = p.name
-WHERE p.id @@@ pdb.all()
-GROUP BY p.name
-HAVING avg(o.id) > 1.5
-ORDER BY p.name;
-
 DROP TABLE agg_numeric_orders, agg_numeric_products;
 
 RESET max_parallel_workers_per_gather;

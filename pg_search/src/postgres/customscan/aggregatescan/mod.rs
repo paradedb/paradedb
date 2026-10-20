@@ -1944,13 +1944,10 @@ impl AggregateScan {
             source.scan_info.mvcc_visibility = visibility;
         }
 
-        // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
-        // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
-        // At UPPERREL_GROUP_AGG we do NOT declare pathkeys to Postgres because
-        // scanrelid=0 CustomScans cannot resolve pathkey items through setrefs.c
-        // when Postgres builds a Sort node above them. At UPPERREL_FINAL there is
-        // no Sort/Limit node above us, so ORDER BY and LIMIT/OFFSET must be pushed
-        // down completely into DataFusion.
+        // Detect ORDER BY + LIMIT for TopK pushdown into DataFusion, whose
+        // SortExec(fetch=K) keeps a bounded TopK heap. At UPPERREL_FINAL there
+        // is no Sort/Limit node above us, so ORDER BY and LIMIT/OFFSET must be
+        // pushed down completely into DataFusion.
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &extracted_target, shape) }
             .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
@@ -2008,7 +2005,6 @@ impl AggregateScan {
         // nodes above can resolve their Var references. Required for DISTINCT
         // (output_rel.reltarget.exprs is empty); for GROUP BY it equals the
         // builder's default.
-        let stage = builder.args().stage;
         let has_pushed_order = topk.as_ref().is_some_and(|t| !t.sorts.is_empty());
         let builder = builder
             .set_pathtarget(shape.reltarget())
@@ -2027,8 +2023,10 @@ impl AggregateScan {
             having_filter,
             parallel_mode_ok,
         });
-        if stage == pg_sys::UpperRelationKind::UPPERREL_FINAL && has_pushed_order {
-            custom_path.path.pathkeys = unsafe { (*root).query_pathkeys };
+        // The scan returns its rows in ORDER BY order, so Postgres can put its
+        // Limit straight on top instead of sorting the K rows again.
+        if has_pushed_order {
+            custom_path.path.pathkeys = unsafe { (*root).sort_pathkeys };
         }
 
         // Sidecar layout, checked by plan_custom_path:

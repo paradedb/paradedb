@@ -65,28 +65,25 @@ WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
 GROUP BY w.researcher_id
 ORDER BY MIN(w.item_date) ASC
 LIMIT 3;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (min(w.item_date))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: w.researcher_id, (min(w.item_date))
-         Sort Key: (min(w.item_date))
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: w.researcher_id, (min(w.item_date))
-               Backend: DataFusion
-               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
-               Group By: researcher_id
-               Aggregates: MIN(item_date)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=3), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[min(w_0.item_date) as agg_0], lim=[3]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :       CooperativeExec
-                 :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+         Backend: DataFusion
+         Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+         Group By: researcher_id
+         Aggregates: MIN(item_date)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=3), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[min(w_0.item_date) as agg_0], lim=[3]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
@@ -111,28 +108,25 @@ WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
 GROUP BY w.researcher_id
 ORDER BY MAX(w.item_date) DESC NULLS LAST, w.researcher_id ASC
 LIMIT 3;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (max(w.item_date))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: w.researcher_id, (max(w.item_date))
-         Sort Key: (max(w.item_date)) DESC NULLS LAST, w.researcher_id
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: w.researcher_id, (max(w.item_date))
-               Backend: DataFusion
-               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
-               Group By: researcher_id
-               Aggregates: MAX(item_date)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :       CooperativeExec
-                 :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+         Backend: DataFusion
+         Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+         Group By: researcher_id
+         Aggregates: MAX(item_date)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
@@ -157,28 +151,25 @@ WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
 GROUP BY w.researcher_id
 ORDER BY MAX(w.item_date) DESC NULLS LAST, w.researcher_id DESC
 LIMIT 1;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (max(w.item_date))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: w.researcher_id, (max(w.item_date))
-         Sort Key: (max(w.item_date)) DESC NULLS LAST, w.researcher_id DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: w.researcher_id, (max(w.item_date))
-               Backend: DataFusion
-               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
-               Group By: researcher_id
-               Aggregates: MAX(item_date)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :       CooperativeExec
-                 :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+         Backend: DataFusion
+         Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+         Group By: researcher_id
+         Aggregates: MAX(item_date)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
@@ -205,30 +196,27 @@ ORDER BY
   w.researcher_id ASC
 LIMIT 3
 $$);
-                                                                                                                                                                                                                                                                                                 multicolumn_topk_explain                                                                                                                                                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                     multicolumn_topk_explain                                                                                                                                                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (count(*) FILTER (WHERE ((w.category = 'Tradeshows'::text) AND paradedb.search_with_query_input_ctid_or_row_strict(w.work_id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, w.ctid, CASE WHEN (paradedb.ctid_is_valid(w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] WHEN (paradedb.xmin_is_visible(w.xmin, w.tableoid, w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] ELSE '{}'::record[] END, ROW())))), (max(w.item_date))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: w.researcher_id, (count(*) FILTER (WHERE ((w.category = 'Tradeshows'::text) AND paradedb.search_with_query_input_ctid_or_row_strict(w.work_id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, w.ctid, CASE WHEN (paradedb.ctid_is_valid(w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] WHEN (paradedb.xmin_is_visible(w.xmin, w.tableoid, w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] ELSE '{}'::record[] END, ROW())))), (max(w.item_date))
-         Sort Key: (count(*) FILTER (WHERE ((w.category = 'Tradeshows'::text) AND paradedb.search_with_query_input_ctid_or_row_strict(w.work_id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, w.ctid, CASE WHEN (paradedb.ctid_is_valid(w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] WHEN (paradedb.xmin_is_visible(w.xmin, w.tableoid, w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] ELSE '{}'::record[] END, ROW())))) DESC, (max(w.item_date)) DESC NULLS LAST, w.researcher_id
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: w.researcher_id, (count(*) FILTER (WHERE ((w.category = 'Tradeshows'::text) AND paradedb.search_with_query_input_ctid_or_row_strict(w.work_id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, w.ctid, CASE WHEN (paradedb.ctid_is_valid(w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] WHEN (paradedb.xmin_is_visible(w.xmin, w.tableoid, w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] ELSE '{}'::record[] END, ROW())))), (max(w.item_date))
-               Backend: DataFusion
-               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
-               Group By: researcher_id
-               Aggregates: COUNT(*), MAX(item_date)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC, agg_1@2 DESC NULLS LAST, researcher_id@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[count(1) FILTER (WHERE w_0.category = Utf8View("Tradeshows") AND w_0.__w_0_tag_0) as agg_0, max(w_0.item_date) as agg_1]
-                 :     TantivyDecodeExec: decode=[category]
-                 :       TantivyFetchExec: fetch=[category]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3, category@4, __w_0_tag_0@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Backend: DataFusion
+         Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+         Group By: researcher_id
+         Aggregates: COUNT(*), MAX(item_date)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC, agg_1@2 DESC NULLS LAST, researcher_id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[count(1) FILTER (WHERE w_0.category = Utf8View("Tradeshows") AND w_0.__w_0_tag_0) as agg_0, max(w_0.item_date) as agg_1]
+           :     TantivyDecodeExec: decode=[category]
+           :       TantivyFetchExec: fetch=[category]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3, category@4, __w_0_tag_0@5]
+           :           CooperativeExec
+           :             PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
@@ -256,28 +244,25 @@ WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
 GROUP BY w.researcher_id
 ORDER BY COUNT(*) DESC, w.researcher_id DESC
 LIMIT 2 OFFSET 1;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (count(*))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: w.researcher_id, (count(*))
-         Sort Key: (count(*)) DESC, w.researcher_id DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: w.researcher_id, (count(*))
-               Backend: DataFusion
-               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
-               Group By: researcher_id
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC, researcher_id@0 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[count(1) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :       CooperativeExec
-                 :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+         Backend: DataFusion
+         Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+         Group By: researcher_id
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC, researcher_id@0 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[count(1) as agg_0]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2]
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT w.researcher_id, COUNT(*)
 FROM multicolumn_topk_work_items w
@@ -404,46 +389,43 @@ WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
 GROUP BY w.researcher_id
 ORDER BY MAX(w.item_date) DESC NULLS LAST, w.researcher_id DESC
 LIMIT 1;
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (max(w.item_date))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: w.researcher_id, (max(w.item_date))
-         Sort Key: (max(w.item_date)) DESC NULLS LAST, w.researcher_id DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: w.researcher_id, (max(w.item_date))
-               Backend: DataFusion
-               Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
-               Group By: researcher_id
-               Aggregates: MAX(item_date)
-               DataFusion Physical Plan: 
-                 : ┌───── DistributedExec
-                 : │ SortPreservingMergeExec: [agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], fetch=1
-                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
-                 : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 3 ── tasks=2, partitions=2
-                 :   │ SortExec: TopK(fetch=1), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], preserve_partitioning=[true]
-                 :   │   AggregateExec: mode=FinalPartitioned, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
-                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=2, input_tasks=2
-                 :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 2 ── tasks=2, partitions=4
-                 :     │ RepartitionExec: partitioning=Hash([researcher_id@0], 4), input_partitions=1
-                 :     │   AggregateExec: mode=Partial, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
-                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
-                 :     │       CoalescePartitionsExec
-                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-                 :     │       DistributedLeafExec:
-                 :     │         t0: PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :     │         t1: PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :     └──────────────────────────────────────────────────
-                 :       ┌───── Stage 1 ── tasks=2, partitions=4
-                 :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
-                 :       │   DistributedLeafExec:
-                 :       │     t0: PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :       │     t1: PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
-                 :       └──────────────────────────────────────────────────
-(37 rows)
+         Backend: DataFusion
+         Indexes: multicolumn_topk_work_items_idx (w), multicolumn_topk_researchers_idx (r)
+         Group By: researcher_id
+         Aggregates: MAX(item_date)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ SortPreservingMergeExec: [agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], fetch=1
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=2
+           :   │ SortExec: TopK(fetch=1), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], preserve_partitioning=[true]
+           :   │   AggregateExec: mode=FinalPartitioned, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
+           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=4
+           :     │ RepartitionExec: partitioning=Hash([researcher_id@0], 4), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :     │         t1: PgSearchScan: table=w, segments=2, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+           :       ┌───── Stage 1 ── tasks=2, partitions=4
+           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :       │   DistributedLeafExec:
+           :       │     t0: PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :       │     t1: PgSearchScan: table=r, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+           :       └──────────────────────────────────────────────────
+(34 rows)
 
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w

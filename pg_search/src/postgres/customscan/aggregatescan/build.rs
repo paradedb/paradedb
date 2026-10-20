@@ -497,8 +497,9 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 }
             }
         };
-        // LimitOffset is optional - returns None when there is no LIMIT clause.
-        let limit_offset = LimitOffset::from_parse(args.root().parse);
+        // `None` without a LIMIT, or when a DISTINCT or window stage above the
+        // grouping needs every bucket.
+        let limit_offset = args.grouping_limit_offset();
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         // The planner can simplify the operator out of the quals, so the query as written counts too.

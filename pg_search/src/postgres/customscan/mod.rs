@@ -67,6 +67,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
@@ -382,10 +383,34 @@ impl CreateUpperPathsHookArgs {
         )
     }
 
-    /// The statically-known `LIMIT + OFFSET` of the query, or `None` when there
-    /// is no LIMIT or its value is parameterized (not known at planning time).
+    /// The query's `LIMIT`/`OFFSET` as the grouping stage sees it, or `None`
+    /// when there is no LIMIT.
+    ///
+    /// Above a `GROUP BY`, a `DISTINCT` or a window function runs between the
+    /// grouping and the `Limit` node and needs every grouped row, so a fetch
+    /// pushed into the grouping would starve it. The `DISTINCT` can fold the
+    /// fetched rows into fewer than the limit, and `count(*) OVER ()` would
+    /// count the fetch instead of the groups. A scan planned at
+    /// `UPPERREL_DISTINCT` runs the `DISTINCT` itself and sits above the
+    /// window stage, so it sees the `Limit` next.
+    pub fn grouping_limit_offset(&self) -> Option<LimitOffset> {
+        let parse = self.root().parse;
+        if parse.is_null() {
+            return None;
+        }
+        let has_stage_above = self.stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+            && unsafe { !(*parse).distinctClause.is_null() || (*parse).hasWindowFuncs };
+        if has_stage_above {
+            return None;
+        }
+        LimitOffset::from_parse(parse)
+    }
+
+    /// The statically-known `LIMIT + OFFSET` of [`Self::grouping_limit_offset`],
+    /// or `None` when its value is parameterized (not known at planning time).
     pub fn limit_plus_offset(&self) -> Option<usize> {
-        limit_offset::LimitOffset::from_parse(self.root().parse).and_then(|lo| lo.static_fetch())
+        self.grouping_limit_offset()
+            .and_then(|lo| lo.static_fetch())
     }
 
     /// True when the query groups by exactly one column. Tantivy's bounded top-N

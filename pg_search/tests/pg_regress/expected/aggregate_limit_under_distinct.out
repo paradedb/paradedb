@@ -1,0 +1,256 @@
+-- A DISTINCT or a window function runs between the grouping and the LIMIT
+-- and needs every grouped row. Neither aggregate backend may push the fetch
+-- into the grouping under one of them, or the stage above runs short.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE limit_under_distinct_researchers (
+    researcher_id INT PRIMARY KEY,
+    bio TEXT
+);
+CREATE TABLE limit_under_distinct_work_items (
+    work_id INT PRIMARY KEY,
+    researcher_id INT NOT NULL,
+    item_date DATE NOT NULL,
+    abstract_text TEXT NOT NULL
+);
+CREATE INDEX limit_under_distinct_researchers_idx ON limit_under_distinct_researchers
+USING bm25 (researcher_id, bio);
+CREATE INDEX limit_under_distinct_work_items_idx ON limit_under_distinct_work_items
+USING bm25 (work_id, researcher_id, item_date, abstract_text);
+-- Researchers 1 and 2 share the same MAX(item_date).
+INSERT INTO limit_under_distinct_researchers (researcher_id, bio) VALUES
+    (1, 'cancer immunology'),
+    (2, 'cancer genomics'),
+    (3, 'cancer proteomics'),
+    (4, 'cancer metabolism'),
+    (5, 'cancer therapeutics');
+INSERT INTO limit_under_distinct_work_items (work_id, researcher_id, item_date, abstract_text) VALUES
+    (101, 1, '2025-06-01', 'cancer study alpha'),
+    (102, 1, '2025-05-01', 'cancer poster alpha'),
+    (103, 2, '2025-06-01', 'cancer study beta'),
+    (104, 2, '2025-04-01', 'cancer trial beta'),
+    (105, 3, '2025-05-15', 'cancer poster gamma'),
+    (106, 4, '2025-03-10', 'cancer grant delta'),
+    (107, 5, '2025-01-20', 'cancer review epsilon');
+-- Fifty categories. Category k holds 10 * (k / 10 + 1) rows, so the counts
+-- take five distinct values and ten categories share each value.
+CREATE TABLE limit_under_distinct_items (id INT, cat TEXT);
+INSERT INTO limit_under_distinct_items
+SELECT row_number() OVER (), 'cat_' || lpad(k::text, 2, '0')
+FROM generate_series(0, 49) k, generate_series(1, 10 * (k / 10 + 1)) n;
+CREATE INDEX limit_under_distinct_items_idx ON limit_under_distinct_items
+USING bm25 (id, (cat::pdb.literal));
+ANALYZE limit_under_distinct_researchers;
+ANALYZE limit_under_distinct_work_items;
+ANALYZE limit_under_distinct_items;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers_per_gather TO 0;
+-- DISTINCT over a grouped join. A TopK of two groups would hold the two
+-- researchers that share a date, and the DISTINCT would fold them into one row.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT MAX(w.item_date) AS d
+FROM limit_under_distinct_work_items w
+JOIN limit_under_distinct_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY d DESC
+LIMIT 2;
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: (max(w.item_date)) DESC
+               ->  Custom Scan (ParadeDB Aggregate Scan)
+                     Backend: DataFusion
+                     Indexes: limit_under_distinct_work_items_idx (w), limit_under_distinct_researchers_idx (r)
+                     Group By: researcher_id
+                     Aggregates: MAX(item_date)
+                     DataFusion Physical Plan: 
+                       : AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
+                       :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
+                       :     CooperativeExec
+                       :       PgSearchScan: table=r, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+                       :     CooperativeExec
+                       :       PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT DISTINCT MAX(w.item_date) AS d
+FROM limit_under_distinct_work_items w
+JOIN limit_under_distinct_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY d DESC
+LIMIT 2;
+     d      
+------------
+ 06-01-2025
+ 05-15-2025
+(2 rows)
+
+-- DISTINCT ON over a grouped join.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT ON (MAX(w.item_date)) w.researcher_id
+FROM limit_under_distinct_work_items w
+JOIN limit_under_distinct_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY MAX(w.item_date) DESC, w.researcher_id
+LIMIT 2;
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: (max(w.item_date)) DESC, w.researcher_id
+               ->  Custom Scan (ParadeDB Aggregate Scan)
+                     Backend: DataFusion
+                     Indexes: limit_under_distinct_work_items_idx (w), limit_under_distinct_researchers_idx (r)
+                     Group By: researcher_id
+                     Aggregates: MAX(item_date)
+                     DataFusion Physical Plan: 
+                       : AggregateExec: mode=Single, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
+                       :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
+                       :     CooperativeExec
+                       :       PgSearchScan: table=r, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+                       :     CooperativeExec
+                       :       PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT DISTINCT ON (MAX(w.item_date)) w.researcher_id
+FROM limit_under_distinct_work_items w
+JOIN limit_under_distinct_researchers r ON w.researcher_id = r.researcher_id
+WHERE w.abstract_text @@@ 'cancer' OR r.bio @@@ 'cancer'
+GROUP BY w.researcher_id
+ORDER BY MAX(w.item_date) DESC, w.researcher_id
+LIMIT 2;
+ researcher_id 
+---------------
+             1
+             3
+(2 rows)
+
+-- A single table on the DataFusion backend.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT COUNT(*) AS c
+FROM limit_under_distinct_items
+WHERE id @@@ pdb.all()
+GROUP BY cat
+ORDER BY c DESC
+LIMIT 3;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: (count(*)) DESC
+               ->  Custom Scan (ParadeDB Aggregate Scan)
+                     Backend: DataFusion
+                     Indexes: limit_under_distinct_items_idx (limit_under_distinct_items)
+                     Group By: cat
+                     Aggregates: COUNT(*)
+                     DataFusion Physical Plan: 
+                       : AggregateExec: mode=Final, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+                       :   TantivyDecodeExec: decode=[cat]
+                       :     AggregateExec: mode=Partial, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+                       :       TantivyFetchExec: fetch=[cat]
+                       :         CooperativeExec
+                       :           PgSearchScan: table=limit_under_distinct_items, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(16 rows)
+
+SELECT DISTINCT COUNT(*) AS c
+FROM limit_under_distinct_items
+WHERE id @@@ pdb.all()
+GROUP BY cat
+ORDER BY c DESC
+LIMIT 3;
+ c  
+----
+ 50
+ 40
+ 30
+(3 rows)
+
+-- A single table on the Tantivy backend: the bucket count must not follow
+-- the LIMIT. Five distinct counts exist, so the inner LIMIT keeps every one.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT * FROM (
+    SELECT DISTINCT COUNT(*) AS c
+    FROM limit_under_distinct_items
+    WHERE id @@@ pdb.all()
+    GROUP BY cat
+    LIMIT 5
+) s ORDER BY c;
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Subquery Scan on s
+   ->  Limit
+         ->  Unique
+               ->  Sort
+                     Sort Key: (pdb.agg_fn('COUNT(*)'::text))
+                     ->  Custom Scan (ParadeDB Aggregate Scan) on limit_under_distinct_items
+                           Index: limit_under_distinct_items_idx
+                           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                             Applies to Aggregates: COUNT(*)
+                             Group By: cat
+                             Aggregate Definition: {"grouped":{"terms":{"field":"cat","segment_size":65000,"size":65000}}}
+(11 rows)
+
+SELECT * FROM (
+    SELECT DISTINCT COUNT(*) AS c
+    FROM limit_under_distinct_items
+    WHERE id @@@ pdb.all()
+    GROUP BY cat
+    LIMIT 5
+) s ORDER BY c;
+ c  
+----
+ 10
+ 20
+ 30
+ 40
+ 50
+(5 rows)
+
+-- A window function over the Tantivy backend: the window must see every
+-- group, so the total is the whole table on each of the three rows.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT COUNT(*), MIN(total), MAX(total) FROM (
+    SELECT cat, SUM(COUNT(*)) OVER () AS total
+    FROM limit_under_distinct_items
+    WHERE id @@@ pdb.all()
+    GROUP BY cat
+    LIMIT 3
+) s;
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Limit
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Custom Scan (ParadeDB Aggregate Scan) on limit_under_distinct_items
+                     Index: limit_under_distinct_items_idx
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                       Applies to Aggregates: COUNT(*)
+                       Group By: cat
+                       Aggregate Definition: {"grouped":{"terms":{"field":"cat","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT COUNT(*), MIN(total), MAX(total) FROM (
+    SELECT cat, SUM(COUNT(*)) OVER () AS total
+    FROM limit_under_distinct_items
+    WHERE id @@@ pdb.all()
+    GROUP BY cat
+    LIMIT 3
+) s;
+ count | min  | max  
+-------+------+------
+     3 | 1500 | 1500
+(1 row)
+
+RESET max_parallel_workers_per_gather;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE limit_under_distinct_items;
+DROP TABLE limit_under_distinct_work_items;
+DROP TABLE limit_under_distinct_researchers;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792484887732,
+  "lastUpdate": 1792484905097,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -153548,6 +153548,106 @@ window.BENCHMARK_DATA = {
             "value": 44.1640625,
             "unit": "median mem",
             "extra": "avg mem: 44.120949502642475, max mem: 44.1640625, count: 59414"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6f757ee6bc484d67f8c72cea4cfdc8a4d22aad79",
+          "message": "Merge d53627a5c242f825d6e64adfc02ad7192951cb3a into 9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "timestamp": "2026-10-20T07:04:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6f757ee6bc484d67f8c72cea4cfdc8a4d22aad79"
+        },
+        "date": 1792484895883,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07772727272727273, max background_merging: 2.0, count: 59400"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.662619480305116, max cpu: 9.590409, count: 59400"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.727768702651517, max mem: 26.73046875, count: 59400"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.865248527721009, max cpu: 9.711684, count: 59400"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 42.875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.86811973905724, max mem: 42.87890625, count: 59400"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 63654,
+            "unit": "median block_count",
+            "extra": "avg block_count: 63398.789326599326, max block_count: 63654.0, count: 59400"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.352424242424242, max segment_count: 21.0, count: 59400"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.54095,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.06163681844146, max cpu: 33.718014, count: 59400"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 95.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.06979271885523, max mem: 95.515625, count: 59400"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.596294435517298, max cpu: 9.528536, count: 59400"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 43.25,
+            "unit": "median mem",
+            "extra": "avg mem: 43.17646043771044, max mem: 43.25, count: 59400"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.679941402981187, max cpu: 9.542743, count: 59400"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 42.875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.84757154882155, max mem: 42.875, count: 59400"
           }
         ]
       }

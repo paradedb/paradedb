@@ -1250,16 +1250,16 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
 /// which carries raw planner `JoinAggSource`s instead of a `RelNode` tree.
-struct FilterExprExecContext<'a> {
-    targetlist: Option<&'a JoinAggregateTargetList>,
-    plan: Option<&'a RelNode>,
+pub struct FilterExprExecContext<'a> {
+    pub targetlist: Option<&'a JoinAggregateTargetList>,
+    pub plan: Option<&'a RelNode>,
 }
 
 impl FilterExpr {
     /// Translate this expression to a DataFusion `Expr`.
     ///
     /// Used for both HAVING (pass `targetlist`) and per-aggregate FILTER (pass `plan`).
-    fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
+    pub fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
         use datafusion::logical_expr::Operator;
 
         match self {

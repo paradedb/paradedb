@@ -318,33 +318,24 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5;
-WARNING:  JoinScan not used: target list expression contains a volatile function (tables: t1, t2)
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: t1.id, (round(((random() * '100'::double precision))::numeric, 2))
-   ->  Result
-         Output: t1.id, round(((random() * '100'::double precision))::numeric, 2)
-         ->  Sort
-               Output: t1.id
-               Sort Key: t1.id NULLS FIRST
-               ->  Hash Join
-                     Output: t1.id
-                     Inner Unique: true
-                     Hash Cond: (t2.t1_id = t1.id)
-                     ->  Seq Scan on public.sorted_t2 t2
-                           Output: t2.id, t2.t1_id, t2.val
-                     ->  Hash
-                           Output: t1.id
-                           ->  Custom Scan (ParadeDB Base Scan) on public.sorted_t1 t1
-                                 Output: t1.id
-                                 Table: sorted_t1
-                                 Index: sorted_t1_idx
-                                 Worker Selection: Cost model
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(23 rows)
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: t1.id, round(((random() * '100'::double precision))::numeric, 2)
+   Relation Tree: t1 INNER t2
+   Join Cond: t1.id = t2.t1_id
+   Limit: 5
+   Order By: t1.id asc nulls first
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, ctid_1@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 SELECT setseed(0.5);
  setseed 
@@ -358,7 +349,6 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5;
-WARNING:  JoinScan not used: target list expression contains a volatile function (tables: t1, t2)
  id | rand_val 
 ----+----------
   1 |    98.52
@@ -380,7 +370,7 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY rand_val, t1.id
 LIMIT 5;
-WARNING:  JoinScan not used: target list expression contains a volatile function (tables: t1, t2)
+WARNING:  JoinScan not used: ORDER BY columns cannot contain volatile functions (tables: t1, t2)
                                                                                                    QUERY PLAN                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -416,24 +406,31 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY random(), t1.id
 LIMIT 5;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
+WARNING:  JoinScan not used: ORDER BY columns cannot contain volatile functions (tables: t1, t2)
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
    Output: t1.id, (random())
-   Relation Tree: t1 INNER t2
-   Join Cond: t1.id = t2.t1_id
-   Limit: 5
-   Order By: t1.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, ctid_1@3]
-     :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+   ->  Sort
+         Output: t1.id, (random())
+         Sort Key: (random()), t1.id
+         ->  Hash Join
+               Output: t1.id, random()
+               Inner Unique: true
+               Hash Cond: (t2.t1_id = t1.id)
+               ->  Seq Scan on public.sorted_t2 t2
+                     Output: t2.id, t2.t1_id, t2.val
+               ->  Hash
+                     Output: t1.id
+                     ->  Custom Scan (ParadeDB Base Scan) on public.sorted_t1 t1
+                           Output: t1.id
+                           Table: sorted_t1
+                           Index: sorted_t1_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(21 rows)
 
 -- =============================================================================
 -- TEST 3: Multi-segment sorted join

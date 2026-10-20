@@ -203,7 +203,9 @@ impl TopKSortTarget {
 /// When the sort target is a GROUP BY column or MIN/MAX aggregate, DataFusion's
 /// built-in `TopKAggregation` optimizer rule can push the limit into
 /// `AggregateExec`, enabling early termination (group-key ordering) or
-/// PriorityMap-based pruning (MIN/MAX ordering) during aggregation.
+/// PriorityMap-based pruning (MIN/MAX ordering) during aggregation. That rule
+/// takes exactly one sort key over exactly one group column; every other
+/// shape, multi-key sorts included, runs as `SortExec` with `fetch=K`.
 ///
 /// For COUNT/SUM/AVG ordering, DataFusion's `SortExec(fetch=K)` uses a bounded
 /// TopK heap — still more efficient than letting Postgres sort above us.

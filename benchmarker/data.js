@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792489929588,
+  "lastUpdate": 1792489943597,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24021,6 +24021,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.01402854682845,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee32791152989d60d5e2e18a0c750549138f72e2",
+          "message": "perf: push every ORDER BY key into the join aggregate TopK (#6921)\n\n## Ticket(s) Closed\n\n- None. Repro from the `stuhood.aggregate-join-multicolumn` branch in\n`paradedb-enterprise`.\n\n## What\n\nThis PR pushes a multi-key `ORDER BY ... LIMIT` into the DataFusion TopK\nfor `GROUP BY` queries on the DataFusion backend, joins included.\n\n## Why\n\n`detect_join_aggregate_topk` declined any `ORDER BY` with more than one\nkey. A tie-breaker such as `ORDER BY MAX(w.item_date) DESC,\nw.researcher_id ASC LIMIT 3` lost the `SortExec: TopK`, so every grouped\nrow went to the Postgres `Sort`. Under MPP each task streamed all of its\ngroups to the leader.\n\n## How\n\nEvery sort key is resolved, all or none. A TopK over a prefix of the\nkeys could drop a row that the full ordering ranks inside the first `K`.\nAlong the way, a `LATERAL unnest` sort key gets its projected name, and\nthe collation check now covers aggregate keys such as `STRING_AGG`.\n\n## Tests\n\n`aggregate_join_multicolumn_topk` has a tie on the `LIMIT` boundary that\nonly the second key settles, and an MPP plan with the per-task TopK.\nSome existing plans gained the multi-key TopK with unchanged rows.",
+          "timestamp": "2026-10-20T01:23:59-07:00",
+          "tree_id": "44ac90cc888725faeb2418270e82760eade2fd54",
+          "url": "https://github.com/paradedb/paradedb/commit/ee32791152989d60d5e2e18a0c750549138f72e2"
+        },
+        "date": 1792489934493,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.09616473593657,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.42278276362066,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.25164521456552,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.700897296222983,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.08378011642494,
             "unit": "queries/s"
           }
         ]

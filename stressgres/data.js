@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792486169937,
+  "lastUpdate": 1792486188647,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -176858,6 +176858,64 @@ window.BENCHMARK_DATA = {
             "value": 21.715120640651314,
             "unit": "median tps",
             "extra": "avg tps: 21.599391261745087, max tps: 35.274518294705615, count: 59317"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c0e8e052b66d6ab3468cbcde8117459d0bac5336",
+          "message": "Merge d89c0f6aeb4155d8cb713f86235ee97bf0524e1f into 9aa24da283d6532d0c9c47f846d72894a6a25d4b",
+          "timestamp": "2026-10-20T08:15:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c0e8e052b66d6ab3468cbcde8117459d0bac5336"
+        },
+        "date": 1792486148471,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 127.20723569564889,
+            "unit": "median tps",
+            "extra": "avg tps: 125.67317522540702, max tps: 139.7888304034988, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.04394691962688,
+            "unit": "median tps",
+            "extra": "avg tps: 291.643533898882, max tps: 5294.027173942627, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3127.637417549776,
+            "unit": "median tps",
+            "extra": "avg tps: 3169.123650402727, max tps: 3507.735042955139, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 155.66703973322927,
+            "unit": "median tps",
+            "extra": "avg tps: 154.16516680878382, max tps: 172.271882297985, count: 59305"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 259.2866829799764,
+            "unit": "median tps",
+            "extra": "avg tps: 259.4193500325357, max tps: 3352.3407543802236, count: 118610"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.81432372328664,
+            "unit": "median tps",
+            "extra": "avg tps: 19.49320380011376, max tps: 35.01928056530084, count: 59305"
           }
         ]
       }

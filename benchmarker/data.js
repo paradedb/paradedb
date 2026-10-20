@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792531782507,
+  "lastUpdate": 1792531798610,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22405,6 +22405,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 374.2532128616738,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62fbb07df281d4ce83e6d1c9a689d0b0727d5a27",
+          "message": "chore: bump rustls-webpki and webpki-roots to fix RUSTSEC advisories (#6936)\n\n## Summary\n`cargo audit` reports two vulnerabilities in `Cargo.lock`. This PR bumps\nboth crates with `cargo update`:\n\n- `rustls-webpki` 0.103.15 → 0.103.16\n([RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382):\ncertificate verification may accept distrusted intermediates)\n- `webpki-roots` 1.0.9 → 1.0.10\n([RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381):\nbundled roots allow trust in distrusted emSign intermediates)\n\nOnly `Cargo.lock` changes.\n\n## Testing\n- `cargo audit`: 0 vulnerabilities (only the 7 existing\nunmaintained-crate warnings remain)\n- `cargo check --workspace --locked` passes\n\n🤖 Generated with Claude Code\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-20T14:46:50-06:00",
+          "tree_id": "06c6202417700ada4ccc89c87d5a78954c7de571",
+          "url": "https://github.com/paradedb/paradedb/commit/62fbb07df281d4ce83e6d1c9a689d0b0727d5a27"
+        },
+        "date": 1792531787569,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 528.8667355295228,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 507.74121886746786,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 139.89771823724863,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 252.849721050788,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 373.8235497783879,
             "unit": "queries/s"
           }
         ]

@@ -61,6 +61,7 @@ use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
 use crate::schema::SearchFieldType;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
@@ -1079,39 +1080,6 @@ impl PathJoinShape {
     }
 }
 
-/// Read the join nesting of `path` through its transparent wrappers. A join
-/// that is not inner, or a node over several relations that is not a join
-/// path, hides the nesting and yields `None`.
-unsafe fn path_join_shape(path: *mut pg_sys::Path) -> Option<PathJoinShape> {
-    if path.is_null() {
-        return None;
-    }
-    if let Some(subpath) = transparent_path_subpath(path) {
-        if subpath.is_null() || subpath == path {
-            return None;
-        }
-        return path_join_shape(subpath);
-    }
-    let is_join_path = matches!(
-        (*path).type_,
-        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
-    );
-    if !is_join_path {
-        let parent = (*path).parent;
-        if parent.is_null() || pg_sys::bms_num_members((*parent).relids) != 1 {
-            return None;
-        }
-        return bms_iter((*parent).relids).next().map(PathJoinShape::Base);
-    }
-    let join_path = &*(path as *mut pg_sys::JoinPath);
-    if join_path.jointype != pg_sys::JoinType::JOIN_INNER {
-        return None;
-    }
-    let outer = path_join_shape(join_path.outerjoinpath)?;
-    let inner = path_join_shape(join_path.innerjoinpath)?;
-    Some(PathJoinShape::Join(Box::new(outer), Box::new(inner)))
-}
-
 /// A join nesting over base relations, with the two inputs of every join in
 /// the order the query wrote them.
 #[derive(Debug, PartialEq, Eq)]
@@ -1171,7 +1139,7 @@ impl JoinNesting {
 
     /// Whether every pair has an equi-key or a filter that straddles its two
     /// inputs. A pair without one would run as a cross join.
-    fn is_keyed(&self, keys: &[JoinKeyPair], filter_rtis: &[Vec<pg_sys::Index>]) -> bool {
+    fn is_keyed(&self, keys: &[JoinKeyPair], filters: &[JoinFilter]) -> bool {
         let Self::Pair(a, b) = self else {
             return true;
         };
@@ -1179,10 +1147,10 @@ impl JoinNesting {
             (a.contains(x) && b.contains(y)) || (a.contains(y) && b.contains(x))
         };
         let keyed = keys.iter().any(|k| straddles(k.outer_rti, k.inner_rti))
-            || filter_rtis.iter().any(|rtis| {
+            || filters.iter().any(|(_, rtis)| {
                 rtis.iter().any(|r| a.contains(*r)) && rtis.iter().any(|r| b.contains(*r))
             });
-        keyed && a.is_keyed(keys, filter_rtis) && b.is_keyed(keys, filter_rtis)
+        keyed && a.is_keyed(keys, filters) && b.is_keyed(keys, filters)
     }
 
     fn first_parse_index(&self, parse_index: &HashMap<pg_sys::Index, usize>) -> usize {
@@ -1234,76 +1202,58 @@ fn join_filter_rtis(expr: &JoinLevelExpr) -> Option<Vec<pg_sys::Index>> {
     Some(rtis)
 }
 
-/// The relations each join filter of a plain inner-join tree reads.
-fn inner_tree_filter_rtis(plan: &RelNode, acc: &mut Vec<Vec<pg_sys::Index>>) {
-    if let RelNode::Join(j) = plan {
-        if let Some(filter) = &j.filter {
-            acc.push(join_filter_rtis(filter).unwrap_or_default());
-        }
-        inner_tree_filter_rtis(&j.left, acc);
-        inner_tree_filter_rtis(&j.right, acc);
-    }
-}
+/// A join filter with the relations it reads.
+type JoinFilter = (JoinLevelExpr, Vec<pg_sys::Index>);
 
-/// Take the scans and join filters out of a plain inner-join tree.
-fn dismantle_inner_tree(
-    plan: RelNode,
-    scans: &mut HashMap<pg_sys::Index, Box<JoinSource>>,
-    filters: &mut Vec<(JoinLevelExpr, Vec<pg_sys::Index>)>,
-) {
-    match plan {
-        RelNode::Scan(s) => {
-            scans.insert(s.scan_info.heap_rti, s);
+/// Every join filter of a plain inner-join tree.
+fn join_filters(plan: &RelNode) -> Vec<JoinFilter> {
+    let mut filters = Vec::new();
+    plan.apply(|node| {
+        if let RelNode::Join(j) = node
+            && let Some(filter) = &j.filter
+        {
+            filters.push((filter.clone(), join_filter_rtis(filter).unwrap_or_default()));
         }
-        RelNode::Join(j) => {
-            let JoinNode {
-                left,
-                right,
-                filter,
-                ..
-            } = *j;
-            if let Some(filter) = filter {
-                let rtis = join_filter_rtis(&filter).unwrap_or_default();
-                filters.push((filter, rtis));
-            }
-            dismantle_inner_tree(left, scans, filters);
-            dismantle_inner_tree(right, scans, filters);
-        }
-        RelNode::Filter(_) | RelNode::Unnest(_) => {
-            unreachable!("JoinNesting::from_plan admits only scans and inner joins")
-        }
-    }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("collecting join filters cannot fail");
+    filters
 }
 
 /// Place a join filter at the lowest join that sees every relation it reads.
-/// A filter over one relation that sits directly under the join is dropped:
+/// A filter over one relation that sits directly under a join is left out:
 /// the planner keeps that clause in the relation's `baserestrictinfo`, which
 /// the scan node enforces or declines on.
-fn attach_join_filter(node: &mut RelNode, filter: JoinLevelExpr, rtis: &[pg_sys::Index]) {
-    let RelNode::Join(j) = node else {
-        return;
-    };
+fn attach_join_filter(plan: RelNode, filter: JoinLevelExpr, rtis: &[pg_sys::Index]) -> RelNode {
     let within = |side: &RelNode| !rtis.is_empty() && rtis.iter().all(|r| side.contains_rti(*r));
-    if within(&j.left) {
-        if !matches!(j.left, RelNode::Scan(_)) {
-            attach_join_filter(&mut j.left, filter, rtis);
+    let covers = |j: &JoinNode| {
+        !rtis.is_empty()
+            && rtis
+                .iter()
+                .all(|r| j.left.contains_rti(*r) || j.right.contains_rti(*r))
+    };
+    let mut filter = Some(filter);
+    plan.transform_down(|node| match node {
+        RelNode::Join(mut j) if covers(&j) && !within(&j.left) && !within(&j.right) => {
+            let filter = filter.take().expect("a join filter lands on one join");
+            j.filter = Some(match j.filter.take() {
+                None => filter,
+                Some(JoinLevelExpr::And(mut children)) => {
+                    children.push(filter);
+                    JoinLevelExpr::And(children)
+                }
+                Some(existing) => JoinLevelExpr::And(vec![existing, filter]),
+            });
+            Ok(Transformed::new(
+                RelNode::Join(j),
+                true,
+                TreeNodeRecursion::Jump,
+            ))
         }
-        return;
-    }
-    if within(&j.right) {
-        if !matches!(j.right, RelNode::Scan(_)) {
-            attach_join_filter(&mut j.right, filter, rtis);
-        }
-        return;
-    }
-    j.filter = Some(match j.filter.take() {
-        None => filter,
-        Some(JoinLevelExpr::And(mut children)) => {
-            children.push(filter);
-            JoinLevelExpr::And(children)
-        }
-        Some(existing) => JoinLevelExpr::And(vec![existing, filter]),
-    });
+        node => Ok(Transformed::no(node)),
+    })
+    .expect("attaching a join filter cannot fail")
+    .data
 }
 
 /// Rebuild an all-inner join tree in the nesting the planner chose, so the
@@ -1341,23 +1291,23 @@ fn follow_path_join_order(plan: RelNode, shape: &PathJoinShape) -> RelNode {
         return plan;
     }
     let keys = plan.join_keys();
-    let mut filter_rtis = Vec::new();
-    inner_tree_filter_rtis(&plan, &mut filter_rtis);
-    if !planner_nesting.is_keyed(&keys, &filter_rtis) {
+    let filters = join_filters(&plan);
+    if !planner_nesting.is_keyed(&keys, &filters) {
         return plan;
     }
 
-    let mut scans = HashMap::new();
-    let mut filters = Vec::new();
-    dismantle_inner_tree(plan, &mut scans, &mut filters);
+    let mut scans: HashMap<pg_sys::Index, Box<JoinSource>> = plan
+        .sources()
+        .into_iter()
+        .map(|s| (s.scan_info.heap_rti, Box::new(s.clone())))
+        .collect();
     let mut rebuilt = planner_nesting
         .build(&mut scans)
         .expect("the planner nesting and the parse tree cover the same relations");
     rebuilt.inject_equi_keys(keys);
-    for (filter, rtis) in filters {
-        attach_join_filter(&mut rebuilt, filter, &rtis);
-    }
-    rebuilt
+    filters.into_iter().fold(rebuilt, |tree, (filter, rtis)| {
+        attach_join_filter(tree, filter, &rtis)
+    })
 }
 
 /// Result of a single walk over the cheapest path's `joinrestrictinfo`.
@@ -1534,7 +1484,7 @@ fn analyze_join_path_restrictinfo(
         search_clauses: Vec::new(),
         decline_reason: None,
         coverage: PathPredicateCoverage::Complete,
-        join_shape: unsafe { path_join_shape(path) },
+        join_shape: None,
     };
     let mut on_clauses = Vec::new();
     if !root.is_null()
@@ -1548,7 +1498,7 @@ fn analyze_join_path_restrictinfo(
             sources,
             on_clauses: &on_clauses,
         };
-        walk_path_restrictinfo(&cx, path, false, &mut info);
+        info.join_shape = walk_path_restrictinfo(&cx, path, false, &mut info);
     }
     info
 }
@@ -1679,14 +1629,17 @@ unsafe fn classify_path_restrictinfo(
     }
 }
 
+/// Inventory the predicates of `path`, and read its inner-join nesting on
+/// the way back up. A join that is not inner, or an opaque node over several
+/// relations, hides the nesting from every join above it.
 fn walk_path_restrictinfo(
     cx: &PathWalkContext<'_>,
     path: *mut pg_sys::Path,
     behind_transparent_wrapper: bool,
     info: &mut PathRestrictInfo,
-) {
+) -> Option<PathJoinShape> {
     if path.is_null() {
-        return;
+        return None;
     }
 
     // Parameterized nested-loop clauses can be removed from the parent
@@ -1716,10 +1669,9 @@ fn walk_path_restrictinfo(
     if let Some(subpath) = transparent_path_subpath(path) {
         if subpath.is_null() || subpath == path {
             info.mark_incomplete(unsafe { (*path).type_ });
-            return;
+            return None;
         }
-        walk_path_restrictinfo(cx, subpath, true, info);
-        return;
+        return walk_path_restrictinfo(cx, subpath, true, info);
     }
 
     let tag = unsafe { (*path).type_ };
@@ -1732,10 +1684,15 @@ fn walk_path_restrictinfo(
         // are covered separately by baserestrictinfo. A non-transparent path
         // over a join relation is opaque and cannot be reconstructed safely.
         let parent = unsafe { (*path).parent };
-        if !parent.is_null() && unsafe { pg_sys::bms_num_members((*parent).relids) } > 1 {
-            info.mark_incomplete(tag);
+        if parent.is_null() {
+            return None;
         }
-        return;
+        let relids = unsafe { (*parent).relids };
+        if unsafe { pg_sys::bms_num_members(relids) } > 1 {
+            info.mark_incomplete(tag);
+            return None;
+        }
+        return unsafe { bms_iter(relids) }.next().map(PathJoinShape::Base);
     }
 
     let join_path = unsafe { &*(path as *mut pg_sys::JoinPath) };
@@ -1755,18 +1712,24 @@ fn walk_path_restrictinfo(
         );
     }
 
-    walk_path_restrictinfo(
+    // Both inputs are inventoried before the nesting is decided, so a decline
+    // below a non-inner join is still recorded.
+    let outer = walk_path_restrictinfo(
         cx,
         join_path.outerjoinpath,
         behind_transparent_wrapper,
         info,
     );
-    walk_path_restrictinfo(
+    let inner = walk_path_restrictinfo(
         cx,
         join_path.innerjoinpath,
         behind_transparent_wrapper,
         info,
     );
+    if join_path.jointype != pg_sys::JoinType::JOIN_INNER {
+        return None;
+    }
+    Some(PathJoinShape::Join(Box::new(outer?), Box::new(inner?)))
 }
 
 /// Validate that the selected lower path has complete, supported

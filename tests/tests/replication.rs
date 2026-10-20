@@ -1065,6 +1065,60 @@ async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> R
 }
 
 #[async_std::test]
+async fn test_ephemeral_immutable_backpressure_with_one_mutable_segment() -> Result<()> {
+    let postgres = EphemeralPostgres::new(
+        Some("shared_preload_libraries = 'pg_search'\nmax_worker_processes = 0\nautovacuum = off"),
+        None,
+    );
+    let mut conn = postgres.connection().await?;
+    conn.execute(
+        "CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE backpressure (id bigint, body text);
+        CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
+        WITH (target_segment_count=2, mutable_segment_rows=0, background_layer_sizes='0')",
+    )
+    .await?;
+    for id in 0..12_i64 {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(id)
+            .execute(&mut conn)
+            .await?;
+    }
+    conn.execute(
+        "ALTER INDEX backpressure_idx SET (mutable_segment_rows=1);
+        INSERT INTO backpressure VALUES (12, 'beer wine cheese');
+        INSERT INTO backpressure VALUES (13, 'beer wine cheese')",
+    )
+    .await?;
+    let segments = "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE visible";
+    let before: i64 = sqlx::query_scalar(segments).fetch_one(&mut conn).await?;
+    anyhow::ensure!(
+        before == 13,
+        "expected 12 immutable segments and one mutable"
+    );
+    conn.execute(
+        "ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100kb');
+        INSERT INTO backpressure VALUES (14, 'beer wine cheese')",
+    )
+    .await?;
+    let after: i64 = sqlx::query_scalar(segments).fetch_one(&mut conn).await?;
+    anyhow::ensure!(
+        after <= before,
+        "immutable backpressure did not offset the new segment: {before} -> {after}"
+    );
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    anyhow::ensure!(
+        passed == Some(true),
+        "verify_index failed after backpressure"
+    );
+    Ok(())
+}
+
+#[async_std::test]
 async fn test_ephemeral_backpressure_merges_each_statement_in_transaction() -> Result<()> {
     let postgres = EphemeralPostgres::new(
         Some("shared_preload_libraries = 'pg_search'\nmax_worker_processes = 0\nautovacuum = off"),

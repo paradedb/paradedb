@@ -286,9 +286,9 @@ fn backpressure(
     candidates: &[LayeredMergeCandidate],
     target_segment_count: usize,
 ) -> Option<&MergeCandidate> {
-    let needs_backpressure = candidates
+    candidates
         .chunk_by(|(left, _), (right, _)| left == right)
-        .any(|layer| {
+        .filter(|layer| {
             let threshold = if layer[0].0 == 0 {
                 2
             } else {
@@ -299,15 +299,9 @@ fn backpressure(
                 .map(|(_, candidate)| candidate.0.len())
                 .sum::<usize>()
                 > threshold
-        });
-    if needs_backpressure {
-        candidates
-            .iter()
-            .min_by_key(|(layer, _)| *layer)
-            .map(|(_, candidate)| candidate)
-    } else {
-        None
-    }
+        })
+        .min_by_key(|layer| layer[0].0)
+        .map(|layer| &layer[0].1)
 }
 
 /// Kick off a merge of the index, if needed.
@@ -331,7 +325,7 @@ pub unsafe fn do_merge(
     let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
     let mut merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
     merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-    let (mut candidates, largest_layer_size, skipped) = merge_policy.simulate_supported(&merger)?;
+    let (candidates, largest_layer_size, skipped) = merge_policy.simulate_supported(&merger)?;
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
@@ -340,20 +334,19 @@ pub unsafe fn do_merge(
         return Ok(());
     }
     if style == MergeStyle::Insert {
-        let needs_backpressure =
-            backpressure(&candidates, index.options().target_segment_count()).is_some();
-        if needs_backpressure && candidates.iter().all(|(layer, _)| *layer != 0) {
-            merge_policy.prefer_small_merges();
-            merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            (candidates, _, _) = merge_policy.simulate_supported(&merger)?;
-        }
-        let candidate = candidates
+        let foreground_candidate = candidates
             .iter()
-            .filter(|(layer, _)| {
-                needs_backpressure || layer_sizes.foreground_layer_sizes.contains(layer)
-            })
+            .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
             .min_by_key(|(layer, _)| *layer)
             .map(|(_, candidate)| candidate);
+        merge_policy.prefer_small_merges();
+        merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+        let (backpressure_candidates, _, _) = merge_policy.simulate_supported(&merger)?;
+        let candidate = backpressure(
+            &backpressure_candidates,
+            index.options().target_segment_count(),
+        )
+        .or(foreground_candidate);
         if let Some(candidate) = candidate {
             merge_index(
                 index,
@@ -782,7 +775,7 @@ mod tests {
                 }
             }
         }
-        let smallest_ids = all_entries[..6]
+        let smallest_pressured_ids = all_entries[6..12]
             .iter()
             .map(SegmentMetaEntry::segment_id)
             .collect::<HashSet<_>>();
@@ -799,7 +792,7 @@ mod tests {
                 .unwrap()
                 .0
                 .iter()
-                .all(|id| smallest_ids.contains(id))
+                .all(|id| smallest_pressured_ids.contains(id))
         );
     }
 

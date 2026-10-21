@@ -27,6 +27,7 @@ use crate::postgres::customscan::joinscan::build::{
 };
 use crate::query::SearchQueryInput;
 use datafusion::common::Column;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeIterator, TreeNodeRecursion};
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -77,28 +78,71 @@ pub enum FilterExpr {
     },
 }
 
+impl TreeNode for FilterExpr {
+    fn apply_children<'n, F: FnMut(&'n Self) -> datafusion::common::Result<TreeNodeRecursion>>(
+        &'n self,
+        mut f: F,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        match self {
+            Self::BinOp { left, right, .. } => f(left)?.visit_sibling(|| f(right)),
+            Self::And(children) | Self::Or(children) => children.iter().apply_until_stop(f),
+            Self::Not(inner) | Self::IsNull(inner) | Self::IsNotNull(inner) => f(inner),
+            Self::AggRef(_)
+            | Self::GroupRef(_)
+            | Self::ColumnRef(_)
+            | Self::LitInt(_)
+            | Self::LitFloat(_)
+            | Self::LitBool(_)
+            | Self::LitString(_)
+            | Self::SearchTag { .. } => Ok(TreeNodeRecursion::Continue),
+        }
+    }
+
+    fn map_children<F: FnMut(Self) -> datafusion::common::Result<Transformed<Self>>>(
+        self,
+        mut f: F,
+    ) -> datafusion::common::Result<Transformed<Self>> {
+        Ok(match self {
+            Self::BinOp { left, op, right } => f(*left)?
+                .update_data(|left| (left, *right))
+                .transform_sibling(
+                    |(left, right)| Ok(f(right)?.update_data(|right| (left, right))),
+                )?
+                .update_data(|(left, right)| Self::BinOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                }),
+            Self::And(children) => children
+                .into_iter()
+                .map_until_stop_and_collect(f)?
+                .update_data(Self::And),
+            Self::Or(children) => children
+                .into_iter()
+                .map_until_stop_and_collect(f)?
+                .update_data(Self::Or),
+            Self::Not(inner) => f(*inner)?.update_data(|inner| Self::Not(Box::new(inner))),
+            Self::IsNull(inner) => f(*inner)?.update_data(|inner| Self::IsNull(Box::new(inner))),
+            Self::IsNotNull(inner) => {
+                f(*inner)?.update_data(|inner| Self::IsNotNull(Box::new(inner)))
+            }
+            leaf @ (Self::AggRef(_)
+            | Self::GroupRef(_)
+            | Self::ColumnRef(_)
+            | Self::LitInt(_)
+            | Self::LitFloat(_)
+            | Self::LitBool(_)
+            | Self::LitString(_)
+            | Self::SearchTag { .. }) => Transformed::no(leaf),
+        })
+    }
+}
+
 impl FilterExpr {
     /// True if any [`FilterExpr::AggRef`] in this tree satisfies `pred`.
     pub fn any_agg_ref(&self, pred: &impl Fn(usize) -> bool) -> bool {
-        match self {
-            FilterExpr::AggRef(idx) => pred(*idx),
-            FilterExpr::GroupRef(_)
-            | FilterExpr::ColumnRef { .. }
-            | FilterExpr::LitInt(_)
-            | FilterExpr::LitFloat(_)
-            | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_)
-            | FilterExpr::SearchTag { .. } => false,
-            FilterExpr::BinOp { left, right, .. } => {
-                left.any_agg_ref(pred) || right.any_agg_ref(pred)
-            }
-            FilterExpr::And(children) | FilterExpr::Or(children) => {
-                children.iter().any(|c| c.any_agg_ref(pred))
-            }
-            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-                inner.any_agg_ref(pred)
-            }
-        }
+        self.exists(|node| Ok(matches!(node, FilterExpr::AggRef(idx) if pred(*idx))))
+            .unwrap_or(false)
     }
 
     /// Collects every FILTER `(plan_position, predicate)` pair in this tree.
@@ -106,31 +150,16 @@ impl FilterExpr {
         &'a self,
         out: &mut Vec<(usize, &'a JoinLevelSearchPredicate)>,
     ) {
-        match self {
-            FilterExpr::SearchTag {
+        let _ = self.apply(|node| {
+            if let FilterExpr::SearchTag {
                 plan_position,
                 predicate,
-            } => out.push((*plan_position, predicate)),
-            FilterExpr::BinOp { left, right, .. } => {
-                left.collect_search_predicates(out);
-                right.collect_search_predicates(out);
+            } = node
+            {
+                out.push((*plan_position, predicate.as_ref()));
             }
-            FilterExpr::And(children) | FilterExpr::Or(children) => {
-                children
-                    .iter()
-                    .for_each(|c| c.collect_search_predicates(out));
-            }
-            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-                inner.collect_search_predicates(out);
-            }
-            FilterExpr::AggRef(_)
-            | FilterExpr::GroupRef(_)
-            | FilterExpr::ColumnRef { .. }
-            | FilterExpr::LitInt(_)
-            | FilterExpr::LitFloat(_)
-            | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_) => {}
-        }
+            Ok(TreeNodeRecursion::Continue)
+        });
     }
 
     /// Visit the query of every [`FilterExpr::SearchTag`] in this tree.
@@ -139,6 +168,9 @@ impl FilterExpr {
     /// tag column is found by comparing the two. Whatever solves Params and
     /// Postgres expressions in the scan's copy has to solve this one too, or
     /// the comparison fails.
+    ///
+    /// Hand-written because [`TreeNode`] has no in-place `&mut` visit, as for
+    /// `RelNode::visit_queries_mut`.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
             FilterExpr::SearchTag { predicate, .. } => f(&mut predicate.query),
@@ -164,56 +196,25 @@ impl FilterExpr {
 
     /// Read-only counterpart of [`FilterExpr::visit_queries_mut`].
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
-        match self {
-            FilterExpr::SearchTag { predicate, .. } => f(&predicate.query),
-            FilterExpr::BinOp { left, right, .. } => {
-                left.visit_queries(f);
-                right.visit_queries(f);
+        let _ = self.apply(|node| {
+            if let FilterExpr::SearchTag { predicate, .. } = node {
+                f(&predicate.query);
             }
-            FilterExpr::And(children) | FilterExpr::Or(children) => {
-                children.iter().for_each(|c| c.visit_queries(f));
-            }
-            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-                inner.visit_queries(f);
-            }
-            FilterExpr::AggRef(_)
-            | FilterExpr::GroupRef(_)
-            | FilterExpr::ColumnRef { .. }
-            | FilterExpr::LitInt(_)
-            | FilterExpr::LitFloat(_)
-            | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_) => {}
-        }
+            Ok(TreeNodeRecursion::Continue)
+        });
     }
 
     /// Collect all `ColumnRef` column references from an [`FilterExpr`] tree.
+    /// Tag columns are synthesized by the scan, not read from fast fields, so
+    /// a [`FilterExpr::SearchTag`] contributes none.
     pub fn collect_column_refs(&self) -> Vec<ColumnRef> {
         let mut refs = Vec::new();
-        match self {
-            FilterExpr::ColumnRef(column_ref) => {
+        let _ = self.apply(|node| {
+            if let FilterExpr::ColumnRef(column_ref) = node {
                 refs.push(column_ref.clone());
             }
-            FilterExpr::BinOp { left, right, .. } => {
-                refs.extend(left.collect_column_refs());
-                refs.extend(right.collect_column_refs());
-            }
-            FilterExpr::And(children) | FilterExpr::Or(children) => {
-                for c in children {
-                    refs.extend(c.collect_column_refs());
-                }
-            }
-            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-                refs.extend(inner.collect_column_refs());
-            }
-            // Tag columns are synthesized by the scan, not read from fast fields.
-            FilterExpr::AggRef(_)
-            | FilterExpr::GroupRef(_)
-            | FilterExpr::LitInt(_)
-            | FilterExpr::LitFloat(_)
-            | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_)
-            | FilterExpr::SearchTag { .. } => {}
-        }
+            Ok(TreeNodeRecursion::Continue)
+        });
         refs
     }
 }

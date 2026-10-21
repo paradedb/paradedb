@@ -69,8 +69,11 @@ use crate::postgres::customscan::joinscan::scan_state::{
 use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::scan::PgSearchTableProvider;
+use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
+use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::{coalesce, get_field};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
@@ -621,16 +624,17 @@ fn build_pdb_aggregate_plan(
 
     let mut level_plans = Vec::with_capacity(groups.len());
 
-    // Under MPP each scan claims segments from the pool its `mpp_source_idx` names. Clones
-    // sharing the original's indexes would split every pool between them and each group would
-    // see part of the data, so groups past the first get their own pools, one source list apart
-    // (the launch replays manifest `i % sources` into pool `i`).
+    // Cloned union groups must not share a provider's runtime state: each group needs its own
+    // `ExprContext` (solving parameters resets per-tuple memory), and under MPP each scan claims
+    // segments from the pool its `source_idx` names (clones sharing the original's indexes would
+    // split every pool between them, so groups past the first get pools one source list apart,
+    // matching the launch's `i % sources` manifest replay).
     let pool_stride = plan.sources().len();
     for (group_idx, (needed_keys, levels_in_group)) in groups.into_iter().enumerate() {
         let mut level_plan = if group_idx == 0 {
             input.clone()
         } else {
-            restamp_mpp_sources(input.clone(), group_idx * pool_stride)?
+            isolate_cloned_sources(input.clone(), group_idx * pool_stride)?
         };
         for ak in &array_keys {
             if needed_keys.contains(&ak.key_idx) {
@@ -755,29 +759,21 @@ fn build_pdb_aggregate_plan(
     }
 }
 
-/// Move every MPP source scan in `plan` to the pool `offset` past its own. Serial scans
-/// (`mpp_source_idx = None`) are left alone.
-fn restamp_mpp_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPlan> {
-    use crate::postgres::customscan::joinscan::range_partitioning_rule::pg_search_provider_from_scan;
-    use datafusion::catalog::default_table_source::DefaultTableSource;
-    use datafusion::common::tree_node::{Transformed, TreeNode};
-
+/// Give every `PgSearchTableProvider` in a cloned union group its own runtime `ExprContext`
+/// and, under MPP, move its segment claims to the pool `offset` past its own.
+fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPlan> {
     plan.transform(|node| {
         let LogicalPlan::TableScan(mut scan) = node else {
             return Ok(Transformed::no(node));
         };
-        let restamped = match pg_search_provider_from_scan(&scan) {
-            Some(provider) => provider.source_idx().map(|idx| {
-                let mut provider = provider.clone();
-                provider.set_source_idx(idx + offset);
-                provider.ensure_own_expr_context();
-                provider
-            }),
-            None => None,
-        };
-        let Some(provider) = restamped else {
+        let Some(provider) = pg_search_provider_from_scan(&scan) else {
             return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
         };
+        let mut provider = provider.clone();
+        if let Some(idx) = provider.source_idx() {
+            provider.set_source_idx(idx + offset);
+        }
+        provider.ensure_own_expr_context();
         scan.source = Arc::new(DefaultTableSource::new(Arc::new(provider)));
         Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
     })

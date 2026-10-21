@@ -57,6 +57,7 @@ use crate::postgres::customscan::mpp::glue::producer_worker_cap;
 use crate::postgres::customscan::mpp::interrupt::{
     HeldInterrupts, cancel_pending, check_for_interrupts,
 };
+use crate::postgres::customscan::mpp::worker_fragments::FragmentAssignment;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
@@ -232,13 +233,14 @@ fn downcast_pgrx_panic_payload(payload: &(dyn std::any::Any + Send)) -> Option<S
 fn spawn_fragment_execution_task<'a>(
     mesh: Arc<MppMesh>,
     outbound_senders: &'a [Option<MppSender>],
-    stage_id: u32,
-    task_idx: u32,
-    n_partitions: usize,
+    fragment: &FragmentAssignment,
     plan: Arc<dyn ExecutionPlan>,
     task_ctx: Arc<TaskContext>,
     token: CancellationToken,
 ) -> FragmentFuture<'a> {
+    let stage_id = fragment.stage_id;
+    let task_idx = fragment.task_idx;
+    let n_partitions = plan.properties().output_partitioning().partition_count();
     Box::pin(async move {
         run_execute_task_loop(
             &mesh,
@@ -439,11 +441,6 @@ pub(crate) fn run_mpp_worker(
         let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> =
             Vec::with_capacity(fragments.len());
         for (fragment, frag_plan) in fragments.iter().zip(&plans) {
-            let n_out = frag_plan
-                .properties()
-                .output_partitioning()
-                .partition_count();
-
             // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary
             // nodes inside the fragment's plan know their `(task_index, task_count)`.
             let cfg = session_arc
@@ -479,9 +476,7 @@ pub(crate) fn run_mpp_worker(
             futures.push(spawn_fragment_execution_task(
                 Arc::clone(&mesh_for_block),
                 outbound_senders,
-                fragment.stage_id,
-                fragment.task_idx,
-                n_out,
+                fragment,
                 plan,
                 task_ctx,
                 token.clone(),

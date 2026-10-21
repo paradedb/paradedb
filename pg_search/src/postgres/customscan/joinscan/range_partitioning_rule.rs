@@ -87,7 +87,7 @@ impl RangePartitioningRule {
     }
 }
 
-pub(crate) fn pg_search_provider_from_scan(scan: &TableScan) -> Option<&PgSearchTableProvider> {
+fn pg_search_provider_from_scan(scan: &TableScan) -> Option<&PgSearchTableProvider> {
     let source = scan.source.as_ref();
     if let Some(default_source) = source.downcast_ref::<DefaultTableSource>() {
         default_source

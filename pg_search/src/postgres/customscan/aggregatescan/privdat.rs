@@ -189,31 +189,31 @@ impl FilterExpr {
     /// Collect all `ColumnRef` column references from an [`FilterExpr`] tree.
     pub fn collect_column_refs(&self) -> Vec<ColumnRef> {
         let mut refs = Vec::new();
-        match self{
-        FilterExpr::ColumnRef(column_ref) => {
-            refs.push(column_ref.clone());
-        }
-        FilterExpr::BinOp { left, right, .. } => {
-            refs.extend(left.collect_column_refs());
-            refs.extend(right.collect_column_refs());
-        }
-        FilterExpr::And(children) | FilterExpr::Or(children) => {
-            for c in children {
-                refs.extend(c.collect_column_refs());
+        match self {
+            FilterExpr::ColumnRef(column_ref) => {
+                refs.push(column_ref.clone());
             }
+            FilterExpr::BinOp { left, right, .. } => {
+                refs.extend(left.collect_column_refs());
+                refs.extend(right.collect_column_refs());
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                for c in children {
+                    refs.extend(c.collect_column_refs());
+                }
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                refs.extend(inner.collect_column_refs());
+            }
+            // Tag columns are synthesized by the scan, not read from fast fields.
+            FilterExpr::AggRef(_)
+            | FilterExpr::GroupRef(_)
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_)
+            | FilterExpr::SearchTag { .. } => {}
         }
-        FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-            refs.extend(inner.collect_column_refs());
-        }
-        FilterExpr::AggRef(_)
-        | FilterExpr::GroupRef(_)
-        | FilterExpr::LitInt(_)
-        | FilterExpr::LitFloat(_)
-        | FilterExpr::LitBool(_)
-        | FilterExpr::LitString(_)
-        // Tag columns are synthesized by the scan, not read from fast fields.
-        | FilterExpr::SearchTag { .. } => {}
-    }
         refs
     }
 }

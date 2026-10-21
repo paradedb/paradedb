@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792572446252,
+  "lastUpdate": 1792608286878,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21038,6 +21038,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.02,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3cfdc7e67916c9fc422ae88309b58a1b96a0d873",
+          "message": "fix: register `true` variant of `unicode_words_removeemojis` tokenizer as fallback if `remove_emojis` is false (#6952)\n\nNo ticket, closes a bug found in testing as a result of #6873 \n\n## What\n#6873 changed the tokenizer variant used for `unicode_words` in some\ncases, making the `remove_emojis` flag named instead of positional.\nHowever, existing indexes still build tokenizers using their original\nconfig, meaning any index with a `unicode_words` tokenizer with any\narguments (for instance, `columnar=true`), still expects\n`remove_emojis=true`.\n\nThis was missed because our backwards-compatibility checks for\ntokenizers in CI is very spotty and didn't cover the `remove_emojis`\nsetting on `unicode_words`.\n\n## How\n- When `remove_emojis` is `false`, register the `true` variants as well\nas fallback.\n- I also found and fixed a spot the original PR missed that only applies\nto tokenizer's specified in a sql query.\n- Add a CI fixture for testing backwards compatibility explicitly for\n`remove_emojis`. This is temporary and we should introduce broader, more\ngeneral, tokenizer coverage going foward as this has been a source of\nbugs before. (See #6954)",
+          "timestamp": "2026-10-21T12:01:39-06:00",
+          "tree_id": "5a2a8e36a976032ac6a1a376da434340990d38cf",
+          "url": "https://github.com/paradedb/paradedb/commit/3cfdc7e67916c9fc422ae88309b58a1b96a0d873"
+        },
+        "date": 1792608275742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.318,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.7,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.005,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.52,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.347,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.026,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.577,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.19,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 1.744,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.184,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.013,
             "unit": "ms"
           }
         ]

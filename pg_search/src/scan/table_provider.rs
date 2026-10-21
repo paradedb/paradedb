@@ -303,16 +303,16 @@ impl PgSearchTableProvider {
         self.source_idx = Some(source_idx);
     }
 
-    /// Replace the shared `ExprContext` with one of this provider's own when it solves runtime
-    /// expressions. `solve_postgres_expressions` resets its context before replacing
-    /// Param/PostgresExpression nodes, so two providers sharing one context invalidate the
-    /// Const nodes the other retained, and a generic plan parameterizing both join inputs then
-    /// dereferences stale nodes during reader construction. A provider without a planstate
-    /// (plain EXPLAIN) never solves, so it keeps the shared context.
+    /// Give this provider its own `ExprContext` when it solves runtime expressions.
+    /// `solve_postgres_expressions` resets its context before replacing Param/PostgresExpression
+    /// nodes, so two providers sharing one context invalidate the Const nodes the other retained,
+    /// and a generic plan parameterizing both join inputs then dereferences stale nodes during
+    /// reader construction. A provider without a planstate (plain EXPLAIN) never solves, so it
+    /// keeps whatever shared context it was given.
     pub(crate) fn ensure_own_expr_context(&mut self) {
         let needs_runtime_context =
             self.scan_info.mode.has_postgres_expressions() || self.scan_info.mode.has_parameters();
-        if !needs_runtime_context || self.expr_context.is_none() {
+        if !needs_runtime_context {
             return;
         }
         let Some(planstate) = self.planstate else {

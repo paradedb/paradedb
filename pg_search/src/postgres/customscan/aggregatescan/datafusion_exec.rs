@@ -623,13 +623,9 @@ fn build_pdb_aggregate_plan(
 
     // Under MPP each scan claims segments from the pool its `mpp_source_idx` names. Clones
     // sharing the original's indexes would split every pool between them and each group would
-    // see part of the data, so groups past the first get their own pools, `stride` apart.
-    let pool_stride = plan
-        .sources()
-        .iter()
-        .map(|s| s.plan_position + 1)
-        .max()
-        .unwrap_or(0);
+    // see part of the data, so groups past the first get their own pools, one source list apart
+    // (the launch replays manifest `i % sources` into pool `i`).
+    let pool_stride = plan.sources().len();
     for (group_idx, (needed_keys, levels_in_group)) in groups.into_iter().enumerate() {
         let mut level_plan = if group_idx == 0 {
             input.clone()

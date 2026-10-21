@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792619334657,
+  "lastUpdate": 1792619352687,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -26241,6 +26241,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.32942680428239,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9c092a427970bc59276904bd20baa7de2fedf95d",
+          "message": "fix: cancel the MPP worker's request wait when the leader is signalled (#6934)\n\nThis PR makes an MPP worker unwind its request wait when a cancel or a\ndie is pending.\n\n## Ticket(s) Closed\n\nNone. Found while chasing the CI failures on #6925, whose reordered join\nmakes the `mpp_cancel` query finish before the signal lands.\n\n## What\n\n`pg_cancel_backend` or `pg_terminate_backend` on a backend running an\nMPP query can leave it in `IPC/BgWorkerShutdown` forever, with its\nparallel workers alive. The stuck workers keep their\n`max_worker_processes` slots, so later MPP launches run serially and\n`pg_ctl stop -m fast` times out.\n\n## Why\n\nThe worker's fragments wait for their execute requests in a loop that\nreads neither `ProcDiePending` nor `QueryCancelPending`. A signal that\nlands mid-fragment unwinds through the send spin or the gather stream.\nOne that lands while the fragments are idle does not. The leader is in\n`WaitForParallelWorkersToExit` by then and releases nothing first. The\nplan wait before the fragments start has the same gap.\n\n## How\n\nThe worker keeps one `CancellationToken` for its fragments and a task\nthat polls the interrupt flags every millisecond and cancels it.\n`run_execute_task_loop` already unwinds on that token. The plan wait\npolls `check_interrupt` on each turn.\n\n`mpp_cancel.rs` re-signals the victim each time it shows up active,\nsince PostgreSQL drops a cancel that lands on an idle backend, and fails\nwith a `pg_stat_activity` dump if the signalled leaders or their workers\nlinger. `mpp_joinscan_concurrent.rs` prints the same dump when no query\nran distributed.\n\n## Tests\n\nLocally on PG 18, cancelling or terminating a looping MPP victim every\n70 ms for 20 s wedged the first leader within seconds without the fix\nand left nothing behind with it. The four MPP test binaries pass.\n\nCI still has only three `max_worker_processes` slots for MPP after the\nCitus tests, see #6933.",
+          "timestamp": "2026-10-21T13:20:35-07:00",
+          "tree_id": "1166e0bf3cc962573aba85b5e799bc07667d9414",
+          "url": "https://github.com/paradedb/paradedb/commit/9c092a427970bc59276904bd20baa7de2fedf95d"
+        },
+        "date": 1792619341644,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.522980904499352,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.198460585732235,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.498872781533194,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.22529706604308,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.218967365444826,
             "unit": "queries/s"
           }
         ]

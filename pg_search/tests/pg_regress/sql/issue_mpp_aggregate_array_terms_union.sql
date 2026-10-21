@@ -6,10 +6,10 @@
 -- union's children run on disjoint tasks of the top stage, each with a
 -- child-local task numbering that restarts at zero. Two invariants make it run:
 --
--- 1. Routing is in the consumer stage's own task numbers: the leader translates
---    a boundary's child-local consumer task through the union's task map before
---    picking a worker. Otherwise a child's inputs land on the wrong worker and
---    the query fails with "transport receiver detached" or hangs.
+-- 1. Output partition routing is demand-driven: each `ExecuteTaskFrame` names
+--    the requesting `sender_proc` and partition range, so producer fragments
+--    stream directly back to whichever worker runs that union child task,
+--    independent of the child's local task numbering.
 -- 2. Each clone of the join claims from its own segment pool. Shared pools made
 --    every clone see part of the table: silently wrong counts.
 --

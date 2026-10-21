@@ -43,11 +43,10 @@ use pgrx::pg_sys;
 use crate::index::mvcc::SegmentView;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::PartitionSink;
 use datafusion_distributed::shm::{
-    CooperativeDrainSet, InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh,
-    MppPartitionSink, ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task,
-    run_execute_task_loop, run_worker_fragment,
+    CooperativeDrainSet, InProcessWorkerResolver, MppFrameHeader, MppMesh, MppSender,
+    ShmChannelResolver, WorkerSession, collect_task_metrics, run_execute_task_loop,
+    run_worker_fragment,
 };
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 use tokio_util::sync::CancellationToken;
@@ -58,7 +57,6 @@ use crate::postgres::customscan::mpp::glue::producer_worker_cap;
 use crate::postgres::customscan::mpp::interrupt::{
     HeldInterrupts, cancel_pending, check_for_interrupts,
 };
-use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
@@ -203,8 +201,12 @@ async fn take_set_plan_draining(
 
 /// All fragment futures share this type. The alias keeps `Vec<FragmentFuture>` legible and silences
 /// clippy::type_complexity.
-type FragmentFuture = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>> + Send>,
+type FragmentFuture<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>>
+            + Send
+            + 'a,
+    >,
 >;
 
 /// Extract an error message string from a `pgrx`-raised panic payload (`ErrorReportWithLevel` or
@@ -227,34 +229,25 @@ fn downcast_pgrx_panic_payload(payload: &(dyn std::any::Any + Send)) -> Option<S
 }
 
 /// Spawns the execution task loop for a worker fragment over `run_execute_task_loop`.
-fn spawn_fragment_execution_task(
+fn spawn_fragment_execution_task<'a>(
     mesh: Arc<MppMesh>,
+    outbound_senders: &'a [Option<MppSender>],
     stage_id: u32,
     task_idx: u32,
-    per_partition_sinks: Vec<Box<dyn PartitionSink>>,
+    n_partitions: usize,
     plan: Arc<dyn ExecutionPlan>,
     task_ctx: Arc<TaskContext>,
     token: CancellationToken,
-) -> FragmentFuture {
+) -> FragmentFuture<'a> {
     Box::pin(async move {
-        let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
-        let n_partitions = sinks_opt.len();
-
         run_execute_task_loop(
             &mesh,
+            outbound_senders,
             stage_id,
             task_idx,
             n_partitions,
             token,
-            move |_request, _headers, range| {
-                let len = range.end - range.start;
-                let mut task_sinks = Vec::with_capacity(len);
-                for sink in sinks_opt.iter_mut().take(range.end).skip(range.start) {
-                    task_sinks.push(
-                        sink.take()
-                            .expect("mpp worker: partition sink already claimed"),
-                    );
-                }
+            move |_request, _headers, range, task_sinks| {
                 let plan = Arc::clone(&plan);
                 let task_ctx = Arc::clone(&task_ctx);
                 async move {
@@ -441,7 +434,8 @@ pub(crate) fn run_mpp_worker(
     let mesh_for_block = Arc::clone(worker_mesh);
     let outcome = runtime.block_on(async move {
         let token = CancellationToken::new();
-        let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
+        let outbound_senders = worker_session.outbound_senders();
+        let mut futures: Vec<FragmentFuture<'_>> = Vec::with_capacity(fragments.len());
         let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> =
             Vec::with_capacity(fragments.len());
         for (fragment, frag_plan) in fragments.iter().zip(&plans) {
@@ -449,86 +443,6 @@ pub(crate) fn run_mpp_worker(
                 .properties()
                 .output_partitioning()
                 .partition_count();
-            // Build a `PartitionSink` per output partition. For each partition `q` emitted by this
-            // fragment, look up the destination proc via `fragment.routing`, clone the right
-            // outbound sender, and wrap it as a sink the produce loop pushes through.
-            let mut per_partition_sinks: Vec<Box<dyn PartitionSink>> = Vec::with_capacity(n_out);
-            for q in 0..n_out {
-                // An index outside the table means the decoded plan's shape drifted from the
-                // blob the leader routed; name it instead of panicking.
-                let dest_proc = match &fragment.routing {
-                    FragmentRouting::Leader => 0,
-                    FragmentRouting::PerTask { outer_task } => {
-                        let task = outer_task.get(fragment.task_idx as usize).ok_or_else(|| {
-                            datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: task {} outside per-task routing table of \
-                                 len {} (stage_id={})",
-                                fragment.task_idx,
-                                outer_task.len(),
-                                fragment.stage_id,
-                            ))
-                        })?;
-                        proc_for_task(n_workers, *task)
-                    }
-                    FragmentRouting::PerPartition { outer_task } => {
-                        let task = outer_task.get(q).ok_or_else(|| {
-                            datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: partition {q} outside per-partition routing \
-                                 table of len {} (stage_id={} task_idx={})",
-                                outer_task.len(),
-                                fragment.stage_id,
-                                fragment.task_idx,
-                            ))
-                        })?;
-                        proc_for_task(n_workers, *task)
-                    }
-                };
-                let q_u32 = u32::try_from(q).map_err(|_| {
-                    datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch: output partition {q} exceeds transport u32 \
-                         (stage_id={} task_idx={})",
-                        fragment.stage_id, fragment.task_idx,
-                    ))
-                })?;
-                let stream_key = MppDataStreamKey::new(fragment.stage_id, fragment.task_idx, q_u32);
-                crate::mpp_log!(
-                    "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
-                     task_idx={}) partition={q} → dest_proc={dest_proc}",
-                    fragment.stage_id,
-                    fragment.task_idx,
-                );
-                if dest_proc == mesh_for_block.this_proc {
-                    per_partition_sinks.push(mesh_for_block.open_local_partition_sink(stream_key));
-                } else {
-                    let base = match worker_session
-                        .outbound_senders()
-                        .get(dest_proc as usize)
-                        .and_then(|s| s.as_ref())
-                    {
-                        Some(s) => s,
-                        None => {
-                            return Err(datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: outbound_senders[{dest_proc}] is None \
-                                 (unattached); fragment stage_id={} task_idx={}",
-                                fragment.stage_id, fragment.task_idx,
-                            )));
-                        }
-                    };
-                    // Attach the worker mesh as the cooperative drain so a full outbound
-                    // ring doesn't block the backend thread. The spin pulls every inbound
-                    // drain while retrying the send, breaking the symmetric-send stall
-                    // pattern where every peer is blocked sending to a full peer.
-                    per_partition_sinks.push(Box::new(MppPartitionSink::new(
-                        base.clone_with_header(MppFrameHeader::batch(
-                            stream_key,
-                            mesh_for_block.this_proc,
-                        ))
-                        .with_cooperative_drain(
-                            Arc::clone(&mesh_for_block) as Arc<dyn CooperativeDrainSet>
-                        ),
-                    )));
-                }
-            }
 
             // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary
             // nodes inside the fragment's plan know their `(task_index, task_count)`.
@@ -564,17 +478,17 @@ pub(crate) fn run_mpp_worker(
             ));
             futures.push(spawn_fragment_execution_task(
                 Arc::clone(&mesh_for_block),
+                outbound_senders,
                 fragment.stage_id,
                 fragment.task_idx,
-                per_partition_sinks,
+                n_out,
                 plan,
                 task_ctx,
                 token.clone(),
             ));
         }
         // The metrics frames go to the leader after the fragments finish.
-        let metrics_sender_base = worker_session
-            .outbound_senders()
+        let metrics_sender_base = outbound_senders
             .first()
             .and_then(|s| s.as_ref())
             .map(|s| s.clone_with_header(MppFrameHeader::task_metrics(0, 0, this_proc)));
@@ -632,6 +546,7 @@ pub(crate) fn run_mpp_worker(
             join_fut.await
         };
         interrupt_watch.abort();
+        drop(frag_stream);
 
         // Report each fragment's metrics to the leader, even after a fragment error: partial
         // metrics still tell the user where the time went. Best-effort like every transport's

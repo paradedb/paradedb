@@ -117,6 +117,10 @@ pub fn available_parallelism() -> usize {
 }
 
 /// Initializes option parsing
+fn check_for_interrupts() {
+    pgrx::check_for_interrupts!();
+}
+
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
@@ -146,6 +150,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::options::init();
     postgres::build_logging::init();
     gucs::init();
+    // A term dictionary walk is one tantivy call that runs for seconds on a big segment, and
+    // pg_search's own checks sit between segments.
+    tantivy_common::interrupt::set_interrupt_check(check_for_interrupts);
 
     // RegisterCustomRmgr can only be called during shared_preload_libraries init. If pg_search
     // was loaded via plain CREATE EXTENSION (no preload), skip

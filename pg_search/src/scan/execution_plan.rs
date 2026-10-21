@@ -109,6 +109,68 @@ pub enum SharedThresholdMode {
     Disabled,
 }
 
+/// Estimated probability `(0.0, 1.0]` that a candidate document from a Top-K scan
+/// survives downstream filtering (e.g., MVCC heap visibility in `BaseScan`, or `RA`
+/// join probes and cross-table tag filters in `RankJoinExec`).
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct TopKSelectivity(pub f64);
+
+impl TopKSelectivity {
+    pub const ALL: Self = Self(1.0);
+
+    /// Estimates the MVCC visibility selectivity of `heaprelid` from PostgreSQL's
+    /// live and dead tuple statistics using Laplace smoothing:
+    /// `p_live = (1 + n_live) / ((1 + n_live) + (1 + n_dead))`.
+    pub fn from_heap_visibility(heaprelid: pgrx::pg_sys::Oid) -> Self {
+        let (n_dead, n_live) = unsafe {
+            let n_dead = pgrx::direct_function_call::<i64>(
+                pgrx::pg_sys::pg_stat_get_dead_tuples,
+                &[pgrx::IntoDatum::into_datum(heaprelid)],
+            )
+            .unwrap();
+            let n_live = pgrx::direct_function_call::<i64>(
+                pgrx::pg_sys::pg_stat_get_live_tuples,
+                &[pgrx::IntoDatum::into_datum(heaprelid)],
+            )
+            .unwrap();
+            (n_dead.max(0) as f64, n_live.max(0) as f64)
+        };
+        let live = 1.0 + n_live;
+        let dead = 1.0 + n_dead;
+        Self(live / (live + dead))
+    }
+
+    /// Combines two independent survival selectivities conjunctively: `P(A and B) = P(A) * P(B)`.
+    pub fn and(self, other: Self) -> Self {
+        Self((self.0 * other.0).clamp(0.0, 1.0))
+    }
+
+    /// Combines two independent match probabilities disjunctively: `P(A or B) = 1 - (1 - P(A))(1 - P(B))`.
+    pub fn or(self, other: Self) -> Self {
+        let p_a = self.0.clamp(0.0, 1.0);
+        let p_b = other.0.clamp(0.0, 1.0);
+        Self((1.0 - (1.0 - p_a) * (1.0 - p_b)).clamp(0.0, 1.0))
+    }
+
+    /// Computes the initial Top-K window size for a target `k` and base `fetch_multiplier`,
+    /// scaled inversely by `self` and clamped to `max_topk_chunk_size`.
+    pub fn compute_initial_window(self, k: usize, fetch_multiplier: f64) -> f64 {
+        let max_window = if cfg!(test) {
+            100_000.0
+        } else {
+            crate::gucs::max_topk_chunk_size().max(1) as f64
+        };
+        let base_window = ((k as f64) * fetch_multiplier).max(1.0);
+        let min_window = base_window.min(max_window);
+        let s = self.0.clamp(0.0, 1.0);
+        if s > 0.0 {
+            (base_window / s).clamp(min_window, max_window)
+        } else {
+            max_window
+        }
+    }
+}
+
 /// Configures `PgSearchScanPlan` to execute iterative, expanding-window Top-K queries
 /// via `SearchIndexReader::search_top_k_in_segments` instead of streaming segment-by-segment.
 #[derive(Clone, Debug)]
@@ -118,7 +180,7 @@ pub struct LazySortConfig {
     pub orderby_info: Option<Vec<OrderByInfo>>,
     /// DataFusion physical ordering declared in `EquivalenceProperties` when `orderby_info` is `Some`.
     pub ordering: Option<LexOrdering>,
-    /// Initial Top-K window size (`limit as f64 * scale_factor` for `BaseScan`, or `initial_window` for joins).
+    /// Initial Top-K window size (`TopKSelectivity::compute_initial_window` for `BaseScan` and joins).
     pub initial_window: f64,
     /// Controls cross-worker threshold sharing on the first window pull.
     pub shared_threshold: SharedThresholdMode,
@@ -700,13 +762,15 @@ impl PgSearchScanPlan {
 
     /// Estimated fraction `[0.0, 1.0]` of index documents matched by this scan
     /// (`planner_estimated_rows / total_docs`).
-    pub fn estimated_selectivity(&self) -> f64 {
+    pub fn estimated_selectivity(&self) -> TopKSelectivity {
         #[cfg(any(test, feature = "pg_test"))]
         if let Some(total_docs) = self.test_total_docs {
             return if total_docs == 0 {
-                1.0
+                TopKSelectivity::ALL
             } else {
-                (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0)
+                TopKSelectivity(
+                    (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0),
+                )
             };
         }
         let total_docs = {
@@ -725,9 +789,46 @@ impl PgSearchScanPlan {
             }
         };
         if total_docs == 0 {
-            1.0
+            TopKSelectivity::ALL
         } else {
-            (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0)
+            TopKSelectivity(
+                (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0),
+            )
+        }
+    }
+
+    /// For `ScanMode::Tagged`, estimates the fraction `[0.0, 1.0]` of documents in this scan
+    /// matching at least one of its `local_queries` (`1 - prod_i (1 - s_i)`).
+    /// Returns `None` when the scan is not in `ScanMode::Tagged`.
+    pub fn estimated_tagged_selectivity(&self) -> Option<TopKSelectivity> {
+        let crate::scan::ScanMode::Tagged { local_queries, .. } = &self.scan_mode else {
+            return None;
+        };
+        #[cfg(any(test, feature = "pg_test"))]
+        if self.test_total_docs.is_some() {
+            return Some(self.estimated_selectivity());
+        }
+        if local_queries.is_empty() {
+            return Some(TopKSelectivity(0.0));
+        }
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                let reader = &scan_state.0.reader;
+                let combined = local_queries
+                    .iter()
+                    .map(|tq| TopKSelectivity(reader.estimate_query_selectivity(&tq.query)))
+                    .fold(TopKSelectivity(0.0), TopKSelectivity::or);
+                Some(combined)
+            }
+            ExecutionState::Consumed | ExecutionState::Uninitialized => {
+                drop(state_guard);
+                Some(self.estimated_selectivity())
+            }
         }
     }
 

@@ -94,7 +94,7 @@ LIMIT 5;
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id]
      :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[reputation@2 DESC NULLS LAST]
      :               CooperativeExec
-     :                 PgSearchScan: table=u, segments=2, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :                 PgSearchScan: table=u, segments=2, lazy_sort=19, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :               CooperativeExec
      :                 PgSearchScan: table=p, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -147,7 +147,7 @@ LIMIT 5;
      :               CooperativeExec
      :                 PgSearchScan: table=u, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :               CooperativeExec
-     :                 PgSearchScan: table=p, segments=2, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :                 PgSearchScan: table=p, segments=2, lazy_sort=27, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
@@ -200,7 +200,7 @@ LIMIT 5;
      :               CooperativeExec
      :                 PgSearchScan: table=p, segments=2, lazy_sort=0, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=c, segments=2, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=c, segments=2, lazy_sort=30, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
@@ -372,7 +372,7 @@ LIMIT 5;
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id]
      :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[reputation@2 DESC NULLS LAST]
      :               CooperativeExec
-     :                 PgSearchScan: table=u, segments=2, lazy_sort=10, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :                 PgSearchScan: table=u, segments=2, lazy_sort=19, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :               CooperativeExec
      :                 PgSearchScan: table=p, segments=2, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec

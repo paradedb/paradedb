@@ -2566,6 +2566,38 @@ impl SearchIndexReader {
         }
     }
 
+    /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
+    /// sampled on the largest segment.
+    pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
+        if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
+            || query_input.has_postgres_expressions()
+            || query_input.has_parameters()
+        {
+            return query_input.selectivity_heuristic().clamp(0.0, 1.0);
+        }
+        let Some(largest_reader) = self.segment_readers().iter().max_by_key(|r| r.num_docs())
+        else {
+            return 0.0;
+        };
+        let seg_docs = largest_reader.num_docs();
+        if seg_docs == 0 {
+            return 0.0;
+        }
+        let query = self.make_query(query_input, None);
+        let count = query_input
+            .supports_statistics_estimation()
+            .then(|| query.estimate_docs(largest_reader).ok().flatten())
+            .flatten()
+            .map(|estimate| estimate.live_docs(largest_reader))
+            .unwrap_or_else(|| {
+                let weight = query
+                    .weight(EnableScoring::disabled_from_searcher(&self.searcher))
+                    .expect("weight should be constructable");
+                scorer_estimate(weight.as_ref(), largest_reader).0
+            });
+        (count as f64 / seg_docs as f64).clamp(0.0, 1.0)
+    }
+
     /// The length of the shortest posting list this query walks for its positional terms, or
     /// `None` when it has none. Lengths come from the term dictionary, so no postings are decoded.
     ///

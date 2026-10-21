@@ -48,7 +48,9 @@ use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb::{self, ScoreAdjustStyle};
 use crate::scan::ScanMode;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
-use crate::scan::execution_plan::{LazySortConfig, PgSearchScanPlan, SharedThresholdMode};
+use crate::scan::execution_plan::{
+    LazySortConfig, PgSearchScanPlan, SharedThresholdMode, TopKSelectivity,
+};
 use crate::scan::rank_join_exec::{
     InputScorePair, RankJoinExec, RankJoinInputs, RankJoinSortExprs, ScoreCombiner,
 };
@@ -163,20 +165,27 @@ impl PhysicalOptimizerRule for RankJoinRule {
     }
 }
 
-/// Estimated fraction `[0.0, 1.0]` of rows surviving `RA` point lookups across unscored join inputs.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub(crate) struct UnscoredSelectivity(pub f64);
-
-/// Statistics and score range for a join input subtree used by Gates 2 and 3.
+/// Statistics and score range for a join input subtree used by Gates 2 and 3
+/// and for sizing the initial `SA` window via [`TopKSelectivity`].
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SubtreeScoreStats {
     pub estimated_rows: u64,
-    pub unscored_selectivity: UnscoredSelectivity,
+    pub unscored_selectivity: TopKSelectivity,
+    pub tagged_selectivity: Option<TopKSelectivity>,
     pub score_min: f64,
     pub score_max: f64,
 }
 
 impl SubtreeScoreStats {
+    /// Combined survival probability of a candidate row pulled from the `SA` scan across
+    /// all unscored (`RA`) inputs and any cross-table `ScanMode::Tagged` disjunction.
+    pub(crate) fn survival_selectivity(&self) -> TopKSelectivity {
+        match self.tagged_selectivity {
+            Some(tagged) => self.unscored_selectivity.and(tagged),
+            None => self.unscored_selectivity,
+        }
+    }
+
     /// Verifies Gate 1 (non-constant BM25 score when `is_score_sort` is true) and computes
     /// `[0.0, score_max]` for a leaf scan.
     pub(crate) fn from_leaf_queries(
@@ -207,10 +216,23 @@ impl SubtreeScoreStats {
         };
         Some(Self {
             estimated_rows,
-            unscored_selectivity: UnscoredSelectivity(1.0),
+            unscored_selectivity: TopKSelectivity::ALL,
+            tagged_selectivity: None,
             score_min: 0.0,
             score_max,
         })
+    }
+
+    pub(crate) fn combine_tagged(
+        left: Option<TopKSelectivity>,
+        right: Option<TopKSelectivity>,
+    ) -> Option<TopKSelectivity> {
+        match (left, right) {
+            (Some(l), Some(r)) => Some(l.or(r)),
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
+        }
     }
 
     /// Verifies Gate 2 (score balance when both sides are scored) and Gate 3 (`min_rows` and
@@ -249,8 +271,9 @@ impl SubtreeScoreStats {
         }
 
         let min_matched = left.estimated_rows.min(right.estimated_rows);
-        let unscored_selectivity =
-            UnscoredSelectivity(left.unscored_selectivity.0 * right.unscored_selectivity.0);
+        let unscored_selectivity = left.unscored_selectivity.and(right.unscored_selectivity);
+        let tagged_selectivity =
+            Self::combine_tagged(left.tagged_selectivity, right.tagged_selectivity);
 
         // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`),
         // and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must meet
@@ -276,6 +299,7 @@ impl SubtreeScoreStats {
         Some(Self {
             estimated_rows: min_matched,
             unscored_selectivity,
+            tagged_selectivity,
             score_min: corners.into_iter().fold(f64::INFINITY, f64::min),
             score_max: corners.into_iter().fold(f64::NEG_INFINITY, f64::max),
         })
@@ -336,36 +360,51 @@ fn try_rewrite_under_sort(
     k: usize,
     min_rows: usize,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-    let initial_window = compute_initial_window(k);
     let mut eager_fields = Vec::new();
-    let Some((rewritten, _)) = try_rewrite_join_subtree(
+    let Some((rewritten, root_stats)) = try_rewrite_join_subtree(
         node,
         required_ordering,
         min_rows,
-        initial_window,
         FieldSortPolicy::Allowed,
         &mut eager_fields,
     )?
     else {
         return Ok(None);
     };
+    let initial_window = compute_initial_window(k, root_stats.survival_selectivity());
+    let rewritten = apply_sa_initial_window(rewritten, initial_window)?;
     let rewritten =
         crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
     Ok(Some(rewritten))
 }
 
-fn compute_initial_window(k: usize) -> usize {
+fn compute_initial_window(k: usize, selectivity: TopKSelectivity) -> f64 {
     let scale_factor = if cfg!(test) {
-        2
+        2.0
     } else {
-        crate::gucs::topk_retry_scale_factor().max(2) as usize
+        crate::gucs::topk_retry_scale_factor().max(2) as f64 * crate::gucs::limit_fetch_multiplier()
     };
-    let max_window = if cfg!(test) {
-        100_000
-    } else {
-        crate::gucs::max_topk_chunk_size().max(1) as usize
-    };
-    k.saturating_mul(scale_factor).max(1).min(max_window)
+    selectivity.compute_initial_window(k, scale_factor)
+}
+
+fn apply_sa_initial_window(
+    plan: Arc<dyn ExecutionPlan>,
+    initial_window: f64,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    plan.transform_down(|node| {
+        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>()
+            && let Some(ls) = scan.lazy_sort()
+            && ls.initial_window > 0.0
+        {
+            let mut updated_ls = ls.clone();
+            updated_ls.initial_window = initial_window;
+            return Ok(Transformed::yes(Arc::new(
+                scan.clone().with_lazy_sort(updated_ls),
+            )));
+        }
+        Ok(Transformed::no(node))
+    })
+    .map(|t| t.data)
 }
 
 fn collect_decode_tiebreaker_fields(
@@ -393,7 +432,6 @@ fn try_rewrite_join_subtree(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
     min_rows: usize,
-    initial_window: usize,
     field_sort_policy: FieldSortPolicy,
     eager_fields: &mut Vec<PhysicalDeferredField>,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
@@ -402,7 +440,6 @@ fn try_rewrite_join_subtree(
             node.children()[0],
             &child_ordering,
             min_rows,
-            initial_window,
             field_sort_policy,
             eager_fields,
         )?
@@ -469,7 +506,6 @@ fn try_rewrite_join_subtree(
             join.left(),
             &decomposed.left_sort_expr,
             min_rows,
-            initial_window,
             child_field_sort_policy,
         )?
     } else {
@@ -485,7 +521,6 @@ fn try_rewrite_join_subtree(
             join.right(),
             &decomposed.right_sort_expr,
             min_rows,
-            initial_window,
             child_field_sort_policy,
         )?
     } else {
@@ -558,8 +593,8 @@ fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
 }
 
 /// Inspects and rewrites an unscored child branch of a single-sided (`NRJN`) join: either a
-/// leaf `PgSearchScanPlan` in `ScanMode::Standard` or a nested `HashJoinExec` whose parent
-/// join keys map cleanly to one child side for cascading `RA` lookups.
+/// leaf `PgSearchScanPlan` in `ScanMode::Standard` or `ScanMode::Tagged`, or a nested
+/// `HashJoinExec` whose parent join keys map cleanly to one child side for cascading `RA` lookups.
 fn try_rewrite_unscored_branch(
     node: &Arc<dyn ExecutionPlan>,
     parent_keys: &[Arc<dyn PhysicalExpr>],
@@ -659,8 +694,12 @@ fn try_rewrite_unscored_branch(
         };
         let stats = SubtreeScoreStats {
             estimated_rows: left_stats.estimated_rows.min(right_stats.estimated_rows),
-            unscored_selectivity: UnscoredSelectivity(
-                left_stats.unscored_selectivity.0 * right_stats.unscored_selectivity.0,
+            unscored_selectivity: left_stats
+                .unscored_selectivity
+                .and(right_stats.unscored_selectivity),
+            tagged_selectivity: SubtreeScoreStats::combine_tagged(
+                left_stats.tagged_selectivity,
+                right_stats.tagged_selectivity,
             ),
             score_min: 0.0,
             score_max: 0.0,
@@ -694,15 +733,22 @@ fn try_rewrite_unscored_branch(
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
     };
-    if !matches!(
-        scan.scan_mode(),
-        ScanMode::Standard { .. } | ScanMode::Tagged { .. }
-    ) {
-        return Ok(None);
-    }
+    let (unscored_selectivity, tagged_selectivity) = match scan.scan_mode() {
+        ScanMode::Standard { .. } => (scan.estimated_selectivity(), None),
+        ScanMode::Tagged { base_query, .. } => {
+            let base_sel = if matches!(base_query.as_ref(), SearchQueryInput::All) {
+                TopKSelectivity::ALL
+            } else {
+                scan.estimated_selectivity()
+            };
+            (base_sel, scan.estimated_tagged_selectivity())
+        }
+        _ => return Ok(None),
+    };
     let stats = SubtreeScoreStats {
         estimated_rows: scan.planner_estimated_rows(),
-        unscored_selectivity: UnscoredSelectivity(scan.estimated_selectivity()),
+        unscored_selectivity,
+        tagged_selectivity,
         score_min: 0.0,
         score_max: 0.0,
     };
@@ -721,7 +767,6 @@ fn try_rewrite_child_branch(
     node: &Arc<dyn ExecutionPlan>,
     required_sort: &PhysicalSortExpr,
     min_rows: usize,
-    initial_window: usize,
     field_sort_policy: FieldSortPolicy,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     let Some(ordering) = LexOrdering::new(vec![required_sort.clone()]) else {
@@ -732,7 +777,6 @@ fn try_rewrite_child_branch(
             node.children()[0],
             &child_ordering[0],
             min_rows,
-            initial_window,
             field_sort_policy,
         )?
         else {
@@ -746,7 +790,6 @@ fn try_rewrite_child_branch(
             node,
             &ordering,
             min_rows,
-            initial_window,
             field_sort_policy,
             &mut Vec::new(),
         );
@@ -771,6 +814,10 @@ fn try_rewrite_child_branch(
                 &[],
                 scan.planner_estimated_rows(),
             )
+            .map(|mut s| {
+                s.tagged_selectivity = scan.estimated_tagged_selectivity();
+                s
+            })
         }
         ScanMode::Disjunctive {
             base_query,
@@ -786,10 +833,13 @@ fn try_rewrite_child_branch(
     let Some(stats) = stats else {
         return Ok(None);
     };
+    // Placeholder `initial_window: 1.0` marks this leaf as `SA`; `try_rewrite_under_sort`
+    // replaces it with the final selectivity-scaled window once the full join tree's
+    // `SubtreeScoreStats` has been computed.
     let configured_scan = scan.clone().with_lazy_sort(LazySortConfig {
         orderby_info: Some(vec![order_by]),
         ordering: LexOrdering::new(vec![required_sort.clone()]),
-        initial_window: initial_window as f64,
+        initial_window: 1.0,
         shared_threshold: SharedThresholdMode::Disabled,
     });
     Ok(Some((Arc::new(configured_scan), stats)))
@@ -1880,12 +1930,23 @@ mod tests {
         assert!(out_selective_ra.children()[0].is::<HashJoinExec>());
 
         // Gate 3 acceptance: unscored (`RA`) selectivity >= `0.08` (`100,000 / 1,000,000 = 0.10`,
-        // matching Tantivy's `num_docs() / 10` `RangeDocSet::size_hint()`).
+        // matching Tantivy's `num_docs() / 10` `RangeDocSet::size_hint()`), scaling `initial_window`
+        // from `2 * 10 = 20` up to `20 / 0.10 = 200`.
         let plan_unselective_ra = make_single_sided_plan(500_000, 100_000, 1_000_000);
         let out_unselective_ra = rule_min_rows
             .optimize(plan_unselective_ra, &config)
             .unwrap();
-        assert!(out_unselective_ra.children()[0].is::<RankJoinExec>());
+        let rj_unselective = out_unselective_ra.children()[0]
+            .downcast_ref::<RankJoinExec>()
+            .expect("should rewrite to RankJoinExec");
+        let sa_window = rj_unselective
+            .left()
+            .downcast_ref::<PgSearchScanPlan>()
+            .unwrap()
+            .lazy_sort()
+            .unwrap()
+            .initial_window;
+        assert_eq!(sa_window, 200.0);
     }
 
     #[pg_test]
@@ -1988,34 +2049,39 @@ mod tests {
         );
 
         // 3. Single-sided fast-field sort over `ScanMode::Tagged` leaves -> allowed,
+        //    with `initial_window` scaled inversely by `tagged_selectivity = 1 - (1 - q_l)(1 - q_r)`,
         //    whereas single-sided score sort over `ScanMode::Tagged` leaves -> rejected!
-        let make_tagged_scan = |alias: &str| -> Arc<dyn ExecutionPlan> {
-            let mut scan = PgSearchScanPlan::new(
-                None,
-                Arc::new(Schema::new(vec![
-                    Field::new("id", DataType::Int32, false),
-                    Field::new("__pdb_score", DataType::Float32, false),
-                    Field::new(format!("__{alias}_tag_0"), DataType::Boolean, false),
-                ])),
-                SearchQueryInput::All,
-                None,
-                vec![],
-                None,
-                1,
-                None,
-                1,
-                None,
-                None,
-            )
-            .with_table_alias(alias)
-            .with_estimated_rows_for_test(50_000);
-            scan.scan_mode = ScanMode::tagged(SearchQueryInput::All, vec![]);
-            Arc::new(scan)
-        };
+        let make_tagged_scan =
+            |alias: &str, rows: u64, total_docs: u64| -> Arc<dyn ExecutionPlan> {
+                let mut scan = PgSearchScanPlan::new(
+                    None,
+                    Arc::new(Schema::new(vec![
+                        Field::new("id", DataType::Int32, false),
+                        Field::new("__pdb_score", DataType::Float32, false),
+                        Field::new(format!("__{alias}_tag_0"), DataType::Boolean, false),
+                    ])),
+                    SearchQueryInput::All,
+                    None,
+                    vec![],
+                    None,
+                    1,
+                    None,
+                    1,
+                    None,
+                    None,
+                )
+                .with_table_alias(alias)
+                .with_estimated_rows_for_test(rows)
+                .with_total_docs_for_test(total_docs);
+                scan.scan_mode = ScanMode::tagged(SearchQueryInput::All, vec![]);
+                Arc::new(scan)
+            };
+        // Both `l` and `r` have 1% tag selectivity (`1,000 / 100,000 = 0.01`), so combined
+        // `tagged_selectivity = 1 - (0.99 * 0.99) = 0.0199`, scaling `2 * 10 = 20` up to `~1005`.
         let join_tagged: Arc<dyn ExecutionPlan> = Arc::new(
             HashJoinExec::try_new(
-                make_tagged_scan("l"),
-                make_tagged_scan("r"),
+                make_tagged_scan("l", 1_000, 100_000),
+                make_tagged_scan("r", 1_000, 100_000),
                 vec![(
                     Arc::new(Column::new("id", 0)),
                     Arc::new(Column::new("id", 0)),
@@ -2041,10 +2107,19 @@ mod tests {
             SortExec::new(tagged_field_sort, Arc::clone(&join_tagged)).with_fetch(Some(10)),
         );
         let out_tagged_field = rule.optimize(plan_tagged_field, &config).unwrap();
-        assert!(
-            out_tagged_field.children()[0].is::<RankJoinExec>(),
-            "single-sided fast-field sort over ScanMode::Tagged should rewrite to RankJoinExec"
-        );
+        let rj_tagged = out_tagged_field.children()[0]
+            .downcast_ref::<RankJoinExec>()
+            .expect(
+                "single-sided fast-field sort over ScanMode::Tagged should rewrite to RankJoinExec",
+            );
+        let sa_tagged_window = rj_tagged
+            .left()
+            .downcast_ref::<PgSearchScanPlan>()
+            .unwrap()
+            .lazy_sort()
+            .unwrap()
+            .initial_window as usize;
+        assert_eq!(sa_tagged_window, 1005);
 
         let tagged_score_sort = LexOrdering::new(vec![PhysicalSortExpr {
             expr: Arc::new(Column::new("__pdb_score", 1)),

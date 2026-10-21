@@ -55,8 +55,8 @@ Because `RankJoinExec` supports both `SA` and `RA` on each input, `RankJoinRule`
 
 1. `LIMIT K` is small: $K \le \text{MAX\_RANK\_JOIN\_K}$ (`1,000`).
 2. Both inputs must meet the minimum estimated row threshold (`paradedb.rank_join_min_rows`, default `50,000`; set to `0` in unit/regression tests to bypass the size floor), and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must have combined estimated selectivity $\ge \text{UNSCORED\_SELECTIVITY\_THRESHOLD}$ (`0.08`).
-3. Because `RankJoinExec` resolves unmatched top keys directly via `RA` point lookups rather than waiting for random `SA` window intersections, each scored `SA` leaf scan starts with a small initial window:
-   $$W_{\text{init}} = \min\bigl(\max(K \cdot \text{topk\_retry\_scale\_factor},\; 1),\; \text{max\_topk\_chunk\_size}\bigr)$$
+3. Both `BaseScan` Top-K (using Laplace-smoothed MVCC heap visibility selectivity) and `RankJoinRule` (using join survival selectivity $p_{\text{survive}} = p_{\text{unscored}} \cdot p_{\text{tagged}}$, where $p_{\text{unscored}} = \prod_{i \in \text{RA}} s_i$ and $p_{\text{tagged}} = 1 - \prod_i (1 - q_i)$ across `ScanMode::Tagged` leaves) share [`TopKSelectivity::compute_initial_window`](../pg_search/src/scan/execution_plan.rs) to scale the initial `SA` window inversely by $p_{\text{survive}}$:
+   $$W_{\text{init}} = \text{clamp}\!\left(\frac{K \cdot \text{topk\_retry\_scale\_factor} \cdot \text{limit\_fetch\_multiplier}}{p_{\text{survive}}},\; \min(K \cdot \text{topk\_retry\_scale\_factor} \cdot \text{limit\_fetch\_multiplier},\; \text{max\_topk\_chunk\_size}),\; \text{max\_topk\_chunk\_size}\right)$$
    while unscored `RA`-only leaf scans use $W_{\text{init}} = 0$.
 
 ---

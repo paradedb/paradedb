@@ -40,10 +40,10 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::heap::VisibilityChecker;
 use crate::scan::execution_plan::{
     LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan, ScanState,
-    ScannerConfig, SharedThresholdMode, UnsafeSendSync,
+    ScannerConfig, SharedThresholdMode, TopKSelectivity, UnsafeSendSync,
 };
 
-use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
+use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -75,7 +75,7 @@ pub struct TopKScanExecState {
     limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
-    scale_factor: f64,
+    visibility_selectivity: TopKSelectivity,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
 
@@ -101,24 +101,7 @@ impl TopKScanExecState {
             panic!("Cannot sort by more than {MAX_TOPK_FEATURES} features.");
         }
 
-        // the scale_factor to multiply the limit that the query asked for by
-        // calculated as (1 + (1 + n_dead) / (1 + n_live)) * limit_fetch_multiplier
-        // where n_dead and n_live are the number of dead and live tuples in the heaprel
-        // and limit_fetch_multiplier is a GUC
-        let scale_factor = unsafe {
-            let n_dead = direct_function_call::<i64>(
-                pg_sys::pg_stat_get_dead_tuples,
-                &[heaprelid.into_datum()],
-            )
-            .unwrap();
-            let n_live = direct_function_call::<i64>(
-                pg_sys::pg_stat_get_live_tuples,
-                &[heaprelid.into_datum()],
-            )
-            .unwrap();
-
-            1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
-        } * crate::gucs::limit_fetch_multiplier();
+        let visibility_selectivity = TopKSelectivity::from_heap_visibility(heaprelid);
 
         // Resolve K eagerly when both sides are static; otherwise leave it as
         // None and resolve in `init` from the LimitOffset carried on
@@ -126,7 +109,7 @@ impl TopKScanExecState {
         Self {
             limit: limit_offset.static_fetch(),
             orderby_info,
-            scale_factor,
+            visibility_selectivity,
             window_aggregates: Vec::new(),
             runtime: None,
             plan: None,
@@ -315,7 +298,9 @@ impl TopKScanExecState {
         let lazy_sort = LazySortConfig {
             orderby_info: self.orderby_info.clone(),
             ordering: None,
-            initial_window: self.limit() as f64 * self.scale_factor,
+            initial_window: self
+                .visibility_selectivity
+                .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
             shared_threshold: SharedThresholdMode::EnabledOnFirstPull,
         };
 

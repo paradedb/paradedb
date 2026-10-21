@@ -992,7 +992,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=documents, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=88.0 B, output_batches=1, dynamic_filter_pushdown_automaton=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=3]
      :           CooperativeExec
-     :             PgSearchScan: table=files, segments=1, lazy_sort=20, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=140.0 B, output_batches=1, queries=1]
+     :             PgSearchScan: table=files, segments=1, lazy_sort=26, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=140.0 B, output_batches=1, queries=1]
 (15 rows)
 
 SELECT documents.id AS doc_id,

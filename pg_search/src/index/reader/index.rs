@@ -63,11 +63,11 @@ use tantivy::collector::sort_key::{
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
+use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ProbeStats;
-use tantivy::vector::ivf::{AdaptiveProbeParams, LocatedPath};
+use tantivy::vector::{ProbeParams, ProbeStats};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -204,18 +204,23 @@ impl TopKSearch {
     }
 }
 
-/// Builds the PostgreSQL error for an unsupported vector storage version.
+/// Whether this build must rebuild the index before it can read the vectors `error` came from.
+pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
+    matches!(
+        error,
+        tantivy::TantivyError::IncompatibleIndex(
+            Incompatibility::VectorFormatMismatch { .. }
+                | Incompatibility::VectorRouterMismatch { .. },
+        )
+    )
+}
+
+/// Builds the PostgreSQL error for vector storage this build can't read without a rebuild.
 pub(crate) fn vector_format_error_report(
     index_name: &str,
     error: &tantivy::TantivyError,
 ) -> Option<pgrx::pg_sys::panic::ErrorReport> {
-    matches!(
-        error,
-        tantivy::TantivyError::IncompatibleIndex(
-            tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. }
-        )
-    )
-    .then(|| {
+    needs_rebuild(error).then(|| {
         pgrx::pg_sys::panic::ErrorReport::new(
             pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
             format!("index {index_name:?} has an unsupported vector storage format: {error}"),
@@ -1603,22 +1608,15 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                tantivy::vector::set_fixed_probe_cost_rows(
-                    crate::gucs::vector_fixed_probe_cost_rows(),
-                );
                 let max_scan_levels = crate::gucs::vector_max_scan_levels();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_adaptive_params(AdaptiveProbeParams {
+                    .with_probe_params(ProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         router_recall_target: crate::gucs::vector_router_recall_target(),
                         recall_target: crate::gucs::vector_recall_target(),
-                        // Score a cluster exactly where that reads fewer storage blocks, and
-                        // locate a filter's matches instead of routing when they number no
-                        // more than the rows the probe budget buys.
-                        exact_plan: true,
-                        located: LocatedPath::Auto,
+                        fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -3929,13 +3927,11 @@ mod vector_probe_stats_tests {
     #[test]
     fn exact_io_counters_are_flat_segment_fields() {
         let id = SegmentId::from_bytes([7; 16]);
-        let stats = ProbeStats {
-            exact_io: VectorIoStats {
-                reads: 3,
-                bytes_read: 64,
-                storage_blocks: 5,
-            },
-            ..Default::default()
+        let mut stats = ProbeStats::default();
+        stats.exact_io = VectorIoStats {
+            reads: 3,
+            bytes_read: 64,
+            storage_blocks: 5,
         };
         let info = probe_stats_to_segment_info(&[id], &[stats]);
         assert_eq!(info[&id]["exact_reads"], 3);

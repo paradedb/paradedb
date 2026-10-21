@@ -1794,7 +1794,17 @@ impl CustomScan for BaseScan {
                         .map(|stats| stats.hits())
                         .unwrap_or_else(|| vec![("Total".into(), 0)])
                     {
-                        explainer.add_unsigned_integer(&component, hits, None);
+                        if component == "Vectors"
+                            && let Some(stats) = &state.custom_state().io_trace
+                        {
+                            explainer.add_unsigned_integer_group(&component, hits, |explainer| {
+                                for (name, hits) in stats.vector_hits() {
+                                    explainer.add_unsigned_integer(name, hits, None);
+                                }
+                            });
+                        } else {
+                            explainer.add_unsigned_integer(&component, hits, None);
+                        }
                     }
                 });
             }
@@ -2163,7 +2173,7 @@ impl CustomScan for BaseScan {
             if let Some(parallel) = scan_state.parallel.take()
                 && !parallel.is_leader()
             {
-                parallel.publish_telemetry(&scan_state.telemetry);
+                parallel.publish_telemetry(&scan_state.telemetry, scan_state.io_trace.as_ref());
             }
         }
 

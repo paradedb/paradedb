@@ -68,6 +68,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::mpp::interrupt::{cancel_pending, interrupted};
 use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -1401,6 +1402,12 @@ impl ExecutionPlan for PgSearchScanPlan {
 
                 if scanner.can_pushdown_score_threshold() {
                     scanner.set_score_threshold(score_threshold);
+                }
+                // `block_on_next` holds interrupts while this stream runs, so the scanner's own
+                // check can't fire. Bail out instead and let the caller act on the interrupt
+                // once `block_on` has returned.
+                if cancel_pending() {
+                    Err::<(), DataFusionError>(interrupted())?;
                 }
                 let next_batch = scanner.next(
                     &ffhelper,

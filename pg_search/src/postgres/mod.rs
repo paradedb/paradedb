@@ -689,6 +689,7 @@ pub struct ParallelScanState {
     /// `payload.remaining_by_source[0]`.
     nsegments: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
+    worker_buffer_hits: crate::index::reader::io_stats::SharedBufferHits,
     /// Top-K Shared Threshold Fields
     pub shared_threshold: ParallelScanThresholdState,
 
@@ -823,6 +824,7 @@ impl ParallelScanState {
         self.payload
             .init(all_sources, with_aggregates, with_segment_info);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
+        self.worker_buffer_hits = Default::default();
         self.shared_threshold.reset();
         let primary_count = all_sources.first().expect("primary source empty").len();
         // Set nsegments LAST - this signals initialization is complete.
@@ -1420,12 +1422,6 @@ mod segment_info_tests {
             "postings_row",
             "postings_skipped",
             "routing_visited_count",
-            "routing_graph_count",
-            "routing_graph_visited_count",
-            "routing_graph_expanded_count",
-            "routing_graph_edges_scanned",
-            "routing_graph_evictions",
-            "routing_graph_result_count",
             "bounds_skips",
             "bound_armed_count",
             "bound_armed_probe_sum",

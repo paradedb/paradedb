@@ -111,6 +111,31 @@ BEGIN
 END;
 $$;
 
+-- Fixed seed words survive every update; only the final token changes.
+CREATE OR REPLACE FUNCTION assert_search_matches_heap(
+    search_ids bigint[], heap_ids bigint[], expected bigint, term text
+) RETURNS bool LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    IF search_ids IS DISTINCT FROM heap_ids
+       OR cardinality(heap_ids) <> expected THEN
+        RAISE EXCEPTION 'Search/heap mismatch for %: search=%, heap=%, expected=%',
+            term, cardinality(search_ids), cardinality(heap_ids), expected
+        USING DETAIL = json_build_object(
+            'term', term,
+            'search_ids', search_ids,
+            'heap_ids', heap_ids,
+            'missing_from_search', ARRAY(SELECT unnest(heap_ids) EXCEPT SELECT unnest(search_ids)),
+            'extra_in_search', ARRAY(SELECT unnest(search_ids) EXCEPT SELECT unnest(heap_ids)),
+            'server_addr', inet_server_addr(),
+            'in_recovery', pg_is_in_recovery(),
+            'replay_lsn', pg_last_wal_replay_lsn(),
+            'snapshot', pg_current_snapshot()::text
+        )::text;
+    END IF;
+    RETURN true;
+END;
+$$;
+
 ALTER SYSTEM SET autovacuum_naptime TO '1s';
 SELECT pg_reload_conf();
 """
@@ -355,3 +380,63 @@ sql = """
 DELETE FROM test WHERE id > 10000;
 """
 destinations = ["Publisher"]
+
+# Compare IDs in one SQL statement so both paths share an MVCC snapshot.
+# The plain predicate is independent of pg_search for these seeded ASCII words.
+[[jobs]]
+refresh_ms = 1000
+log_tps = false
+title = "Search versus heap (beer)"
+on_connect = """
+SET paradedb.enable_custom_scan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = on;
+SET enable_indexonlyscan = off;
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+SET max_parallel_workers_per_gather = 0;
+"""
+sql_plan_contains = "Scan using idxtest"
+sql = """
+WITH search AS MATERIALIZED (
+    SELECT id FROM test WHERE message ||| 'beer'
+), heap AS MATERIALIZED (
+    SELECT id FROM test WHERE 'beer' = ANY(string_to_array(message, ' '))
+)
+SELECT assert_search_matches_heap(
+    ARRAY(SELECT id FROM search ORDER BY id),
+    ARRAY(SELECT id FROM heap ORDER BY id),
+    5000, 'beer'
+);
+"""
+destinations = ["Subscriber"]
+
+# Compare IDs in one SQL statement so both paths share an MVCC snapshot.
+# The plain predicate is independent of pg_search for these seeded ASCII words.
+[[jobs]]
+refresh_ms = 1000
+log_tps = false
+title = "Search versus heap (wine)"
+on_connect = """
+SET paradedb.enable_custom_scan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = on;
+SET enable_indexonlyscan = off;
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+SET max_parallel_workers_per_gather = 0;
+"""
+sql_plan_contains = "Scan using idxtest"
+sql = """
+WITH search AS MATERIALIZED (
+    SELECT id FROM test WHERE message ||| 'wine'
+), heap AS MATERIALIZED (
+    SELECT id FROM test WHERE 'wine' = ANY(string_to_array(message, ' '))
+)
+SELECT assert_search_matches_heap(
+    ARRAY(SELECT id FROM search ORDER BY id),
+    ARRAY(SELECT id FROM heap ORDER BY id),
+    5000, 'wine'
+);
+"""
+destinations = ["Subscriber"]

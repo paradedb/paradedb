@@ -1512,7 +1512,8 @@ pub(crate) mod plan {
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
     /// is greater than available parallelism, we use available parallelism.
     ///
-    /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
+    /// Round the participant count down to a divisor of the target segment count, including
+    /// the leader when it participates, so every participant has the same segment target.
     pub(super) fn create_index_nworkers(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
@@ -1573,15 +1574,14 @@ pub(crate) mod plan {
             return 0;
         }
 
-        // Each participant needs at least one final segment to build.
-        let max_workers = target_segment_count;
-        let mut nworkers = maintenance_workers.min(max_workers);
+        let leader = usize::from(unsafe { pg_sys::parallel_leader_participation });
+        let max_participants = (maintenance_workers + leader).min(target_segment_count);
+        let participants = (1..=max_participants)
+            .rev()
+            .find(|participants| target_segment_count.is_multiple_of(*participants))
+            .expect("one participant divides every segment target");
 
-        if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
-            nworkers -= 1;
-        }
-
-        nworkers
+        participants - leader
     }
 
     /// If we determine that the table is very small, we should just create a single segment
@@ -1720,7 +1720,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_build_worker_count_allows_one_segment_per_participant() {
+    fn test_build_worker_count_balances_segment_targets() {
         use crate::postgres::rel::PgSearchRelation;
 
         setup_parallel_build_large_table();
@@ -1734,11 +1734,37 @@ mod tests {
                 .unwrap()
                 .unwrap();
         let heaprel = PgSearchRelation::open(heap_oid);
-        let indexrel = PgSearchRelation::open(index_oid);
-        Spi::run("SET max_parallel_workers = 8; SET max_parallel_maintenance_workers = 8; SET parallel_leader_participation = off;").unwrap();
-        assert_eq!(super::plan::create_index_nworkers(&heaprel, &indexrel), 8);
-        Spi::run("SET parallel_leader_participation = on;").unwrap();
-        assert_eq!(super::plan::create_index_nworkers(&heaprel, &indexrel), 7);
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        for (target, available, without_leader, with_leader) in [
+            (1, 8, 0, 0),
+            (7, 4, 1, 0),
+            (7, 8, 7, 6),
+            (8, 0, 0, 0),
+            (8, 1, 1, 1),
+            (8, 2, 2, 1),
+            (8, 4, 4, 3),
+            (8, 6, 4, 3),
+            (8, 7, 4, 7),
+            (8, 8, 8, 7),
+            (12, 4, 4, 3),
+            (12, 5, 4, 5),
+            (12, 8, 6, 5),
+        ] {
+            Spi::run(&format!(
+                "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
+                 SET max_parallel_maintenance_workers = {available};"
+            ))
+            .unwrap();
+            let indexrel = PgSearchRelation::open(index_oid);
+            for (leader, expected) in [(false, without_leader), (true, with_leader)] {
+                Spi::run(&format!("SET parallel_leader_participation = {leader};")).unwrap();
+                assert_eq!(
+                    super::plan::create_index_nworkers(&heaprel, &indexrel),
+                    expected,
+                    "target={target}, available={available}, leader={leader}"
+                );
+            }
+        }
     }
 
     /// Tests that parallel index building fails with insufficient memory.
@@ -1871,6 +1897,8 @@ mod tests {
             (false, 0, 4, true),
             (false, 2, 4, true),
             (false, 2, 4, false),
+            (false, 8, 8, true),
+            (false, 8, 8, false),
             (true, 0, 4, true),
             (true, 2, 4, false),
         ] {

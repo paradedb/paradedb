@@ -2716,6 +2716,115 @@ LIMIT 5;
   5 |    65 |          2
 (4 rows)
 
+-- A filter on a columnar text field. The scan compares the stored value, so
+-- 'apple' matches nothing, as in PostgreSQL, and `<>` combines with a
+-- comparison on the other side of the join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('count(*) FILTER (WHERE (p.brand = ''Apple''::text)) OVER ()'::text)), (pdb.window_agg('count(*) FILTER (WHERE (p.brand = ''apple''::text)) OVER ()'::text)), (pdb.window_agg('count(*) FILTER (WHERE ((p.brand <> ''Apple''::text) AND (r.score > 60))) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE p_0.brand = Utf8View("Apple")) as window_agg_1, count(1) FILTER (WHERE p_0.brand = Utf8View("apple")) as window_agg_2, count(1) FILTER (WHERE p_0.brand != Utf8View("Apple") AND r_1.score > Int64(60)) as window_agg_3]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@5, ctid_0@0, ctid_1@3, brand@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, eager=[brand], query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | apple_count | lowercase_apple_count | other_brand_count 
+----+-------+-------------+-----------------------+-------------------
+  1 |    95 |           2 |                     0 |                 2
+  3 |    91 |           2 |                     0 |                 2
+  1 |    70 |           2 |                     0 |                 2
+(3 rows)
+
+-- pdb.agg() with a FILTER. The same spec without and with a filter is two
+-- aggregates, and EXPLAIN shows each pdb_agg(...) call with its FILTER. Plain
+-- EXPLAIN: the VERBOSE output list deparses the search operator with the index
+-- OID, which changes from run to run.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1, pdb_agg({"avg":{"field":"score"}}) FILTER (WHERE r_1.score > Int64(80)) as window_agg_2, pdb_agg({"value_count":{"field":"score"}}) FILTER (WHERE p_0.__p_0_tag_0) as window_agg_3]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           ProjectionExec: expr=[CAST(score@0 AS Float64) as __common_expr_1, id@1 as id, score@0 as score, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1, __p_0_tag_0@4 as __p_0_tag_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[score@5, id@1, ctid_0@0, ctid_1@3, __p_0_tag_0@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"gaming","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score |    avg_score     | high_avg_score  | gaming_reviews 
+----+-------+------------------+-----------------+----------------
+  1 |    95 | {"value": 80.25} | {"value": 93.0} | {"value": 1.0}
+  3 |    91 | {"value": 80.25} | {"value": 93.0} | {"value": 1.0}
+  1 |    70 | {"value": 80.25} | {"value": 93.0} | {"value": 1.0}
+(3 rows)
+
 -- Search operators in a filter, on either side of the join and combined with a
 -- column comparison. Each becomes a tagged query on its source scan, and the
 -- filter reads the tag column. Plain EXPLAIN: the VERBOSE output list

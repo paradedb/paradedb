@@ -2024,17 +2024,6 @@ fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
     })
 }
 
-/// Returns true if a member expression has no Var references.
-fn pathkey_has_no_column_refs(equivclass: &pg_sys::EquivalenceClass) -> bool {
-    let members = unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members) };
-    members.iter_ptr().all(|member| unsafe {
-        let check_expr = strip_wrappers((*member).em_expr.cast());
-        let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
-        let vars = PgList::<pg_sys::Var>::from_pg(var_list);
-        vars.is_empty()
-    })
-}
-
 /// Check if all ORDER BY columns are fast fields.
 ///
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
@@ -2068,19 +2057,14 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = &*(*pathkey_ptr).pk_eclass;
 
-        if pathkey_is_window_constant(equivclass) {
-            continue;
-        }
-
-        // Postgres would have pruned any redundant, constant, pathkeys by now, so any pathkey with
-        // no column references at this point is volatile by-elimation, and should be declined
-        if pathkey_has_no_column_refs(equivclass) {
+        if equivclass.ec_has_volatile {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: ORDER BY columns cannot contain volatile functions",
             ));
         }
 
-        if pathkey_is_outer_only(equivclass, &source_rtis) {
+        if pathkey_is_outer_only(equivclass, &source_rtis) || pathkey_is_window_constant(equivclass)
+        {
             continue;
         }
 
@@ -3095,18 +3079,15 @@ pub(super) unsafe fn extract_orderby(
         let pathkey = pathkey_ptr;
         let equivclass = &*(*pathkey).pk_eclass;
 
-        if pathkey_is_window_constant(equivclass) {
-            continue;
-        }
-
-        // any order by path key that reaches this point is volatile and should be declined
-        if pathkey_has_no_column_refs(equivclass) {
+        if equivclass.ec_has_volatile {
             return None;
         }
 
-        if pathkey_is_outer_only(equivclass, output_rtis) {
+        if pathkey_is_outer_only(equivclass, output_rtis) || pathkey_is_window_constant(equivclass)
+        {
             continue;
         }
+
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
 
         let nulls_first = (*pathkey).pk_nulls_first;

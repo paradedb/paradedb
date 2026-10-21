@@ -29,12 +29,14 @@
 //! in time on a healthy database" a real finding.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
+
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lockfree_object_pool::MutexObjectPool;
 use sqlx::PgConnection;
+
+mod schedule;
 
 /// What kind of fault-induced failure occurred.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -216,7 +218,7 @@ pub fn retry_transient<T>(
         let witness = PauseWitness::take(pause_source());
         let mut conn = pool.pull();
         let attempt = op(&mut conn);
-        observe_schedule();
+        observe_schedule(false, false);
         let (kind, err) = match attempt {
             Attempt::Done(value) => return Ok(value),
             Attempt::Transient(kind, err) => (kind, err),
@@ -239,40 +241,35 @@ pub fn retry_transient<T>(
     }
 }
 
-/// Counters describing the fault schedule this timeline actually experienced, so its shape can be
-/// asserted rather than trusted.
-static LAST_PAUSED: AtomicBool = AtomicBool::new(false);
-static QUIET_PERIODS_COMPLETED: AtomicUsize = AtomicUsize::new(0);
-static FAULTS_BEFORE_ANY_QUIET: AtomicUsize = AtomicUsize::new(0);
-
-/// Samples the pause state after every attempt — not just failing ones, since a fault-free window
-/// is exactly when nothing fails — and asserts the schedule alternates: faults, a quiet window,
-/// faults again.
-fn observe_schedule() {
-    let paused = pause_source().current().is_some();
-    let was_paused = LAST_PAUSED.swap(paused, Ordering::Relaxed);
-
-    if paused && !was_paused {
-        dst::assert_reachable!("qgen: the recovery-liveness command paused faults");
-    }
-    if !paused && was_paused {
-        QUIET_PERIODS_COMPLETED.fetch_add(1, Ordering::Relaxed);
-        dst::assert_reachable!("qgen: returned to unbounded retry after a fault-free window");
-    }
-
-    // Faults must not be paused everywhere: some case has to complete under uninterrupted chaos.
-    dst::assert_sometimes!(
-        QUIET_PERIODS_COMPLETED.load(Ordering::Relaxed) == 0
-            && FAULTS_BEFORE_ANY_QUIET.load(Ordering::Relaxed) > 0,
-        "qgen: a case completed while faults had never been paused",
-        &serde_json::json!({})
-    );
+/// Record successful oracle cases separately from setup, EXPLAIN, and failed attempts.
+pub(crate) fn note_case_completed() {
+    observe_schedule(true, false);
 }
 
-fn note_fault() {
-    if QUIET_PERIODS_COMPLETED.load(Ordering::Relaxed) == 0 {
-        FAULTS_BEFORE_ANY_QUIET.fetch_add(1, Ordering::Relaxed);
-    } else if FAULTS_BEFORE_ANY_QUIET.load(Ordering::Relaxed) > 0 {
+/// Track each pause by its deadline. An early pause must not prevent a later
+/// fault -> successful recovery -> fault episode from satisfying coverage.
+fn observe_schedule(case_completed: bool, fault: bool) {
+    static SCHEDULE: OnceLock<Mutex<schedule::Schedule>> = OnceLock::new();
+    let mut schedule = SCHEDULE
+        .get_or_init(|| Mutex::new(schedule::Schedule::default()))
+        .lock()
+        .expect("fault schedule mutex poisoned");
+    let pause = pause_source().current().map(|p| p.unpause_at_ms);
+    let observation = schedule.observe(pause, case_completed, fault);
+    if observation.paused {
+        dst::assert_reachable!("qgen: the recovery-liveness command paused faults");
+    }
+    if observation.ended {
+        dst::assert_reachable!("qgen: returned to unbounded retry after a fault-free window");
+    }
+    if case_completed {
+        dst::assert_sometimes!(
+            observation.case_before_any_pause,
+            "qgen: a case completed while faults had never been paused",
+            &serde_json::json!({})
+        );
+    }
+    if observation.resumed_after_recovery {
         dst::assert_reachable!("qgen: faults resumed after surviving a fault-free window");
     }
 }
@@ -293,7 +290,7 @@ impl FaultRetry {
     /// healed.
     pub(crate) fn record(&mut self, what: &str, err: &dyn std::fmt::Display) -> Result<(), String> {
         let pause = pause_source().current();
-        note_fault();
+        observe_schedule(false, true);
 
         // A poke landing mid-fault is the only path where the liveness check can actually fail;
         // assert it happens at all.

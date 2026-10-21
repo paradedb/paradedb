@@ -220,4 +220,39 @@ WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
 ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
 LIMIT 5;
 
+-- ============================================================
+-- Test 5: 3-table disjunctive (OR) join ordered by 3rd table (c.upvotes DESC NULLS LAST)
+-- Shape: ScanMode::Tagged leaves + single-sided RankJoinExec with root JoinFilter
+-- ============================================================
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_rank_join = on;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25' OR c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25' OR c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
+-- Verify identical results with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25' OR c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
 DROP TABLE rj_comments, rj_posts, rj_users;

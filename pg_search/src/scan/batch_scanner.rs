@@ -353,6 +353,29 @@ impl Scanner {
             .push(TaggedMatchQuery { tag_name, weight });
     }
 
+    /// Compiles and registers any `ScanMode::Tagged` match queries on this scanner.
+    pub fn register_tagged_queries(
+        &mut self,
+        scan_mode: &crate::scan::ScanMode,
+        reader: &crate::index::reader::index::SearchIndexReader,
+        need_scores: bool,
+    ) -> datafusion::common::Result<()> {
+        if let crate::scan::ScanMode::Tagged { local_queries, .. } = scan_mode {
+            for tq in local_queries {
+                let weight = reader
+                    .compile_match_weight(&tq.query, need_scores)
+                    .map_err(|e| {
+                        datafusion::common::DataFusionError::Internal(format!(
+                            "Failed to compile match weight for tag {}: {e}",
+                            tq.tag_name
+                        ))
+                    })?;
+                self.add_tagged_query(tq.tag_name.clone(), weight);
+            }
+        }
+        Ok(())
+    }
+
     fn ensure_segment_tag_scorers(&mut self, segment_ord: SegmentOrdinal) {
         if self.current_segment_ord != Some(segment_ord) {
             self.active_tag_scorers.clear();
@@ -518,6 +541,10 @@ impl Scanner {
         if self.can_pushdown_score_threshold() && self.score_threshold.is_some() {
             self.score_threshold_pushed = true;
         }
+        // Consecutive SA windows or RA lookups on a single-segment index can revisit the same
+        // `segment_ord` with smaller `DocId`s than the previous window; reset `current_segment_ord`
+        // so forward-only `ActiveTagScorer`s are re-instantiated from DocId 0 for each window.
+        self.current_segment_ord = None;
 
         let num_segments = ffhelper.num_segments();
         let mut slot_by_orig_idx: Vec<Option<(usize, usize)>> = vec![None; results.len()];

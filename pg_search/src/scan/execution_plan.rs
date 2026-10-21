@@ -1684,19 +1684,17 @@ impl ExecutionPlan for PgSearchScanPlan {
                             };
                             (sa, has_disjuncts, replace_query, disjunct_queries.as_slice())
                         }
-                        crate::scan::ScanMode::Standard { query } => (
+                        crate::scan::ScanMode::Standard { query }
+                        | crate::scan::ScanMode::Tagged {
+                            base_query: query, ..
+                        } => (
                             reader.clone(),
                             false,
                             matches!(query.as_ref(), SearchQueryInput::All) && !pushed,
                             &[][..],
                         ),
-                        crate::scan::ScanMode::Tagged { .. } => {
-                            Err(DataFusionError::Internal(
-                                "ScanMode::Tagged is not supported in lazy_sort; RankJoinExec uses ScanMode::Disjunctive".to_string(),
-                            ))?;
-                            unreachable!()
-                        }
                     };
+                scanner.register_tagged_queries(&scanner_config.scan_mode, &reader, need_scores)?;
                 if !scan_fetched_fields.is_empty() {
                     scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
                 }
@@ -2152,17 +2150,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     scanner_config.which_fast_fields,
                     scanner_config.heap_relid,
                 );
-                if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
-                    for tq in local_queries {
-                        let weight = reader
-                            .compile_match_weight(&tq.query, need_scores)
-                            .map_err(|e| DataFusionError::Internal(format!(
-                                "Failed to compile match weight for tag {}: {e}",
-                                tq.tag_name
-                            )))?;
-                        scanner.add_tagged_query(tq.tag_name.clone(), weight);
-                    }
-                }
+                scanner.register_tagged_queries(&scanner_config.scan_mode, &reader, need_scores)?;
                 let df_batch_size = crate::gucs::dynamic_filter_batch_size();
                 if df_batch_size > 0 {
                     scanner.set_batch_size(df_batch_size as usize);

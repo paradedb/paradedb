@@ -395,4 +395,76 @@ LIMIT 5;
     2 |   43 |  122 |         54
 (5 rows)
 
+-- ============================================================
+-- Test 5: 3-table disjunctive (OR) join ordered by 3rd table (c.upvotes DESC NULLS LAST)
+-- Shape: ScanMode::Tagged leaves + single-sided RankJoinExec with root JoinFilter
+-- ============================================================
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_rank_join = on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25' OR c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER c
+   Join Cond: p.id = c.post_id, u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: c.upvotes desc nulls last, u.id asc, p.id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, id@6 as col_3, upvotes@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p, c]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@3 as ctid_1, id@4 as id, ctid_2@6 as ctid_2, upvotes@8 as upvotes, id@9 as id]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@4, post_id@1)], order=[upvotes@8 DESC NULLS LAST, id@1 ASC NULLS LAST, id@4 ASC NULLS LAST, id@9 ASC NULLS LAST], filter=__u_0_tag_0@0 OR __p_1_tag_0@1 OR __c_2_tag_0@2
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, __u_0_tag_0@2 as __u_0_tag_0, ctid_1@3 as ctid_1, id@4 as id, __p_1_tag_0@6 as __p_1_tag_0]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[0 DESC NULLS LAST]
+     :               CooperativeExec
+     :                 PgSearchScan: table=u, segments=2, lazy_sort=0, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=2, lazy_sort=0, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=2, lazy_sort=10, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25' OR c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | upvotes 
+------+------+------+---------
+   34 |   19 |   38 |     198
+   10 |   37 |   76 |     196
+   36 |   55 |  114 |     194
+   25 |   32 |   21 |     191
+    1 |   50 |   59 |     189
+(5 rows)
+
+-- Verify identical results with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, c.upvotes
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25' OR c.body @@@ 'helpful'
+ORDER BY c.upvotes DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | upvotes 
+------+------+------+---------
+   34 |   19 |   38 |     198
+   10 |   37 |   76 |     196
+   36 |   55 |  114 |     194
+   25 |   32 |   21 |     191
+    1 |   50 |   59 |     189
+(5 rows)
+
 DROP TABLE rj_comments, rj_posts, rj_users;

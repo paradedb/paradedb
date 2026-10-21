@@ -434,11 +434,13 @@ fn try_rewrite_join_subtree(
 
     let uses_left = decomposed.combiner.uses_left();
     let uses_right = decomposed.combiner.uses_right();
+    let has_disjunctive_scans = subtree_has_tagless_disjunctive_scans(node);
 
     // Single-sided (`NRJN`) joins disable SA on the unscored child (`initial_window = 0.0`),
-    // which is only sound when all leaf scans in the subtree use `ScanMode::Standard`
-    // (conjunctive join where every valid row matches the scored child's SA query).
-    if uses_left != uses_right && !subtree_all_standard_scans(node) {
+    // which is sound for `ScanMode::Standard` and `ScanMode::Tagged` (where the scored child
+    // scans `base_query` and the join's `filter` evaluates any cross-table tag disjunction),
+    // but not for tagless `ScanMode::Disjunctive`.
+    if uses_left != uses_right && has_disjunctive_scans {
         return Ok(None);
     }
 
@@ -448,7 +450,6 @@ fn try_rewrite_join_subtree(
     // pushdown. Only plan two-sided `RankJoinExec` when the subtree contains tagless disjunctive
     // (`ScanMode::Disjunctive`) scans (where the alternative `ScanMode::Tagged` must scan 100%
     // of every table), or when `min_rows == 0` (used in tests to force `RankJoinExec`).
-    let has_disjunctive_scans = subtree_has_tagless_disjunctive_scans(node);
     if uses_left && uses_right && min_rows > 0 && !has_disjunctive_scans {
         return Ok(None);
     }
@@ -528,13 +529,6 @@ fn try_rewrite_join_subtree(
     )?;
 
     Ok(Some((Arc::new(rank_join), combined_stats)))
-}
-
-fn subtree_all_standard_scans(node: &Arc<dyn ExecutionPlan>) -> bool {
-    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
-        return matches!(scan.scan_mode(), ScanMode::Standard { .. });
-    }
-    node.children().into_iter().all(subtree_all_standard_scans)
 }
 
 fn subtree_has_tagless_disjunctive_scans(node: &Arc<dyn ExecutionPlan>) -> bool {
@@ -700,7 +694,10 @@ fn try_rewrite_unscored_branch(
     let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() else {
         return Ok(None);
     };
-    if !matches!(scan.scan_mode(), ScanMode::Standard { .. }) {
+    if !matches!(
+        scan.scan_mode(),
+        ScanMode::Standard { .. } | ScanMode::Tagged { .. }
+    ) {
         return Ok(None);
     }
     let stats = SubtreeScoreStats {
@@ -767,6 +764,14 @@ fn try_rewrite_child_branch(
             &[],
             scan.planner_estimated_rows(),
         ),
+        ScanMode::Tagged { base_query, .. } if !order_by.is_score() => {
+            SubtreeScoreStats::from_leaf_queries(
+                false,
+                base_query,
+                &[],
+                scan.planner_estimated_rows(),
+            )
+        }
         ScanMode::Disjunctive {
             base_query,
             disjunct_queries,
@@ -1980,6 +1985,81 @@ mod tests {
         assert!(
             out_two.children()[0].is::<HashJoinExec>(),
             "two-sided non-score column sort must not rewrite to RankJoinExec"
+        );
+
+        // 3. Single-sided fast-field sort over `ScanMode::Tagged` leaves -> allowed,
+        //    whereas single-sided score sort over `ScanMode::Tagged` leaves -> rejected!
+        let make_tagged_scan = |alias: &str| -> Arc<dyn ExecutionPlan> {
+            let mut scan = PgSearchScanPlan::new(
+                None,
+                Arc::new(Schema::new(vec![
+                    Field::new("id", DataType::Int32, false),
+                    Field::new("__pdb_score", DataType::Float32, false),
+                    Field::new(format!("__{alias}_tag_0"), DataType::Boolean, false),
+                ])),
+                SearchQueryInput::All,
+                None,
+                vec![],
+                None,
+                1,
+                None,
+                1,
+                None,
+                None,
+            )
+            .with_table_alias(alias)
+            .with_estimated_rows_for_test(50_000);
+            scan.scan_mode = ScanMode::tagged(SearchQueryInput::All, vec![]);
+            Arc::new(scan)
+        };
+        let join_tagged: Arc<dyn ExecutionPlan> = Arc::new(
+            HashJoinExec::try_new(
+                make_tagged_scan("l"),
+                make_tagged_scan("r"),
+                vec![(
+                    Arc::new(Column::new("id", 0)),
+                    Arc::new(Column::new("id", 0)),
+                )],
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::CollectLeft,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        );
+        let tagged_field_sort = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: Arc::new(Column::new("id", 0)),
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        }])
+        .unwrap();
+        let plan_tagged_field: Arc<dyn ExecutionPlan> = Arc::new(
+            SortExec::new(tagged_field_sort, Arc::clone(&join_tagged)).with_fetch(Some(10)),
+        );
+        let out_tagged_field = rule.optimize(plan_tagged_field, &config).unwrap();
+        assert!(
+            out_tagged_field.children()[0].is::<RankJoinExec>(),
+            "single-sided fast-field sort over ScanMode::Tagged should rewrite to RankJoinExec"
+        );
+
+        let tagged_score_sort = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: Arc::new(Column::new("__pdb_score", 1)),
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        }])
+        .unwrap();
+        let plan_tagged_score: Arc<dyn ExecutionPlan> =
+            Arc::new(SortExec::new(tagged_score_sort, join_tagged).with_fetch(Some(10)));
+        let out_tagged_score = rule.optimize(plan_tagged_score, &config).unwrap();
+        assert!(
+            out_tagged_score.children()[0].is::<HashJoinExec>(),
+            "single-sided score sort over ScanMode::Tagged must not rewrite to RankJoinExec"
         );
     }
 

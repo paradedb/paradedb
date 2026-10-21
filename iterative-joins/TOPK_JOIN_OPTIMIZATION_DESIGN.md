@@ -44,7 +44,7 @@ Because `RankJoinExec` supports both `SA` and `RA` on each input, `RankJoinRule`
    - Either a `PgSearchScanPlan` in `ScanMode::Standard` whose query is not a flat constant-score query (`AllQuery` or `ConstScoreQuery`),
    - Or a `PgSearchScanPlan` in `ScanMode::Tagged` with at least one non-constant-score query in `base_query` or `local_queries`,
    - Or a child `RankJoinExec` already producing a ranked stream.
-2. Any child that does _not_ contribute to the `ORDER BY` score expression (`combiner.uses_left() == false` or `combiner.uses_right() == false`) must be a leaf `PgSearchScanPlan` in `ScanMode::Standard` (where every valid joined row must match the scored side's `SA` query, making `RA`-only execution on the unscored side sound).
+2. Any child that does _not_ contribute to the `ORDER BY` score expression (`combiner.uses_left() == false` or `combiner.uses_right() == false`) must use `ScanMode::Standard` or `ScanMode::Tagged` (for `ScanMode::Tagged` with a non-score fast-field `ORDER BY`, the scored side's `SA` scans `base_query` in fast-field order and both sides populate boolean `__*_tag_*` columns evaluated by the join's `filter`).
 
 ### Gate 2: Score Contribution & Combiner Selection
 

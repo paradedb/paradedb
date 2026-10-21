@@ -236,11 +236,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(index);
     drop(directory);
 
-    finish_mutable_flush(flush_mutable_segments(
-        &index_relation,
-        &mutable_segments,
-        &callback,
-    ));
+    flush_mutable_segments(&index_relation, &mutable_segments, &callback)
+        .expect("ambulkdelete: should be able to flush mutable segments");
 
     if did_delete {
         // As soon as ambulkdelete returns, Postgres will update the visibility map
@@ -259,15 +256,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(vacuum_sentinel);
 
     stats.into_pg()
-}
-
-/// Tantivy returns a cancellation error when QueryCancelPending is set. Let PostgreSQL
-/// report the pending interrupt before converting a genuine flush failure into an error.
-fn finish_mutable_flush(result: Result<()>) {
-    if let Err(error) = result {
-        pgrx::check_for_interrupts!();
-        panic!("ambulkdelete: should be able to flush mutable segments: {error:?}");
-    }
 }
 
 fn flush_mutable_segments(
@@ -400,20 +388,6 @@ mod tests {
     use super::*;
     use crate::postgres::storage::block::{MutableSegmentEntry, SegmentMetaEntryMutable};
     use tantivy::index::SegmentId;
-
-    #[pg_test(error = "canceling statement due to user request")]
-    unsafe fn test_vacuum_flush_preserves_query_cancellation() {
-        unsafe {
-            pg_sys::QueryCancelPending = 1;
-            pg_sys::InterruptPending = 1;
-        }
-        finish_mutable_flush(Err(anyhow::anyhow!("User requested cancel")));
-    }
-
-    #[pg_test(error = "ambulkdelete: should be able to flush mutable segments: flush failed")]
-    fn test_vacuum_flush_preserves_other_errors() {
-        finish_mutable_flush(Err(anyhow::anyhow!("flush failed")));
-    }
 
     #[pg_test]
     unsafe fn test_vacuum_flushes_mutable_batches() {

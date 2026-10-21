@@ -30,7 +30,7 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use tantivy::SegmentOrdinal;
 use tantivy::schema::FieldType;
 
-/// Answers pruning questions directly for one segment of the execution snapshot.
+/// Answers pruning questions directly for one segment of a [`SegmentStatsSnapshot`].
 ///
 /// A positive `can_match` answer retains the segment; it is not evidence that a match exists.
 /// `matches_all` requires a guarantee for every document, including NULLs. Unsupported query
@@ -55,18 +55,177 @@ impl<'a> SegmentPruner<'a> {
         }
     }
 
-    fn eligible_field(&self, field: &FieldName) -> Option<SearchField> {
+    fn eligible_field_in_schema(
+        schema: &SearchIndexSchema,
+        field: &FieldName,
+    ) -> Option<SearchField> {
         if field.path().is_some() {
             return None;
         }
-        self.schema
+        schema
             .search_field(field.root())
             .filter(SearchField::stats_order_matches_values)
     }
 
+    fn eligible_value_field_in_schema(
+        schema: &SearchIndexSchema,
+        field: &FieldName,
+    ) -> Option<SearchField> {
+        Self::eligible_field_in_schema(schema, field).filter(SearchField::stats_describe_terms)
+    }
+
+    /// True when `search_query_input` can exclude segments via [`Self::can_match`].
+    pub(crate) fn has_prunable_predicate(
+        schema: &SearchIndexSchema,
+        search_query_input: &SearchQueryInput,
+    ) -> bool {
+        Self::can_be_excluded(schema, search_query_input)
+    }
+
+    fn can_be_excluded(schema: &SearchIndexSchema, query: &SearchQueryInput) -> bool {
+        match query {
+            SearchQueryInput::All => false,
+            SearchQueryInput::Empty => true,
+            SearchQueryInput::FieldedQuery { field, query } => {
+                Self::field_can_be_excluded(schema, field, query)
+            }
+            SearchQueryInput::TermSet { terms } => {
+                !terms.is_empty()
+                    && terms.iter().all(|term| {
+                        Self::eligible_value_field_in_schema(schema, &term.field).is_some()
+                    })
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                if must.is_empty() && should.is_empty() {
+                    return true;
+                }
+                let Some(required) = required_should_matches(
+                    must.len(),
+                    should.len(),
+                    must_not.len(),
+                    *minimum_should_match,
+                ) else {
+                    return false;
+                };
+                must.iter().any(|q| Self::can_be_excluded(schema, q))
+                    || must_not.iter().any(|q| Self::can_match_all(schema, q))
+                    || (required > 0
+                        && should
+                            .iter()
+                            .filter(|q| !Self::can_be_excluded(schema, q))
+                            .count()
+                            < required)
+            }
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => Self::can_be_excluded(schema, query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().all(|q| Self::can_be_excluded(schema, q))
+            }
+            SearchQueryInput::ScoreFilter { query, .. } => query
+                .as_deref()
+                .is_some_and(|q| Self::can_be_excluded(schema, q)),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                Self::can_be_excluded(schema, indexed_query)
+            }
+            _ => false,
+        }
+    }
+
+    fn can_match_all(schema: &SearchIndexSchema, query: &SearchQueryInput) -> bool {
+        match query {
+            SearchQueryInput::All => true,
+            SearchQueryInput::Empty => false,
+            SearchQueryInput::FieldedQuery { field, query } => {
+                Self::field_can_match_all(schema, field, query)
+            }
+            SearchQueryInput::TermSet { terms } => terms
+                .iter()
+                .any(|term| Self::eligible_value_field_in_schema(schema, &term.field).is_some()),
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                if must.is_empty() && should.is_empty() {
+                    return false;
+                }
+                let Some(required) = required_should_matches(
+                    must.len(),
+                    should.len(),
+                    must_not.len(),
+                    *minimum_should_match,
+                ) else {
+                    return false;
+                };
+                must.iter().all(|q| Self::can_match_all(schema, q))
+                    && must_not.iter().all(|q| Self::can_be_excluded(schema, q))
+                    && should
+                        .iter()
+                        .filter(|q| Self::can_match_all(schema, q))
+                        .count()
+                        >= required
+            }
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => Self::can_match_all(schema, query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(|q| Self::can_match_all(schema, q))
+            }
+            _ => false,
+        }
+    }
+
+    fn field_can_be_excluded(
+        schema: &SearchIndexSchema,
+        field: &FieldName,
+        mut query: &pdb::Query,
+    ) -> bool {
+        while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+            query = inner;
+        }
+        match query {
+            pdb::Query::Empty => true,
+            pdb::Query::Term { .. } | pdb::Query::TermSet { .. } | pdb::Query::Range { .. } => {
+                Self::eligible_value_field_in_schema(schema, field).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    fn field_can_match_all(
+        schema: &SearchIndexSchema,
+        field: &FieldName,
+        mut query: &pdb::Query,
+    ) -> bool {
+        while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+            query = inner;
+        }
+        match query {
+            pdb::Query::All => true,
+            pdb::Query::Exists => Self::eligible_field_in_schema(schema, field).is_some(),
+            pdb::Query::Term { .. } | pdb::Query::Range { .. } => {
+                Self::eligible_value_field_in_schema(schema, field).is_some()
+            }
+            pdb::Query::TermSet { terms } => {
+                !terms.is_empty() && Self::eligible_value_field_in_schema(schema, field).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    fn eligible_field(&self, field: &FieldName) -> Option<SearchField> {
+        Self::eligible_field_in_schema(self.schema, field)
+    }
+
     fn eligible_value_field(&self, field: &FieldName) -> Option<SearchField> {
-        self.eligible_field(field)
-            .filter(SearchField::stats_describe_terms)
+        Self::eligible_value_field_in_schema(self.schema, field)
     }
 
     fn term_value(&self, field: &SearchField, value: &PdbOwnedValue) -> Option<PdbOwnedValue> {

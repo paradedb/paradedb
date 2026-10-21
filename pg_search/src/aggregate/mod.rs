@@ -722,10 +722,11 @@ pub fn execute_aggregate(
             aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        // Prune segments via `.stats` before publishing the segment claim list so workers never
+        // claim or open segments that cannot match the query.
         let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
+            .candidate_segment_readers()
+            .map(|(_, r)| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
         // leader's bitmap into this scan's own DSA area, mint one iteration state
@@ -1307,21 +1308,14 @@ pub mod mvcc_collector {
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
             let requires_scoring = self.inner.requires_scoring();
-            let lock = VisibilityChecker::for_segment_arc(&self.lock, segment_local_id)?;
-            // All-visible segments forward documents directly and need no batch buffers.
-            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
 
             Ok(MVCCFilterSegmentCollector {
                 inner,
-                lock,
+                visibility: SegmentVisibilityState::Unchecked(Arc::clone(&self.lock)),
                 segment_ord: segment_local_id,
-                doc_buffer: Vec::with_capacity(capacity),
-                score_buffer: if requires_scoring {
-                    Vec::with_capacity(capacity)
-                } else {
-                    Vec::new()
-                },
-                visibility_buffer: Vec::with_capacity(capacity),
+                doc_buffer: Vec::new(),
+                score_buffer: Vec::new(),
+                visibility_buffer: Vec::new(),
                 requires_scoring,
             })
         }
@@ -1352,9 +1346,21 @@ pub mod mvcc_collector {
         }
     }
 
+    /// Per-segment visibility state for [`MVCCFilterSegmentCollector`].
+    ///
+    /// Tantivy calls [`Collector::for_segment`] before evaluating the segment's query scorer.
+    /// Deferring [`VisibilityChecker::for_segment_arc`] and batch-buffer allocation until the
+    /// first matching document arrives avoids reading `.fast` (`_per_block_ctid_ranges` / `__ctid`)
+    /// or heap visibility map pages on segments where the query matches 0 documents.
+    enum SegmentVisibilityState {
+        Unchecked(Arc<Mutex<VisibilityChecker>>),
+        AllVisible,
+        NeedsChecks(Arc<Mutex<VisibilityChecker>>),
+    }
+
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
-        lock: Option<Arc<Mutex<VisibilityChecker>>>,
+        visibility: SegmentVisibilityState,
         segment_ord: SegmentOrdinal,
 
         // Incoming buffers
@@ -1370,17 +1376,40 @@ pub mod mvcc_collector {
     unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
 
     impl<SC: SegmentCollector> MVCCFilterSegmentCollector<SC> {
+        fn resolve_lock(&mut self) -> Option<Arc<Mutex<VisibilityChecker>>> {
+            match &self.visibility {
+                SegmentVisibilityState::AllVisible => None,
+                SegmentVisibilityState::NeedsChecks(lock) => Some(Arc::clone(lock)),
+                SegmentVisibilityState::Unchecked(checker) => {
+                    let lock = VisibilityChecker::for_segment_arc(checker, self.segment_ord)
+                        .expect("failed to check segment visibility");
+                    self.visibility = match &lock {
+                        Some(lock) => {
+                            // All-visible segments forward documents directly and need no batch buffers.
+                            self.doc_buffer.reserve(BATCH_SIZE);
+                            if self.requires_scoring {
+                                self.score_buffer.reserve(BATCH_SIZE);
+                            }
+                            self.visibility_buffer.reserve(BATCH_SIZE);
+                            SegmentVisibilityState::NeedsChecks(Arc::clone(lock))
+                        }
+                        None => SegmentVisibilityState::AllVisible,
+                    };
+                    lock
+                }
+            }
+        }
+
         fn flush(&mut self) {
             if self.doc_buffer.is_empty() {
                 return;
             }
 
             // Determine which docs are visible.
-            let mut vischeck = self
-                .lock
-                .as_ref()
-                .expect("buffered docs need visibility checks")
-                .lock();
+            let SegmentVisibilityState::NeedsChecks(lock) = &self.visibility else {
+                unreachable!("buffered docs need visibility checks");
+            };
+            let mut vischeck = lock.lock();
             let mask = vischeck.check_segment_docs_mask(
                 self.segment_ord,
                 &self.doc_buffer,
@@ -1434,7 +1463,7 @@ pub mod mvcc_collector {
         type Fruit = SC::Fruit;
 
         fn collect(&mut self, doc: DocId, score: Score) {
-            if self.lock.is_none() {
+            if self.resolve_lock().is_none() {
                 self.inner.collect(doc, score);
                 return;
             }
@@ -1449,7 +1478,7 @@ pub mod mvcc_collector {
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
-            if self.lock.is_none() {
+            if self.resolve_lock().is_none() {
                 self.inner.collect_block(docs);
                 return;
             }
@@ -1470,7 +1499,7 @@ pub mod mvcc_collector {
         }
 
         fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
-            let Some(lock) = &self.lock else {
+            let Some(lock) = self.resolve_lock() else {
                 self.inner.collect_bitmap(base, mask);
                 return;
             };
@@ -1544,7 +1573,9 @@ pub mod mvcc_collector {
             .with_check_visibility(false);
             let mut collector = MVCCFilterSegmentCollector {
                 inner: BatchCount::default(),
-                lock: Some(MVCCFilterCollector::new(tantivy::collector::Count, checker).lock),
+                visibility: SegmentVisibilityState::NeedsChecks(
+                    MVCCFilterCollector::new(tantivy::collector::Count, checker).lock,
+                ),
                 segment_ord: 0,
                 doc_buffer: Vec::with_capacity(BATCH_SIZE),
                 score_buffer: Vec::new(),

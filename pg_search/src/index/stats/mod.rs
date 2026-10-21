@@ -343,6 +343,43 @@ impl LogicalBounds {
 }
 
 impl EmpiricalStats {
+    /// Read a non-dictionary fast field's empirical statistics directly from a segment's `.fast`
+    /// header when `.stats` is absent (e.g., on indexes created before `.stats` existed).
+    ///
+    /// Dictionary-backed (`Str` and `Bytes`) columns are skipped so pruning never opens a column
+    /// dictionary.
+    pub(crate) fn from_fast_field(
+        reader: &SegmentReader,
+        field: &SearchField,
+    ) -> io::Result<Option<Self>> {
+        let handles = reader
+            .fast_fields()
+            .dynamic_column_handles(field.field_name().as_ref())
+            .map_err(io::Error::other)?;
+        // A field spread over several typed columns has no single order to bound.
+        let [handle] = handles.as_slice() else {
+            return Ok(None);
+        };
+        let Some(stats) =
+            plugin::column_stats_without_dictionary(handle).map_err(io::Error::other)?
+        else {
+            return Ok(None);
+        };
+        stats.into_field_representation(field)
+    }
+
+    pub(crate) fn into_field_representation(self, field: &SearchField) -> io::Result<Option<Self>> {
+        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+            return Ok(Some(self));
+        }
+        self.into_dates().map(Some).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "datetime statistics do not decode as timestamps",
+            )
+        })
+    }
+
     /// Whether a value in `[min, max]` can fall in `[lower, upper)`. Bounds of a kind these
     /// statistics cannot be ranked against count as intersecting.
     pub(crate) fn intersects(
@@ -452,15 +489,7 @@ impl SegmentStats {
         let Some(stats) = self.empirical(field.field())? else {
             return Ok(None);
         };
-        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
-            return Ok(Some(stats));
-        }
-        stats.into_dates().map(Some).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "datetime statistics do not decode as timestamps",
-            )
-        })
+        stats.into_field_representation(field)
     }
 
     /// Read the logical bounds assigned to a field by a partitioned build. These boundaries

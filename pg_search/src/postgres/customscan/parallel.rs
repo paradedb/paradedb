@@ -24,7 +24,7 @@ use crate::postgres::ParallelScanState;
 pub use crate::scan::info::RowEstimate;
 
 use crate::aggregate::AggregateRequest;
-use crate::api::operator::estimate_selectivity_and_cost;
+use crate::api::operator::{SelectivityAndCost, estimate_selectivity_and_cost};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY;
 use crate::postgres::rel::PgSearchRelation;
@@ -120,7 +120,7 @@ pub(crate) fn aggregate_nworkers(
 ) -> (usize, Option<ParallelCost>) {
     unsafe {
         let nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
-            .min(reader.segment_readers().len())
+            .min(reader.segment_pruning_estimate().candidate_segments)
             .saturating_sub(usize::from(pg_sys::parallel_leader_participation));
         let Some(workers) = NonZeroUsize::new(
             clamp_to_gather_limits(nworkers).min(pg_sys::max_worker_processes as usize),
@@ -138,8 +138,11 @@ pub(crate) fn aggregate_nworkers(
             return (nworkers, None);
         };
         let total_rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
-        let (selectivity, Some(cost)) =
-            estimate_selectivity_and_cost(index, query.clone(), Some(reader))
+        let SelectivityAndCost {
+            selectivity,
+            query_cost: Some(cost),
+            ..
+        } = estimate_selectivity_and_cost(index, query.clone(), Some(reader))
         else {
             return (nworkers, None);
         };
@@ -166,9 +169,19 @@ pub(crate) fn aggregate_nworkers(
             if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
             && reader.query().is_fast_count();
         let mut visibility_map_words = 0u64;
-        if fast_count && solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
+        // `MVCCFilterSegmentCollector` defers segment visibility until a document matches, so a
+        // non-`fast_count` aggregate with `rows == 0.0` never scans the visibility map. When
+        // `rows > 0.0` (or `fast_count` uses `CountAllCollector`, which checks segment visibility
+        // before `weight.count`), we conservatively charge visibility-map words across all
+        // candidate segments rather than guessing how matching rows are distributed across them.
+        if (rows > 0.0 || fast_count)
+            && solve_mvcc
+            && crate::gucs::enable_visibility_map_shortcuts()
+        {
             let view = reader.segment_view();
-            for (segment, entry) in reader.segment_readers().iter().zip(view.entries()) {
+            let entries = view.entries();
+            for (ord, segment) in reader.candidate_segment_readers() {
+                let entry = &entries[ord as usize];
                 if !matches!(entry.docs, SegmentViewDocs::Immutable { .. })
                     || segment.num_docs() == 0
                 {

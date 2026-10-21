@@ -131,6 +131,8 @@ use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
+use self::datafusion_build::validate_join_keys;
+
 #[derive(Default)]
 pub struct AggregateScan;
 
@@ -1912,6 +1914,9 @@ impl AggregateScan {
         let (mut plan, multi_table_clauses) =
             unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+
+        validate_join_keys(&plan.join_keys(), &plan.sources())
+            .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         let is_join = input_rel.reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL;
         // The planner can simplify the operator out of the quals, so the query as written counts too.

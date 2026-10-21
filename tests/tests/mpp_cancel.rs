@@ -133,15 +133,18 @@ async fn assert_query_plans_as_mpp(conn: &mut PgConnection) -> Result<()> {
     Ok(())
 }
 
-/// Spin until `victim_app`'s backend is running the MPP query, then run `signal_fn(pid)`
-/// (`pg_cancel_backend` or `pg_terminate_backend`) on it. Returns the pid that was signalled.
+/// Signal `victim_app`'s backend with `signal_fn` (`pg_cancel_backend` or
+/// `pg_terminate_backend`) each time it shows up running the MPP query, until `victim` ends.
+/// PostgreSQL drops a cancel that lands while the backend is idle between two iterations of the
+/// victim loop, so one signal is not enough once the query is short.
 async fn signal_running_mpp_backend(
     killer: &mut PgConnection,
     victim_app: &str,
     signal_fn: &str,
-) -> Result<i32> {
+    victim: &tokio::task::JoinHandle<Result<()>>,
+) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
+    while !victim.is_finished() {
         // Parallel workers inherit the leader's `application_name`, so pin to the client backend
         // to signal the leader (the connection running the top-level query), not a worker.
         let pid = client_backend_pid(
@@ -158,13 +161,14 @@ async fn signal_running_mpp_backend(
                 .bind(pid)
                 .execute(&mut *killer)
                 .await?;
-            return Ok(pid);
+            continue;
         }
         if Instant::now() >= deadline {
             anyhow::bail!("victim backend never showed up active running the MPP query");
         }
         sleep(Duration::from_millis(5)).await;
     }
+    Ok(())
 }
 
 /// Run the MPP query in a loop on `victim` until its connection or query is cut off. The loop keeps
@@ -187,8 +191,10 @@ async fn run_until_signalled(mut victim: PgConnection, app_name: String) -> Resu
     let deadline = Instant::now() + VICTIM_LOOP_TIMEOUT;
     while victim.execute(MPP_QUERY).await.is_ok() {
         if Instant::now() >= deadline {
+            let activity = activity_dump(&mut victim).await.unwrap_or_default();
             anyhow::bail!(
-                "victim query loop was not interrupted within {:?}; the signal likely missed",
+                "victim query loop was not interrupted within {:?}; the signal likely missed\n\
+                 activity at timeout:\n{activity}",
                 VICTIM_LOOP_TIMEOUT
             );
         }
@@ -220,7 +226,6 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
         .await?;
     assert_cluster_alive(&mut witness).await?;
     assert_query_plans_as_mpp(&mut setup).await?;
-
     for (app, signal_fn) in [
         ("mpp_sig_cancel", "pg_cancel_backend"),
         ("mpp_sig_terminate", "pg_terminate_backend"),
@@ -231,11 +236,34 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
             let loop_handle = tokio::spawn(run_until_signalled(victim, app_name.clone()));
 
             let mut killer = database.connection().await;
-            signal_running_mpp_backend(&mut killer, &app_name, signal_fn).await?;
+            signal_running_mpp_backend(&mut killer, &app_name, signal_fn, &loop_handle).await?;
 
             loop_handle.await??;
             assert_cluster_alive(&mut witness).await?;
         }
+    }
+
+    // A signalled leader must take its MPP workers down with it. One that stays in
+    // `BgWorkerShutdown` keeps `max_worker_processes` slots busy for every test after this one.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let leftover: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE backend_type = 'parallel worker' OR application_name LIKE 'mpp_sig_%'",
+        )
+        .fetch_one(&mut witness)
+        .await?;
+        if leftover == 0 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let activity = activity_dump(&mut witness).await.unwrap_or_default();
+            anyhow::bail!(
+                "{leftover} signalled MPP backends are still alive 15s after the last signal\n\
+                 activity at end:\n{activity}"
+            );
+        }
+        sleep(Duration::from_millis(250)).await;
     }
 
     Ok(())

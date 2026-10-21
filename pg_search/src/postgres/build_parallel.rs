@@ -1059,7 +1059,15 @@ impl<'a> WorkerBuildState<'a> {
         );
         let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-        let merged = merger.merge_segments(segment_ids_to_merge)?;
+        let merged = match merger.merge_segments(segment_ids_to_merge) {
+            Ok(merged) => merged,
+            Err(error) => {
+                // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
+                // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+                check_for_interrupts!();
+                return Err(error);
+            }
+        };
         for segment_id in segment_ids_to_merge {
             self.segment_ids.remove(segment_id);
         }

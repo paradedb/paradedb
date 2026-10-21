@@ -104,7 +104,7 @@ impl NormalScanExecState {
                     if rem == 0 {
                         BATCH_SIZE
                     } else {
-                        (rem * self.batch_scale).clamp(rem, BATCH_SIZE)
+                        rem.saturating_mul(self.batch_scale).min(BATCH_SIZE)
                     }
                 }
                 None => BATCH_SIZE,

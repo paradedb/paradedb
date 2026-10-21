@@ -298,6 +298,32 @@ impl PgSearchTableProvider {
         self.source_idx
     }
 
+    /// Move this provider's segment claims to another `ParallelScanState` pool.
+    pub(crate) fn set_source_idx(&mut self, source_idx: usize) {
+        self.source_idx = Some(source_idx);
+    }
+
+    /// Give this provider its own `ExprContext` when it solves runtime expressions.
+    /// `solve_postgres_expressions` resets its context before replacing Param/PostgresExpression
+    /// nodes, so two providers sharing one context invalidate the Const nodes the other retained,
+    /// and a generic plan parameterizing both join inputs then dereferences stale nodes during
+    /// reader construction. A provider without a planstate (plain EXPLAIN) never solves, so it
+    /// keeps whatever shared context it was given.
+    pub(crate) fn ensure_own_expr_context(&mut self) {
+        let needs_runtime_context =
+            self.scan_info.mode.has_postgres_expressions() || self.scan_info.mode.has_parameters();
+        if !needs_runtime_context {
+            return;
+        }
+        let Some(planstate) = self.planstate else {
+            return;
+        };
+        if planstate.is_null() || unsafe { (*planstate).state.is_null() } {
+            return;
+        }
+        self.expr_context = Some(unsafe { pg_sys::CreateExprContext((*planstate).state) });
+    }
+
     pub(crate) fn set_manifest(&mut self, manifest: SearchIndexManifest) {
         self.manifest = Some(manifest);
     }

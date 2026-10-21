@@ -628,14 +628,12 @@ impl Mergeable for SearchIndexMerger {
                 .num_worker_threads(0)
                 .build(),
         )?;
-        let new_segment = match writer.merge_foreground(segment_ids, true) {
-            Ok(new_segment) => new_segment,
-            Err(error) => {
-                // Let PostgreSQL report pending cancellation before propagating a merge error.
-                pgrx::check_for_interrupts!();
-                return Err(error.into());
-            }
-        };
+        // `writer.merge_foreground` polls `MVCCDirectory::wants_cancel()` and returns
+        // `Err(TantivyError::Cancelled)` on interrupt rather than calling `check_for_interrupts!()`.
+        // We cannot call `check_for_interrupts!()` here because `merge_index` in
+        // `postgres/merge.rs` relies on `merge_segments` returning `Err` so it can remove its
+        // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+        let new_segment = writer.merge_foreground(segment_ids, true)?;
 
         if let Some(new_segment) = new_segment.as_ref() {
             // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.
@@ -741,25 +739,6 @@ mod tests {
 
         segment_ids.extend(writer.commit().unwrap().iter().map(|(meta, _)| meta.id()));
         segment_ids
-    }
-
-    #[pg_test(error = "canceling statement due to user request")]
-    unsafe fn test_merge_preserves_query_cancellation() {
-        let relation_oid = get_relation_oid(false);
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_docs_per_segment: Some(1),
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 2);
-        let index_relation = PgSearchRelation::open(relation_oid);
-        let mut merger = SearchIndexMerger::open(&index_relation, MvccSatisfies::Snapshot).unwrap();
-        let segment_ids = segment_ids.into_iter().collect::<Vec<_>>();
-
-        unsafe {
-            pg_sys::QueryCancelPending = 1;
-            pg_sys::InterruptPending = 1;
-        }
-        merger.merge_segments(&segment_ids).unwrap();
     }
 
     #[pg_test]

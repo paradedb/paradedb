@@ -66,11 +66,26 @@ pub(crate) const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
 /// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
 /// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `min_rows > 0`.
 ///
-/// When the unscored build side is selective (`< 20%`), most rows pulled from the `SA` stream
-/// miss during `RA` point lookups, requiring repeated `SA` window expansions on a single thread
-/// while parallel `HashJoinExec` can build a small hash table on the selective input and push a
-/// join dynamic filter into the `SA` scan.
-pub(crate) const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.20;
+/// When the unscored build side is selective, most rows pulled from the `SA` stream miss during
+/// `RA` point lookups, requiring repeated `SA` window expansions on a single thread while
+/// parallel `HashJoinExec` can build a small hash table on the selective input and push a join
+/// dynamic filter into the `SA` scan.
+///
+/// Note: The `0.08` (`8%`) cutoff is somewhat arbitrary and is calibrated around Tantivy's
+/// `DocSet::size_hint()` behavior when `QueryEstimate::estimate_docs` falls back to
+/// `scorer_estimate`:
+/// - `FastFieldRangeQuery` (`RangeDocSet::size_hint()`) has no histogram and unconditionally
+///   reports `column.num_docs() / 10` (`~0.09999` after integer division on the largest segment),
+///   so a threshold `<= 0.099` is required to admit fast-field range filters (e.g.
+///   `u.reputation > 100`) on the unscored side.
+/// - `TermSetQuery` reports `~1.0` (`max_doc - first_match`) under `Gallop` and `LinearScan`,
+///   and reports the exact segment match count `bitset.len()` under `BitsetFromPostings`
+///   (admitting multi-row term sets that match `>= 8%` of the table while keeping small/unique
+///   `BitsetFromPostings` sets on `HashJoinExec`).
+/// - Inverted-index text queries (`TermQuery`, `BooleanQuery`) use actual `doc_freq` statistics,
+///   so selective text filters on the unscored side (e.g. `~6%` in
+///   `join_top_k_score_desc_low_selectivity`) fall below `0.08` and stay on parallel `HashJoinExec`.
+pub(crate) const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
 
 /// Physical optimizer rule that replaces top-K scored `HashJoinExec`s with `RankJoinExec`.
 #[derive(Debug, Default)]
@@ -1854,13 +1869,14 @@ mod tests {
         assert!(out_small.children()[0].is::<HashJoinExec>());
 
         // Gate 3 rejection: unscored (`RA`) selectivity below `UNSCORED_SELECTIVITY_THRESHOLD`
-        // (`50,000 / 1,000,000 = 0.05 < 0.20`).
+        // (`50,000 / 1,000,000 = 0.05 < 0.08`).
         let plan_selective_ra = make_single_sided_plan(500_000, 50_000, 1_000_000);
         let out_selective_ra = rule_min_rows.optimize(plan_selective_ra, &config).unwrap();
         assert!(out_selective_ra.children()[0].is::<HashJoinExec>());
 
-        // Gate 3 acceptance: unscored (`RA`) selectivity >= `0.20` (`300,000 / 1,000,000 = 0.30`).
-        let plan_unselective_ra = make_single_sided_plan(500_000, 300_000, 1_000_000);
+        // Gate 3 acceptance: unscored (`RA`) selectivity >= `0.08` (`100,000 / 1,000,000 = 0.10`,
+        // matching Tantivy's `num_docs() / 10` `RangeDocSet::size_hint()`).
+        let plan_unselective_ra = make_single_sided_plan(500_000, 100_000, 1_000_000);
         let out_unselective_ra = rule_min_rows
             .optimize(plan_unselective_ra, &config)
             .unwrap();

@@ -54,7 +54,7 @@ Because `RankJoinExec` supports both `SA` and `RA` on each input, `RankJoinRule`
 ### Gate 3: Cardinality, Unscored Selectivity & Initial Window Size
 
 1. `LIMIT K` is small: $K \le \text{MAX\_RANK\_JOIN\_K}$ (`1,000`).
-2. Both inputs must meet the minimum estimated row threshold (`paradedb.rank_join_min_rows`, default `50,000`; set to `0` in unit/regression tests to bypass the size floor), and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must have combined estimated selectivity $\ge \text{UNSCORED\_SELECTIVITY\_THRESHOLD}$ (`0.20`).
+2. Both inputs must meet the minimum estimated row threshold (`paradedb.rank_join_min_rows`, default `50,000`; set to `0` in unit/regression tests to bypass the size floor), and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must have combined estimated selectivity $\ge \text{UNSCORED\_SELECTIVITY\_THRESHOLD}$ (`0.08`).
 3. Because `RankJoinExec` resolves unmatched top keys directly via `RA` point lookups rather than waiting for random `SA` window intersections, each scored `SA` leaf scan starts with a small initial window:
    $$W_{\text{init}} = \min\bigl(\max(K \cdot \text{topk\_retry\_scale\_factor},\; 1),\; \text{max\_topk\_chunk\_size}\bigr)$$
    while unscored `RA`-only leaf scans use $W_{\text{init}} = 0$.

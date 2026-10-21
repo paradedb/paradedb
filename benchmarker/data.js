@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792624831061,
+  "lastUpdate": 1792624845425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24282,6 +24282,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 375.58836807039654,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa7991c65b510c44220afb2db3936ce26844f978",
+          "message": "fix: array `terms` facets over a join under MPP (#6949)\n\n## What\n\n`pdb.agg` with an array `terms` facet alongside a scalar facet over a\njoin previously failed under MPP (with `transport receiver detached\nbefore this channel's EOF` or a hang) or returned under-counted buckets.\nIt now matches the serial result.\n\n## Why\n\nArray facets lower to a union of one pipeline per unnest level, each\nover a clone of the join:\n\n- Producer workers previously pre-built static output partition sinks\nusing child-local consumer task numbers\n(`NetworkBoundary::route_partition`), which did not account for\n`ChildrenIsolatorUnionExec` remapping each union branch onto a slice of\nthe parent stage's tasks, even though `ExecuteTaskFrame` already carries\nthe requesting `sender_proc` and partition range on the pull-based `shm`\ntransport.\n- Cloned join branches shared the original branch's `mpp_source_idx` and\n`ExprContext`, splitting each segment pool across union branches and\nresetting shared runtime expression memory.\n\n## How\n\n- Depends on paradedb/datafusion-distributed#116, which opens\n`PartitionSink`s on demand inside `run_execute_task_loop` from each\n`ExecuteTaskFrame`'s `sender_proc` and partition range.\n- Removes the static push-era routing machinery (`FragmentRouting`,\n`DispatchedStage`, `classify_stages`, `classify_routing`, and the\npre-execution sink loop in `run_mpp_worker`).\n- `build_pdb_aggregate_plan`\n(`pg_search/src/postgres/customscan/aggregatescan/datafusion_exec.rs`)\nstamps each cloned union branch onto its own segment pools and gives\neach provider its own `ExprContext` via\n`PgSearchTableProvider::ensure_own_expr_context`.\n- `launch_aggregate_mpp`\n(`pg_search/src/postgres/customscan/aggregatescan/mod.rs`) sizes\n`ParallelScanArgs` pools from the stamped plan.\n\n## Tests\n\n- `issue_mpp_aggregate_array_terms_union.sql`: 13 shapes compared\nagainst serial execution, with `EXPLAIN ANALYZE` verifying MPP worker\nlaunch.\n- `pdb_agg_datafusion.sql`: section 6 also runs under MPP.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-21T15:37:59-07:00",
+          "tree_id": "660e408b45bece452e111adacd0ee91ac8457db6",
+          "url": "https://github.com/paradedb/paradedb/commit/aa7991c65b510c44220afb2db3936ce26844f978"
+        },
+        "date": 1792624833607,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 527.5395983958828,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 508.34688344219313,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 141.92642650416994,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 255.30402394148635,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 374.5073715279839,
             "unit": "queries/s"
           }
         ]

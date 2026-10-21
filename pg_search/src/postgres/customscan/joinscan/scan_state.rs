@@ -1704,8 +1704,6 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
     df.window(window_exprs)
 }
 
-// apply the provided filter expression (if `filter` is a `Some(_)` to the given `Expr`.
-// If `filter` is `None`, just pass the `Expr` through.
 fn maybe_apply_filter_to_expr(
     expr: Expr,
     filter: Option<&FilterExpr>,
@@ -1728,7 +1726,14 @@ fn maybe_apply_filter_to_expr(
             wf.params.filter = Some(Box::new(filter));
             Expr::WindowFunction(wf)
         }
-        other => other,
+        // the only other non-aggregate shape we expect is the constant shape from
+        // `lower_sql_window_agg`.
+        Expr::Literal(l, m) => Expr::Literal(l, m),
+        other => {
+            return internal_err!(
+                "Found unexpected expression shape {other:?} when applying filter"
+            );
+        }
     };
     Ok(expr)
 }

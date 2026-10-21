@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792569580698,
+  "lastUpdate": 1792569599226,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -353564,6 +353564,160 @@ window.BENCHMARK_DATA = {
             "value": 21.671875,
             "unit": "median mem",
             "extra": "avg mem: 21.653253595132743, max mem: 21.796875, count: 59325"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c20bd97afc2fbed7539ffc06cf65166d54e8526a",
+          "message": "fix: act on cancel and SIGTERM during DataFusion scans, regex walks and IVF training (#6886)\n\n## Ticket(s) Closed\n\n- Closes #6881\n- Closes #6884\n- Closes #6885\n\n## What\n\nThis PR makes DataFusion scans, term dictionary walks and IVF training\nreact to `pg_cancel_backend`, `pg_terminate_backend` and\n`statement_timeout` while they run, not when they finish.\n\n## Why\n\nA fast shutdown waits for every backend. #6881 came out of a one-hour\nswitchover where the last backend standing couldn't be interrupted. The\nother two turned up while looking for similar paths.\n\n- `block_on_next` holds interrupts for the whole `block_on`, so a serial\nhash aggregate ignores every signal until its first output batch.\n- A regex walks a segment's whole dictionary in one tantivy call, and\nthe only check sits between segments. A cancel sent during the walk is\ndropped once the query finishes on its own.\n- IVF training reads an in-memory sample once, and the reads are the\nonly cancel poll. `wants_cancel` also ignores `ProcDiePending`, so a\n`SIGTERM` waits for every tantivy loop that polls it.\n\n## How\n\n- The scan stream polls `cancel_pending()` before each batch and bails\nwith `interrupted()`, like the MPP transport does.\n- The columnar Base Scan drives the same stream, so `poll_next_sync`\nruns `check_for_interrupts!()` after `block_on` as well. Postgres then\nreports the cancel or die with its own SQLSTATE instead of that error.\n- `_PG_init` registers `check_for_interrupts!()` with tantivy. The\nquery-time dictionary walks run it every 4096 keys, the union scorers\nonce per window, and merges never (paradedb/tantivy#331). The\n`proximity` regex walk opts in on this side. A pg_search-side automaton\nwrapper cost 60% on the walk, so the check lives in the streamer.\n- `MVCCDirectory::wants_cancel` also returns true on `ProcDiePending`.\n- The tantivy bump polls the cancel sentinel between IVF training steps.\n\nNot covered: an operator that runs after the scan is exhausted, a large\nsort for example, still finishes before the next poll.\n\n## Tests\n\nRelease build, serial plan, time from the signal to the end of the\nquery. Same data, only `pg_search.dylib` swapped.\n\n| Case | `main` | this PR |\n|---|---|---|\n| `GROUP BY ... ORDER BY count(*) LIMIT 10` on 10M rows, cancel or\nterminate at 1 s | 0.8 s | 0.01 s |\n| `pdb.regex` Top-K on one 5M-doc segment, cancel at 1 s | 0.14 s | 0.09\ns |\n| regex with no match, cancel at 0.5 s | dropped | 0.00 s |\n\nThe hold grows with the work. #6881 measured 24 s on 100M rows and #6885\n14 s on a 20M-doc segment. The IVF change can't be timed from outside,\nsince `main` already streams the sample (#6795) and the uncovered case\ntrains too fast. The fork's unit test covers it. The streamer check has\nno measurable cost on the walk.\n\nCI caught the columnar leak in `basescan_cancel` on one PG15 job. With\nthe second bullet under How, the test passes locally and the server log\nshows only `57014` and `57P01` for the signalled queries.",
+          "timestamp": "2026-10-21T07:18:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c20bd97afc2fbed7539ffc06cf65166d54e8526a"
+        },
+        "date": 1792569588672,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.587954659714555, max cpu: 33.005894, count: 59314"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.55302921738544, max mem: 61.5703125, count: 59314"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1594404342306, max cpu: 4.703577, count: 59314"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 20.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.98326860016185, max mem: 20.04296875, count: 59314"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.723314534691271, max cpu: 9.402546, count: 59314"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.533086360302796, max mem: 29.5390625, count: 59314"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 8182,
+            "unit": "median pages",
+            "extra": "avg pages: 18730.360589405536, max pages: 38986.0, count: 59314"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 63.921875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 146.3309427633021, max relation_size:MB: 304.578125, count: 59314"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.580908385878544, max segment_count: 40.0, count: 59314"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.048799899352589, max cpu: 4.733728, count: 59314"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 19.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.768743269400986, max mem: 19.79296875, count: 59314"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.660772995779404, max cpu: 37.37226, count: 59314"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 50.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.784345943832825, max mem: 60.1796875, count: 59314"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.47349628501586, max cpu: 32.892807, count: 59314"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 44.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.04466187103804, max mem: 55.23828125, count: 59314"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 90.68064880371094,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 195.02956766306752, max replication_lag:MB: 962.1329040527344, count: 59314"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.655326901999974, max cpu: 37.37226, count: 59314"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 49.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.70735921852345, max mem: 59.70703125, count: 59314"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.286578500000001,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.088902180707953, max cpu: 32.860634, count: 59314"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 20.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.40687195476616, max mem: 22.2109375, count: 59314"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.279845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.973440783027687, max cpu: 32.876713, count: 59314"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 20.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.284322696264795, max mem: 22.2109375, count: 59314"
           }
         ]
       }

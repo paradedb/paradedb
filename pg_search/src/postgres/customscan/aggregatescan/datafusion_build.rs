@@ -1575,6 +1575,12 @@ impl FilterExpr {
 
                 match ctx {
                     FilterExprBuildContext::Filter { sources, .. } => {
+                        // A NUMERIC fast field is read in its storage encoding
+                        // (scaled integers or decimal bytes), which a native
+                        // comparison would misread: decline (#6792).
+                        if unsafe { (*var).vartype } == pg_sys::NUMERICOID {
+                            return None;
+                        }
                         let source = sources.iter().find(|s| s.rti == rti)?;
                         let field_name =
                             unsafe { fieldname_from_var(source.relid, var, attno) }?.into_inner();
@@ -1621,9 +1627,18 @@ impl FilterExpr {
                         let f: Option<f32> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitFloat(f? as f64))
                     }
-                    pg_sys::FLOAT8OID | pg_sys::NUMERICOID => {
+                    pg_sys::FLOAT8OID => {
                         let f: Option<f64> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitFloat(f?))
+                    }
+                    pg_sys::NUMERICOID => {
+                        // The datum points to a varlena: decode it rather than
+                        // reading its bits as a float. NaN sorts above every
+                        // number in Postgres but not as a float, so decline it.
+                        let n: Option<pgrx::AnyNumeric> =
+                            unsafe { pgrx::FromDatum::from_datum(datum, false) };
+                        let f = f64::try_from(n?).ok()?;
+                        (!f.is_nan()).then_some(Self::LitFloat(f))
                     }
                     pg_sys::BOOLOID => {
                         let b: Option<bool> = unsafe { pgrx::FromDatum::from_datum(datum, false) };

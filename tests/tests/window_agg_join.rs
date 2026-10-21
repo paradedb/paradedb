@@ -382,12 +382,18 @@ enum NumericWindowJoinCase {
     /// NUMERIC aggregates with a FILTER on a non-NUMERIC column: the scan
     /// absorbs them.
     FilteredByOtherColumn,
+    /// A FILTER that compares the NUMERIC column itself. The fast field holds
+    /// the storage encoding, which the scan cannot compare with a NUMERIC
+    /// literal, so JoinScan declines (falling back to PostgreSQL's WindowAgg)
+    /// rather than return wrong counts (#6792).
+    NumericFilterDeclines,
 }
 
 #[rstest]
 #[case::wrapped(NumericWindowJoinCase::Wrapped)]
 #[case::numeric_result_declines(NumericWindowJoinCase::NumericResultDeclines)]
 #[case::filtered_by_other_column(NumericWindowJoinCase::FilteredByOtherColumn)]
+#[case::numeric_filter_declines(NumericWindowJoinCase::NumericFilterDeclines)]
 fn global_window_aggregates_over_join_numeric(
     mut conn: PgConnection,
     #[case] case: NumericWindowJoinCase,
@@ -484,6 +490,34 @@ fn global_window_aggregates_over_join_numeric(
                 assert_eq!(*high_min, 250.25);
                 assert_eq!(*low_max, 249.75);
             }
+        }
+        NumericWindowJoinCase::NumericFilterDeclines => {
+            // `r.price > 250` keeps the same rows as `r.id > 1000` above.
+            let query = r#"
+                SELECT p.id,
+                       COUNT(*) FILTER (WHERE r.price > 250) OVER () AS high_count,
+                       SUM(r.price) FILTER (WHERE r.price > 250) OVER ()::float8 AS high_total,
+                       MAX(r.price) FILTER (WHERE r.price <= 250.00) OVER ()::float8 AS low_max
+                FROM wjn_products p
+                JOIN wjn_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.id DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert!(!plan.contains(JOIN_SCAN), "{plan}");
+            assert!(plan.contains("WindowAgg"), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i64, f64, f64)>(&mut conn)?;
+            assert_eq!(
+                rows,
+                vec![
+                    (999, 500, 187_500.0, 249.75),
+                    (997, 500, 187_500.0, 249.75),
+                    (995, 500, 187_500.0, 249.75)
+                ]
+            );
         }
     }
 

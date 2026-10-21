@@ -72,23 +72,9 @@ WHERE p.id @@@ pdb.all() AND EXISTS (
        OR (o.name === 'carol' AND o.amount = 12345678901234567890.123456789)
 );
 
--- An aggregate FILTER that compares a NUMERIC column (#6792). The fast field
--- holds the storage encoding, which the scan cannot compare with a NUMERIC
--- literal, so the Aggregate Scan declines and Postgres computes the counts.
--- The join yields bob's orders (99.99, 12.34) and carol's (NULL): 1, 1, 1, 2.
--- The fallback plan embeds the index OID, which changes on every database
--- creation; mask it so the plan is stable.
-CREATE FUNCTION explain_numeric_filter(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
-    END LOOP;
-END;
-$$;
+\i common/explain_redact_oid_setup.sql
 
-SELECT explain_numeric_filter($$
+SELECT explain_redact_oid($$
 SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
        count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
        count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
@@ -153,7 +139,7 @@ WHERE removed_at IS NULL;
 DROP TABLE agg_numeric_scores;
 
 DROP TABLE agg_numeric_orders, agg_numeric_products;
-DROP FUNCTION explain_numeric_filter(text);
+\i common/explain_redact_oid_cleanup.sql
 
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_aggregate_custom_scan;

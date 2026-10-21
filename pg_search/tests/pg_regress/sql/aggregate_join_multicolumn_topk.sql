@@ -55,17 +55,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 SET max_parallel_workers_per_gather TO 0;
 
--- The heap-filter call in the plan embeds the index OID, which changes on
--- every database creation; mask it so the plan is stable.
-CREATE FUNCTION multicolumn_topk_explain(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
-    END LOOP;
-END;
-$$;
+\i common/explain_redact_oid_setup.sql
 
 -- Single aggregate key, no ties.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -122,7 +112,7 @@ ORDER BY MAX(w.item_date) DESC NULLS LAST, w.researcher_id DESC
 LIMIT 1;
 
 -- Three keys, the first one a filtered count.
-SELECT multicolumn_topk_explain($$
+SELECT explain_redact_oid($$
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
 JOIN multicolumn_topk_researchers r ON w.researcher_id = r.researcher_id
@@ -133,7 +123,7 @@ ORDER BY
   MAX(w.item_date) DESC NULLS LAST,
   w.researcher_id ASC
 LIMIT 3
-$$);
+$$, 'COSTS OFF, VERBOSE, TIMING OFF');
 
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
@@ -243,7 +233,7 @@ RESET parallel_tuple_cost;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 
-DROP FUNCTION multicolumn_topk_explain(text);
+\i common/explain_redact_oid_cleanup.sql
 DROP COLLATION multicolumn_topk_icu;
 DROP TABLE multicolumn_topk_work_items;
 DROP TABLE multicolumn_topk_researchers;

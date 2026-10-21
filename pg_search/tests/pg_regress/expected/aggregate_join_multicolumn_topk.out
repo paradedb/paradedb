@@ -45,13 +45,15 @@ RESET paradedb.global_mutable_segment_rows;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 SET max_parallel_workers_per_gather TO 0;
--- The heap-filter call in the plan embeds the index OID, which changes on
--- every database creation; mask it so the plan is stable.
-CREATE FUNCTION multicolumn_topk_explain(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+\i common/explain_redact_oid_setup.sql
+-- EXPLAIN a query with index OIDs masked. Plans that fall back to a heap
+-- filter embed the BM25 index OID, which changes on every database creation.
+CREATE OR REPLACE FUNCTION explain_redact_oid(query text, options text DEFAULT 'COSTS OFF, TIMING OFF')
+RETURNS SETOF text LANGUAGE plpgsql AS $$
 DECLARE
     line text;
 BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) ' || query LOOP
+    FOR line IN EXECUTE 'EXPLAIN (' || options || ') ' || query LOOP
         RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
     END LOOP;
 END;
@@ -184,7 +186,7 @@ LIMIT 1;
 (1 row)
 
 -- Three keys, the first one a filtered count.
-SELECT multicolumn_topk_explain($$
+SELECT explain_redact_oid($$
 SELECT w.researcher_id
 FROM multicolumn_topk_work_items w
 JOIN multicolumn_topk_researchers r ON w.researcher_id = r.researcher_id
@@ -195,8 +197,8 @@ ORDER BY
   MAX(w.item_date) DESC NULLS LAST,
   w.researcher_id ASC
 LIMIT 3
-$$);
-                                                                                                                                                                                                                                                                                     multicolumn_topk_explain                                                                                                                                                                                                                                                                                      
+$$, 'COSTS OFF, VERBOSE, TIMING OFF');
+                                                                                                                                                                                                                                                                                        explain_redact_oid                                                                                                                                                                                                                                                                                         
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.researcher_id, (count(*) FILTER (WHERE ((w.category = 'Tradeshows'::text) AND paradedb.search_with_query_input_ctid_or_row_strict(w.work_id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"abstract_text","query_string":"cancer","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, w.ctid, CASE WHEN (paradedb.ctid_is_valid(w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] WHEN (paradedb.xmin_is_visible(w.xmin, w.tableoid, w.ctid) IS NOT TRUE) THEN (ARRAY[w.*])::record[] ELSE '{}'::record[] END, ROW())))), (max(w.item_date))
@@ -447,7 +449,8 @@ RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
-DROP FUNCTION multicolumn_topk_explain(text);
+\i common/explain_redact_oid_cleanup.sql
+DROP FUNCTION IF EXISTS explain_redact_oid(text, text);
 DROP COLLATION multicolumn_topk_icu;
 DROP TABLE multicolumn_topk_work_items;
 DROP TABLE multicolumn_topk_researchers;

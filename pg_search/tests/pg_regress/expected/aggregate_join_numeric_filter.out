@@ -117,22 +117,20 @@ WHERE p.id @@@ pdb.all() AND EXISTS (
      1
 (1 row)
 
--- An aggregate FILTER that compares a NUMERIC column (#6792). The fast field
--- holds the storage encoding, which the scan cannot compare with a NUMERIC
--- literal, so the Aggregate Scan declines and Postgres computes the counts.
--- The join yields bob's orders (99.99, 12.34) and carol's (NULL): 1, 1, 1, 2.
--- The fallback plan embeds the index OID, which changes on every database
--- creation; mask it so the plan is stable.
-CREATE FUNCTION explain_numeric_filter(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+\i common/explain_redact_oid_setup.sql
+-- EXPLAIN a query with index OIDs masked. Plans that fall back to a heap
+-- filter embed the BM25 index OID, which changes on every database creation.
+CREATE OR REPLACE FUNCTION explain_redact_oid(query text, options text DEFAULT 'COSTS OFF, TIMING OFF')
+RETURNS SETOF text LANGUAGE plpgsql AS $$
 DECLARE
     line text;
 BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+    FOR line IN EXECUTE 'EXPLAIN (' || options || ') ' || query LOOP
         RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
     END LOOP;
 END;
 $$;
-SELECT explain_numeric_filter($$
+SELECT explain_redact_oid($$
 SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
        count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
        count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
@@ -142,7 +140,7 @@ JOIN agg_numeric_orders o ON o.name = p.name
 WHERE p.id @@@ pdb.all()
 $$);
 WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: join)
-                                                                                                                                                                                  explain_numeric_filter                                                                                                                                                                                  
+                                                                                                                                                                                    explain_redact_oid                                                                                                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Hash Join
@@ -247,7 +245,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be trans
 
 DROP TABLE agg_numeric_scores;
 DROP TABLE agg_numeric_orders, agg_numeric_products;
-DROP FUNCTION explain_numeric_filter(text);
+\i common/explain_redact_oid_cleanup.sql
+DROP FUNCTION IF EXISTS explain_redact_oid(text, text);
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_custom_scan;

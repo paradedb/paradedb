@@ -43,16 +43,7 @@ SELECT count(*) FROM orders_part WHERE customer_name ||| 'John';
 SELECT count(*) FROM orders_part WHERE NOT (customer_name ||| 'John');
 SELECT count(*) FROM orders_part WHERE orders_part @@@ 'John';
 
--- index oids differ run to run, so plans are printed with them masked
-CREATE FUNCTION explain_4643(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
-    END LOOP;
-END;
-$$;
+\i common/explain_redact_oid_setup.sql
 
 -- an unpartitioned copy, whose plans must not carry a tableoid
 CREATE TABLE orders_plain AS SELECT * FROM orders_part;
@@ -61,7 +52,7 @@ USING bm25 (order_id, customer_name);
 ANALYZE orders_plain;
 
 \echo '=== the reported shape: join-level OR keeps the parent index ==='
-SELECT explain_4643($$
+SELECT explain_redact_oid($$
 SELECT count(*)
 FROM orders_part o JOIN products p ON o.order_id = p.product_id
 WHERE o.customer_name ||| 'John' OR p.description ||| 'blue'
@@ -73,7 +64,7 @@ WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
 \echo '=== the same shape on an unpartitioned table ships no tableoid ==='
 -- without this the Aggregate Scan takes the unpartitioned join and no heap filter shows
 SET paradedb.enable_aggregate_custom_scan = off;
-SELECT explain_4643($$
+SELECT explain_redact_oid($$
 SELECT count(*)
 FROM orders_plain o JOIN products p ON o.order_id = p.product_id
 WHERE o.customer_name ||| 'John' OR p.description ||| 'blue'
@@ -278,7 +269,7 @@ ANALYZE items;
 ANALYZE orders_part;
 
 -- the issue's query; order_id breaks its order_total ties so the output is stable
-SELECT explain_4643($$
+SELECT explain_redact_oid($$
 SELECT o.order_id, o.customer_name, i.description
 FROM orders_part o JOIN items i ON o.product_id = i.id
 WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
@@ -290,7 +281,7 @@ WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
 ORDER BY o.order_total DESC, o.order_id LIMIT 5;
 
 \echo '=== a NOT arm in the join-level OR matches a run without the custom scan ==='
-SELECT explain_4643($$
+SELECT explain_redact_oid($$
 SELECT count(*) FROM orders_part o JOIN items i ON o.product_id = i.id
 WHERE NOT (o.customer_name ||| 'John') OR i.description ||| 'keyboard'
 $$);
@@ -302,7 +293,7 @@ WHERE NOT (o.customer_name ||| 'John') OR i.description ||| 'keyboard';
 RESET paradedb.enable_custom_scan;
 
 \echo '=== a derived relation has no tableoid, so its rows match against a leaf ==='
-SELECT explain_4643($$
+SELECT explain_redact_oid($$
 SELECT o.order_id FROM (SELECT * FROM orders_part ORDER BY order_id LIMIT 100) o
 JOIN items i ON o.product_id = i.id
 WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
@@ -329,7 +320,7 @@ SELECT order_id, count(*) OVER () AS matches FROM orders_part
 WHERE customer_name ||| 'John' ORDER BY order_id LIMIT 5;
 RESET paradedb.enable_custom_scan;
 
-DROP FUNCTION explain_4643(text);
+\i common/explain_redact_oid_cleanup.sql
 DROP TABLE orders_part CASCADE;
 DROP TABLE items CASCADE;
 DROP TABLE orders CASCADE;

@@ -26,9 +26,24 @@ permissions:
   id-token: write
 
 jobs:
-  # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
-  # Docker image needs (the Debian 13 (Trixie) .deb for both arches).
+  resolve-beta-target:
+    name: Resolve Beta PostgreSQL Version
+    runs-on: ubuntu-latest
+    outputs:
+      pg_version: ${{ steps.target.outputs.pg_version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read Beta Target from Release Tag
+        id: target
+        env:
+          RELEASE_TAG: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+        run: |
+          PG_VERSION=$(bash .github/scripts/beta-postgres-version.sh "$RELEASE_TAG")
+          echo "pg_version=$PG_VERSION" >> "$GITHUB_OUTPUT"
+
+  # Stable releases build every row; betas build the selected major on Debian 13, both arches.
   publish-pg_search-debian:
+    needs: resolve-beta-target
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
@@ -183,11 +198,11 @@ jobs:
     steps:
       # A job-level `if` cannot read the `matrix` context, so beta filtering happens here, per step:
       # stable releases build every row; beta (`-rc.`) releases build only the Debian 13 (Trixie)
-      # PG 18 .deb (both arches) that the PG 18 Docker image installs.
+      # selected major (both arches) that the Docker image installs.
       - name: Determine Whether to Build This Row
         id: guard
         run: |
-          if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "18" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
+          if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "${{ needs.resolve-beta-target.outputs.pg_version }}" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
             echo "build=false" >> "$GITHUB_OUTPUT"

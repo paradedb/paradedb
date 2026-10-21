@@ -31,7 +31,7 @@ The sync workflow:
 | **Patch**     | Triggered from a stable branch (e.g., `0.25.x`). Publishes `x.y.z` and syncs artifacts to `main`.                                  |
 | **Beta (RC)** | Marked with `beta: true`. Can be triggered from any branch/commit. Produces a tag like `vX.Y.Z-rc.N` without modifying the branch. |
 
-> **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish only the PostgreSQL 18 Docker image and the Debian 13 packages required to build it; the remaining prebuilt extension binaries are skipped.
+> **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish only the Docker image for the selected PostgreSQL major (18 by default) and the Debian 13 packages required to build it; the remaining prebuilt extension binaries are skipped.
 
 ## Workflow Inputs
 
@@ -57,12 +57,14 @@ To publish a minor release from `main`:
    - Create the Git tag `v<version>`, triggering downstream packaging and publishing workflows.
    - Create the stable branch `x.y.x` pointing at the release commit.
 
+The `beta_pg_version` choice is recorded in the signed release tag so package and Docker publishing retries use the same major. Older beta tags default to PostgreSQL 18. Stable releases ignore this choice.
+
 ### Beta (RC) Releases
 
 To publish a beta release from any branch or commit:
 
 1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
-2. Click **Run workflow**, select the desired branch or commit, provide the `version` (e.g. `0.26.0-rc.0` or `0.25.6-rc.1`), and check `beta: true`.
+2. Click **Run workflow**, select the desired branch or commit, provide the `version` (e.g. `0.26.0-rc.0` or `0.25.6-rc.1`), check `beta: true`, and select `beta_pg_version` (15–18, default 18).
 3. Click **Run workflow** to start the job.
 4. The workflow will automatically:
    - Assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql` while preserving the unreleased fragments.

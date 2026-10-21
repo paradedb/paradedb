@@ -25,6 +25,16 @@ on:
         type: boolean
         required: false
         default: false
+      beta_pg_version:
+        description: "PostgreSQL major version for beta packages and Docker images. Ignored for stable releases."
+        type: choice
+        required: false
+        default: "18"
+        options:
+          - "15"
+          - "16"
+          - "17"
+          - "18"
 
 concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}
@@ -63,6 +73,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
           INPUTS_BETA: ${{ github.event.inputs.beta }}
+          BETA_PG_VERSION: ${{ inputs.beta_pg_version || '18' }}
         run: |
           echo "start_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Checking for existing release..."
@@ -73,6 +84,10 @@ jobs:
           echo "Release check passed!"
 
           if [[ "${INPUTS_BETA}" == "true" ]]; then
+            case "$BETA_PG_VERSION" in
+              15|16|17|18) ;;
+              *) echo "Unsupported PostgreSQL major: $BETA_PG_VERSION"; exit 1 ;;
+            esac
             echo "Validating that the version contains '-rc.X'..."
             if [[ "${INPUTS_VERSION}" != *"-rc."* ]]; then
               echo "Version (${INPUTS_VERSION}) does not contain '-rc.X' but is marked as a beta release."
@@ -225,11 +240,17 @@ jobs:
 
       - name: Create Tag
         env:
+          BETA: ${{ inputs.beta }}
+          BETA_PG_VERSION: ${{ inputs.beta_pg_version || '18' }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           TAG="v${INPUTS_VERSION}"
           echo "Creating and pushing tag ${TAG}..."
-          git tag -s "$TAG" -m "Release $TAG"
+          if [[ "$BETA" == "true" ]]; then
+            git tag -s "$TAG" -m "Release $TAG" -m "Beta-Postgres-Version: $BETA_PG_VERSION"
+          else
+            git tag -s "$TAG" -m "Release $TAG"
+          fi
           git verify-tag "$TAG"
           git push origin "refs/tags/$TAG"
 

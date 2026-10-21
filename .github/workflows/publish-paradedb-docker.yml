@@ -5,7 +5,7 @@
 # been published to GitHub Releases. The selected branch or tag provides the Dockerfiles
 # and workflow code. The images use the release packages instead of building pg_search from source.
 # Stable releases default to all supported PostgreSQL versions, while versions containing
-# a dash only build PostgreSQL 18. This workflow also publishes the mountable extension image
+# a dash build the beta target recorded in the release tag (default PostgreSQL 18). This workflow also publishes the mountable extension image
 # for PostgreSQL 18, except for beta (-rc.) releases.
 #
 # Once the runnable Docker images are published, notify ORM wrapper repositories via
@@ -26,7 +26,7 @@ on:
         required: true
         default: ""
       pg_version:
-        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Versions containing a dash always use [18]. Extension images always use PostgreSQL 18."
+        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Beta releases use the major recorded in the release tag (default 18). Extension images always use PostgreSQL 18."
         required: false
         default: "[15, 16, 17, 18]"
       images:
@@ -56,6 +56,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v7
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         env:
@@ -65,8 +66,8 @@ jobs:
           REF_NAME="${RELEASE_REF}"
           echo "Evaluating ref: $REF_NAME"
           if [[ "$REF_NAME" == *"-"* ]]; then
-            echo "Pre-release version (contains a dash, e.g. a beta -rc. tag); publishing PostgreSQL 18 only."
-            echo "matrix=[18]" >> $GITHUB_OUTPUT
+            PG_VERSION=$(bash .github/scripts/beta-postgres-version.sh "v${REF_NAME#v}")
+            echo "matrix=[$PG_VERSION]" >> "$GITHUB_OUTPUT"
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
             echo "matrix=${PG_VERSIONS}" >> $GITHUB_OUTPUT
@@ -151,8 +152,7 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
-      # is [18], and only the PG 18 .deb are published.
+      # Generate Dockerfiles for the majors whose packages were published.
       - name: Generate Dockerfiles
         env:
           JOB_SET_MATRIX_MATRIX: ${{ needs.set-matrix.outputs.matrix }}
@@ -167,7 +167,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: rc-dockerfiles
-          path: docker/Dockerfile.*-18
+          path: docker/Dockerfile.*
           if-no-files-found: error
           retention-days: 1
 
@@ -354,7 +354,7 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-  # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
+  # Beta (`-rc.`) releases publish only the selected runnable image, not the mountable extension image.
   publish-extension-image:
     name: Publish ParadeDB Extension Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest

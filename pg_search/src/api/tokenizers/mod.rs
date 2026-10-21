@@ -261,7 +261,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             remove_emojis,
             filters,
         } => {
-            if let Some(v) = parsed.try_get("remove_emojis", 0).and_then(|p| p.as_bool()) {
+            if let Some(v) = parsed.get_flag("remove_emojis", 0) {
                 *remove_emojis = v;
             }
             *filters = SearchTokenizerFilters::from(parsed);
@@ -806,5 +806,33 @@ unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -
                 )
             }
         }
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::pg_test;
+
+    use super::*;
+
+    fn remove_emojis(expr: &str) -> bool {
+        match tokenizer_from_expression(expr) {
+            Some(SearchTokenizer::UnicodeWords { remove_emojis, .. }) => remove_emojis,
+            other => panic!("expected unicode_words for {expr}, got {other:?}"),
+        }
+    }
+
+    #[pg_test]
+    fn unicode_words_expression_remove_emojis() {
+        assert!(!remove_emojis("unicode_words"));
+        assert!(remove_emojis("unicode_words(remove_emojis)"));
+        assert!(remove_emojis("unicode_words(remove_emojis=true)"));
+        assert!(remove_emojis("unicode_words(true)"));
+        assert!(!remove_emojis("unicode_words(remove_emojis=false)"));
+        assert!(!remove_emojis("unicode_words(lowercase=true)"));
+        assert!(remove_emojis(
+            "unicode_words(lowercase=true, remove_emojis=true)"
+        ));
     }
 }

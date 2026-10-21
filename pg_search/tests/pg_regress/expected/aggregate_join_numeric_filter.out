@@ -121,24 +121,36 @@ WHERE p.id @@@ pdb.all() AND EXISTS (
 -- holds the storage encoding, which the scan cannot compare with a NUMERIC
 -- literal, so the Aggregate Scan declines and Postgres computes the counts.
 -- The join yields bob's orders (99.99, 12.34) and carol's (NULL): 1, 1, 1, 2.
-EXPLAIN (COSTS OFF)
+-- The fallback plan embeds the index OID, which changes on every database
+-- creation; mask it so the plan is stable.
+CREATE FUNCTION explain_numeric_filter(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
+    END LOOP;
+END;
+$$;
+SELECT explain_numeric_filter($$
 SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
        count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
        count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
        count(*) FILTER (WHERE o.id > 1) AS later_orders
 FROM agg_numeric_products p
 JOIN agg_numeric_orders o ON o.name = p.name
-WHERE p.id @@@ pdb.all();
+WHERE p.id @@@ pdb.all()
+$$);
 WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: join)
-                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                  explain_numeric_filter                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Hash Join
          Hash Cond: (p.name = o.name)
          ->  Bitmap Heap Scan on agg_numeric_products p
-               Filter: paradedb.search_with_query_input_ctid_or_row_strict(id, '{"with_index":{"oid":24673788,"query":{"all":{"field":"id"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] ELSE '{}'::record[] END, ROW())
+               Filter: paradedb.search_with_query_input_ctid_or_row_strict(id, '{"with_index":{"oid":N,"query":{"all":{"field":"id"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] ELSE '{}'::record[] END, ROW())
                ->  Bitmap Index Scan on agg_numeric_products_idx
-                     Index Cond: (id @@@ '{"with_index":{"oid":24673788,"query":{"all":{"field":"id"}}}}'::paradedb.searchqueryinput)
+                     Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"all":{"field":"id"}}}}'::paradedb.searchqueryinput)
          ->  Hash
                ->  Seq Scan on agg_numeric_orders o
                      Disabled: true
@@ -235,6 +247,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be trans
 
 DROP TABLE agg_numeric_scores;
 DROP TABLE agg_numeric_orders, agg_numeric_products;
+DROP FUNCTION explain_numeric_filter(text);
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_custom_scan;

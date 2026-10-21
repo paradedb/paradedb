@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792569718174,
+  "lastUpdate": 1792572427977,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -14533,6 +14533,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 197.005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c20bd97afc2fbed7539ffc06cf65166d54e8526a",
+          "message": "fix: act on cancel and SIGTERM during DataFusion scans, regex walks and IVF training (#6886)\n\n## Ticket(s) Closed\n\n- Closes #6881\n- Closes #6884\n- Closes #6885\n\n## What\n\nThis PR makes DataFusion scans, term dictionary walks and IVF training\nreact to `pg_cancel_backend`, `pg_terminate_backend` and\n`statement_timeout` while they run, not when they finish.\n\n## Why\n\nA fast shutdown waits for every backend. #6881 came out of a one-hour\nswitchover where the last backend standing couldn't be interrupted. The\nother two turned up while looking for similar paths.\n\n- `block_on_next` holds interrupts for the whole `block_on`, so a serial\nhash aggregate ignores every signal until its first output batch.\n- A regex walks a segment's whole dictionary in one tantivy call, and\nthe only check sits between segments. A cancel sent during the walk is\ndropped once the query finishes on its own.\n- IVF training reads an in-memory sample once, and the reads are the\nonly cancel poll. `wants_cancel` also ignores `ProcDiePending`, so a\n`SIGTERM` waits for every tantivy loop that polls it.\n\n## How\n\n- The scan stream polls `cancel_pending()` before each batch and bails\nwith `interrupted()`, like the MPP transport does.\n- The columnar Base Scan drives the same stream, so `poll_next_sync`\nruns `check_for_interrupts!()` after `block_on` as well. Postgres then\nreports the cancel or die with its own SQLSTATE instead of that error.\n- `_PG_init` registers `check_for_interrupts!()` with tantivy. The\nquery-time dictionary walks run it every 4096 keys, the union scorers\nonce per window, and merges never (paradedb/tantivy#331). The\n`proximity` regex walk opts in on this side. A pg_search-side automaton\nwrapper cost 60% on the walk, so the check lives in the streamer.\n- `MVCCDirectory::wants_cancel` also returns true on `ProcDiePending`.\n- The tantivy bump polls the cancel sentinel between IVF training steps.\n\nNot covered: an operator that runs after the scan is exhausted, a large\nsort for example, still finishes before the next poll.\n\n## Tests\n\nRelease build, serial plan, time from the signal to the end of the\nquery. Same data, only `pg_search.dylib` swapped.\n\n| Case | `main` | this PR |\n|---|---|---|\n| `GROUP BY ... ORDER BY count(*) LIMIT 10` on 10M rows, cancel or\nterminate at 1 s | 0.8 s | 0.01 s |\n| `pdb.regex` Top-K on one 5M-doc segment, cancel at 1 s | 0.14 s | 0.09\ns |\n| regex with no match, cancel at 0.5 s | dropped | 0.00 s |\n\nThe hold grows with the work. #6881 measured 24 s on 100M rows and #6885\n14 s on a 20M-doc segment. The IVF change can't be timed from outside,\nsince `main` already streams the sample (#6795) and the uncovered case\ntrains too fast. The fork's unit test covers it. The streamer check has\nno measurable cost on the walk.\n\nCI caught the columnar leak in `basescan_cancel` on one PG15 job. With\nthe second bullet under How, the test passes locally and the server log\nshows only `57014` and `57P01` for the signalled queries.",
+          "timestamp": "2026-10-21T00:18:57-07:00",
+          "tree_id": "6fe80b7bcbc0aff095bfc8d9e0ef742d01090a5c",
+          "url": "https://github.com/paradedb/paradedb/commit/c20bd97afc2fbed7539ffc06cf65166d54e8526a"
+        },
+        "date": 1792572417452,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.641,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 344.429,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.64,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.086,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.49,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 211.156,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.518,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.333,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 197.279,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 14.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.173,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 186.234,
             "unit": "ms"
           }
         ]

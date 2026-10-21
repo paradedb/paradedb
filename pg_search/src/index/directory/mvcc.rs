@@ -66,13 +66,13 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// owner and temporary-file accounting, so it is removed on normal close,
 /// transaction abort, backend exit, or process failure. It never enters the
 /// immutable segment-component map.
-struct PgTempFile {
+pub(super) struct PgTempFile {
     file: *mut pg_sys::BufFile,
     release_guard: Arc<BufFileReleaseGuard>,
 }
 
 impl PgTempFile {
-    fn create() -> Self {
+    pub(super) fn create() -> Self {
         let release_guard = BufFileReleaseGuard::register();
         let file = unsafe { create_temp_buffile() };
         Self {

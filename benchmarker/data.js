@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792625669873,
+  "lastUpdate": 1792625688006,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -26833,6 +26833,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.677766014648505,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2e6cac9fdc5762579cf8ce57d7993d6569782d3",
+          "message": "fix: Preserve cancellation during VACUUM mutable flush (#6957)\n\n## What\n\nPreserve PostgreSQL cancellation when a foreground segment merge returns\nan error.\n\n## Why\n\nAntithesis observed autovacuum returning `XX000: ambulkdelete: should be\nable to flush mutable segments: User requested cancel`. Tantivy observes\n`QueryCancelPending` and returns a cancellation error, but the caller\nconverted it into a Rust panic before PostgreSQL could report the\npending cancellation.\n\n## How\n\nCheck PostgreSQL interrupts in the error path of\n`SearchIndexMerger::merge_segments`, covering all three consumers as\nrequested in review. Pending cancellation reports PostgreSQL's normal\nSQLSTATE `57014`. Other merge errors still propagate to the caller.\n\n## Tests\n\n- Replaced the VACUUM helper tests with a PostgreSQL-backed regression\nthat requests cancellation before merging real segments.\n- Removed the exact panic-message assertion that failed when pgrx\nappended a backtrace.\n- rustfmt and `git diff --check` passed locally.\n- PostgreSQL-backed tests are running in CI. Local Docker daemon is\nunavailable.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-21T15:05:49-07:00",
+          "tree_id": "89200e143f8b03d44679b54d68fa774637c7efcd",
+          "url": "https://github.com/paradedb/paradedb/commit/d2e6cac9fdc5762579cf8ce57d7993d6569782d3"
+        },
+        "date": 1792625677020,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.80853778176791,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.962494432435392,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.63019121699077,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.89081128567171,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.46194123766235,
             "unit": "queries/s"
           }
         ]

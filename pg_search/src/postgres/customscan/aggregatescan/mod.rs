@@ -1438,11 +1438,26 @@ impl AggregateScan {
         // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
-        let all_sources: Vec<SegmentView> = state
-            .custom_state()
-            .source_manifests
-            .iter()
-            .map(|m| m.segment_view())
+        // One segment pool per scan occurrence: `build_pdb_aggregate_plan` stamps each cloned
+        // join's scans `stride * group + plan_position`, so the pools are the manifest list
+        // repeated per group, and every pool replays its source's captured view (#5993).
+        let manifests = &state.custom_state().source_manifests;
+        let mut max_source_idx: Option<usize> = None;
+        crate::scan::execution_plan::visit_scan_nodes(physical, &mut |scan| {
+            if let Some(idx) = scan.source_idx() {
+                max_source_idx = Some(max_source_idx.map_or(idx, |m| m.max(idx)));
+            }
+        });
+        let pool_count = max_source_idx.map_or(manifests.len(), |m| m + 1);
+        if manifests.is_empty() || !pool_count.is_multiple_of(manifests.len()) {
+            pgrx::error!(
+                "mpp: aggregate plan stamps {pool_count} segment pools over {} sources; pools \
+                 must be whole repetitions of the source list",
+                manifests.len()
+            );
+        }
+        let all_sources: Vec<SegmentView> = (0..pool_count)
+            .map(|i| manifests[i % manifests.len()].segment_view())
             .collect();
         let args = ParallelScanArgs {
             all_sources,

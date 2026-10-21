@@ -621,8 +621,21 @@ fn build_pdb_aggregate_plan(
 
     let mut level_plans = Vec::with_capacity(groups.len());
 
-    for (needed_keys, levels_in_group) in groups {
-        let mut level_plan = input.clone();
+    // Under MPP each scan claims segments from the pool its `mpp_source_idx` names. Clones
+    // sharing the original's indexes would split every pool between them and each group would
+    // see part of the data, so groups past the first get their own pools, `stride` apart.
+    let pool_stride = plan
+        .sources()
+        .iter()
+        .map(|s| s.plan_position + 1)
+        .max()
+        .unwrap_or(0);
+    for (group_idx, (needed_keys, levels_in_group)) in groups.into_iter().enumerate() {
+        let mut level_plan = if group_idx == 0 {
+            input.clone()
+        } else {
+            restamp_mpp_sources(input.clone(), group_idx * pool_stride)?
+        };
         for ak in &array_keys {
             if needed_keys.contains(&ak.key_idx) {
                 level_plan = unnest_plan_column(
@@ -744,6 +757,35 @@ fn build_pdb_aggregate_plan(
         }
         Ok(combined)
     }
+}
+
+/// Move every MPP source scan in `plan` to the pool `offset` past its own. Serial scans
+/// (`mpp_source_idx = None`) are left alone.
+fn restamp_mpp_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPlan> {
+    use crate::postgres::customscan::joinscan::range_partitioning_rule::pg_search_provider_from_scan;
+    use datafusion::catalog::default_table_source::DefaultTableSource;
+    use datafusion::common::tree_node::{Transformed, TreeNode};
+
+    plan.transform(|node| {
+        let LogicalPlan::TableScan(mut scan) = node else {
+            return Ok(Transformed::no(node));
+        };
+        let restamped = match pg_search_provider_from_scan(&scan) {
+            Some(provider) => provider.source_idx().map(|idx| {
+                let mut provider = provider.clone();
+                provider.set_source_idx(idx + offset);
+                provider.ensure_own_expr_context();
+                provider
+            }),
+            None => None,
+        };
+        let Some(provider) = restamped else {
+            return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+        };
+        scan.source = Arc::new(DefaultTableSource::new(Arc::new(provider)));
+        Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
+    })
+    .map(|t| t.data)
 }
 
 /// Aggregate with every `pdb.agg()` level folded in as grouping sets, then
@@ -1344,31 +1386,6 @@ async fn build_source_df(
         .map(|f| f.field.clone())
         .collect();
 
-    // Each source that solves runtime PostgreSQL expressions needs its own
-    // per-tuple memory context. SearchQueryInput::solve_postgres_expressions()
-    // resets that context before replacing Param/PostgresExpression nodes. If
-    // two providers share one context, solving the second source invalidates
-    // the Const/expression nodes retained by the first source. Generic plans
-    // that parameterize predicates on both join inputs then dereference stale
-    // nodes during reader construction and abort the backend.
-    let needs_runtime_context =
-        scan_info.mode.has_postgres_expressions() || scan_info.mode.has_parameters();
-    // Only the EXPLAIN-only rebuild has no planstate. It preserves runtime
-    // expressions without solving them, so the fallback context is never reset.
-    let source_expr_context = if needs_runtime_context {
-        planstate
-            .and_then(|planstate| {
-                if planstate.is_null() || unsafe { (*planstate).state.is_null() } {
-                    None
-                } else {
-                    Some(unsafe { pg_sys::CreateExprContext((*planstate).state) })
-                }
-            })
-            .or(expr_context)
-    } else {
-        expr_context
-    };
-
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
@@ -1400,8 +1417,9 @@ async fn build_source_df(
     // `init_postgres_expressions` / `solve_postgres_expressions` only
     // when needed, so threading them through here is what makes the
     // agg-on-join path match JoinScan and Base Scan.
-    provider.set_expr_context(source_expr_context);
+    provider.set_expr_context(expr_context);
     provider.set_planstate(planstate);
+    provider.ensure_own_expr_context();
     provider.set_explain_only(planstate.is_none());
 
     // Strings leave the scan deferred, so the placement rule can put each half of their

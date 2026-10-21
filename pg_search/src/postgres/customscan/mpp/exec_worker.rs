@@ -416,6 +416,20 @@ pub(crate) fn run_mpp_worker(
             }
         }
     }
+    // `checkout_segment_for_source` answers a pool index past the DSM's table with `None`,
+    // which a scan reads as "no segments left". Refuse the plan instead of scanning nothing.
+    for plan in &plans {
+        crate::scan::execution_plan::visit_scan_nodes(plan, &mut |scan| {
+            if let Some(idx) = scan.source_idx()
+                && idx >= plan_sources_count
+            {
+                pgrx::error!(
+                    "mpp worker: scan claims from segment pool {idx} but the DSM holds \
+                     {plan_sources_count} pools (proc={this_proc})"
+                );
+            }
+        });
+    }
 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
@@ -440,22 +454,33 @@ pub(crate) fn run_mpp_worker(
             // outbound sender, and wrap it as a sink the produce loop pushes through.
             let mut per_partition_sinks: Vec<Box<dyn PartitionSink>> = Vec::with_capacity(n_out);
             for q in 0..n_out {
+                // An index outside the table means the decoded plan's shape drifted from the
+                // blob the leader routed; name it instead of panicking.
                 let dest_proc = match &fragment.routing {
-                    FragmentRouting::Coalesce { dest_proc } => *dest_proc,
-                    // A partition outside the table means the decoded plan's partitioning
-                    // drifted from the blob the leader routed; name it instead of panicking
-                    // on the index.
-                    FragmentRouting::Hashed { consumer_task, .. } => {
-                        let Some(&task) = consumer_task.get(q) else {
-                            return Err(datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: partition {q} outside routing table of len {} \
-                                 (stage_id={} task_idx={})",
-                                consumer_task.len(),
+                    FragmentRouting::Leader => 0,
+                    FragmentRouting::PerTask { outer_task } => {
+                        let task = outer_task.get(fragment.task_idx as usize).ok_or_else(|| {
+                            datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch: task {} outside per-task routing table of \
+                                 len {} (stage_id={})",
+                                fragment.task_idx,
+                                outer_task.len(),
+                                fragment.stage_id,
+                            ))
+                        })?;
+                        proc_for_task(n_workers, *task)
+                    }
+                    FragmentRouting::PerPartition { outer_task } => {
+                        let task = outer_task.get(q).ok_or_else(|| {
+                            datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch: partition {q} outside per-partition routing \
+                                 table of len {} (stage_id={} task_idx={})",
+                                outer_task.len(),
                                 fragment.stage_id,
                                 fragment.task_idx,
-                            )));
-                        };
-                        proc_for_task(n_workers, task)
+                            ))
+                        })?;
+                        proc_for_task(n_workers, *task)
                     }
                 };
                 let q_u32 = u32::try_from(q).map_err(|_| {

@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn assigns_every_logical_task_once_after_short_launch() {
-        let routing = FragmentRouting::Coalesce { dest_proc: 0 };
+        let routing = FragmentRouting::Leader;
         let assigned_by_proc = (1..=3)
             .map(|proc_idx| {
                 let mut assignments = Vec::new();
@@ -263,7 +263,7 @@ mod tests {
             &mut assignments,
             7,
             (u32::MAX as usize) + 2,
-            &FragmentRouting::Coalesce { dest_proc: 0 },
+            &FragmentRouting::Leader,
             1,
             1,
         )

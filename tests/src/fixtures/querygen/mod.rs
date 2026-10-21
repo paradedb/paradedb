@@ -781,11 +781,14 @@ impl PgGucs {
             "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
-        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
+        // Pin `min_rows_per_worker` low when we want parallel workers to be used, and drop the
+        // MPP row gate with it: at its default the generated tables are too small to reach MPP.
         if *parallel_workers {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO 0;").unwrap();
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO DEFAULT;").unwrap();
         }
         writeln!(
             gucs,

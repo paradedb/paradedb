@@ -361,7 +361,12 @@ fn launch_mpp(
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
-    let stages = collect_stages(physical);
+    let stages = match collect_stages(physical) {
+        Ok(stages) => stages,
+        // A union task map that cannot be composed is a planner invariant breach, not an
+        // environmental shortfall to run serially from.
+        Err(e) => pgrx::error!("mpp: stage discovery failed: {e}"),
+    };
 
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
     // counts (#5657). The producer floor keeps the mesh-width invariant; see

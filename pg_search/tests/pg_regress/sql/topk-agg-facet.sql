@@ -1426,6 +1426,63 @@ SELECT * FROM (
 ORDER BY score DESC
 LIMIT 5;
 
+-- A filter on a columnar text field. The scan compares the stored value, so
+-- 'apple' matches nothing, as in PostgreSQL, and `<>` combines with a
+-- comparison on the other side of the join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- pdb.agg() with a FILTER. The same spec without and with a filter is two
+-- aggregates; EXPLAIN renders both as the same pdb_agg(...) call, and the
+-- values tell them apart. Plain EXPLAIN: the VERBOSE output list deparses the
+-- search operator with the index OID, which changes from run to run.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
 -- Search operators in a filter, on either side of the join and combined with a
 -- column comparison. Each becomes a tagged query on its source scan, and the
 -- filter reads the tag column. Plain EXPLAIN: the VERBOSE output list

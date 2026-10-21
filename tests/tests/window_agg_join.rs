@@ -808,6 +808,11 @@ enum PdbAggShape {
     /// A DISTINCT target list of document expressions alone: every row is one
     /// group.
     DistinctDocumentsOnly,
+    /// `pdb.agg(...) FILTER (WHERE ...) OVER ()`: a spec written once without
+    /// and once with a filter is two aggregates, and a filter can read a
+    /// columnar text field. The aggregate scan's filtered `pdb.agg()` over the
+    /// same join is the oracle.
+    Filtered,
 }
 
 #[rstest]
@@ -817,6 +822,7 @@ enum PdbAggShape {
 #[case::no_rows(PdbAggShape::NoRows)]
 #[case::distinct(PdbAggShape::Distinct)]
 #[case::distinct_documents_only(PdbAggShape::DistinctDocumentsOnly)]
+#[case::filtered(PdbAggShape::Filtered)]
 fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShape) {
     setup_pdb_agg(&mut conn);
 
@@ -936,7 +942,81 @@ fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShap
             let rows: Vec<(String,)> = query.fetch(&mut conn);
             assert_eq!(rows, vec![("1000.0".to_string(),)]);
         }
+        PdbAggShape::Filtered => {
+            const HIGH: &str = "r.score > 2";
+            const REVIEWER: &str = "r.reviewer = 'reviewer_0'";
+            let query = format!(
+                r#"
+                SELECT r.id,
+                       pdb.agg('{AVG}') OVER () AS avg_score,
+                       pdb.agg('{AVG}') FILTER (WHERE {HIGH}) OVER () AS high_avg_score,
+                       pdb.agg('{TERMS}') FILTER (WHERE {REVIEWER}) OVER () AS reviewer_categories
+                {PDB_AGG_JOIN}
+                ORDER BY r.id DESC
+                LIMIT 2
+                "#
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 3);
+
+            let filtered_document = |conn: &mut PgConnection, spec: &str, filter: &str| {
+                let (document,) =
+                    format!("SELECT pdb.agg('{spec}') FILTER (WHERE {filter}) {PDB_AGG_JOIN}")
+                        .fetch_one::<(serde_json::Value,)>(conn);
+                document
+            };
+            let avg = aggregate_scan_document(&mut conn, AVG);
+            let high_avg = filtered_document(&mut conn, AVG, HIGH);
+            let reviewer_terms = filtered_document(&mut conn, TERMS, REVIEWER);
+            assert_ne!(avg, high_avg);
+
+            type Row = (i64, serde_json::Value, serde_json::Value, serde_json::Value);
+            let rows: Vec<Row> = query.fetch(&mut conn);
+            assert_eq!(
+                rows,
+                vec![
+                    (1999, avg.clone(), high_avg.clone(), reviewer_terms.clone()),
+                    (1997, avg, high_avg, reviewer_terms),
+                ]
+            );
+        }
     }
+}
+
+/// SQL window aggregates filtered on columnar text fields of either side of
+/// the join. The scan reads the field for the filter in the Top-K aggregate
+/// node, and `<>` has to leave out NULL categories as PostgreSQL does. The
+/// same query with JoinScan off is the oracle.
+#[rstest]
+fn filtered_window_aggregates_on_text_columns(mut conn: PgConnection) -> Result<(), sqlx::Error> {
+    setup_pdb_agg(&mut conn);
+
+    let query = r#"
+        SELECT r.id,
+               COUNT(*) FILTER (WHERE p.category = 'gaming') OVER () AS gaming,
+               COUNT(*) FILTER (WHERE p.category <> 'gaming') OVER () AS not_gaming,
+               COUNT(*) FILTER (WHERE p.category IS NULL) OVER () AS no_category,
+               COUNT(*) FILTER (WHERE r.reviewer = 'reviewer_0' AND p.category = 'gaming')
+                   OVER () AS gaming_reviewer_0
+        FROM wjp_products p
+        JOIN wjp_reviews r ON p.id = r.product_id
+        WHERE p.description ||| 'laptop'
+        ORDER BY r.id DESC
+        LIMIT 2
+    "#;
+
+    assert_windows_in_topk_agg(&explain(&mut conn, query));
+    let rows = query.fetch_result::<(i64, i64, i64, i64, i64)>(&mut conn)?;
+
+    "SET paradedb.enable_join_custom_scan = off".execute(&mut conn);
+    assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
+    let expected = query.fetch_result::<(i64, i64, i64, i64, i64)>(&mut conn)?;
+
+    assert_eq!(rows, expected);
+    // Half the laptops are gaming and half have no category, so `<>` keeps
+    // none of the join's rows.
+    assert_eq!((rows[0].1, rows[0].2, rows[0].3), (500, 0, 500));
+
+    Ok(())
 }
 
 /// What the aggregate scan turns down in a spec, JoinScan turns down too, along

@@ -360,6 +360,10 @@ pub(crate) fn run_mpp_worker(
     // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
     // must stay off the produce futures.
     let frames: Vec<SetPlanFrame> = {
+        // Same holdoff as the fragment run below: the plan wait bails on a cancel/die with a
+        // plain error, and PG acts on the interrupt itself once the runtime is off the stack.
+        // Otherwise the cancel would surface as a plan-frame failure.
+        let held = HeldInterrupts::hold();
         let collected = runtime.block_on(async {
             let mut frames = Vec::with_capacity(fragments.len());
             for fragment in &fragments {
@@ -370,6 +374,8 @@ pub(crate) fn run_mpp_worker(
             }
             Ok::<_, datafusion::common::DataFusionError>(frames)
         });
+        drop(held);
+        check_for_interrupts();
         match collected {
             Ok(frames) => frames,
             Err(e) => {
@@ -562,9 +568,10 @@ pub(crate) fn run_mpp_worker(
         // forever.
         let mut frag_stream: futures::stream::FuturesUnordered<_> = futures.into_iter().collect();
         // A cancel or die that lands while a fragment is idle in its request wait reaches no
-        // send spin and no drain pass, the only places that poll the flags. The leader is
-        // already waiting for this worker to exit and releases nothing before that, so the wait
-        // would never end on its own. Cancelling the token unwinds the request loops.
+        // send spin and no consumer pull, the only places that poll the flags (a drain pass
+        // only moves frames). The leader is already waiting for this worker to exit and
+        // releases nothing before that, so the wait would never end on its own. Cancelling
+        // the token unwinds the request loops.
         let interrupt_watch = {
             let token = token.clone();
             tokio::spawn(async move {

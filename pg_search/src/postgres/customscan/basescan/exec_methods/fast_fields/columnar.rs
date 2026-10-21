@@ -53,7 +53,13 @@ fn poll_next_sync<S: futures::Stream + Unpin>(
     pgrx::check_for_interrupts!();
 
     // Use tokio runtime to drive the stream (same pattern as JoinScan)
-    runtime.block_on(async { stream.next().await })
+    let next = runtime.block_on(async { stream.next().await });
+
+    // The scan stream bails with a plain error on a pending cancel or die. Let Postgres report
+    // the interrupt itself, so the client sees the right SQLSTATE and not that error.
+    pgrx::check_for_interrupts!();
+
+    next
 }
 
 struct Inner {

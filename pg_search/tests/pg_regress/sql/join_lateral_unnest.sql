@@ -304,6 +304,40 @@ GROUP BY t
 ORDER BY product_count DESC, t
 LIMIT 10;
 
+-- The unnested column alone as the sort key.
+EXPLAIN (COSTS OFF)
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
+)
+GROUP BY t
+ORDER BY t
+LIMIT 10;
+
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
+)
+GROUP BY t
+ORDER BY t
+LIMIT 10;
+
 -- =====================================================================
 -- TEST 7: Truncated TopK pushdown strictly respecting unnested sort order
 -- =====================================================================

@@ -26,13 +26,14 @@
 use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, RelNode, UnnestNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode, RelationAlias, UnnestNode,
 };
 use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
 use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
+use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
@@ -876,7 +877,7 @@ unsafe fn collect_join_sources_join_rel(
 pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<(), String> {
     if pg_sys::expression_returns_set(expr) {
         pgrx::debug1!("JoinScan declined Postgres projection: expression returns a set");
-        return Err("target list expression returns a set".to_string());
+        return Err("returns a set".to_string());
     }
 
     let mut deps = ExprDeps {
@@ -890,14 +891,14 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
         pgrx::debug1!(
             "JoinScan declined Postgres projection: expression depends on a score function"
         );
-        return Err("target list expression depends on a score function".to_string());
+        return Err("depends on a score function".to_string());
     }
 
     if !deps.window_funcs.is_empty() {
         pgrx::debug1!(
             "JoinScan declined Postgres projection: expression depends on a window function"
         );
-        return Err("target list expression depends on a window function".to_string());
+        return Err("depends on a window function".to_string());
     }
 
     let tables_str = plan
@@ -920,10 +921,7 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
                 varattno,
                 tables_str
             );
-            return Err(
-                "target list expression depends on a system column or whole-row reference"
-                    .to_string(),
-            );
+            return Err("depends on a system column or whole-row reference".to_string());
         }
 
         if !seen.insert((varno, varattno)) {
@@ -937,7 +935,7 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
                 varno,
                 tables_str
             );
-            return Err("target list references a relation outside the join".to_string());
+            return Err("references a relation outside the join".to_string());
         }
     }
     Ok(())
@@ -2234,15 +2232,14 @@ unsafe fn column_name_for_var(
 ) -> String {
     for source in sources {
         if source.contains_rti(varno) {
-            let hr = PgSearchRelation::open(source.scan_info.heaprelid);
-            let td = hr.tuple_desc();
-            if varattno > 0
-                && (varattno as usize) <= td.len()
-                && let Some(attr) = td.get((varattno - 1) as usize)
-            {
-                let tbl = source_table_name(source);
-                return format!("{}.{}", tbl, attr.name());
+            // Match the `(tables: ...)` suffix, which names relations the way the query wrote them.
+            let tbl = RelationAlias::new(source.scan_info.alias.as_deref())
+                .warning_context(source.scan_info.heaprelid);
+            // attno 0 is a whole-row reference.
+            if varattno == 0 {
+                return format!("{tbl}.*");
             }
+            return get_attname_safe(Some(source.scan_info.heaprelid), varattno, &tbl);
         }
     }
     format!("rti {}, attno {}", varno, varattno)
@@ -2525,9 +2522,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         return pg_project_or_decline(
             expr,
             plan_for_pg_project_fallback,
-            format!(
-                "JoinScan not used: target list expression depends on '{col}' which is not columnar"
-            ),
+            format!("target list expression depends on '{col}' which is not columnar"),
         )
         .inspect_err(|_| {
             pgrx::debug1!(
@@ -2551,7 +2546,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             expr,
             plan_for_pg_project_fallback,
             format!(
-                "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+                "target list expression returns type '{type_name}' which is not supported for Arrow conversion",
             ),
         ).inspect_err(|_| {
                 pgrx::debug1!(

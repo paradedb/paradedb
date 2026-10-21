@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Aggregate Scan no longer fails on an `ORDER BY ... LIMIT` over a `LATERAL unnest` group column, and keeps a sort key with a non byte-ordered collation on the Postgres `Sort`. A `LIMIT` above a `DISTINCT` or a window function over a `GROUP BY` no longer loses rows.

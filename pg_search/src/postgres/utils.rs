@@ -653,26 +653,7 @@ pub fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::No
 
 /// Identifies if the function identified by `funcid` is `pg_catalog.unnest(anyarray)`.
 pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
-    use std::sync::Once;
-    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static UNNEST_OID_ONCE: Once = Once::new();
-
-    unsafe {
-        UNNEST_OID_ONCE.call_once(|| {
-            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pg_catalog.unnest(anyarray)".into_datum()],
-            ) {
-                UNNEST_OID = oid;
-            }
-        });
-
-        if funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid {
-            return true;
-        }
-
-        false
-    }
+    funcid.to_u32() == pg_sys::F_UNNEST_ANYARRAY
 }
 
 /// Create a text Const node from a string

@@ -440,30 +440,29 @@ WHERE (
 GROUP BY t
 ORDER BY product_count DESC, t
 LIMIT 10;
-                                                                                                                                             QUERY PLAN                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (count(DISTINCT p.id)) DESC, t.t
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: jlu_products_idx (p), jlu_brands_idx (b), jlu_stores_idx (s)
-               Group By: tags
-               Aggregates: COUNT(DISTINCT)(id)
-               DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[b_1_tags@1 as b_1_tags], aggr=[count(DISTINCT p_0.id) as agg_0]
-                 :   UnnestExec
-                 :     ProjectionExec: expr=[id@0 as id, tags@1 as b_1_tags]
-                 :       FilterExec: __p_0_tag_0@1 OR __b_1_tag_0@3 OR __s_2_tag_0@4, projection=[id@0, tags@2]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@0, id@3)], projection=[id@2, __p_0_tag_0@3, tags@4, __b_1_tag_0@6, __s_2_tag_0@1]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"store_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@2)], projection=[id@0, __p_0_tag_0@1, tags@2, id@3, __b_1_tag_0@5]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=p, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                 :             CooperativeExec
-                 :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(21 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: jlu_products_idx (p), jlu_brands_idx (b), jlu_stores_idx (s)
+         Group By: tags
+         Aggregates: COUNT(DISTINCT)(id)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC, b_1_tags@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[b_1_tags@1 as b_1_tags], aggr=[count(DISTINCT p_0.id) as agg_0]
+           :     UnnestExec
+           :       ProjectionExec: expr=[id@0 as id, tags@1 as b_1_tags]
+           :         FilterExec: __p_0_tag_0@1 OR __b_1_tag_0@3 OR __s_2_tag_0@4, projection=[id@0, tags@2]
+           :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@0, id@3)], projection=[id@2, __p_0_tag_0@3, tags@4, __b_1_tag_0@6, __s_2_tag_0@1]
+           :             CooperativeExec
+           :               PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"store_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@2)], projection=[id@0, __p_0_tag_0@1, tags@2, id@3, __b_1_tag_0@5]
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
 
 SELECT
     t AS tag,
@@ -479,6 +478,68 @@ WHERE (
 )
 GROUP BY t
 ORDER BY product_count DESC, t
+LIMIT 10;
+     tag      | product_count 
+--------------+---------------
+ bestseller   |             1
+ home_theater |             1
+(2 rows)
+
+-- The unnested column alone as the sort key.
+EXPLAIN (COSTS OFF)
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
+)
+GROUP BY t
+ORDER BY t
+LIMIT 10;
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: jlu_products_idx (p), jlu_brands_idx (b), jlu_stores_idx (s)
+         Group By: tags
+         Aggregates: COUNT(DISTINCT)(id)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[b_1_tags@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[b_1_tags@1 as b_1_tags], aggr=[count(DISTINCT p_0.id) as agg_0]
+           :     UnnestExec
+           :       ProjectionExec: expr=[id@0 as id, tags@1 as b_1_tags]
+           :         FilterExec: __p_0_tag_0@1 OR __b_1_tag_0@3 OR __s_2_tag_0@4, projection=[id@0, tags@2]
+           :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@0, id@3)], projection=[id@2, __p_0_tag_0@3, tags@4, __b_1_tag_0@6, __s_2_tag_0@1]
+           :             CooperativeExec
+           :               PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"store_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@2)], projection=[id@0, __p_0_tag_0@1, tags@2, id@3, __b_1_tag_0@5]
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
+
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
+)
+GROUP BY t
+ORDER BY t
 LIMIT 10;
      tag      | product_count 
 --------------+---------------

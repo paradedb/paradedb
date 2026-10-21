@@ -178,25 +178,22 @@ WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY 2 DESC
 LIMIT 2;
-                                                                                                                              QUERY PLAN                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*)), (((count(*)) * 2)), (((count(*)))::numeric), ((((count(*)))::numeric / 2.0))
-   ->  Sort
-         Output: category, (count(*)), (((count(*)) * 2)), (((count(*)))::numeric), ((((count(*)))::numeric / 2.0))
-         Sort Key: (count(*)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: category, (count(*)), ((count(*)) * 2), ((count(*)))::numeric, (((count(*)))::numeric / 2.0)
-               Backend: DataFusion
-               Indexes: df_fallback_products_idx (df_fallback_products)
-               Group By: category
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=df_fallback_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, (count(*)), ((count(*)) * 2), ((count(*)))::numeric, (((count(*)))::numeric / 2.0)
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=df_fallback_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
 FROM df_fallback_products
@@ -419,25 +416,22 @@ WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphone
 GROUP BY category
 ORDER BY 1 DESC
 LIMIT 3;
-                                                                                                                                                                       QUERY PLAN                                                                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (count(*)), category
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: (count(*)), category
-         Sort Key: (count(*)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: (count(*)), category
-               Backend: DataFusion
-               Indexes: df_fallback_products_idx (df_fallback_products)
-               Group By: category
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=df_fallback_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=df_fallback_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT COUNT(*)
 FROM df_fallback_products

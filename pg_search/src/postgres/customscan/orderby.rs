@@ -39,7 +39,7 @@ use crate::postgres::var::{
 };
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
-use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_sys};
+use pgrx::{FromDatum, PgList, pg_sys};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -130,13 +130,7 @@ impl PathKeyInfo {
 
 /// Helper function to get the OID of the text lower function
 pub fn text_lower_funcoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"pg_catalog.lower(text)".into_datum()],
-        )
-        .expect("the `pg_catalog.lower(text)` function should exist")
-    }
+    pg_sys::F_LOWER_TEXT.into()
 }
 
 unsafe fn extract_score_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {

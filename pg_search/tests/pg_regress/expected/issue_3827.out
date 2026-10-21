@@ -40,9 +40,8 @@ LIMIT 1;
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
                  Applies to Aggregates: 
                  Group By: n
-                 Limit: 1
                  Aggregate Definition: {"grouped":{"terms":{"field":"n","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(13 rows)
+(12 rows)
 
 SELECT n, SUM(n) OVER ()
 FROM issue_3827_t

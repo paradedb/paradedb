@@ -8,5 +8,6 @@ filters `stackoverflow_posts` (`p.title ||| 'python error'`) and `users` (`u.abo
 ## Variants
 
 - `postgres.sql`: Native PostgreSQL baseline using GIN full-text indexes (`to_tsvector` / `to_tsquery`) and `ts_rank`.
-- `hash_partitioned.sql`: ParadeDB `JoinScan` with `paradedb.enable_range_partitioned_join = off` (hash-repartitioned join).
-- `range_partitioned.sql`: ParadeDB `JoinScan` with `paradedb.enable_range_partitioned_join = on` (0-shuffle co-partitioned join on `users.id = stackoverflow_posts.owner_user_id`).
+- `hash_partitioned.sql`: ParadeDB `JoinScan` with `paradedb.enable_range_partitioned_join = off` and `paradedb.enable_rank_join = off` (hash-repartitioned join).
+- `range_partitioned.sql`: ParadeDB `JoinScan` with `paradedb.enable_range_partitioned_join = on` and `paradedb.enable_rank_join = off` (0-shuffle co-partitioned join on `users.id = stackoverflow_posts.owner_user_id`).
+- `rank_join.sql`: ParadeDB `JoinScan` with `paradedb.enable_rank_join = on` (`RankJoinExec`).

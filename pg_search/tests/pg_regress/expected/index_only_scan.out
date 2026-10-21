@@ -23,19 +23,6 @@ CREATE INDEX index_only_scan_idx
 ON index_only_scan
 USING paradedb (id, tenant_id, score, active, body);
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-\i common/explain_redact_oid_setup.sql
--- EXPLAIN a query with index OIDs masked. Plans that fall back to a heap
--- filter embed the BM25 index OID, which changes on every database creation.
-CREATE OR REPLACE FUNCTION explain_redact_oid(query text, options text DEFAULT 'COSTS OFF, TIMING OFF')
-RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (' || options || ') ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
-    END LOOP;
-END;
-$$;
 SET paradedb.enable_custom_scan = off;
 RESET enable_indexscan;
 SET enable_seqscan = off;
@@ -754,6 +741,4 @@ DROP TABLE index_only_bitmap;
 RESET enable_bitmapscan;
 RESET enable_seqscan;
 RESET paradedb.enable_custom_scan;
-\i common/explain_redact_oid_cleanup.sql
-DROP FUNCTION IF EXISTS explain_redact_oid(text, text);
 DROP TABLE index_only_scan;

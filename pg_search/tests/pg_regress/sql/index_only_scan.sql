@@ -23,8 +23,6 @@ USING paradedb (id, tenant_id, score, active, body);
 
 VACUUM (FREEZE, ANALYZE) index_only_scan;
 
-\i common/explain_redact_oid_setup.sql
-
 SET paradedb.enable_custom_scan = off;
 RESET enable_indexscan;
 SET enable_seqscan = off;
@@ -460,5 +458,4 @@ RESET enable_bitmapscan;
 RESET enable_seqscan;
 RESET paradedb.enable_custom_scan;
 
-\i common/explain_redact_oid_cleanup.sql
 DROP TABLE index_only_scan;

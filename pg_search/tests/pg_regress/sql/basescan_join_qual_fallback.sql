@@ -12,8 +12,6 @@ CREATE TABLE tags (id int PRIMARY KEY, doc_id int NOT NULL, label text NOT NULL)
 INSERT INTO tags SELECT i, ((i - 1) % 4) + 1, 'sheriff tag' FROM generate_series(1, 8) i;
 CREATE INDEX tags_bm25 ON tags USING paradedb (id, doc_id, label);
 
-\i common/explain_redact_oid_setup.sql
-
 --------------------------------------------------------------------------------
 -- Part 1: wrong results, no RLS involved.
 -- `COALESCE(d.org_id = 1, false)` restricts docs to org 1, so only docs 3 and 4
@@ -135,4 +133,3 @@ DROP TABLE docs CASCADE;
 DROP TABLE tags CASCADE;
 DROP TABLE visible_orgs;
 DROP ROLE rls_drop_user;
-\i common/explain_redact_oid_cleanup.sql

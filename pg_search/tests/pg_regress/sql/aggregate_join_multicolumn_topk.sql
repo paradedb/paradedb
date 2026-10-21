@@ -55,8 +55,6 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 SET max_parallel_workers_per_gather TO 0;
 
-\i common/explain_redact_oid_setup.sql
-
 -- Single aggregate key, no ties.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.researcher_id
@@ -233,7 +231,6 @@ RESET parallel_tuple_cost;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 
-\i common/explain_redact_oid_cleanup.sql
 DROP COLLATION multicolumn_topk_icu;
 DROP TABLE multicolumn_topk_work_items;
 DROP TABLE multicolumn_topk_researchers;

@@ -45,19 +45,6 @@ RESET paradedb.global_mutable_segment_rows;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 SET max_parallel_workers_per_gather TO 0;
-\i common/explain_redact_oid_setup.sql
--- EXPLAIN a query with index OIDs masked. Plans that fall back to a heap
--- filter embed the BM25 index OID, which changes on every database creation.
-CREATE OR REPLACE FUNCTION explain_redact_oid(query text, options text DEFAULT 'COSTS OFF, TIMING OFF')
-RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (' || options || ') ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
-    END LOOP;
-END;
-$$;
 -- Single aggregate key, no ties.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.researcher_id
@@ -449,8 +436,6 @@ RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
-\i common/explain_redact_oid_cleanup.sql
-DROP FUNCTION IF EXISTS explain_redact_oid(text, text);
 DROP COLLATION multicolumn_topk_icu;
 DROP TABLE multicolumn_topk_work_items;
 DROP TABLE multicolumn_topk_researchers;

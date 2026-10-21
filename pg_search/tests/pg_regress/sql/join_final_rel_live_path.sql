@@ -70,8 +70,6 @@ ANALYZE jflp_users;
 ANALYZE jflp_products;
 ANALYZE jflp_orders;
 
-\i common/explain_redact_oid_setup.sql
-
 SELECT explain_redact_oid($$
 SELECT jflp_users.id, jflp_users.name
 FROM jflp_users
@@ -88,5 +86,4 @@ JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
 WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
 ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id;
 
-\i common/explain_redact_oid_cleanup.sql
 DROP TABLE jflp_users, jflp_products, jflp_orders;

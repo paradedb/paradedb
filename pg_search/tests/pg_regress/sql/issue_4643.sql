@@ -43,8 +43,6 @@ SELECT count(*) FROM orders_part WHERE customer_name ||| 'John';
 SELECT count(*) FROM orders_part WHERE NOT (customer_name ||| 'John');
 SELECT count(*) FROM orders_part WHERE orders_part @@@ 'John';
 
-\i common/explain_redact_oid_setup.sql
-
 -- an unpartitioned copy, whose plans must not carry a tableoid
 CREATE TABLE orders_plain AS SELECT * FROM orders_part;
 CREATE INDEX orders_plain_idx ON orders_plain
@@ -320,7 +318,6 @@ SELECT order_id, count(*) OVER () AS matches FROM orders_part
 WHERE customer_name ||| 'John' ORDER BY order_id LIMIT 5;
 RESET paradedb.enable_custom_scan;
 
-\i common/explain_redact_oid_cleanup.sql
 DROP TABLE orders_part CASCADE;
 DROP TABLE items CASCADE;
 DROP TABLE orders CASCADE;

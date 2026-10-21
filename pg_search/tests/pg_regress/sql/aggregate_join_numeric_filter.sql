@@ -72,8 +72,6 @@ WHERE p.id @@@ pdb.all() AND EXISTS (
        OR (o.name === 'carol' AND o.amount = 12345678901234567890.123456789)
 );
 
-\i common/explain_redact_oid_setup.sql
-
 SELECT explain_redact_oid($$
 SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
        count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
@@ -139,7 +137,6 @@ WHERE removed_at IS NULL;
 DROP TABLE agg_numeric_scores;
 
 DROP TABLE agg_numeric_orders, agg_numeric_products;
-\i common/explain_redact_oid_cleanup.sql
 
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_aggregate_custom_scan;

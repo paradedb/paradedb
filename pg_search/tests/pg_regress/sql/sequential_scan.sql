@@ -22,8 +22,6 @@ FROM generate_series(1, 20000) g;
 CREATE INDEX sequential_scan_idx ON sequential_scan USING paradedb (anchor, id, body) WHERE keep;
 CREATE INDEX sequential_scan_anchor_idx ON sequential_scan (anchor) INCLUDE (id);
 
-\i common/explain_redact_oid_setup.sql
-
 -- Tiny work_mem: the ~20k-key match set exceeds it and spills; count is still correct.
 SET work_mem = '64kB';
 SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
@@ -420,4 +418,3 @@ RESET enable_indexscan;
 RESET enable_indexonlyscan;
 RESET enable_bitmapscan;
 RESET enable_seqscan;
-\i common/explain_redact_oid_cleanup.sql

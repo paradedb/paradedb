@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Emit a once-per-query warning when a scan encounters a significantly stale visibility map (at least `paradedb.visibility_map_warning_threshold` non-all-visible heap blocks across the table and at least 50% of scanned blocks not all-visible), with guidance on running `VACUUM` and tuning autovacuum.

@@ -557,7 +557,8 @@ unsafe fn merge_index(
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
         //
         // we defer raising a panic in the face of a merge error as we need to remove the created
-        // `merge_entry` whether the merge worked or not
+        // `merge_entry` whether the merge worked or not (see
+        // https://github.com/paradedb/paradedb/issues/6962)
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 

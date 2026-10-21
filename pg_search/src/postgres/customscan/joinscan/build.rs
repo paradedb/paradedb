@@ -2041,7 +2041,7 @@ impl JoinCSClause {
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         self.plan.visit_queries_mut(f);
         for window_agg in self.window_aggs.iter_mut() {
-            if let Some(filter) = window_agg.agg_def.filter_mut() {
+            if let Some(filter) = window_agg.filter.as_mut() {
                 filter.visit_queries_mut(f);
             }
         }
@@ -2053,7 +2053,7 @@ impl JoinCSClause {
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         self.plan.visit_queries(f);
         for window_agg in self.window_aggs.iter() {
-            if let Some(filter) = window_agg.agg_def.filter() {
+            if let Some(filter) = window_agg.filter.as_ref() {
                 filter.visit_queries(f);
             }
         }
@@ -2107,7 +2107,7 @@ impl JoinCSClause {
     pub fn window_agg_filter_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
         let mut predicates = Vec::new();
         for w in self.window_aggs.iter() {
-            if let Some(filter) = w.agg_def.filter() {
+            if let Some(filter) = w.filter.as_ref() {
                 filter.collect_search_predicates(&mut predicates);
             }
         }

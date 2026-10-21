@@ -119,14 +119,14 @@ fn resolve_var_to_df_col(
         let index = WindowAggIndex::from_sentinel_attno(attno)?;
         let window_agg = join_clause.window_aggs.get(index)?;
         match &window_agg.agg_def {
-            WindowAggDef::Sql(sql, _) => {
+            WindowAggDef::Sql(sql) => {
                 if sql.arg_field_type().is_some_and(|ft| ft.is_numeric()) {
                     return None;
                 }
             }
             // The column holds the document as text, which only the
             // PgExprUdf path turns back into the jsonb the expression reads.
-            WindowAggDef::PdbAgg(_, _) => return None,
+            WindowAggDef::PdbAgg(_) => return None,
         }
         let canonical = join_clause.window_aggs.canonical_index(index);
         return Some(col(canonical.as_col_name()));
@@ -232,11 +232,11 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
             let window_agg = self.join_clause.window_aggs.get(index)?;
             let canonical = self.join_clause.window_aggs.canonical_index(index);
             let decode = match &window_agg.agg_def {
-                WindowAggDef::Sql(sql, _) => InputDecode::StorageEncoded {
+                WindowAggDef::Sql(sql) => InputDecode::StorageEncoded {
                     is_avg: matches!(sql.agg_type(), SupportedWindowAggType::Avg),
                     field_type: sql.arg_field_type().cloned(),
                 },
-                WindowAggDef::PdbAgg(_, _) => InputDecode::JsonDocument,
+                WindowAggDef::PdbAgg(_) => InputDecode::JsonDocument,
             };
             return Some((col(canonical.as_col_name()), decode));
         }
@@ -1683,11 +1683,11 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         .iter_indexed()
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
     {
-        let WindowAggDef::Sql(sql, _) = &info.agg_def else {
+        let WindowAggDef::Sql(sql) = &info.agg_def else {
             continue;
         };
         let mut expr = window_expr(sql, join_clause)?;
-        expr = maybe_apply_filter_to_expr(expr, info.agg_def.filter(), &join_clause.plan)?;
+        expr = maybe_apply_filter_to_expr(expr, info.filter.as_ref(), &join_clause.plan)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1758,10 +1758,10 @@ fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<SeparatedWin
             continue;
         }
         let mut e = match &info.agg_def {
-            WindowAggDef::Sql(sql, _) => aggregate_expr(sql, join_clause)?,
-            WindowAggDef::PdbAgg(request, _) => pdb_agg(request, &join_clause.plan)?,
+            WindowAggDef::Sql(sql) => aggregate_expr(sql, join_clause)?,
+            WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
         };
-        e = maybe_apply_filter_to_expr(e, info.agg_def.filter(), &join_clause.plan)?;
+        e = maybe_apply_filter_to_expr(e, info.filter.as_ref(), &join_clause.plan)?;
         match unalias(e.clone()) {
             Expr::AggregateFunction(_) => exprs.push((index.as_col_name(), e)),
             Expr::Literal(_, _) => consts.push((index.as_col_name(), e)),

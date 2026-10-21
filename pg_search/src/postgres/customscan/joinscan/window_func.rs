@@ -139,9 +139,9 @@ impl SqlWindowAggDef {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WindowAggDef {
-    Sql(SqlWindowAggDef, Option<FilterExpr>),
+    Sql(SqlWindowAggDef),
     /// `pdb.agg()`, lowered to the request the aggregate scan runs.
-    PdbAgg(Box<PdbAggRequest>, Option<FilterExpr>),
+    PdbAgg(Box<PdbAggRequest>),
 }
 impl WindowAggDef {
     /// Lower a `pdb.agg(...) OVER ()` under the constraints the aggregate scan
@@ -151,7 +151,6 @@ impl WindowAggDef {
     fn try_pdb_agg_from_window_func(
         wf: &WindowFunc,
         sources: &[&JoinSource],
-        filter: Option<FilterExpr>,
     ) -> Result<Self, String> {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
         let sources: Vec<ResolutionSource> =
@@ -170,37 +169,22 @@ impl WindowAggDef {
                 MvccVisibility::default().as_sql_value()
             ));
         }
-        Ok(Self::PdbAgg(Box::new(request), filter))
+        Ok(Self::PdbAgg(Box::new(request)))
     }
 
     /// The SQL aggregate, if this is one.
     pub fn sql(&self) -> Option<&SqlWindowAggDef> {
         match self {
-            Self::Sql(sql, _) => Some(sql),
-            Self::PdbAgg(_, _) => None,
+            Self::Sql(sql) => Some(sql),
+            Self::PdbAgg(_) => None,
         }
     }
 
     /// The `pdb.agg()` request, if this is one.
     pub fn pdb_agg(&self) -> Option<&PdbAggRequest> {
         match self {
-            Self::Sql(_, _) => None,
-            Self::PdbAgg(request, _) => Some(request),
-        }
-    }
-
-    /// the filter expression for the window, if there is one
-    pub fn filter(&self) -> Option<&FilterExpr> {
-        match self {
-            Self::Sql(_, filter) => filter.as_ref(),
-            Self::PdbAgg(_, filter) => filter.as_ref(),
-        }
-    }
-
-    pub fn filter_mut(&mut self) -> Option<&mut FilterExpr> {
-        match self {
-            Self::Sql(_, filter) => filter.as_mut(),
-            Self::PdbAgg(_, filter) => filter.as_mut(),
+            Self::Sql(_) => None,
+            Self::PdbAgg(request) => Some(request),
         }
     }
 }
@@ -262,6 +246,7 @@ impl WindowAggId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowAgg {
     pub agg_def: WindowAggDef,
+    pub filter: Option<FilterExpr>,
     pub result_type: ResultType,
     pub id: WindowAggId,
 }
@@ -269,7 +254,9 @@ impl WindowAgg {
     /// True when `other` computes the same aggregate over the same input
     /// — identity (`id`) excluded.
     pub fn same_spec(&self, other: &Self) -> bool {
-        self.agg_def == other.agg_def && self.result_type.0 == other.result_type.0
+        self.agg_def == other.agg_def
+            && self.result_type.0 == other.result_type.0
+            && self.filter == other.filter
     }
 }
 
@@ -466,21 +453,19 @@ pub fn extract_window_agg(
     };
 
     let agg_def = match SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar) {
-        Some(agg_type) => WindowAggDef::Sql(
-            SqlWindowAggDef {
-                agg_type,
-                col_info: extract_column_info(wf, &plan.sources(), agg_type)?,
-            },
-            filter,
-        ),
+        Some(agg_type) => WindowAggDef::Sql(SqlWindowAggDef {
+            agg_type,
+            col_info: extract_column_info(wf, &plan.sources(), agg_type)?,
+        }),
         None if is_agg_funcoid(wf.winfnoid.to_u32()) => {
-            WindowAggDef::try_pdb_agg_from_window_func(wf, &plan.sources(), filter)?
+            WindowAggDef::try_pdb_agg_from_window_func(wf, &plan.sources())?
         }
         None => return Err("unsupported window function was provided".to_string()),
     };
 
     Ok(WindowAgg {
         agg_def,
+        filter,
         result_type: ResultType(wf.wintype),
         id,
     })

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792618997338,
+  "lastUpdate": 1792619012724,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -23788,6 +23788,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 374.99767765604787,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bdae88a1eb41667a37ddf624e70998f95c6a6a05",
+          "message": "fix: Normal scan panics with min > max when pushed-down LIMIT exceeds 8192 (#6959)\n\n# Ticket(s) Closed\n\n- No ticket, fixes a customer-reported issue in slack.\n\n## What\n\nQueries that fall back to `NormalScanExecState` with a pushed-down LIMIT\nabove 8192 fail with:\n\n```\nERROR:  min > max. min = 100000, max = 8192\n```\n\nFor example, `ORDER BY pdb.score(id) DESC, id DESC LIMIT 100000` on a\ntable with a text key. Only `pdb.score` can be pushed down, so TopK is\ndeclined. The scan falls back to Normal with a Sort above it, and the\nscan still gets the LIMIT.\n\n## Why\n\nRegression from #6526. In `normal.rs`, `(rem *\nself.batch_scale).clamp(rem, BATCH_SIZE)` panics whenever `rem >\nBATCH_SIZE`, because `Ord::clamp` requires `min <= max`. 0.26.0 isn't\naffected.\n\n## How\n\nReplace it with `rem.saturating_mul(self.batch_scale).min(BATCH_SIZE)`.\n`batch_scale >= 1`, so the lower bound wasn't needed. `saturating_mul`\nalso stops the multiplication from overflowing for very large LIMITs.\n\n## Tests\n\nNew pg_regress test `normal_scan_large_limit`. It checks that the plan\nuses `NormalScanExecState` and runs LIMIT 12000, 100000 and `i64::MAX`.\nAll of these errored before the fix.\n\n🤖 Generated with Claude Code",
+          "timestamp": "2026-10-21T14:00:31-07:00",
+          "tree_id": "2fcf83850cd735bba076b4414f645fd18eac3f2c",
+          "url": "https://github.com/paradedb/paradedb/commit/bdae88a1eb41667a37ddf624e70998f95c6a6a05"
+        },
+        "date": 1792619001658,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 531.7856948442442,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 512.887263037769,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 143.71543365938928,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 258.1254473374133,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 377.6893139891618,
             "unit": "queries/s"
           }
         ]

@@ -809,8 +809,11 @@ unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
+    use pgrx::pg_test;
+
     use super::*;
 
     fn remove_emojis(expr: &str) -> bool {
@@ -820,7 +823,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn unicode_words_expression_remove_emojis() {
         assert!(!remove_emojis("unicode_words"));
         assert!(remove_emojis("unicode_words(remove_emojis)"));

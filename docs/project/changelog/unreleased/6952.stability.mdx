@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed `No Tokenizer found` errors on existing indexes with a `pdb.unicode_words` field that has options, such as `'remove_emojis=false'` or `'columnar=true'`, after the #6873 fix. These indexes keep working, and keep removing emojis, until they are reindexed. A `search_tokenizer` such as `'unicode_words(lowercase=true)'` no longer removes emojis unless it sets `remove_emojis`, and `'unicode_words(remove_emojis)'` now removes them.

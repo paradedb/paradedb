@@ -10,12 +10,15 @@ BEGIN
     ), 'the upgraded index must have a mutable segment';
     ASSERT (
         SELECT array_agg(id ORDER BY id) FROM unicode_words_tokenizers
-        WHERE id @@@ paradedb.term('about_me', 'hello')
+        WHERE about_me ||| 'HELLO'
     ) = ARRAY[1, 2], 'about_me must be searchable across old and mutable rows';
     ASSERT (
         SELECT array_agg(id ORDER BY id) FROM unicode_words_tokenizers
-        WHERE id @@@ paradedb.term('bio', 'Hello')
+        WHERE bio ||| 'Hello'
     ) = ARRAY[1, 2], 'bio must be searchable across old and mutable rows';
+    ASSERT NOT EXISTS (
+        SELECT 1 FROM unicode_words_tokenizers WHERE bio ||| 'hello'
+    ), 'bio must keep lowercase=false at query time';
 END;
 $$;
 
@@ -26,11 +29,11 @@ DO $$
 BEGIN
     ASSERT (
         SELECT array_agg(id ORDER BY id) FROM unicode_words_tokenizers
-        WHERE id @@@ paradedb.term('about_me', 'hello')
+        WHERE about_me ||| 'HELLO'
     ) = ARRAY[1, 2, 3], 'immutable writes must work with the legacy unicode_words schema';
     ASSERT (
         SELECT array_agg(id ORDER BY id) FROM unicode_words_tokenizers
-        WHERE id @@@ paradedb.term('bio', 'Hello')
+        WHERE bio ||| 'Hello'
     ) = ARRAY[1, 2, 3], 'immutable writes must work with the legacy unicode_words schema';
     ASSERT NOT EXISTS (
         SELECT 1 FROM paradedb.schema('unicode_words_tokenizers_idx') current

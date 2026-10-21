@@ -55,7 +55,9 @@ use tokio_util::sync::CancellationToken;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_cap;
-use crate::postgres::customscan::mpp::interrupt::{HeldInterrupts, check_for_interrupts};
+use crate::postgres::customscan::mpp::interrupt::{
+    HeldInterrupts, cancel_pending, check_for_interrupts,
+};
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
@@ -192,6 +194,8 @@ async fn take_set_plan_draining(
         if let std::task::Poll::Ready(result) = futures::poll!(take.as_mut()) {
             return result;
         }
+        // Nothing else polls the cancel/die flags during the plan wait.
+        mesh.check_interrupt()?;
         mesh.try_drain_pass()?;
         tokio::task::yield_now().await;
     }
@@ -230,14 +234,11 @@ fn spawn_fragment_execution_task(
     per_partition_sinks: Vec<Box<dyn PartitionSink>>,
     plan: Arc<dyn ExecutionPlan>,
     task_ctx: Arc<TaskContext>,
+    token: CancellationToken,
 ) -> FragmentFuture {
     Box::pin(async move {
         let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
         let n_partitions = sinks_opt.len();
-
-        // The cancellation token is never cancelled on this path; worker interrupts bail via
-        // the cooperative drain pass.
-        let token = CancellationToken::new();
 
         run_execute_task_loop(
             &mesh,
@@ -359,6 +360,10 @@ pub(crate) fn run_mpp_worker(
     // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
     // must stay off the produce futures.
     let frames: Vec<SetPlanFrame> = {
+        // Same holdoff as the fragment run below: the plan wait bails on a cancel/die with a
+        // plain error, and PG acts on the interrupt itself once the runtime is off the stack.
+        // Otherwise the cancel would surface as a plan-frame failure.
+        let held = HeldInterrupts::hold();
         let collected = runtime.block_on(async {
             let mut frames = Vec::with_capacity(fragments.len());
             for fragment in &fragments {
@@ -369,6 +374,8 @@ pub(crate) fn run_mpp_worker(
             }
             Ok::<_, datafusion::common::DataFusionError>(frames)
         });
+        drop(held);
+        check_for_interrupts();
         match collected {
             Ok(frames) => frames,
             Err(e) => {
@@ -419,6 +426,7 @@ pub(crate) fn run_mpp_worker(
     let held = HeldInterrupts::hold();
     let mesh_for_block = Arc::clone(worker_mesh);
     let outcome = runtime.block_on(async move {
+        let token = CancellationToken::new();
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> =
             Vec::with_capacity(fragments.len());
@@ -536,6 +544,7 @@ pub(crate) fn run_mpp_worker(
                 per_partition_sinks,
                 plan,
                 task_ctx,
+                token.clone(),
             ));
         }
         // The metrics frames go to the leader after the fragments finish.
@@ -558,6 +567,23 @@ pub(crate) fn run_mpp_worker(
         // within 30 s the dispatcher surfaces an error instead of letting the backend spin
         // forever.
         let mut frag_stream: futures::stream::FuturesUnordered<_> = futures.into_iter().collect();
+        // A cancel or die that lands while a fragment is idle in its request wait reaches no
+        // send spin and no consumer pull, the only places that poll the flags (a drain pass
+        // only moves frames). The leader is already waiting for this worker to exit and
+        // releases nothing before that, so the wait would never end on its own. Cancelling
+        // the token unwinds the request loops.
+        let interrupt_watch = {
+            let token = token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    if cancel_pending() {
+                        token.cancel();
+                        return;
+                    }
+                }
+            })
+        };
         let join_fut = async {
             while let Some(res) = frag_stream.next().await {
                 res?;
@@ -580,6 +606,7 @@ pub(crate) fn run_mpp_worker(
         } else {
             join_fut.await
         };
+        interrupt_watch.abort();
 
         // Report each fragment's metrics to the leader, even after a fragment error: partial
         // metrics still tell the user where the time went. Best-effort like every transport's

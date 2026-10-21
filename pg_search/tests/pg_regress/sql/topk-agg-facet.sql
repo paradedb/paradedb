@@ -1455,9 +1455,9 @@ ORDER BY r.score DESC
 LIMIT 3;
 
 -- pdb.agg() with a FILTER. The same spec without and with a filter is two
--- aggregates; EXPLAIN renders both as the same pdb_agg(...) call, and the
--- values tell them apart. Plain EXPLAIN: the VERBOSE output list deparses the
--- search operator with the index OID, which changes from run to run.
+-- aggregates, and EXPLAIN shows each pdb_agg(...) call with its FILTER. Plain
+-- EXPLAIN: the VERBOSE output list deparses the search operator with the index
+-- OID, which changes from run to run.
 EXPLAIN (COSTS OFF)
 SELECT
     p.id,

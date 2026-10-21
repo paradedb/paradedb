@@ -956,7 +956,19 @@ fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShap
                 LIMIT 2
                 "#
             );
-            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 3);
+            let plan = explain(&mut conn, &query);
+            assert_pdb_aggs_in_topk_agg(&plan, 3);
+            // EXPLAIN tells the filtered copy of the spec from the unfiltered one.
+            assert_eq!(
+                plan.matches(r#"pdb_agg({"avg":{"field":"score"}}) FILTER (WHERE "#)
+                    .count(),
+                1,
+                "{plan}"
+            );
+            assert!(
+                plan.contains(r#"pdb_agg({"terms":{"field":"category"}}) FILTER (WHERE "#),
+                "{plan}"
+            );
 
             let filtered_document = |conn: &mut PgConnection, spec: &str, filter: &str| {
                 let (document,) =

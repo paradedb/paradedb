@@ -629,6 +629,11 @@ impl Mergeable for SearchIndexMerger {
                 .num_worker_threads(0)
                 .build(),
         )?;
+        // `writer.merge_foreground` polls `MVCCDirectory::wants_cancel()` and returns
+        // `Err(TantivyError::Cancelled)` on interrupt rather than calling `check_for_interrupts!()`.
+        // We cannot call `check_for_interrupts!()` here because `merge_index` in
+        // `postgres/merge.rs` relies on `merge_segments` returning `Err` so it can remove its
+        // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
         let new_segment = writer.merge_foreground(segment_ids, true)?;
 
         if let Some(new_segment) = new_segment.as_ref() {

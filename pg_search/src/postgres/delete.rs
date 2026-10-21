@@ -287,7 +287,14 @@ fn flush_mutable_segments(
         }
         let mut merger =
             SearchIndexMerger::open(indexrel, MvccSatisfies::VacuumMerge { live_ctids })?;
-        merger.merge_segments(&segment_ids)?;
+        if let Err(error) = merger.merge_segments(&segment_ids) {
+            // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
+            // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+            // Check for interrupts here before `ambulkdelete`'s `.expect()` turns a cancellation
+            // into an internal error panic.
+            pgrx::check_for_interrupts!();
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -388,6 +395,36 @@ mod tests {
     use super::*;
     use crate::postgres::storage::block::{MutableSegmentEntry, SegmentMetaEntryMutable};
     use tantivy::index::SegmentId;
+
+    #[pg_test(error = "canceling statement due to user request")]
+    unsafe fn test_vacuum_flush_preserves_query_cancellation() {
+        Spi::run(
+            "CREATE TABLE vacuum_cancel (id INT, message TEXT);
+             CREATE INDEX vacuum_cancel_idx ON vacuum_cancel USING paradedb (id, message)
+             WITH (mutable_segment_rows = 100, layer_sizes = '0', background_layer_sizes = '0');
+             INSERT INTO vacuum_cancel VALUES (1, 'hello');",
+        )
+        .unwrap();
+        let indexrel = PgSearchRelation::open(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'vacuum_cancel_idx'::regclass::oid")
+                .unwrap()
+                .unwrap(),
+        );
+        let metadata = MetaPage::open(&indexrel);
+        let segments = metadata.freeze_mutable_segments();
+        assert_eq!(segments.len(), 1);
+
+        flush_mutable_segments(&indexrel, &segments, &|_ctid| {
+            // Arm cancellation after `vacuum_delay_point()` so Tantivy's foreground merge
+            // observes `QueryCancelPending` via `MVCCDirectory::wants_cancel()`.
+            unsafe {
+                pg_sys::QueryCancelPending = 1;
+                pg_sys::InterruptPending = 1;
+            }
+            false
+        })
+        .unwrap();
+    }
 
     #[pg_test]
     unsafe fn test_vacuum_flushes_mutable_batches() {

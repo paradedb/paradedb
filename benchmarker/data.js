@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792697745721,
+  "lastUpdate": 1792698272487,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15622,6 +15622,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 184.956,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e683737ae3e6c6f62bea625fbcec8d797bd816a",
+          "message": "fix: supply a snapshot for logical replication typmod lookups (#6982)\n\nA logical replication apply worker can load tokenizer typmods during\npre-commit index cleanup with neither an active snapshot nor a portal.\nOn a cold cache, the SPI lookup then raises `cannot execute SQL without\nan outer snapshot or portal`, aborting the transaction and restarting\nthe worker.\n\nSupply a transaction snapshot for that lookup only when the caller has\nnone, and release it on normal return. Existing snapshots and cache hits\nkeep their current behavior.\n\nValidation: Rust formatting and diff checks pass. Added PostgreSQL\nregression tests for a cold lookup without a snapshot/portal, cache-hit\ncleanup, and preserving an existing snapshot. Runtime tests require CI;\nthis machine has no configured pgrx/PostgreSQL development environment.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-22T11:16:20-07:00",
+          "tree_id": "d0c066b39dfe66cfd671ad6ac57cb06499e0c67e",
+          "url": "https://github.com/paradedb/paradedb/commit/9e683737ae3e6c6f62bea625fbcec8d797bd816a"
+        },
+        "date": 1792698257191,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.659,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 97.676,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 370.789,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.204,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.764,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 181.849,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.531,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.269,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.69,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.908,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 196.658,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.54,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 169.179,
             "unit": "ms"
           }
         ]

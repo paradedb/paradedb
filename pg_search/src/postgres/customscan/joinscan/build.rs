@@ -1536,9 +1536,9 @@ impl RelNode {
     /// **Why both scans need this:** JoinScan and AggregateScan reconstruct
     /// the join tree from the parse tree. For implicit joins
     /// (`FROM a, b, c WHERE ...`) all equi-keys land in a flat WHERE clause,
-    /// not distributed across join nodes, and a tree renested to the
-    /// planner's path starts with no keys at all, so this method places each
-    /// key at the correct level.
+    /// not distributed across join nodes, and a chain rebuilt in the
+    /// planner's estimated order starts with no keys at all, so this method
+    /// places each key at the correct level.
     pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
         for key in keys {
             self.inject_single_equi_key(key);

@@ -24,10 +24,9 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 //!
-//! The parse tree fixes the join semantics. An all-inner join tree is rebuilt
-//! as a left-deep chain in the order the planner joined the relations, which
-//! is the order DataFusion keeps, so the relations it found most selective
-//! join first.
+//! The parse tree fixes the join semantics. An all-inner join tree of three or
+//! more relations is rebuilt as a left-deep chain that joins the sets the
+//! planner estimates smallest first. DataFusion keeps that order.
 
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{ColumnRef, CompareOp, FilterExpr};

@@ -1130,8 +1130,8 @@ unsafe fn descend_to_scan_join_rel(
 /// The join tree skeleton is constructed from `root->parse->jointree`, which
 /// fixes the join semantics, while the chosen lower path's `joinrestrictinfo`
 /// is walked to extract distributed equi-keys and verify complete predicate
-/// coverage. An all-inner skeleton is then renested the way that path joins
-/// the relations.
+/// coverage. An all-inner skeleton of three or more relations is then
+/// reordered by the planner's row estimates.
 ///
 /// If there are no joins (single-table query or subquery), this falls back to finding
 /// the single `RELOPT_BASEREL` in `simple_rel_array`.

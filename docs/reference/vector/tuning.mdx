@@ -25,7 +25,7 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
 
 <Note>
   Recall also depends on the index's `training_sample_ratio` and
-  `max_leaf_size`, set at build time. See [Index
+  `max_leaf_size`, applied whenever a segment is clustered. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
 
@@ -77,5 +77,3 @@ await dbContext.Database.VectorConfig("search_idx", "embedding").ToListAsync();
 ```
 
 </CodeGroup>
-
-`paradedb.vector_estimator_info` reports cluster estimates and requires at least one visible quantized segment. It cannot inspect small indexes stored as flat vectors.

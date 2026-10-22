@@ -161,20 +161,20 @@ embedding: { metric: :ip }      # inner product
 ## Index Options
 
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
-recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and indexed. All are set at index build time and apply to every vector field in the index. An example:
+recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and apply to every vector field in the index. They are read each time a segment is clustered: during `CREATE INDEX` and `REINDEX`, and whenever a merge writes a segment with at least `paradedb.vector_clustering_threshold` documents. Changing them with `ALTER INDEX ... SET` affects only segments clustered afterwards; run `REINDEX` to recluster existing segments. An example:
 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, max_leaf_size=100);
+WITH (training_sample_ratio=0.32, max_leaf_size=200);
 ```
 
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 100 })
+  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 200 })
   .on(
     mockItems.id,
     mockItems.description,
@@ -194,7 +194,7 @@ with connection.schema_editor() as schema_editor:
             fields={'id': {}, 'description': {}, 'category': {}, 'embedding': {'metric': 'cosine'}},
             name="search_idx",
             training_sample_ratio=0.32,
-            max_leaf_size=100,
+            max_leaf_size=200,
         ),
     )
 ```
@@ -210,7 +210,7 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 100},
+    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 200},
 )
 
 with engine.begin() as conn:
@@ -227,7 +227,7 @@ ActiveRecord::Base.connection.add_paradedb_index(
     embedding: { metric: :cosine },
   },
   name: :search_idx,
-  index_options: { training_sample_ratio: 0.32, max_leaf_size: 100 }
+  index_options: { training_sample_ratio: 0.32, max_leaf_size: 200 }
 )
 ```
 
@@ -238,7 +238,7 @@ modelBuilder.Entity<MockItem>()
     .HasField(e => e.Category)
     .HasField(e => e.Embedding, VectorMetric.Cosine)
     .HasTrainingSampleRatio(0.32)
-    .HasMaxLeafSize(100);
+    .HasMaxLeafSize(200);
 ```
 
 </CodeGroup>

@@ -31,7 +31,7 @@ fn connect() -> Client {
         static INITIALIZE: Once = Once::new();
         INITIALIZE.call_once(|| {
             pgrx_tests::run_test(
-                "merger_pins_preserve_both_barriers_without_content_locks",
+                "bootstrap_test_server",
                 None,
                 vec!["shared_preload_libraries='pg_search'"],
             )
@@ -173,6 +173,8 @@ impl Fixture {
     }
 
     fn pause_keys(&mut self) -> (i64, i64) {
+        // Small keys cannot collide with pg_search's own advisory keys, which set the upper
+        // 32 bits (see VACUUM_SIGNAL_KEY_BASE and MERGE_SLOT_KEY_BASE).
         static NEXT_KEY: AtomicI64 = AtomicI64::new(884000);
         let ready = NEXT_KEY.fetch_add(2, Ordering::Relaxed);
         let gate = ready + 1;
@@ -369,6 +371,17 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
     fixture.release(&merger);
     assert_eq!(merger.finish().1.unwrap()[0].get::<_, i64>(0), 0);
     vacuum.finish().1.unwrap();
+    fixture.assert_rows(500);
+
+    // Positive control: the same selection merges when no VACUUM list is active.
+    let mut fixture = Fixture::new("merge_cleanup_no_exclusion", false);
+    fixture.segments();
+    assert!(
+        fixture.value::<i64>(&format!(
+            "SELECT paradedb.test_merger_snapshot('{}')",
+            fixture.index
+        )) > 0
+    );
     fixture.assert_rows(500);
 
     let mut fixture = Fixture::new("merge_cleanup_reader", false);

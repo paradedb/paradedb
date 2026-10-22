@@ -315,7 +315,6 @@ pub unsafe fn do_merge(
     // apply backpressure if there are too many mutable segments
     // this means forcing a foreground merge of the mutable segments
     let need_backpressure = need_backpressure(style, metadata.segment_metas());
-    // Retain both VACUUM barriers before loading metadata; only selection holds MergeLock.
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
@@ -523,8 +522,9 @@ unsafe fn merge_index(
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
 ) {
-    // Keep both pins through publication and reservation removal. VACUUM must see final merged
-    // segments when selecting inputs and must not deactivate exclusions over an old metadata view.
+    // Hold both pins until the output is published and the reservation removed. ambulkdelete must
+    // see the final merged segment, not the originals about to be deleted, and must not deactivate
+    // its exclusion list while this merger still works from an older metadata view.
     let metadata = MetaPage::open(indexrel);
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
         .expect("should be able to open merger");

@@ -103,8 +103,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    // First, drain retained merge-page pins and keep MergeLock through exclusion-list setup.
-    // We signal background merge workers via an advisory lock so they yield between candidates.
+    // Signal background merge workers via an advisory lock so they yield between candidates.
     // Open metadata before taking the signal to keep the lock window small.
     let mut metadata = MetaPage::open(&index_relation);
     let signal = Rc::new(RefCell::new(Some(
@@ -112,8 +111,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     )));
     let signal_finally = signal.clone();
 
-    // Ensure the signal advisory lock is released if a PostgreSQL ERROR
-    // occurs while draining merger pins.
+    // AdvisoryLock's Drop skips the unlock while an ERROR unwinds, so release the signal here.
     let merge_lock = PgTryBuilder::new(AssertUnwindSafe(|| {
         let merge_lock = metadata.acquire_merge_lock_for_cleanup();
 
@@ -138,8 +136,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // We don't assert the list is empty afterwards. A merge that errored between writing its
     // MergeEntry and removing it leaves a not-yet-recyclable entry (backend alive, xmin in
     // progress) that survives garbage_collect. Such an entry is a harmless leftover, not a
-    // concurrent merge -- our successful merge-page cleanup acquisition drained admitted mergers,
-    // and MergeLock gates new selection -- and a later garbage_collect reclaims it.
+    // concurrent merge: the cleanup acquisition above waited out admitted mergers and MergeLock
+    // blocks new selection. A later garbage_collect reclaims it.
     merge_lock
         .merge_list()
         .garbage_collect(pg_sys::ReadNextFullTransactionId());

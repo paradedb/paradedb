@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed `pdb.unicode_words` removing emojis whenever its first option was anything other than `remove_emojis`, for example `'remove_emojis=false'`, `'columnar=true'`, `'pnorms=true'` or `'lowercase=false'`. Only the bare `remove_emojis` flag and `remove_emojis=true` remove emojis now, as documented. Existing indexes created with one of those options were built with emojis removed, so reindex them to make emojis searchable.

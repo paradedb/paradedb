@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed Aggregate Scan reading a `NUMERIC` literal in an aggregate `FILTER` or `HAVING` clause as the bits of a float, which produced wrong counts such as `count(*) FILTER (WHERE score >= 7.5)` (#6792). A `FILTER` that compares a `NUMERIC` column now falls back to Postgres, because the scan reads `NUMERIC` fields in their storage encoding.

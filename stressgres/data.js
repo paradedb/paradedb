@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792657128402,
+  "lastUpdate": 1792657145312,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -466966,6 +466966,94 @@ window.BENCHMARK_DATA = {
             "value": 48.3828125,
             "unit": "median mem",
             "extra": "avg mem: 49.998172346472586, max mem: 56.59765625, count: 58825"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792657134791,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 26.9296875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 27.879359580382076, max partition_index_size:MB: 40.1875, count: 58732"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.058670655373636, max cpu: 33.005894, count: 58732"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.2927390918707, max mem: 56.1171875, count: 58732"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.78118110010829, max cpu: 33.3996, count: 58732"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 51.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.900511406686306, max mem: 57.88671875, count: 58732"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.467456,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.92555954039925, max cpu: 23.727139, count: 58732"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 41.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.49345763648863, max mem: 41.60546875, count: 58732"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.780110870871763, max cpu: 33.283802, count: 58732"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.722148847199996, max mem: 62.7109375, count: 58732"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.020618859790556, max cpu: 33.136093, count: 58732"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.25178186242168, max mem: 55.796875, count: 58732"
           }
         ]
       }

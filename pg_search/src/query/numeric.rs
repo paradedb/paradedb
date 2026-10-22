@@ -48,8 +48,6 @@ use decimal_bytes::{Decimal, Decimal64NoScale};
 /// scale_i64("123.45", 2) // Returns Ok(12345)
 /// ```
 pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
-    use decimal_bytes::Decimal64NoScale;
-
     let decimal = Decimal64NoScale::new(numeric_str, scale as i32).map_err(|e| {
         anyhow::anyhow!(
             "Failed to scale '{}' with scale {}: {:?}. This may occur if the value exceeds i64 range after scaling.",
@@ -60,250 +58,6 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
     })?;
 
     Ok(decimal.value())
-}
-
-/// Scale an OwnedValue to I64 fixed-point representation.
-///
-/// Handles Str, I64, U64, and F64 values, converting to scaled I64.
-/// Uses direct primitive constructors (`from_i64`, `from_u64`, `from_f64`)
-/// for efficient conversion without string intermediates.
-///
-/// # Example
-/// ```ignore
-/// scale_owned_value(OwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
-/// scale_owned_value(OwnedValue::I64(100), 2) // Returns Ok(OwnedValue::I64(10000))
-/// ```
-pub fn scale_owned_value(value: PdbOwnedValue, scale: i16) -> Result<PdbOwnedValue> {
-    use decimal_bytes::Decimal64NoScale;
-
-    let scale_i32 = scale as i32;
-
-    let scaled = match &value {
-        // Use direct primitive constructors for efficiency
-        PdbOwnedValue::I64(i) => Decimal64NoScale::from_i64(*i, scale_i32)
-            .map_err(|e| anyhow::anyhow!("Failed to scale i64 {}: {:?}", i, e))?
-            .value(),
-        PdbOwnedValue::U64(u) => Decimal64NoScale::from_u64(*u, scale_i32)
-            .map_err(|e| anyhow::anyhow!("Failed to scale u64 {}: {:?}", u, e))?
-            .value(),
-        PdbOwnedValue::F64(f) => Decimal64NoScale::from_f64(*f, scale_i32)
-            .map_err(|e| anyhow::anyhow!("Failed to scale f64 {}: {:?}", f, e))?
-            .value(),
-        // Fall back to string parsing for string values
-        PdbOwnedValue::Str(s) => scale_i64(s, scale)?,
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Cannot scale non-numeric value: {:?}",
-                value
-            ));
-        }
-    };
-
-    Ok(PdbOwnedValue::I64(scaled))
-}
-
-// ============================================================================
-// Query-literal placement on the Numeric64 grid
-// ============================================================================
-
-const NUMERIC64_MIN: i64 = Decimal64NoScale::min_value().value();
-const NUMERIC64_MAX: i64 = Decimal64NoScale::max_value().value();
-
-/// Which side of a range a bound belongs to.
-///
-/// A query literal that falls between two grid points has to move outwards to the grid
-/// point that preserves PostgreSQL comparison semantics, and which way "outwards" is
-/// depends on the side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BoundSide {
-    Lower,
-    Upper,
-}
-
-/// Where a query literal falls on the fixed-point grid of a `Numeric64` field.
-///
-/// A `Numeric64` field stores values as `i64` multiples of `10^-scale`. PostgreSQL does not
-/// apply the column's typmod to a comparison operand, so a literal with more fractional
-/// digits than the field's scale is compared exactly and simply does not land on the grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GridPosition {
-    /// The literal is exactly representable at the field's scale.
-    Exact(i64),
-    /// The literal lies strictly between the grid points `floor` and `floor + 1`.
-    Between { floor: i64 },
-}
-
-impl GridPosition {
-    /// The largest grid value that is less than or equal to the literal.
-    pub fn floor(self) -> i64 {
-        match self {
-            GridPosition::Exact(v) => v,
-            GridPosition::Between { floor } => floor,
-        }
-    }
-
-    pub fn is_exact(self) -> bool {
-        matches!(self, GridPosition::Exact(_))
-    }
-}
-
-/// Render a numeric value as a plain decimal string.
-///
-/// `f64` goes through the shortest round-trip representation, which is exact for the value
-/// actually held, rather than through a scale-aware constructor that would round it.
-fn owned_value_decimal_string(value: &PdbOwnedValue) -> Result<String> {
-    Ok(match value {
-        PdbOwnedValue::Str(s) => s.clone(),
-        PdbOwnedValue::I64(i) => i.to_string(),
-        PdbOwnedValue::U64(u) => u.to_string(),
-        PdbOwnedValue::F64(f) => {
-            if !f.is_finite() {
-                return Err(anyhow::anyhow!(
-                    "Cannot place non-finite value {} on the Numeric64 grid",
-                    f
-                ));
-            }
-            format!("{f}")
-        }
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Cannot place non-numeric value on the Numeric64 grid: {:?}",
-                value
-            ));
-        }
-    })
-}
-
-/// Locate a decimal literal on the fixed-point grid of a field with the given scale,
-/// **without rounding it**.
-///
-/// This is the query-side counterpart of [`scale_i64`]. `scale_i64` rounds, which is what
-/// encoding a stored column value needs; a comparison operand must instead report which grid
-/// points it falls between, so the caller can pick the one that preserves PostgreSQL
-/// semantics.
-pub fn locate_on_grid(numeric_str: &str, scale: i16) -> Result<GridPosition> {
-    let text = numeric_str.trim();
-    if text.is_empty() {
-        return Err(anyhow::anyhow!("Cannot parse empty numeric literal"));
-    }
-
-    let (negative, rest) = match text.as_bytes()[0] {
-        b'-' => (true, &text[1..]),
-        b'+' => (false, &text[1..]),
-        _ => (false, text),
-    };
-
-    // Split off an exponent, so that `1.5e3` is handled as exactly as `1500`.
-    let (mantissa, exponent) = match rest.find(['e', 'E']) {
-        Some(idx) => {
-            let exp: i32 = rest[idx + 1..].parse().map_err(|_| {
-                anyhow::anyhow!("Invalid exponent in numeric literal '{}'", numeric_str)
-            })?;
-            (&rest[..idx], exp)
-        }
-        None => (rest, 0),
-    };
-
-    let (int_part, frac_part) = match mantissa.split_once('.') {
-        Some((i, f)) => (i, f),
-        None => (mantissa, ""),
-    };
-
-    if int_part.is_empty() && frac_part.is_empty() {
-        return Err(anyhow::anyhow!("Invalid numeric literal '{}'", numeric_str));
-    }
-    if !int_part.bytes().all(|b| b.is_ascii_digit())
-        || !frac_part.bytes().all(|b| b.is_ascii_digit())
-    {
-        return Err(anyhow::anyhow!("Invalid numeric literal '{}'", numeric_str));
-    }
-
-    // value == digits * 10^(exponent - frac_len), and we want floor(value * 10^scale),
-    // which is floor(digits * 10^shift) for the shift below. It is computed in i64, so that
-    // no exponent a literal can carry overflows it.
-    let digits_str = format!("{int_part}{frac_part}");
-    let shift = i64::from(exponent) - frac_part.len() as i64 + i64::from(scale);
-
-    let overflow = || {
-        anyhow::anyhow!(
-            "Numeric literal '{}' exceeds i64 range at scale {}",
-            numeric_str,
-            scale
-        )
-    };
-
-    // Split the digits at the grid point instead of turning them all into one integer: the
-    // digits before it are the grid value, and those after it only tell whether the literal
-    // sits strictly between two grid points. Only the grid value has to fit in an integer, so
-    // a literal is located exactly however many digits it has or however small it is, where
-    // dividing by 10^-shift would overflow i128 (`1e-41` at scale 2, say).
-    let (grid_digits, fraction_digits) = if shift >= 0 {
-        (digits_str.as_str(), "")
-    } else {
-        let cut = digits_str.len() as i64 + shift;
-        if cut <= 0 {
-            ("", digits_str.as_str())
-        } else {
-            digits_str.split_at(cut as usize)
-        }
-    };
-
-    let mut grid_value: i128 = 0;
-    for b in grid_digits.bytes() {
-        grid_value = grid_value
-            .checked_mul(10)
-            .and_then(|d| d.checked_add((b - b'0') as i128))
-            .ok_or_else(overflow)?;
-    }
-    if shift > 0 && grid_value != 0 {
-        let factor = u32::try_from(shift)
-            .ok()
-            .and_then(|s| 10i128.checked_pow(s))
-            .ok_or_else(overflow)?;
-        grid_value = grid_value.checked_mul(factor).ok_or_else(overflow)?;
-    }
-    let off_grid = fraction_digits.bytes().any(|b| b != b'0');
-
-    let position = if !off_grid {
-        let signed = if negative { -grid_value } else { grid_value };
-        GridPosition::Exact(i64::try_from(signed).map_err(|_| overflow())?)
-    } else if negative {
-        // -(grid_value + fraction) sits strictly between -(grid_value + 1) and -grid_value.
-        GridPosition::Between {
-            floor: i64::try_from(-grid_value.checked_add(1).ok_or_else(overflow)?)
-                .map_err(|_| overflow())?,
-        }
-    } else {
-        GridPosition::Between {
-            floor: i64::try_from(grid_value).map_err(|_| overflow())?,
-        }
-    };
-
-    Ok(position)
-}
-
-/// [`locate_on_grid`] for an already-typed value.
-pub fn locate_owned_value_on_grid(value: &PdbOwnedValue, scale: i16) -> Result<GridPosition> {
-    locate_on_grid(&owned_value_decimal_string(value)?, scale)
-}
-
-/// Whether a query literal is exactly representable at the field's scale.
-///
-/// An equality term against a literal that is not on the grid can never match a stored value,
-/// so callers turn it into an empty query rather than rounding it onto a neighbour.
-///
-/// Literals that are not ordinary decimals — `NaN` and the infinities, which PostgreSQL accepts
-/// as `numeric` values — report `true`. They have no place on the grid, and the point of the
-/// grid check is only to catch a literal that was silently rounded onto a neighbour. Saying
-/// `true` here leaves them to the existing scaling path, which has dedicated representations
-/// for them, so their behaviour is unchanged.
-pub fn literal_is_on_grid(value: &PdbOwnedValue, scale: i16) -> Result<bool> {
-    match locate_owned_value_on_grid(value, scale) {
-        Ok(position) => {
-            Ok(position.is_exact() && (NUMERIC64_MIN..=NUMERIC64_MAX).contains(&position.floor()))
-        }
-        Err(_) => Ok(true),
-    }
 }
 
 // ============================================================================
@@ -470,12 +224,14 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
 
 /// The integers that a field holds: the values of an `I64` or a `U64` field, or the bounds of
 /// the ranges in an `int4range` or an `int8range` field, which are stored as `I64` values. Dates
-/// and times are stored in `I64` fields too, but they are not numbers.
+/// and times are stored in `I64` fields too, but they are not numbers. `Numeric64` holds
+/// scaled integers plus sentinels for NaN and the infinities.
 #[derive(Clone, Copy)]
 enum IntDomain {
     I32,
     I64,
     U64,
+    Numeric64 { scale: i16 },
 }
 
 impl IntDomain {
@@ -485,6 +241,7 @@ impl IntDomain {
         match field_type {
             SearchFieldType::I64(oid) if !is_datetime_type(*oid) => Some(Self::I64),
             SearchFieldType::U64(_) => Some(Self::U64),
+            SearchFieldType::Numeric64(_, scale) => Some(Self::Numeric64 { scale: *scale }),
             SearchFieldType::Range(oid) => match (*oid).try_into() {
                 Ok(BuiltinOid::INT4RANGEOID) => Some(Self::I32),
                 Ok(BuiltinOid::INT8RANGEOID) => Some(Self::I64),
@@ -499,6 +256,7 @@ impl IntDomain {
             Self::I32 => i32::MIN.into(),
             Self::I64 => i64::MIN.into(),
             Self::U64 => u64::MIN.into(),
+            Self::Numeric64 { .. } => Decimal64NoScale::min_value().value().into(),
         }
     }
 
@@ -507,13 +265,14 @@ impl IntDomain {
             Self::I32 => i32::MAX.into(),
             Self::I64 => i64::MAX.into(),
             Self::U64 => u64::MAX.into(),
+            Self::Numeric64 { .. } => Decimal64NoScale::max_value().value().into(),
         }
     }
 
     /// `n`, an integer of the domain, as a value of the field's type.
     fn value(self, n: i128) -> PdbOwnedValue {
         match self {
-            Self::I32 | Self::I64 => {
+            Self::I32 | Self::I64 | Self::Numeric64 { .. } => {
                 PdbOwnedValue::I64(i64::try_from(n).expect("n should fit an i64"))
             }
             Self::U64 => PdbOwnedValue::U64(u64::try_from(n).expect("n should fit a u64")),
@@ -545,27 +304,49 @@ pub fn clamp_to_int_domain(value: &PdbOwnedValue, field_type: &SearchFieldType) 
     {
         return None;
     }
-    Some(if decimal < Decimal::from(domain.min()) {
+    let (min, max, shift) = match domain {
+        IntDomain::Numeric64 { scale } => {
+            if decimal.is_special() {
+                return Some(Clamped::Exact(PdbOwnedValue::I64(
+                    Decimal64NoScale::from_decimal(&decimal, i32::from(scale))
+                        .ok()?
+                        .value(),
+                )));
+            }
+            // Scientific notation keeps the bounds in Decimal arithmetic. In particular,
+            // `Decimal64NoScale::to_decimal` can overflow its u64 intermediate at negative scales.
+            let exponent = -i32::from(scale);
+            (
+                Decimal::from_str(&format!("{}e{exponent}", domain.min())).ok()?,
+                Decimal::from_str(&format!("{}e{exponent}", domain.max())).ok()?,
+                scale,
+            )
+        }
+        _ => (Decimal::from(domain.min()), Decimal::from(domain.max()), 0),
+    };
+    // Compare before converting to an integer, so arbitrarily large finite literals clamp
+    // without overflowing and still sort below the positive infinity and NaN sentinels.
+    Some(if decimal < min {
         Clamped::Below(domain.value(domain.min()))
-    } else if decimal > Decimal::from(domain.max()) {
+    } else if decimal > max {
         Clamped::Above(domain.value(domain.max()))
     } else {
-        match floor_of(&decimal) {
+        match floor_of(&decimal, shift) {
             (floor, true) => Clamped::Exact(domain.value(floor)),
             (floor, false) => Clamped::Above(domain.value(floor)),
         }
     })
 }
 
-/// The largest integer not above `decimal`, which lies between the smallest and the largest
-/// integers of a field, and whether it equals `decimal`.
-fn floor_of(decimal: &Decimal) -> (i128, bool) {
+/// The floor of `decimal * 10^shift` and whether it is exact. The shifted value lies
+/// within the field's finite integer domain, checked by [`clamp_to_int_domain`].
+fn floor_of(decimal: &Decimal, shift: i16) -> (i128, bool) {
     let mut digits = Vec::new();
     let (negative, exponent) = decimal
         .read_parts_into(&mut digits)
         .expect("a number between two integers is finite");
-    // `decimal` is `±0.d1d2... × 10^exponent`, so its first `exponent` digits are its integer part.
-    let integer_len = usize::try_from(exponent).unwrap_or(0);
+    // `decimal` is `±0.d1d2... × 10^exponent`; shift the integer boundary for Numeric64.
+    let integer_len = usize::try_from(i64::from(exponent) + i64::from(shift)).unwrap_or(0);
     let integer = (0..integer_len).fold(0_i128, |integer, i| {
         integer * 10 + i128::from(digits.get(i).copied().unwrap_or(0))
     });
@@ -669,62 +450,6 @@ where
     }
 }
 
-/// Scale a numeric bound for Numeric64 storage, preserving PostgreSQL comparison semantics.
-///
-/// PostgreSQL does not apply the column typmod to a comparison operand, so a literal with more
-/// fractional digits than the field scale is compared exactly. When such a literal falls
-/// between two grid points, use its floor to preserve the matching set without computing a
-/// ceiling that could overflow:
-///
-/// * an upper bound (`<` or `<=`) becomes `<=` the grid point below the literal,
-/// * a lower bound (`>` or `>=`) becomes `>` that same grid point.
-///
-/// A literal that is exactly on the grid keeps its own inclusive or exclusive bound.
-pub fn scale_numeric_bound(
-    bound: Bound<PdbOwnedValue>,
-    scale: i16,
-    side: BoundSide,
-) -> Result<Bound<PdbOwnedValue>> {
-    let (value, inclusive) = match bound {
-        Bound::Unbounded => return Ok(Bound::Unbounded),
-        Bound::Included(v) => (v, true),
-        Bound::Excluded(v) => (v, false),
-    };
-
-    match locate_owned_value_on_grid(&value, scale) {
-        // Finite literals must not reach the reserved NaN and infinity encodings. Clamp to
-        // the finite storage domain, preserving which side of the literal is requested.
-        Ok(position) if position.floor() < NUMERIC64_MIN => Ok(match side {
-            BoundSide::Lower => Bound::Included(PdbOwnedValue::I64(NUMERIC64_MIN)),
-            BoundSide::Upper => Bound::Excluded(PdbOwnedValue::I64(NUMERIC64_MIN)),
-        }),
-        Ok(position) if position.floor() > NUMERIC64_MAX => Ok(match side {
-            BoundSide::Lower => Bound::Excluded(PdbOwnedValue::I64(NUMERIC64_MAX)),
-            BoundSide::Upper => Bound::Included(PdbOwnedValue::I64(NUMERIC64_MAX)),
-        }),
-        Ok(GridPosition::Exact(scaled)) => Ok(if inclusive {
-            Bound::Included(PdbOwnedValue::I64(scaled))
-        } else {
-            Bound::Excluded(PdbOwnedValue::I64(scaled))
-        }),
-        Ok(GridPosition::Between { floor }) => Ok(match side {
-            BoundSide::Lower => Bound::Excluded(PdbOwnedValue::I64(floor)),
-            BoundSide::Upper => Bound::Included(PdbOwnedValue::I64(floor)),
-        }),
-        // Not an ordinary decimal — `NaN`, the infinities, or a value out of `i64` range. The
-        // grid has nothing to say about these, so hand them back to the path that handled them
-        // before this function learned about grids, and keep its behaviour exactly.
-        Err(_) => {
-            let scaled = scale_owned_value(value, scale)?;
-            Ok(if inclusive {
-                Bound::Included(scaled)
-            } else {
-                Bound::Excluded(scaled)
-            })
-        }
-    }
-}
-
 /// Convert a numeric bound to lexicographically sortable raw bytes.
 /// Used for NumericBytes fields stored as Tantivy Bytes columns.
 pub fn numeric_bound_to_bytes(
@@ -803,13 +528,12 @@ pub fn convert_value_for_field(
     index_created_by_version: Option<Version>,
 ) -> Result<PdbOwnedValue> {
     match field_type {
-        SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
         SearchFieldType::NumericBytes(..) => {
             numeric_value_to_decimal_bytes(value, index_created_by_version)
         }
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(oid) if is_datetime_type(*oid) => Ok(string_to_i64(value)),
-        SearchFieldType::I64(_) | SearchFieldType::U64(_) => {
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::Numeric64(..) => {
             match clamp_to_int_domain(&value, field_type) {
                 Some(Clamped::Exact(n)) => Ok(n),
                 Some(_) => Err(anyhow::anyhow!("no integer of the field equals {value:?}")),
@@ -833,40 +557,6 @@ mod tests {
         assert_eq!(scale_i64("123.45", 2).unwrap(), 12345);
         assert_eq!(scale_i64("0.999", 3).unwrap(), 999);
         assert_eq!(scale_i64("-50.5", 1).unwrap(), -505);
-    }
-
-    #[test]
-    fn test_scale_owned_value() {
-        // String input
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::Str("123.45".to_string()), 2).unwrap(),
-            PdbOwnedValue::I64(12345)
-        );
-        // F64 input (uses from_f64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::F64(0.999), 3).unwrap(),
-            PdbOwnedValue::I64(999)
-        );
-        // I64 input (uses from_i64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::I64(50), 1).unwrap(),
-            PdbOwnedValue::I64(500)
-        );
-        // U64 input (uses from_u64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::U64(100), 2).unwrap(),
-            PdbOwnedValue::I64(10000)
-        );
-        // Negative value via string
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::Str("-50.5".to_string()), 1).unwrap(),
-            PdbOwnedValue::I64(-505)
-        );
-        // Negative I64 (uses from_i64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::I64(-25), 2).unwrap(),
-            PdbOwnedValue::I64(-2500)
-        );
     }
 
     #[test]
@@ -927,364 +617,70 @@ mod tests {
         assert_eq!(Decimal::from_bytes(&legacy).unwrap().to_string(), "-49990");
     }
 
-    fn s(v: &str) -> PdbOwnedValue {
-        PdbOwnedValue::Str(v.to_string())
-    }
-
-    #[test]
-    fn test_locate_on_grid_exact_values() {
-        // A literal with no more fractional digits than the scale lands on the grid.
-        assert_eq!(
-            locate_on_grid("12.34", 2).unwrap(),
-            GridPosition::Exact(1234)
-        );
-        assert_eq!(
-            locate_on_grid("12.3", 2).unwrap(),
-            GridPosition::Exact(1230)
-        );
-        assert_eq!(locate_on_grid("12", 2).unwrap(), GridPosition::Exact(1200));
-        assert_eq!(
-            locate_on_grid("-12.34", 2).unwrap(),
-            GridPosition::Exact(-1234)
-        );
-        assert_eq!(locate_on_grid("0", 2).unwrap(), GridPosition::Exact(0));
-        assert_eq!(locate_on_grid("-0.00", 2).unwrap(), GridPosition::Exact(0));
-        // Trailing zeros beyond the scale are still exact.
-        assert_eq!(
-            locate_on_grid("12.3400", 2).unwrap(),
-            GridPosition::Exact(1234)
-        );
-    }
-
-    #[test]
-    fn test_locate_on_grid_between_values() {
-        // 12.345 sits strictly between the grid points 12.34 and 12.35.
-        assert_eq!(
-            locate_on_grid("12.345", 2).unwrap(),
-            GridPosition::Between { floor: 1234 }
-        );
-        // The floor of a negative literal is the more negative neighbour.
-        assert_eq!(
-            locate_on_grid("-12.345", 2).unwrap(),
-            GridPosition::Between { floor: -1235 }
-        );
-        assert_eq!(
-            locate_on_grid("0.001", 2).unwrap(),
-            GridPosition::Between { floor: 0 }
-        );
-        assert_eq!(
-            locate_on_grid("-0.001", 2).unwrap(),
-            GridPosition::Between { floor: -1 }
-        );
-    }
-
-    #[test]
-    fn test_locate_on_grid_zero_and_negative_scales() {
-        // Scale 0: the grid is the integers.
-        assert_eq!(locate_on_grid("12", 0).unwrap(), GridPosition::Exact(12));
-        assert_eq!(
-            locate_on_grid("12.5", 0).unwrap(),
-            GridPosition::Between { floor: 12 }
-        );
-        assert_eq!(
-            locate_on_grid("-12.5", 0).unwrap(),
-            GridPosition::Between { floor: -13 }
-        );
-
-        // Negative scale: the grid is multiples of 10^|scale|, so whole numbers can be
-        // off-grid too.
-        assert_eq!(locate_on_grid("1200", -2).unwrap(), GridPosition::Exact(12));
-        assert_eq!(
-            locate_on_grid("1234", -2).unwrap(),
-            GridPosition::Between { floor: 12 }
-        );
-        assert_eq!(
-            locate_on_grid("-1234", -2).unwrap(),
-            GridPosition::Between { floor: -13 }
-        );
-    }
-
-    #[test]
-    fn test_locate_on_grid_exponent_notation() {
-        assert_eq!(
-            locate_on_grid("1.5e3", 0).unwrap(),
-            GridPosition::Exact(1500)
-        );
-        assert_eq!(
-            locate_on_grid("1E2", 2).unwrap(),
-            GridPosition::Exact(10000)
-        );
-        assert_eq!(
-            locate_on_grid("1e-3", 2).unwrap(),
-            GridPosition::Between { floor: 0 }
-        );
-    }
-
-    #[test]
-    fn test_locate_on_grid_high_precision_literals() {
-        // 10^39 does not fit in i128, which used to make these fall back to rounding.
-        assert_eq!(
-            locate_on_grid("1e-41", 2).unwrap(),
-            GridPosition::Between { floor: 0 }
-        );
-        assert_eq!(
-            locate_on_grid("-1e-41", 2).unwrap(),
-            GridPosition::Between { floor: -1 }
-        );
-        assert_eq!(
-            locate_on_grid("0.0000000000000000000000000000000000000000000000001", 2).unwrap(),
-            GridPosition::Between { floor: 0 }
-        );
-        // More significant digits than an i128 holds.
-        assert_eq!(
-            locate_on_grid("1.2300000000000000000000000000000000000000000000001", 2).unwrap(),
-            GridPosition::Between { floor: 123 }
-        );
-        assert_eq!(
-            locate_on_grid("-1.2300000000000000000000000000000000000000000000001", 2).unwrap(),
-            GridPosition::Between { floor: -124 }
-        );
-        assert_eq!(
-            locate_on_grid("1.2300000000000000000000000000000000000000000000000", 2).unwrap(),
-            GridPosition::Exact(123)
-        );
-        // Any exponent, including the extremes an i32 holds.
-        assert_eq!(
-            locate_on_grid("0e-2147483648", 2).unwrap(),
-            GridPosition::Exact(0)
-        );
-        assert_eq!(
-            locate_on_grid("0e2147483647", 2).unwrap(),
-            GridPosition::Exact(0)
-        );
-        assert_eq!(
-            locate_on_grid("1e-2147483648", 2).unwrap(),
-            GridPosition::Between { floor: 0 }
-        );
-        assert!(locate_on_grid("1e2147483647", 2).is_err());
-        assert!(!literal_is_on_grid(&s("1e-41"), 2).unwrap());
-    }
-
-    #[test]
-    fn test_locate_on_grid_rejects_garbage() {
-        assert!(locate_on_grid("", 2).is_err());
-        assert!(locate_on_grid("abc", 2).is_err());
-        assert!(locate_on_grid("1.2.3", 2).is_err());
-        // Beyond i64 once scaled.
-        assert!(locate_on_grid("99999999999999999999", 2).is_err());
-        // The negative floor must reject overflow before adding one to i128::MAX.
-        assert!(locate_on_grid("-170141183460469231731687303715884105727.1", 0).is_err());
-    }
-
-    #[test]
-    fn test_grid_position_floor() {
-        assert_eq!(GridPosition::Exact(7).floor(), 7);
-        assert!(GridPosition::Exact(7).is_exact());
-
-        assert_eq!(GridPosition::Between { floor: 7 }.floor(), 7);
-        assert!(!GridPosition::Between { floor: 7 }.is_exact());
-    }
-
-    #[test]
-    fn test_literal_is_on_grid() {
-        assert!(literal_is_on_grid(&s("12.34"), 2).unwrap());
-        assert!(!literal_is_on_grid(&s("12.345"), 2).unwrap());
-        assert!(literal_is_on_grid(&PdbOwnedValue::I64(12), 2).unwrap());
-        // With a negative scale even an integer can miss the grid.
-        assert!(!literal_is_on_grid(&PdbOwnedValue::I64(1234), -2).unwrap());
-        assert!(literal_is_on_grid(&PdbOwnedValue::I64(1200), -2).unwrap());
-    }
-
-    #[test]
-    fn test_scale_numeric_bound_below_one_step() {
-        // price > 1e-41 is price >= 0.01, and price < 1e-41 is price <= 0.00.
-        assert_eq!(
-            scale_numeric_bound(Bound::Excluded(s("1e-41")), 2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(0))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Excluded(s("1e-41")), 2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(0))
-        );
-        // price >= -1e-41 is price >= 0.00, and price <= -1e-41 is price <= -0.01.
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("-1e-41")), 2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(-1))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("-1e-41")), 2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(-1))
-        );
-    }
-
-    #[test]
-    fn test_scale_numeric_bound_on_grid_keeps_its_bound() {
-        // An exactly representable literal keeps whichever bound the operator asked for.
-        assert_eq!(
-            scale_numeric_bound(Bound::Excluded(s("12.34")), 2, BoundSide::Upper).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(1234))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("12.34")), 2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1234))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Excluded(s("12.34")), 2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(1234))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("12.34")), 2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1234))
-        );
-    }
-
-    #[test]
-    fn test_scale_numeric_bound_off_grid_moves_outwards() {
-        // `< 12.345` and `<= 12.345` both mean `<= 12.34` on a scale-2 grid.
-        assert_eq!(
-            scale_numeric_bound(Bound::Excluded(s("12.345")), 2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1234))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("12.345")), 2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1234))
-        );
-        // `> 12.345` and `>= 12.345` both mean `>= 12.35`.
-        assert_eq!(
-            scale_numeric_bound(Bound::Excluded(s("12.345")), 2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(1234))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("12.345")), 2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(1234))
-        );
-    }
-
-    #[test]
-    fn test_scale_numeric_bound_negative_values() {
-        // -12.345 sits between -12.35 and -12.34.
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("-12.345")), 2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(-1235))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("-12.345")), 2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(-1235))
-        );
-    }
-
-    #[test]
-    fn test_scale_numeric_bound_zero_and_negative_scales() {
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("12.5")), 0, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(12))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("12.5")), 0, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(12))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("1234")), -2, BoundSide::Upper).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(12))
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Included(s("1234")), -2, BoundSide::Lower).unwrap(),
-            Bound::Excluded(PdbOwnedValue::I64(12))
-        );
-    }
-
-    #[test]
-    fn test_numeric64_bounds_outside_finite_storage() {
-        use decimal_bytes::Decimal64NoScale;
-
-        let min = Decimal64NoScale::min_value().value();
-        let max = Decimal64NoScale::max_value().value();
-        for (literal, lower, upper) in [
-            (
-                "92233720368547758.075",
-                Excluded(int(max)),
-                Included(int(max)),
-            ),
-            (
-                "92233720368547758.07",
-                Excluded(int(max)),
-                Included(int(max)),
-            ),
-            (
-                "-92233720368547758.075",
-                Included(int(min)),
-                Excluded(int(min)),
-            ),
-            (
-                "-92233720368547758.08",
-                Included(int(min)),
-                Excluded(int(min)),
-            ),
-        ] {
-            assert!(!literal_is_on_grid(&s(literal), 2).unwrap(), "{literal}");
-            for bound in [Included(s(literal)), Excluded(s(literal))] {
-                assert_eq!(
-                    scale_numeric_bound(bound.clone(), 2, BoundSide::Lower).unwrap(),
-                    lower,
-                    "lower bound: {literal}"
-                );
-                assert_eq!(
-                    scale_numeric_bound(bound, 2, BoundSide::Upper).unwrap(),
-                    upper,
-                    "upper bound: {literal}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_scale_numeric_bound_unbounded() {
-        assert_eq!(
-            scale_numeric_bound(Bound::Unbounded, 2, BoundSide::Lower).unwrap(),
-            Bound::Unbounded
-        );
-        assert_eq!(
-            scale_numeric_bound(Bound::Unbounded, 2, BoundSide::Upper).unwrap(),
-            Bound::Unbounded
-        );
-    }
-
-    #[test]
-    fn test_special_values_fall_back_to_the_previous_path() {
-        // `NaN` and the infinities are valid PostgreSQL numerics but are not points on any
-        // grid, so the parser rejects them outright.
-        assert!(locate_on_grid("NaN", 2).is_err());
-        assert!(locate_on_grid("Infinity", 2).is_err());
-
-        // The callers must not turn that into a failed query. `literal_is_on_grid` reports
-        // `true` so the term is built by the existing path rather than dropped.
-        assert!(literal_is_on_grid(&s("NaN"), 2).unwrap());
-        assert!(literal_is_on_grid(&s("Infinity"), 2).unwrap());
-        assert!(literal_is_on_grid(&s("-Infinity"), 2).unwrap());
-
-        // And a bound carrying one of them scales exactly as it did before.
-        for literal in ["NaN", "Infinity", "-Infinity"] {
-            let via_bound = scale_numeric_bound(Bound::Included(s(literal)), 2, BoundSide::Upper);
-            let via_previous_path = scale_owned_value(s(literal), 2);
-            assert_eq!(
-                via_bound.is_ok(),
-                via_previous_path.is_ok(),
-                "{literal} changed whether the conversion succeeds"
-            );
-            if let (Ok(Bound::Included(from_bound)), Ok(direct)) = (via_bound, via_previous_path) {
-                assert_eq!(from_bound, direct, "{literal} scaled to a different value");
-            }
-        }
-    }
-
     #[test]
     fn test_scale_i64_still_rounds_for_stored_values() {
-        // The storage path is unchanged: encoding a column value rounds to the column scale.
         assert_eq!(scale_i64("12.345", 2).unwrap(), 1235);
-        // The query path must not.
         assert_eq!(
-            locate_on_grid("12.345", 2).unwrap(),
-            GridPosition::Between { floor: 1234 }
+            clamp_to_int_domain(&text("12.345"), &numeric64(2)),
+            Some(Above(int(1234)))
+        );
+    }
+
+    fn numeric64(scale: i16) -> SearchFieldType {
+        SearchFieldType::Numeric64(pgrx::pg_sys::NUMERICOID, scale)
+    }
+
+    #[rstest]
+    #[case(2, "12.345", 1234, false)]
+    #[case(2, "-12.345", -1235, false)]
+    #[case(2, "1e-41", 0, false)]
+    #[case(2, "-1e-41", -1, false)]
+    #[case(0, "12.5", 12, false)]
+    #[case(-2, "1234", 12, false)]
+    #[case(2, "92233720368547758.075", 999999999999999999, false)]
+    #[case(2, "1e400", 999999999999999999, false)]
+    #[case(2, "-1e400", -999999999999999999, true)]
+    fn numeric64_off_grid_bounds(
+        #[case] scale: i16,
+        #[case] literal: &str,
+        #[case] boundary: i64,
+        #[case] below: bool,
+        #[values(true, false)] inclusive: bool,
+    ) {
+        let bound = if inclusive {
+            Included(text(literal))
+        } else {
+            Excluded(text(literal))
+        };
+        let expected = if below {
+            (Included(int(boundary)), Excluded(int(boundary)))
+        } else {
+            (Excluded(int(boundary)), Included(int(boundary)))
+        };
+        assert_eq!(
+            clamp_int_bounds(&numeric64(scale), bound.clone(), bound).unwrap(),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case("12.34", 1234)]
+    #[case("NaN", Decimal64NoScale::nan().value())]
+    #[case("Infinity", Decimal64NoScale::infinity().value())]
+    #[case("-Infinity", Decimal64NoScale::neg_infinity().value())]
+    fn numeric64_exact_bounds(
+        #[case] literal: &str,
+        #[case] encoded: i64,
+        #[values(true, false)] inclusive: bool,
+    ) {
+        let (bound, expected) = if inclusive {
+            (Included(text(literal)), Included(int(encoded)))
+        } else {
+            (Excluded(text(literal)), Excluded(int(encoded)))
+        };
+        assert_eq!(
+            clamp_int_bounds(&numeric64(2), bound.clone(), bound).unwrap(),
+            (expected.clone(), expected)
         );
     }
 
@@ -1366,6 +762,59 @@ mod tests {
     #[case::int4range(INT4RANGE, int(i32::MAX.into()), Exact(int(i32::MAX.into())))]
     #[case::int4range_above_max(INT4RANGE, int(3_000_000_000), Above(int(i32::MAX.into())))]
     #[case::int4range_below_min(INT4RANGE, float(-3e9), Below(int(i32::MIN.into())))]
+    #[case::numeric64_exact(numeric64(2), text("12.3400"), Exact(int(1234)))]
+    #[case::numeric64_negative(numeric64(2), text("-12.34"), Exact(int(-1234)))]
+    #[case::numeric64_fraction(numeric64(2), text("12.345"), Above(int(1234)))]
+    #[case::numeric64_negative_fraction(numeric64(2), text("-12.345"), Above(int(-1235)))]
+    #[case::numeric64_i64(numeric64(2), int(12), Exact(int(1200)))]
+    #[case::numeric64_u64(numeric64(2), uint(12), Exact(int(1200)))]
+    #[case::numeric64_float(numeric64(2), float(12.345), Above(int(1234)))]
+    #[case::numeric64_zero_scale(numeric64(0), text("12.5"), Above(int(12)))]
+    #[case::numeric64_negative_scale(numeric64(-2), text("1234"), Above(int(12)))]
+    #[case::numeric64_negative_scale_exact(numeric64(-2), text("1200"), Exact(int(12)))]
+    #[case::numeric64_negative_scale_zero(numeric64(-2), text("-0.00"), Exact(int(0)))]
+    #[case::numeric64_exponent(numeric64(2), text("1.5e3"), Exact(int(150000)))]
+    #[case::numeric64_tiny(numeric64(2), text("1e-41"), Above(int(0)))]
+    #[case::numeric64_tiny_negative(numeric64(2), text("-1e-41"), Above(int(-1)))]
+    #[case::numeric64_long_fraction(
+        numeric64(2),
+        text("1.2300000000000000000000000000000000000000000000001"),
+        Above(int(123))
+    )]
+    #[case::numeric64_long_negative(numeric64(2), text("-1.2300000000000000000000000000000000000000000000001"), Above(int(-124)))]
+    #[case::numeric64_long_exact(
+        numeric64(2),
+        text("1.2300000000000000000000000000000000000000000000000"),
+        Exact(int(123))
+    )]
+    #[case::numeric64_max(
+        numeric64(2),
+        text("9999999999999999.99"),
+        Exact(int(999999999999999999))
+    )]
+    #[case::numeric64_min(numeric64(2), text("-9999999999999999.99"), Exact(int(-999999999999999999)))]
+    #[case::numeric64_above_max(
+        numeric64(2),
+        text("9999999999999999.991"),
+        Above(int(999999999999999999))
+    )]
+    #[case::numeric64_below_min(numeric64(2), text("-9999999999999999.991"), Below(int(-999999999999999999)))]
+    #[case::numeric64_ceil_overflow(
+        numeric64(2),
+        text("92233720368547758.075"),
+        Above(int(999999999999999999))
+    )]
+    #[case::numeric64_i64_overflow(
+        numeric64(2),
+        text("100000000000000000000"),
+        Above(int(999999999999999999))
+    )]
+    #[case::numeric64_i128_overflow(numeric64(0), text("-170141183460469231731687303715884105727.1"), Below(int(-999999999999999999)))]
+    #[case::numeric64_huge(numeric64(2), text("1e400"), Above(int(999999999999999999)))]
+    #[case::numeric64_nan(numeric64(2), text("NaN"), Exact(int(Decimal64NoScale::nan().value())))]
+    #[case::numeric64_infinity(numeric64(2), text("Infinity"), Exact(int(Decimal64NoScale::infinity().value())))]
+    #[case::numeric64_negative_infinity(numeric64(2), text("-Infinity"), Exact(int(Decimal64NoScale::neg_infinity().value())))]
+    #[case::numeric64_float_nan(numeric64(2), float(f64::NAN), Exact(int(Decimal64NoScale::nan().value())))]
     fn test_clamp_to_int_domain(
         #[case] field_type: SearchFieldType,
         #[case] value: PdbOwnedValue,
@@ -1387,6 +836,9 @@ mod tests {
     #[case::timestamp_field(TIMESTAMP, text("infinity"))]
     #[case::float_field(SearchFieldType::F64(pgrx::pg_sys::FLOAT8OID), int(5))]
     #[case::numrange_field(SearchFieldType::Range(pgrx::pg_sys::NUMRANGEOID), text("5"))]
+    #[case::numeric64_empty(numeric64(2), text(""))]
+    #[case::numeric64_garbage(numeric64(2), text("abc"))]
+    #[case::numeric64_malformed(numeric64(2), text("1.2.3"))]
     fn test_clamp_to_int_domain_none(
         #[case] field_type: SearchFieldType,
         #[case] value: PdbOwnedValue,

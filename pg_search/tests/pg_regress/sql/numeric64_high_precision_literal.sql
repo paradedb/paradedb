@@ -138,4 +138,55 @@ CREATE INDEX numeric64_high_precision_idx ON numeric64_high_precision USING para
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <> 1e-41 ORDER BY id;
 
+-- Every term path must reject off-grid and out-of-range literals.
+TRUNCATE numeric64_high_precision RESTART IDENTITY;
+INSERT INTO numeric64_high_precision (price) VALUES (12.34), (12.35), ('NaN'), (NULL);
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price IN (12.345, 12.34) ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price IN (12.345, 12.34) ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric]) ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.term_set(ARRAY[
+    paradedb.term('price', 12.345::numeric),
+    paradedb.term('price', 12.34::numeric)
+]) ORDER BY id;
+
+-- Crossing i64's range must not change comparison semantics or raise an error.
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price > 10000000000000000 ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price > 100000000000000000 ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price = 100000000000000000000 ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price < -100000000000000000000 ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price >= -100000000000000000000 ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ pdb.all() AND price IN (100000000000000000000, 12.34, 'NaN'::numeric) ORDER BY id;
+
+-- Fielded parsing must not fall back to raw I64 terms or the NaN sentinel.
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.parse_with_field('12.345') ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.parse_with_field('9223372036854775807') ORDER BY id;
+
 DROP TABLE numeric64_high_precision;
+
+CREATE TABLE numeric64_negative_scale (id int PRIMARY KEY, price numeric(8, -2));
+INSERT INTO numeric64_negative_scale VALUES (1, 1200), (2, 123400), (3, 'NaN');
+CREATE INDEX ON numeric64_negative_scale USING paradedb (id, price);
+
+-- 1234 is off-grid. Treating it as a stored integer would match 123400.
+SELECT id, price FROM numeric64_negative_scale
+WHERE price @@@ pdb.parse_with_field('1234') ORDER BY id;
+SELECT id, price FROM numeric64_negative_scale
+WHERE price @@@ pdb.parse_with_field('1200') ORDER BY id;
+SELECT id, price FROM numeric64_negative_scale
+WHERE price @@@ pdb.parse_with_field('NaN') ORDER BY id;
+
+DROP TABLE numeric64_negative_scale;

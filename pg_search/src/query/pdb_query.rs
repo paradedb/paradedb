@@ -22,9 +22,9 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
-    BoundSide, clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
-    is_outside_int_domain, literal_is_on_grid, map_bound, numeric_bound_to_bytes,
-    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric,
+    clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
+    is_outside_int_domain, map_bound, numeric_bound_to_bytes, string_to_f64, string_to_i64,
+    string_to_json_numeric,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -920,16 +920,6 @@ fn term(
         return Ok(Box::new(EmptyQuery));
     }
 
-    // A Numeric64 field stores values on a fixed-point grid. PostgreSQL does not apply the
-    // column typmod to a comparison operand, so a literal that falls between two grid points
-    // is not equal to any value the field can hold, and the term matches nothing. Scaling it
-    // here would round it onto a neighbour and match that neighbour's rows instead.
-    if let SearchFieldType::Numeric64(_, scale) = search_field_type
-        && !literal_is_on_grid(value, scale)?
-    {
-        return Ok(Box::new(EmptyQuery));
-    }
-
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
     let value =
         convert_value_for_field(value.clone(), &search_field_type, index_created_by_version)?;
@@ -1617,12 +1607,6 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     // Handle NUMERIC field types with special storage strategies
     // Also handle string-encoded numeric values for JSON and other numeric fields
     let bounds = match search_field_type {
-        SearchFieldType::Numeric64(_, scale) => {
-            // Scale bounds for I64 fixed-point storage
-            let lower = scale_numeric_bound(lower_bound, scale, BoundSide::Lower)?;
-            let upper = scale_numeric_bound(upper_bound, scale, BoundSide::Upper)?;
-            (lower, upper)
-        }
         SearchFieldType::NumericBytes(..) => {
             // Convert bounds to lexicographically sortable bytes
             let lower = numeric_bound_to_bytes(lower_bound, index_created_by_version)?;
@@ -1641,7 +1625,7 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             let upper = map_bound(upper_bound, string_to_i64);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::I64(_) | SearchFieldType::U64(_) => {
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::Numeric64(..) => {
             let (lower, upper) = clamp_int_bounds(&search_field_type, lower_bound, upper_bound)?;
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
@@ -2021,6 +2005,10 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     ) {
         // Convert the query string to the appropriate numeric format
         let value = PdbOwnedValue::Str(query_string.trim().to_string());
+        // An impossible numeric term must not fall back to parsing the physical I64 value.
+        if is_outside_int_domain(&value, &field_type) {
+            return Ok(Box::new(EmptyQuery));
+        }
         if let Ok(converted) = convert_value_for_field(value, &field_type, index_created_by_version)
         {
             let tantivy_field_type = search_field.field_entry().field_type();

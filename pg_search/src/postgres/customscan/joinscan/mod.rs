@@ -150,6 +150,7 @@ use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    validate_join_keys,
 };
 use self::privdat::PrivateData;
 use self::window_func::{
@@ -212,7 +213,6 @@ use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
-use super::aggregatescan::datafusion_build::validate_join_keys;
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 use super::datafusion::topk_agg::bind_topk_agg_fetch;

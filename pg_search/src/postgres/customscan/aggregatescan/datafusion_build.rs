@@ -40,8 +40,8 @@ use crate::postgres::customscan::joinscan::build::{
     strip_node_wrappers, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
-    ClassifiedBaseRestrictInfo, classify_base_restrictinfo, numeric_bytes_layouts_differ,
-    transparent_path_subpath, wrap_with_semi_anti,
+    ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
+    wrap_with_semi_anti,
 };
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
@@ -63,7 +63,6 @@ use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
 use crate::schema::SearchFieldType;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::error::DataFusionError;
 use pgrx::{PgList, pg_sys};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
@@ -315,115 +314,6 @@ pub unsafe fn collect_join_agg_sources(
     }
 
     sources
-}
-
-/// Whether a NUMERIC join key pair is safe to push down into the scan's
-/// generated DataFusion plan.
-///
-/// NUMERIC fast fields with precision <= 18 are stored as scaled Int64
-/// values (`Numeric64`, e.g. numeric(10,2) 1.23 -> 123, numeric(10,3)
-/// 1.230 -> 1230) and lower to Arrow `DataType::Int64`. NUMERIC fields
-/// with precision > 18, or unbounded NUMERIC, are stored as
-/// lexicographically sortable bytes (`NumericBytes`) and lower to Arrow
-/// `DataType::BinaryView`.
-///
-/// Three hazards follow from this:
-/// - Two `Numeric64` sides with *different* scales: the generated
-///   `HashJoinExec` compares raw, unscaled Int64 values directly, so
-///   logically-equal decimals at different scales never compare equal.
-///   See <https://github.com/paradedb/paradedb/issues/6100>.
-/// - A `Numeric64` side paired with a `NumericBytes` side (even with an
-///   equal, known scale - e.g. numeric(10,2) vs numeric(20,2)): the two
-///   sides lower to different Arrow physical types (Int64 vs
-///   BinaryView), which DataFusion's type coercion rejects outright
-///   ("Cannot infer common argument type for comparison operation Int64
-///   = BinaryView") - a hard query-time error instead of a graceful
-///   fallback to Postgres's native join.
-/// - Two `NumericBytes` sides whose indexes encode negative values
-///   differently (see `planning::numeric_bytes_layouts_differ`): the
-///   byte encoding itself is incompatible, regardless of declared scale.
-///
-/// So this returns `true` in exactly two cases: both sides `Numeric64`
-/// with an equal scale, or both sides `NumericBytes` with a compatible
-/// byte layout (declared scale doesn't matter here - `NumericBytes` uses
-/// `decimal-bytes`'s arbitrary-precision, lexicographically sortable
-/// encoding, which is value-based rather than scaled-integer, so two
-/// `NumericBytes` sides with *different* declared scales are still safe
-/// to compare byte-for-byte as long as their layout matches). Anything
-/// else - a `Numeric64`/`NumericBytes` mismatch, incompatible
-/// `NumericBytes` layouts, or an unresolvable scale - declines. This
-/// mirrors the codebase's existing convention of rejecting
-/// unbounded-NUMERIC pushdown at planning time rather than letting the
-/// DataFusion plan bake fail (see `numeric_window_field` in
-/// `scan_state.rs`).
-fn numeric_pushdown_safe(
-    outer_ff: &WhichFastField,
-    outer_ir: &PgSearchRelation,
-    inner_ff: &WhichFastField,
-    inner_ir: &PgSearchRelation,
-) -> bool {
-    match (outer_ff.field_type(), inner_ff.field_type()) {
-        (
-            Some(SearchFieldType::Numeric64(_, outer_scale)),
-            Some(SearchFieldType::Numeric64(_, inner_scale)),
-        ) => outer_scale == inner_scale,
-        (Some(SearchFieldType::NumericBytes(..)), Some(SearchFieldType::NumericBytes(..))) => {
-            !numeric_bytes_layouts_differ(outer_ff, outer_ir, inner_ff, inner_ir)
-        }
-        _ => false,
-    }
-}
-
-pub fn validate_join_keys(plan: &RelNode) -> Result<(), String> {
-    let result = plan.apply(|node| {
-        let RelNode::Join(j) = node else {
-            return Ok(TreeNodeRecursion::Continue);
-        };
-
-        for key in &j.equi_keys {
-            let Some(((left_source, left_attno), (right_source, right_attno))) =
-                key.resolve_against(&j.left, &j.right)
-            else {
-                return Err(DataFusionError::Internal(
-                    "failed to resolve join keys against base relations".to_string(),
-                ));
-            };
-
-            let left_hr = PgSearchRelation::open(left_source.scan_info.heaprelid);
-            let left_ir = PgSearchRelation::open(left_source.scan_info.indexrelid);
-            let right_hr = PgSearchRelation::open(right_source.scan_info.heaprelid);
-            let right_ir = PgSearchRelation::open(right_source.scan_info.indexrelid);
-
-            let left_ff =
-                unsafe { resolve_fast_field(left_attno as i32, &left_hr.tuple_desc(), &left_ir) };
-            let right_ff = unsafe {
-                resolve_fast_field(right_attno as i32, &right_hr.tuple_desc(), &right_ir)
-            };
-
-            let (Some(left_ff), Some(right_ff)) = (left_ff, right_ff) else {
-                return Err(DataFusionError::Internal(
-                    "join conditions must reference columnar indexed fields".to_string(),
-                ));
-            };
-
-            let either_numeric = left_ff.field_type().is_some_and(|ft| ft.is_numeric()) || right_ff.field_type().is_some_and(|ft| ft.is_numeric());
-            if either_numeric && !numeric_pushdown_safe(&left_ff, &left_ir, &right_ff, &right_ir) {
-                return Err(DataFusionError::Internal(
-                    "join conditions compare NUMERIC columns with an unresolvable or mismatched representation".to_string(),
-                ));
-            }
-        }
-
-        Ok(TreeNodeRecursion::Continue)
-    });
-
-    match result {
-        Ok(_) => Ok(()),
-        Err(e) => match e {
-            DataFusionError::Internal(msg) => Err(msg),
-            _ => Err("failed to validate join keys".to_string()),
-        },
-    }
 }
 
 /// Build a [`RelNode`] tree using two complementary sources of information:

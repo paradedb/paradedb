@@ -1235,6 +1235,330 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 LIMIT 3;
 
+-- DISTINCT with window aggregates that read a column (#6501). The DISTINCT
+-- pathkeys include every target entry; a window-only entry is the same on
+-- every row, so it orders nothing and JoinScan still absorbs the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    SUM(r.score) OVER () AS total_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score,
+    COUNT(r.score) OVER () AS score_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT
+    p.id,
+    SUM(r.score) OVER () AS total_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score,
+    COUNT(r.score) OVER () AS score_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- The same without an ORDER BY: the DISTINCT pathkeys alone.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 2;
+
+SELECT DISTINCT SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 2;
+
+-- AVG returns an unbounded NUMERIC, which must not stop the DISTINCT column
+-- check for a window-only entry (#6501).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- An entry mixing a column with a window aggregate varies by row: it is part
+-- of the DISTINCT key, which the scan cannot compute, so JoinScan declines.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC, score_plus_count
+LIMIT 3;
+
+SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC, score_plus_count
+LIMIT 3;
+
+-- Test 27h: Window aggregates with a FILTER clause over a JOIN. JoinScan
+-- computes `agg FILTER (WHERE ...) OVER ()` in its Top-K aggregate node.
+-- The join has four rows: scores 95 and 70 (product 1), 91 (product 3) and
+-- 65 (product 5). Filters read either side of the join, an unfiltered
+-- COUNT(*) sits beside the filtered one (they must stay separate columns),
+-- and a filter that matches nothing gives 0 for COUNT and NULL otherwise.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count,
+    SUM(r.score) FILTER (WHERE p.price > 1600) OVER () AS pricey_score,
+    AVG(r.score) FILTER (WHERE r.score > 80) OVER () AS high_avg,
+    MIN(r.score) FILTER (WHERE r.score > 80) OVER () AS high_min,
+    MAX(r.score) FILTER (WHERE r.score < 80 AND p.rating > 4.7) OVER () AS low_max,
+    COUNT(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_count,
+    SUM(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count,
+    SUM(r.score) FILTER (WHERE p.price > 1600) OVER () AS pricey_score,
+    AVG(r.score) FILTER (WHERE r.score > 80) OVER () AS high_avg,
+    MIN(r.score) FILTER (WHERE r.score > 80) OVER () AS high_min,
+    MAX(r.score) FILTER (WHERE r.score < 80 AND p.rating > 4.7) OVER () AS low_max,
+    COUNT(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_count,
+    SUM(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Filtered window aggregates inside target list expressions.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () + 1 AS high_plus_one,
+    r.score + COUNT(*) FILTER (WHERE r.score > 80) OVER () AS score_plus_high,
+    (COUNT(*) FILTER (WHERE r.score > 80) OVER ())::float8 / COUNT(*) OVER () AS high_ratio
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () + 1 AS high_plus_one,
+    r.score + COUNT(*) FILTER (WHERE r.score > 80) OVER () AS score_plus_high,
+    (COUNT(*) FILTER (WHERE r.score > 80) OVER ())::float8 / COUNT(*) OVER () AS high_ratio
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- DISTINCT with a filtered window aggregate: the filter applies to the join
+-- rows before DISTINCT, so product 1 contributes both of its reviews.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT
+    p.id,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- A filtered window aggregate in a subquery without a LIMIT: no Top-K
+-- aggregate, so JoinScan computes it in a DataFusion window node.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM (
+    SELECT
+        p.id,
+        r.score,
+        COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+ORDER BY score DESC
+LIMIT 5;
+
+SELECT * FROM (
+    SELECT
+        p.id,
+        r.score,
+        COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+ORDER BY score DESC
+LIMIT 5;
+
+-- A filter on a columnar text field. The scan compares the stored value, so
+-- 'apple' matches nothing, as in PostgreSQL, and `<>` combines with a
+-- comparison on the other side of the join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- pdb.agg() with a FILTER. The same spec without and with a filter is two
+-- aggregates, and EXPLAIN shows each pdb_agg(...) call with its FILTER. Plain
+-- EXPLAIN: the VERBOSE output list deparses the search operator with the index
+-- OID, which changes from run to run.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Search operators in a filter, on either side of the join and combined with a
+-- column comparison. Each becomes a tagged query on its source scan, and the
+-- filter reads the tag column. Plain EXPLAIN: the VERBOSE output list
+-- deparses the operator with the index OID, which changes from run to run.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
+    COUNT(*) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_count,
+    COUNT(*) FILTER (WHERE r.content ||| 'battery' OR r.score > 90) OVER () AS battery_or_high
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
+    COUNT(*) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_count,
+    COUNT(*) FILTER (WHERE r.content ||| 'battery' OR r.score > 90) OVER () AS battery_or_high
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- A comparison the scan could translate, on a column that is not columnar
+-- (content is tokenized): the scan has no values to compare, so JoinScan
+-- declines at planning and PostgreSQL's WindowAgg computes the value.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content = 'Battery could be better') OVER () AS battery_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content = 'Battery could be better') OVER () AS battery_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- An operator the scan cannot translate (LIKE): JoinScan declines, and
+-- PostgreSQL's WindowAgg computes the value.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content LIKE '%better%') OVER () AS better_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content LIKE '%better%') OVER () AS better_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

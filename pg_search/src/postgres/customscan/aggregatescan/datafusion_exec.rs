@@ -45,7 +45,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList, WindowAggInput, WindowAggKind,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{
-    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+    ColumnRef, CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
 };
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
@@ -1250,16 +1250,16 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
 /// which carries raw planner `JoinAggSource`s instead of a `RelNode` tree.
-struct FilterExprExecContext<'a> {
-    targetlist: Option<&'a JoinAggregateTargetList>,
-    plan: Option<&'a RelNode>,
+pub struct FilterExprExecContext<'a> {
+    pub targetlist: Option<&'a JoinAggregateTargetList>,
+    pub plan: Option<&'a RelNode>,
 }
 
 impl FilterExpr {
     /// Translate this expression to a DataFusion `Expr`.
     ///
     /// Used for both HAVING (pass `targetlist`) and per-aggregate FILTER (pass `plan`).
-    fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
+    pub fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
         use datafusion::logical_expr::Operator;
 
         match self {
@@ -1280,11 +1280,11 @@ impl FilterExpr {
                     Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
                 })
             }
-            FilterExpr::ColumnRef {
+            FilterExpr::ColumnRef(ColumnRef {
                 plan_position,
                 field_name,
                 ..
-            } => {
+            }) => {
                 let plan = ctx.plan?;
                 Some(make_plan_position_col(plan, *plan_position, field_name))
             }

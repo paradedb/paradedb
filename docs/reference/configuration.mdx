@@ -39,6 +39,7 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.enable_heuristic_selectivity`        | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.                               |
 | `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                          |
 | `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                     |
+| `paradedb.planner_warnings`                    | `warning`     | user    | Controls warnings when an optimized scan cannot be used. Accepts `off`, `warning`, or `error`.                             |
 
 ## Top K
 
@@ -57,13 +58,14 @@ These settings affect queries that combine a ParadeDB predicate with `ORDER BY .
 
 These settings affect `pdb.agg`, `GROUP BY`, and faceted search. See [Aggregate Syntax](/reference/aggregates/overview).
 
-| Setting                                        | Default   | Context | Description                                                                               |
-| ---------------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------- |
-| `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.             |
-| `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes. |
-| `paradedb.check_aggregate_scan`                | `on`      | user    | Logs a warning when a query expected to use aggregate scan cannot use it.                 |
-| `paradedb.enable_bitmap_postings`              | `on`      | user    | Uses posting bitmaps for eligible counts; disable to use ordinary postings.               |
-| `paradedb.add_doc_count_to_aggs`               | `off`     | user    | Internal testing setting for aggregate null-handling compatibility.                       |
+| Setting                                        | Default   | Context | Description                                                                                                                                                       |
+| ---------------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.                                                                                     |
+| `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes.                                                                         |
+| `paradedb.check_aggregate_scan`                | `on`      | user    | Logs a warning when a query expected to use aggregate scan cannot use it.                                                                                         |
+| `paradedb.enable_bitmap_postings`              | `on`      | user    | Uses posting bitmaps for eligible counts; disable to use ordinary postings.                                                                                       |
+| `paradedb.add_doc_count_to_aggs`               | `off`     | user    | Internal testing setting for aggregate null-handling compatibility.                                                                                               |
+| `paradedb.visibility_threshold`                | `10000`   | user    | With aggregate visibility set to `threshold`, applies transaction visibility checks below this estimated matching row count. Reads raw index data at or above it. |
 
 ## Vector Search
 
@@ -122,6 +124,19 @@ These settings affect segment layout and background merging.
 | `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload. |
 | `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                  |
 | `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.      |
+
+## Per-Index Search and Vector Options
+
+Set these options in the index's `WITH` clause. The linked guides explain when changes require rebuilding the index.
+
+| Option                  | Default                   | Description                                                                                                                    | Reference                                                                           |
+| ----------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `partition_by`          | None                      | Columns used to partition index segments.                                                                                      | [Index Partitioning](/reference/indexing/partition-by)                              |
+| `target_segment_count`  | Automatic                 | Target number of segments during `CREATE INDEX` or `REINDEX`. Overridden by a non-zero `paradedb.global_target_segment_count`. | [Read Throughput](/operate/performance-tuning/reads#adjusting-target-segment-count) |
+| `search_tokenizer`      | Indexed field's tokenizer | Default search-time tokenizer for text and JSON fields.                                                                        | [Search Tokenizer](/reference/tokenizers/search-tokenizer)                          |
+| `training_sample_ratio` | `0.32`                    | Fraction of vectors sampled for clustering during an index build. Accepts `0.000001` through `1.0`.                            | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `max_leaf_size`         | `200`                     | Maximum sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                          | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `vector_fields`         | No overrides              | JSON configuration for each vector field, including quantization.                                                              | [Vector Quantization](/reference/indexing/indexing-vectors#vector-quantization)     |
 
 ## Per-Index Write Options
 

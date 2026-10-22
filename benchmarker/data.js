@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792636695331,
+  "lastUpdate": 1792644885805,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22424,6 +22424,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.983,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76d6a8878d9c8c3593de2878c75b54e503d2804b",
+          "message": "feat: Add joinscan support for window function `FILTER`s (#6935)\n\n# Ticket(s) Closed\n\n- This is primarily based on a repro in the enterprise branch\n`stuhood.window-filter`\n- As a part of fixing that, this also closes #6501\n\n## What\nThis PR adds support for window functions with `FILTER` clauses to join\nscan. Along the way, it fixes an issue where join scan would decline\nqueries it could otherwise handle if they had a window function in the\n`ORDER BY` clause.\n\n## Why\n#3210 added `FILTER` support for normal aggregates (which would run in\naggregate scan), but did not do so for window functions (which would run\nin join scan). That left some non-obvious inconsistencies in our feature\nset that this fixes.\n\n## How\n- Follow aggregate scan's tagged-predicate approach. We extract filter\nexpressions during window agg extraction, consider them when collecting\nthe required fields, and add them as predicate tags. We then apply the\ndatafusion version of that filter to the aggregate in when building the\ndataframe.\n- The `ORDER BY` issue is fixed by, alongside the check for an\nouter-path-only pathkey, checking if the pathkey is a \"window constant\",\ni.e. a global window function, or an expression over one and constants\nonly. If so, skip the rest of the check, as it won't effect sort order\nor distinctness.\n\n**Other**:\n- `aggregate_scan/datafusion_build`'s `collect_filter_column_refs` has\nbeen moved, renamed, and slightly tweaked to become\n`FilterExpr::collect_column_refs` to enable join scan use.\n- Some of the plumbing of `extract_window_agg`,\n`resolve_target_entry_expr`, etc. has been tweaked to support the\nrequirements of `FilterExpr::from_pg_node` being used to extract the\nwindow filter.\n\n## Tests\n- new integration and regression test cases.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-21T22:12:11-06:00",
+          "tree_id": "5dc15b284cd6815eb27d2ecabab553d2a6bd05c7",
+          "url": "https://github.com/paradedb/paradedb/commit/76d6a8878d9c8c3593de2878c75b54e503d2804b"
+        },
+        "date": 1792644874202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.316,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.688,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.634,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.509,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.362,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.665,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.25,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.726,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.46,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 6.981,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.863,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.154,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.952,
             "unit": "ms"
           }
         ]

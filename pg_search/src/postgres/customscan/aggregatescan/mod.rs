@@ -118,6 +118,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
@@ -2100,6 +2101,7 @@ impl AggregateScan {
             ExecutionState::Completed => return None,
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
+                count_index_scan(state.custom_state().indexrel());
                 let mut row_iter = aggregation_results_iter(state);
                 let first = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
@@ -2288,6 +2290,16 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+<<<<<<< HEAD
+=======
+                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+                for source in df_state.plan.sources() {
+                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
+                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                    }
+                }
+>>>>>>> c407dfd (fix: count ParadeDB index scans in `pg_stat_user_indexes` (#6914))
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,

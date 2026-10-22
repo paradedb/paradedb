@@ -601,6 +601,10 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    pub(crate) fn index_rel(&self) -> &PgSearchRelation {
+        &self.index_rel
+    }
+
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
     /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub(crate) fn validate_vector_segments(&self) -> Result<()> {

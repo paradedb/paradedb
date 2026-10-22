@@ -1,0 +1,216 @@
+-- =====================================================================
+-- Regression: https://github.com/paradedb/paradedb/issues/6834
+--
+-- NUMERIC fast fields with precision <= 18 are stored as scaled Int64
+-- values (`Numeric64`): numeric(10,2) 1.10 is the raw integer 110 and
+-- numeric(10,3) 1.100 is 1100. Wider or unbounded NUMERIC is stored as
+-- sortable bytes (`NumericBytes`, Arrow BinaryView).
+--
+-- AggregateScan pushed equi-join keys into a DataFusion HashJoinExec
+-- without checking that both sides share a representation, so:
+--   * cross-scale Numeric64 keys compared raw integers, dropping equal
+--     values (110 vs 1100) and matching unequal ones (numeric(10,2)
+--     1.10 and numeric(10,3) 0.110 are both stored as 110);
+--   * Numeric64 vs NumericBytes keys failed at execution with "Cannot
+--     infer common argument type for comparison operation Int64 =
+--     BinaryView".
+--
+-- AggregateScan now runs the same join-key validation as JoinScan
+-- (#6352) and declines these pairings. Equal-scale Numeric64 keys and
+-- NumericBytes keys with a matching byte layout are still pushed down.
+--
+-- The validation resolves each key against its own join node, so it
+-- also covers keys lifted from IN / NOT IN subqueries, including
+-- JoinScan's `col IS NULL OR col IN (SELECT ...)` path.
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+
+-- Outer side: numeric(10,2). The NULL row is for the IS NULL OR IN case.
+CREATE TABLE i6834_items (
+    id  bigint PRIMARY KEY,
+    txt text NOT NULL,
+    amt numeric(10,2)
+);
+INSERT INTO i6834_items VALUES
+    (1, 'match', 1.10),
+    (2, 'match', 2.20),
+    (3, 'match', 3.30),
+    (4, 'match', NULL);
+
+-- numeric(10,3): 1.100 and 2.200 equal items 1 and 2 but are stored at a
+-- different scale; 0.110 is stored as 110, the same raw integer as 1.10.
+CREATE TABLE i6834_scale3 (id bigint PRIMARY KEY, amt numeric(10,3));
+INSERT INTO i6834_scale3 VALUES (11, 1.100), (12, 2.200), (13, 0.110);
+
+-- numeric(12,2): same scale as the items, so safe to push down.
+CREATE TABLE i6834_scale2 (id bigint PRIMARY KEY, amt numeric(12,2));
+INSERT INTO i6834_scale2 VALUES (21, 1.10), (22, 2.20), (23, 9.99);
+
+-- numeric(30,2): NumericBytes, never comparable with a Numeric64 column.
+CREATE TABLE i6834_wide2 (id bigint PRIMARY KEY, amt numeric(30,2));
+INSERT INTO i6834_wide2 VALUES (31, 1.10), (32, 2.20), (33, 3.30);
+
+-- numeric(30,2) outer and numeric(40,5) inner: two NumericBytes sides,
+-- which compare by value whatever their declared scales.
+CREATE TABLE i6834_wide_items (
+    id  bigint PRIMARY KEY,
+    txt text NOT NULL,
+    amt numeric(30,2)
+);
+INSERT INTO i6834_wide_items VALUES (1, 'match', 1.10), (2, 'match', 2.20), (3, 'match', 3.30);
+CREATE TABLE i6834_wide5 (id bigint PRIMARY KEY, amt numeric(40,5));
+INSERT INTO i6834_wide5 VALUES (41, 1.10000), (42, 2.20000), (43, 7.00000);
+
+CREATE INDEX i6834_items_idx ON i6834_items USING paradedb (id, txt, amt)
+  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX i6834_wide_items_idx ON i6834_wide_items USING paradedb (id, txt, amt)
+  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX i6834_scale3_idx ON i6834_scale3 USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX i6834_scale2_idx ON i6834_scale2 USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX i6834_wide2_idx ON i6834_wide2 USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX i6834_wide5_idx ON i6834_wide5 USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+
+ANALYZE i6834_items;
+ANALYZE i6834_scale3;
+ANALYZE i6834_scale2;
+ANALYZE i6834_wide2;
+ANALYZE i6834_wide_items;
+ANALYZE i6834_wide5;
+
+-- =====================================================================
+-- Part 1: AggregateScan (JoinScan off, as in the issue).
+-- =====================================================================
+SET paradedb.enable_join_custom_scan = off;
+
+-- Ground truth from PostgreSQL. Expected: 2, 2, 3, 2, 2, 2.
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT
+    (SELECT count(*) FROM i6834_items i JOIN i6834_scale3 r ON i.amt = r.amt
+      WHERE i.txt @@@ 'match') AS cross_scale,
+    (SELECT count(*) FROM i6834_items i JOIN i6834_scale2 r ON i.amt = r.amt
+      WHERE i.txt @@@ 'match') AS same_scale,
+    (SELECT count(*) FROM i6834_items i JOIN i6834_wide2 r ON i.amt = r.amt
+      WHERE i.txt @@@ 'match') AS numeric64_vs_bytes,
+    (SELECT count(*) FROM i6834_wide_items i JOIN i6834_wide5 r ON i.amt = r.amt
+      WHERE i.txt @@@ 'match') AS bytes_vs_bytes,
+    (SELECT count(*) FROM i6834_items i
+      WHERE i.amt IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match') AS in_cross_scale,
+    (SELECT count(*) FROM i6834_items i
+      WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match') AS in_same_scale;
+
+SET paradedb.enable_aggregate_custom_scan = on;
+
+-- 1a. Cross-scale Numeric64 keys: AggregateScan declines. Expected: 2
+-- (raw integer comparison would give 1: only 110 = 110 from 0.110).
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i JOIN i6834_scale3 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i JOIN i6834_scale3 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match';
+
+-- 1b. Positive control, equal-scale Numeric64 keys: AggregateScan is used.
+-- Expected: 2.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i JOIN i6834_scale2 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i JOIN i6834_scale2 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match';
+
+-- 1c. Numeric64 vs NumericBytes keys (both scale 2): AggregateScan
+-- declines rather than failing in DataFusion. Expected: 3.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i JOIN i6834_wide2 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i JOIN i6834_wide2 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match';
+
+-- 1d. Positive control, NumericBytes keys with different declared scales:
+-- AggregateScan is used. Expected: 2.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_wide_items i JOIN i6834_wide5 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_wide_items i JOIN i6834_wide5 r ON i.amt = r.amt
+WHERE i.txt @@@ 'match';
+
+-- 1e. Cross-scale key lifted from an IN subquery: AggregateScan declines.
+-- Expected: 2.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match';
+
+-- 1f. Positive control, equal-scale key lifted from an IN subquery.
+-- Expected: 2.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match';
+
+-- =====================================================================
+-- Part 2: JoinScan's subquery paths, which share the validation.
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan = off;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 2a. Cross-scale key from IN: JoinScan declines. Expected: ids 1, 2.
+SELECT explain_redact_oid($$
+SELECT i.id FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
+-- 2b. Positive control, equal-scale key from IN: JoinScan is used.
+-- Expected: ids 1, 2.
+SELECT explain_redact_oid($$
+SELECT i.id FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id FROM i6834_items i
+WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
+-- 2c. Cross-scale key from `IS NULL OR IN`, planned through
+-- try_create_subplan_join_paths: JoinScan declines. Expected: ids 1, 2, 4.
+SELECT explain_redact_oid($$
+SELECT i.id FROM i6834_items i
+WHERE (i.amt IS NULL OR i.amt IN (SELECT amt FROM i6834_scale3)) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id FROM i6834_items i
+WHERE (i.amt IS NULL OR i.amt IN (SELECT amt FROM i6834_scale3)) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
+-- 2d. Positive control for 2c with an equal-scale key: JoinScan is used.
+-- Expected: ids 1, 2, 4.
+SELECT explain_redact_oid($$
+SELECT i.id FROM i6834_items i
+WHERE (i.amt IS NULL OR i.amt IN (SELECT amt FROM i6834_scale2)) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id FROM i6834_items i
+WHERE (i.amt IS NULL OR i.amt IN (SELECT amt FROM i6834_scale2)) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;
+
+DROP TABLE i6834_items, i6834_scale3, i6834_scale2, i6834_wide2, i6834_wide_items, i6834_wide5;

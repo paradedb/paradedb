@@ -1986,7 +1986,7 @@ unsafe fn pathkey_is_outer_only(
     true
 }
 /// Returns true if the expression is an `OVER ()` window function, or an expression containing such a
-/// function and constants only, meaning it will not effect the sort order of the result.
+/// function and constants only, meaning it will not affect the sort order of the result.
 ///
 /// NOTE: We don't check the OVER () clause because any window func with a non-bare OVER () is
 /// rejected at an earlier point
@@ -2014,7 +2014,7 @@ fn expr_is_window_constant(expr: *mut pg_sys::Node) -> bool {
 }
 
 /// Returns true if every member is an `OVER ()` window function, or an expression containing such a
-/// function and constants only, meaning it will not effect the sort order of the result
+/// function and constants only, meaning it will not affect the sort order of the result
 fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
     let members = unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members) };
     members.iter_ptr().all(|member| {
@@ -2494,7 +2494,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
 
     // Each embedded window function must itself be absorbable (supported
-    // aggregate, bare OVER (), fast-field argument, no FILTER).
+    // aggregate, bare OVER (), fast-field argument, columnar FILTER columns).
     let mut window_deps = Vec::new();
     if !deps.window_funcs.is_empty() {
         for (ordinal, wf) in deps.window_funcs.iter().enumerate() {

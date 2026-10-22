@@ -609,8 +609,8 @@ impl JoinScan {
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
     ///
     /// Returns `Err` with a descriptive message if any activation check fails.
-    /// The caller can then optionally perform join-level predicate extraction on
-    /// the returned clause before passing it to `finalize_clause_into_path`.
+    /// The search predicates of the plan and of the window `FILTER`s are tagged
+    /// before returning, so a caller cannot add predicates to the clause afterwards.
     unsafe fn validate_and_build_clause(
         root: *mut pg_sys::PlannerInfo,
         plan: RelNode,

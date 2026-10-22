@@ -50,13 +50,28 @@ impl MergeLock {
     /// This is a blocking operation to acquire an exclusive lock on the merge lock buffer
     pub unsafe fn acquire(indexrel: &PgSearchRelation, block_number: pg_sys::BlockNumber) -> Self {
         let mut bman = BufferManager::new(indexrel);
-        let mut buffer = bman.get_buffer_mut(block_number);
+        let buffer = bman.get_buffer_mut(block_number);
+        Self::from_buffer(bman, buffer)
+    }
+
+    /// Waits for retained merger pins, then keeps exclusive ownership through VACUUM setup.
+    pub unsafe fn acquire_for_cleanup(
+        indexrel: &PgSearchRelation,
+        block_number: pg_sys::BlockNumber,
+    ) -> Self {
+        let mut bman = BufferManager::new(indexrel);
+        let buffer = bman.get_buffer_for_cleanup(block_number);
+        Self::from_buffer(bman, buffer)
+    }
+
+    unsafe fn from_buffer(bman: BufferManager, mut buffer: BufferMut) -> Self {
         let mut page = buffer.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
 
         if !block_number_is_valid(metadata.merge_list) {
             metadata.merge_list =
-                LinkedItemList::<MergeEntry>::create_with_fsm(indexrel).get_header_blockno();
+                LinkedItemList::<MergeEntry>::create_with_fsm(bman.buffer_access().rel())
+                    .get_header_blockno();
         }
 
         MergeLock {

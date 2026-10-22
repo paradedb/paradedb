@@ -113,5 +113,6 @@ superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "s
 
 [dev-dependencies]
 pgrx-tests.workspace = true
+postgres = "0.19.14"
 rstest = "0.27.0"
 proptest = "1.11.0"

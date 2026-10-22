@@ -25,10 +25,10 @@ use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
-use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{MergePins, MetaPage};
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -315,7 +315,8 @@ pub unsafe fn do_merge(
     // apply backpressure if there are too many mutable segments
     // this means forcing a foreground merge of the mutable segments
     let need_backpressure = need_backpressure(style, metadata.segment_metas());
-    let cleanup_lock = metadata.cleanup_lock_shared();
+    // Retain both VACUUM barriers before loading metadata; only selection holds MergeLock.
+    let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
@@ -339,7 +340,7 @@ pub unsafe fn do_merge(
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
-        drop(cleanup_lock);
+        drop(merge_pins);
 
         try_launch_background_merger(index, largest_layer_size);
     } else if style == MergeStyle::Insert
@@ -355,7 +356,7 @@ pub unsafe fn do_merge(
             index,
             foreground_merge_policy,
             merge_lock,
-            cleanup_lock,
+            merge_pins,
             false,
             false,
             current_xid.expect("foreground merging requires a current transaction id"),
@@ -476,7 +477,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let layer_sizes = IndexLayerSizes::from(&index);
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
-        let cleanup_lock = metadata.cleanup_lock_shared();
+        let merge_pins = metadata.pin_merge();
         // this ensures there's only one merge running at a time for the given index,
         // while the lock is held
         let merge_lock = metadata.acquire_merge_lock();
@@ -486,7 +487,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 &index,
                 merge_policy,
                 merge_lock,
-                cleanup_lock,
+                merge_pins,
                 true,
                 true,
                 current_xid,
@@ -516,16 +517,14 @@ unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
-    cleanup_lock: Buffer,
+    merge_pins: MergePins,
     is_background: bool,
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
 ) {
-    // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
-    // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
-    // before it decides to find the segments it should vacuum.  The reason is that it needs to see
-    // the final merged segment, not the original segments that will be deleted
+    // Keep both pins through publication and reservation removal. VACUUM must see final merged
+    // segments when selecting inputs and must not deactivate exclusions over an old metadata view.
     let metadata = MetaPage::open(indexrel);
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
         .expect("should be able to open merger");
@@ -553,6 +552,9 @@ unsafe fn merge_index(
             .add_segment_ids(merge_policy.mergeable_segments(), current_xid)
             .expect("should be able to write current merge segment_id list");
         drop(merge_lock);
+
+        #[cfg(feature = "pg_test")]
+        crate::postgres::storage::coordination_test::merge_pause();
 
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
         //
@@ -606,7 +608,7 @@ unsafe fn merge_index(
     } else {
         drop(merge_lock);
     }
-    drop(cleanup_lock);
+    drop(merge_pins);
 }
 
 ///

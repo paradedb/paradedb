@@ -132,7 +132,7 @@ mod tests {
             let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
             let segment = format!("{}.term", uuid::Uuid::new_v4());
             let path = Path::new(segment.as_str());
-            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
+            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path, false) };
             writer.write_all(&bytes).unwrap();
             let file_entry = writer.file_entry();
             writer.terminate().unwrap();

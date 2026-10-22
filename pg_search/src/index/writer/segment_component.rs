@@ -32,7 +32,7 @@ pub struct SegmentComponentWriter {
 }
 
 impl SegmentComponentWriter {
-    pub unsafe fn new(indexrel: &PgSearchRelation, path: &Path) -> Self {
+    pub unsafe fn new(indexrel: &PgSearchRelation, path: &Path, track_unpublished: bool) -> Self {
         if path.component_type() == Some(SegmentComponent::Store)
             || path.component_type() == Some(SegmentComponent::TempStore)
         {
@@ -42,7 +42,10 @@ impl SegmentComponentWriter {
             }
         } else {
             Self {
-                inner: Some(InnerSegmentComponentWriter::new(indexrel)),
+                inner: Some(InnerSegmentComponentWriter::new(
+                    indexrel,
+                    track_unpublished,
+                )),
                 path: path.to_path_buf(),
             }
         }
@@ -163,8 +166,12 @@ impl<W: Write> Drop for PanicSafeBufWriter<W> {
 }
 
 impl InnerSegmentComponentWriter {
-    pub unsafe fn new(indexrel: &PgSearchRelation) -> Self {
-        let segment_component = LinkedBytesList::create_with_fsm(indexrel);
+    pub unsafe fn new(indexrel: &PgSearchRelation, track_unpublished: bool) -> Self {
+        let segment_component = if track_unpublished {
+            LinkedBytesList::create_tracked(indexrel)
+        } else {
+            LinkedBytesList::create_with_fsm(indexrel)
+        };
 
         Self {
             header_blockno: segment_component.header_blockno,
@@ -242,6 +249,7 @@ mod tests {
             SegmentComponentWriter::new(
                 &indexrel,
                 Path::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.idx"),
+                false,
             )
         };
         writer
@@ -294,6 +302,7 @@ mod tests {
             SegmentComponentWriter::new(
                 &indexrel,
                 Path::new("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.idx"),
+                false,
             )
         };
 

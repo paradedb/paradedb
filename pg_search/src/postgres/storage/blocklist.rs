@@ -291,6 +291,12 @@ pub mod builder {
             let mut chunks = std::mem::take(&mut self.chunks).into_iter();
             let mut chunk = chunks.next()?;
             let mut block = bman.new_buffer();
+            #[cfg(feature = "pg_test")]
+            unsafe {
+                crate::postgres::storage::coordination_test::failpoint(
+                    c"pg_search.test_mapping_fail",
+                );
+            }
             block.init_page();
 
             let starting_blockno = block.number();

@@ -29,6 +29,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
+use crate::postgres::storage::unpublished;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -308,6 +309,11 @@ pub unsafe fn do_merge(
     if !index.is_valid() {
         return Ok(());
     }
+
+    // A foreground merge this backend ran earlier may have stopped on an ERROR, which aborted
+    // the transaction before its unpublished output could be returned. This is the next clean
+    // transaction, so return it now.
+    unpublished::reclaim(index);
 
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
@@ -589,6 +595,9 @@ unsafe fn merge_index(
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);
+
+        // Return private output allocations after a cooperative stop, before releasing the pins.
+        unpublished::reclaim(indexrel);
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if need_gc {

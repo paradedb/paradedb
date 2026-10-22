@@ -22,6 +22,18 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{IntoDatum, PgRelation, direct_function_call, pg_extern, pg_sys};
 use std::ffi::CStr;
+use std::io::Write;
+use tantivy::Directory;
+
+pub(crate) unsafe fn failpoint(name: &CStr) {
+    let value = pg_sys::GetConfigOptionByName(name.as_ptr(), std::ptr::null_mut(), true);
+    if !value.is_null() && CStr::from_ptr(value).to_bytes() == b"on" {
+        pgrx::error!(
+            "injected output ownership failure: {}",
+            name.to_string_lossy()
+        );
+    }
+}
 
 unsafe fn pause(ready_name: &CStr, gate_name: &CStr) {
     let ready = pg_sys::GetConfigOptionByName(ready_name.as_ptr(), std::ptr::null_mut(), true);
@@ -51,6 +63,35 @@ pub(crate) unsafe fn vacuum_setup_pause() {
 
 pub(crate) unsafe fn merge_pause() {
     pause(c"pg_search.test_merge_ready", c"pg_search.test_merge_gate");
+}
+
+pub(crate) unsafe fn output_pause() {
+    pause(
+        c"pg_search.test_output_ready",
+        c"pg_search.test_output_gate",
+    );
+}
+
+#[pg_extern]
+unsafe fn test_write_unpublished(index: PgRelation, bytes: i64) {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let mut directory = MvccSatisfies::Mergeable.directory(&index);
+    directory.track_unpublished_files();
+    let path = format!(
+        "{}.pos",
+        tantivy::index::SegmentId::generate_random().uuid_string()
+    );
+    let mut writer = directory.open_write(std::path::Path::new(&path)).unwrap();
+    writer
+        .write_all(&vec![7; usize::try_from(bytes).unwrap()])
+        .unwrap();
+    writer.flush().unwrap();
+}
+
+#[pg_extern]
+unsafe fn test_reclaim_unpublished(index: PgRelation) -> i64 {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    crate::postgres::storage::unpublished::reclaim(&index) as i64
 }
 
 #[pg_extern]

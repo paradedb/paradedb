@@ -76,8 +76,8 @@ pub trait FreeSpaceManager {
     /// Drain `n` recyclable blocks from this [`FreeSpaceManager`] instance, using the specified
     /// [`BufferManager`] for underlying disk access.
     ///
-    /// It is the caller's responsibility to ensure each yielded block is properly used, or else it will
-    /// be lost forever as dead space in the underlying relation.  Unyielded blocks are unaffected.
+    /// All blocks in the returned iterator have already been removed from the FSM, including
+    /// blocks the caller does not consume. The caller must use or return every reserved block.
     fn drain(
         &mut self,
         bman: &mut BufferManager,
@@ -779,6 +779,10 @@ pub mod v2 {
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
             let current_xid = super::recycling_horizon().value;
 
+            if let Some(allocation) = &bman.buffer_access().allocation {
+                allocation.reserve(many);
+            }
+
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
             let mut unlinked_heads = Vec::new();
@@ -855,6 +859,7 @@ pub mod v2 {
                     let mut page = buffer.page_mut();
                     let contents = page.contents_mut::<AvlLeaf>();
                     let mut modified = false;
+                    let first_drained = blocks.len();
 
                     let next_blockno = page.next_blockno();
                     let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
@@ -920,6 +925,11 @@ pub mod v2 {
                     // unlink it from the list and that requires an exclusive lock on the tree
                     // and we can't have both at the same time
                     drop(buffer);
+                    if let Some(allocation) = &bman.buffer_access().allocation {
+                        for blockno in &blocks[first_drained..] {
+                            allocation.record(*blockno);
+                        }
+                    }
 
                     if should_unlink_head {
                         let old_head = head_blockno;

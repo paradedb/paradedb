@@ -70,6 +70,7 @@ impl BM25Page for pg_sys::Page {
 pub struct RelationBufferAccess {
     rel: PgSearchRelation,
     pub(super) io_stats: Option<crate::index::reader::io_stats::ComponentStats>,
+    pub(super) allocation: Option<crate::postgres::storage::unpublished::Allocation>,
 }
 
 unsafe impl Send for RelationBufferAccess {}
@@ -80,6 +81,7 @@ impl RelationBufferAccess {
         Self {
             rel: rel.clone(),
             io_stats: None,
+            allocation: None,
         }
     }
 
@@ -92,10 +94,17 @@ impl RelationBufferAccess {
     ///
     /// The [`pg_sys::Page`] representation has not been initialized.  The caller must do this.
     pub fn new_buffer(&self) -> pg_sys::Buffer {
-        self.get_buffer(
+        if let Some(allocation) = &self.allocation {
+            allocation.reserve(1);
+        }
+        let buffer = self.get_buffer(
             pg_sys::InvalidBlockNumber,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        )
+        );
+        if let Some(allocation) = &self.allocation {
+            allocation.record(unsafe { pg_sys::BufferGetBlockNumber(buffer) });
+        }
+        buffer
     }
 
     /// Return an iterator of [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys::Buffer`]s.  The buffers
@@ -135,13 +144,17 @@ impl RelationBufferAccess {
 
             let rel = self.rel.as_ptr();
             let fork = self.rel.fork_number();
+            let allocation = self.allocation.clone();
             let iter = (0..npages)
                 .step_by(MAX_BUFFERS_TO_EXTEND_BY)
                 .flat_map(move |i| {
                     let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
 
                     // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked...
-                    let buffers = bulk_extend_relation(rel, many, fork);
+                    if let Some(allocation) = &allocation {
+                        allocation.reserve(many);
+                    }
+                    let buffers = bulk_extend_relation(rel, many, fork, allocation.as_ref());
                     buffers.into_iter().take(many)
                 })
                 .inspect(move |&pg_buffer| {
@@ -279,6 +292,7 @@ unsafe fn bulk_extend_relation(
     rel: pg_sys::Relation,
     npages: usize,
     fork: pg_sys::ForkNumber::Type,
+    allocation: Option<&crate::postgres::storage::unpublished::Allocation>,
 ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
     struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
     unsafe impl Send for BufferAccessStrategyHolder {}
@@ -327,6 +341,11 @@ unsafe fn bulk_extend_relation(
                     buffers[filled..].as_mut_ptr(),
                     &mut extended_by,
                 );
+                if let Some(allocation) = allocation {
+                    for buffer in &buffers[filled..filled + extended_by as usize] {
+                        allocation.record(pg_sys::BufferGetBlockNumber(*buffer));
+                    }
+                }
                 filled += extended_by as usize;
                 extended_by = 0;
                 if filled == npages {
@@ -352,6 +371,9 @@ unsafe fn bulk_extend_relation(
             fork,
         );
         debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        if let Some(allocation) = allocation {
+            allocation.record(pg_sys::BufferGetBlockNumber(pg_buffer));
+        }
         *slot = pg_buffer;
     }
     pg_sys::UnlockRelationForExtension(rel, pg_sys::ExclusiveLock as i32);

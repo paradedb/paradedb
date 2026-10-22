@@ -140,9 +140,18 @@ impl LinkedBytesListWriter {
                 as usize
         };
         let mut new_buffers = self.list.bman.new_buffers(new_buffers_needed);
+        #[cfg(feature = "pg_test")]
+        let initial_blockno = self.last_blockno;
+        #[cfg(feature = "pg_test")]
+        let mut paused = false;
 
         while bytes_written < bytes.len() {
             check_for_interrupts!();
+            #[cfg(feature = "pg_test")]
+            if !paused && self.last_blockno != initial_blockno {
+                crate::postgres::storage::coordination_test::output_pause();
+                paused = true;
+            }
             self.blocklist_builder.push(self.last_blockno);
 
             let mut buffer = self.list.bman.get_buffer_mut(self.last_blockno);
@@ -317,7 +326,14 @@ impl LinkedBytesList {
     /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
     /// will attempt to create the initial block structure using recycled blocks from the [`FreeSpaceManager`].
     pub fn create_with_fsm(rel: &PgSearchRelation) -> Self {
-        let mut bman = BufferManager::new(rel);
+        Self::create_with_buffer_manager(BufferManager::new(rel))
+    }
+
+    pub(crate) fn create_tracked(rel: &PgSearchRelation) -> Self {
+        Self::create_with_buffer_manager(BufferManager::new_tracked(rel))
+    }
+
+    fn create_with_buffer_manager(mut bman: BufferManager) -> Self {
         let mut buffers = bman.new_buffers(2);
 
         let mut header_buffer = buffers.next().unwrap();

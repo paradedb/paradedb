@@ -61,6 +61,45 @@ struct Actor {
     handle: JoinHandle<(Client, Result<Vec<Row>, Error>)>,
 }
 
+struct BackgroundOutputPause {
+    client: Client,
+    database: String,
+}
+
+impl BackgroundOutputPause {
+    fn new(ready: i64, gate: i64) -> Self {
+        let mut client = connect();
+        let database: String = client
+            .query_one("SELECT current_database()", &[])
+            .unwrap()
+            .get(0);
+        let database = format!("\"{}\"", database.replace('"', "\"\""));
+        let mut pause = Self { client, database };
+        pause
+            .client
+            .batch_execute(&format!(
+                "ALTER DATABASE {} SET pg_search.test_output_ready='{ready}';
+                 ALTER DATABASE {} SET pg_search.test_output_gate='{gate}'",
+                pause.database, pause.database
+            ))
+            .unwrap();
+        pause
+    }
+}
+
+impl Drop for BackgroundOutputPause {
+    fn drop(&mut self) {
+        let result = self.client.batch_execute(&format!(
+            "ALTER DATABASE {} RESET pg_search.test_output_ready;
+             ALTER DATABASE {} RESET pg_search.test_output_gate",
+            self.database, self.database
+        ));
+        if !std::thread::panicking() {
+            result.unwrap();
+        }
+    }
+}
+
 impl Actor {
     fn finish(self) -> (Client, Result<Vec<Row>, Error>) {
         self.handle.join().unwrap()
@@ -462,5 +501,146 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
         fixture.release(&vacuum);
         vacuum.finish().1.unwrap();
         fixture.assert_rows(if cancel { 200 } else { 500 });
+    }
+}
+
+#[test]
+fn background_merge_cancellation_and_termination_reclaim_output() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for terminate in [false, true] {
+        let table = if terminate {
+            "merge_cleanup_background_terminate"
+        } else {
+            "merge_cleanup_background_cancel"
+        };
+        let mut fixture = Fixture::new(table, false);
+        fixture.segments_with_rows(5000);
+        let (ready, gate) = fixture.pause_keys();
+        let settings = BackgroundOutputPause::new(ready, gate);
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "ALTER INDEX {} SET(background_layer_sizes='1gb');
+                 INSERT INTO {table} VALUES(20001,'alpha beta')",
+                fixture.index
+            ))
+            .unwrap();
+        let worker_query = format!(
+            "SELECT pid FROM pg_locks JOIN pg_stat_activity USING(pid)
+             WHERE locktype='advisory' AND objid::bigint={ready} AND granted
+             AND backend_type LIKE 'background merger for %'"
+        );
+        wait_until("background merger writing output", || {
+            !fixture
+                .controller
+                .query(&worker_query, &[])
+                .unwrap()
+                .is_empty()
+        });
+        let pid: i32 = fixture.value(&worker_query);
+        let free_before: i64 = fixture.value(&format!(
+            "SELECT count(*) FROM paradedb.fsm_info('{}')",
+            fixture.index
+        ));
+        fixture.cancel_pid(pid, terminate);
+        wait_until("background merger exit", || {
+            fixture.value::<i64>(&format!(
+                "SELECT count(*) FROM pg_stat_activity WHERE pid={pid}"
+            )) == 0
+        });
+        let row = fixture
+            .controller
+            .query_one(
+                &format!(
+                    "SELECT count(*),count(DISTINCT free_blockno) FROM paradedb.fsm_info('{}')",
+                    fixture.index
+                ),
+                &[],
+            )
+            .unwrap();
+        let free: i64 = row.get(0);
+        assert!(free > free_before);
+        assert_eq!(row.get::<_, i64>(1), free);
+        drop(settings);
+        fixture.assert_rows(10001);
+    }
+}
+
+#[test]
+fn cancellation_and_termination_reclaim_reserved_output_pages() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for terminate in [false, true] {
+        let table = if terminate {
+            "merge_cleanup_output_terminate"
+        } else {
+            "merge_cleanup_output_cancel"
+        };
+        let mut fixture = Fixture::new(table, false);
+        let blocks_before: i64 = fixture.value(&format!(
+            "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
+            fixture.index
+        ));
+        let free_before: i64 = fixture.value(&format!(
+            "SELECT count(*) FROM paradedb.fsm_info('{}')",
+            fixture.index
+        ));
+        let writer = fixture.actor(
+            "output",
+            format!(
+                "SELECT paradedb.test_write_unpublished('{}', {})",
+                fixture.index,
+                64 * 1024 * 1024
+            ),
+        );
+        fixture.stage(&writer);
+        let allocated: i64 = fixture.value::<i64>(&format!(
+            "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
+            fixture.index
+        )) - blocks_before;
+        assert!(allocated > 2);
+        let pid = writer.pid;
+        fixture.cancel(&writer, terminate);
+        let (mut client, result) = writer.finish();
+        assert_error(result, if terminate { "57P01" } else { "57014" });
+        if terminate {
+            wait_until("output writer exit", || {
+                fixture.value::<i64>(&format!(
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid={pid}"
+                )) == 0
+            });
+        } else {
+            assert_eq!(
+                client
+                    .query_one(
+                        &format!(
+                            "SELECT paradedb.test_reclaim_unpublished('{}')",
+                            fixture.index
+                        ),
+                        &[]
+                    )
+                    .unwrap()
+                    .get::<_, i64>(0),
+                1
+            );
+            assert_eq!(
+                client
+                    .query_one(
+                        &format!(
+                            "SELECT paradedb.test_reclaim_unpublished('{}')",
+                            fixture.index
+                        ),
+                        &[]
+                    )
+                    .unwrap()
+                    .get::<_, i64>(0),
+                0
+            );
+        }
+        let (free, unique): (i64, i64) = {
+            let row = fixture.controller.query_one(&format!("SELECT count(*), count(DISTINCT free_blockno) FROM paradedb.fsm_info('{}')", fixture.index), &[]).unwrap();
+            (row.get(0), row.get(1))
+        };
+        assert_eq!(free - free_before, allocated);
+        assert_eq!(unique, free);
     }
 }

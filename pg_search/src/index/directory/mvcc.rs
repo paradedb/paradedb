@@ -31,6 +31,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::unpublished;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -400,6 +401,10 @@ pub struct MVCCDirectory {
     readers: Arc<Mutex<HashMap<PathBuf, Arc<dyn FileHandle>>>>,
     new_files: Arc<Mutex<HashMap<PathBuf, AtomicFileEntry>>>,
 
+    /// Record each file this directory writes in [`unpublished`] until it is published, so a
+    /// merge that stops early can return the file's blocks to the FSM. Set by the merger only.
+    track_unpublished: bool,
+
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
@@ -432,6 +437,7 @@ impl MVCCDirectory {
 
             readers: Default::default(),
             new_files: Default::default(),
+            track_unpublished: false,
             loaded_metas: Default::default(),
             pin_cushion: Default::default(),
             all_entries: Default::default(),
@@ -440,6 +446,13 @@ impl MVCCDirectory {
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
         }
+    }
+
+    /// Record the files this directory writes in [`unpublished`] until they are published, so a
+    /// merge that stops before publishing can return their blocks to the FSM. Call this before
+    /// handing the directory to tantivy: the clones it makes inherit the setting.
+    pub fn track_unpublished_files(&mut self) {
+        self.track_unpublished = true;
     }
 
     /// Take over this directory's pins on the segments it loaded. See [`SegmentPins`].
@@ -734,11 +747,12 @@ impl Directory for MVCCDirectory {
 
     /// Returns a segment writer that implements std::io::Write
     fn open_write_inner(&self, path: &Path) -> result::Result<InnerWritePtr, OpenWriteError> {
-        let writer = unsafe { SegmentComponentWriter::new(&self.indexrel, path) };
-        self.new_files.lock().insert(
-            path.to_path_buf(),
-            (writer.file_entry(), writer.total_bytes()),
-        );
+        let writer =
+            unsafe { SegmentComponentWriter::new(&self.indexrel, path, self.track_unpublished) };
+        let file_entry = writer.file_entry();
+        self.new_files
+            .lock()
+            .insert(path.to_path_buf(), (file_entry, writer.total_bytes()));
         Ok(Box::new(writer))
     }
 
@@ -844,8 +858,20 @@ impl Directory for MVCCDirectory {
             return Ok(());
         }
 
+        let published_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
+        let publication = unpublished::prepare_publication(
+            &self.indexrel,
+            payload
+                .iter()
+                .filter(|(path, _)| {
+                    path.segment_id()
+                        .is_some_and(|id| published_ids.contains(&id))
+                })
+                .map(|(_, entry)| entry.starting_block),
+        );
+
         unsafe {
-            save_new_metas(&self.indexrel, meta, previous_meta, payload)
+            save_new_metas(&self.indexrel, meta, previous_meta, payload, publication)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
 

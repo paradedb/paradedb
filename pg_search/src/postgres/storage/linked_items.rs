@@ -658,7 +658,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> DerefMut for AtomicGuard<'_
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
-    pub fn commit(mut self) {
+    pub fn commit(self) {
+        self.commit_with(|| {});
+    }
+
+    /// Acknowledge publication before recycling the previous list. The acknowledgment must
+    /// neither fail nor call PostgreSQL: no error or interrupt may separate it from the switch.
+    pub(crate) fn commit_with(mut self, on_publish: impl FnOnce()) {
         let (original, mut original_header_lock) =
             self.original.take().expect("Cannot commit twice!");
 
@@ -703,6 +709,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
 
             original_start_blockno
         };
+
+        on_publish();
 
         // And then collect our old contents, which are no longer reachable.
         let recyclable_blocks = unsafe {

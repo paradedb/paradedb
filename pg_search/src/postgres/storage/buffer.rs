@@ -818,6 +818,12 @@ impl BufferManager {
         }
     }
 
+    pub(crate) fn new_tracked(rel: &PgSearchRelation) -> Self {
+        let mut bman = Self::new(rel);
+        bman.rbufacc.allocation = Some(super::unpublished::track(rel));
+        bman
+    }
+
     pub fn fsm(&mut self) -> impl FreeSpaceManager + use<> {
         let fsm_blockno = *self
             .fsm_blockno

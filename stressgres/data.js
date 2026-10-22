@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792658496236,
+  "lastUpdate": 1792658513511,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -154132,6 +154132,106 @@ window.BENCHMARK_DATA = {
             "value": 63.73046875,
             "unit": "median mem",
             "extra": "avg mem: 62.04020962244666, max mem: 63.73046875, count: 59432"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792658502882,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.04849351960949335, max background_merging: 1.0, count: 59410"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.612745680957184, max cpu: 9.566517, count: 59410"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.869571620939237, max mem: 26.875, count: 59410"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9599103403616525, max cpu: 28.500742, count: 59410"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 52.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.65959480464147, max mem: 55.88671875, count: 59410"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55788,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55511.48794815688, max block_count: 55788.0, count: 59410"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.317488638276384, max segment_count: 21.0, count: 59410"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.178625485937914, max cpu: 33.718014, count: 59410"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 94.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.59523386214443, max mem: 94.93359375, count: 59410"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.843968594785278, max cpu: 28.472567, count: 59410"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 62.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.81838166449251, max mem: 62.44921875, count: 59410"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.779052543990248, max cpu: 28.235296, count: 59410"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 54.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.36500569401195, max mem: 60.3984375, count: 59410"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792625688006,
+  "lastUpdate": 1792627546485,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15028,6 +15028,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 184.012,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa7991c65b510c44220afb2db3936ce26844f978",
+          "message": "fix: array `terms` facets over a join under MPP (#6949)\n\n## What\n\n`pdb.agg` with an array `terms` facet alongside a scalar facet over a\njoin previously failed under MPP (with `transport receiver detached\nbefore this channel's EOF` or a hang) or returned under-counted buckets.\nIt now matches the serial result.\n\n## Why\n\nArray facets lower to a union of one pipeline per unnest level, each\nover a clone of the join:\n\n- Producer workers previously pre-built static output partition sinks\nusing child-local consumer task numbers\n(`NetworkBoundary::route_partition`), which did not account for\n`ChildrenIsolatorUnionExec` remapping each union branch onto a slice of\nthe parent stage's tasks, even though `ExecuteTaskFrame` already carries\nthe requesting `sender_proc` and partition range on the pull-based `shm`\ntransport.\n- Cloned join branches shared the original branch's `mpp_source_idx` and\n`ExprContext`, splitting each segment pool across union branches and\nresetting shared runtime expression memory.\n\n## How\n\n- Depends on paradedb/datafusion-distributed#116, which opens\n`PartitionSink`s on demand inside `run_execute_task_loop` from each\n`ExecuteTaskFrame`'s `sender_proc` and partition range.\n- Removes the static push-era routing machinery (`FragmentRouting`,\n`DispatchedStage`, `classify_stages`, `classify_routing`, and the\npre-execution sink loop in `run_mpp_worker`).\n- `build_pdb_aggregate_plan`\n(`pg_search/src/postgres/customscan/aggregatescan/datafusion_exec.rs`)\nstamps each cloned union branch onto its own segment pools and gives\neach provider its own `ExprContext` via\n`PgSearchTableProvider::ensure_own_expr_context`.\n- `launch_aggregate_mpp`\n(`pg_search/src/postgres/customscan/aggregatescan/mod.rs`) sizes\n`ParallelScanArgs` pools from the stamped plan.\n\n## Tests\n\n- `issue_mpp_aggregate_array_terms_union.sql`: 13 shapes compared\nagainst serial execution, with `EXPLAIN ANALYZE` verifying MPP worker\nlaunch.\n- `pdb_agg_datafusion.sql`: section 6 also runs under MPP.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-21T15:37:59-07:00",
+          "tree_id": "660e408b45bece452e111adacd0ee91ac8457db6",
+          "url": "https://github.com/paradedb/paradedb/commit/aa7991c65b510c44220afb2db3936ce26844f978"
+        },
+        "date": 1792627535101,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 26.102,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 98.621,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 339.095,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.037,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 183.278,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.476,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.323,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.065,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 25.967,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 124.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 199.706,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.412,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 83.323,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 188.207,
             "unit": "ms"
           }
         ]

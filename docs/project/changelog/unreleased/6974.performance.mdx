@@ -1,5 +1,0 @@
----
-header: performance
----
-
-Prune index segments using per-segment min/max field statistics across all columnar fields (not only `partition_by` columns) before plan-time estimation and scan execution, and report `Included` and `Pruned` segment counts under `Segments` in `EXPLAIN ANALYZE`.

@@ -1,0 +1,55 @@
+---
+title: "0.26.3"
+description: "ParadeDB release notes for 0.26.3"
+noindex: true
+---
+
+See GitHub release: [v0.26.3](https://github.com/paradedb/paradedb/releases/tag/v0.26.3)
+
+## New Features ✨
+
+- Emit a once-per-query warning when a scan encounters a significantly stale visibility map (at least `paradedb.visibility_map_warning_threshold` non-all-visible heap blocks across the table and at least 50% of scanned blocks not all-visible), with guidance on running `VACUUM` and tuning autovacuum.
+
+- Join Scan now pushes down window aggregates with a `FILTER` clause, such as `COUNT(*) FILTER (WHERE r.score > 80) OVER ()` or `pdb.agg(...) FILTER (WHERE ...) OVER ()`, over joins. The filter can compare columnar fields from either side of the join and can include search operators like `|||`. Filters that cannot be evaluated in the scan fall back to PostgreSQL. Join Scan also no longer declines `SELECT DISTINCT` queries with window aggregates over a column, such as `SUM(r.score) OVER ()` or `AVG(r.score) OVER ()` (#6501).
+
+- Join Scan no longer declines queries whose `SELECT` list contains a volatile function, such as `random()`. Postgres now computes these expressions from the rows Join Scan returns, once per output row after the `LIMIT`, as it does in its own plans. An `ORDER BY` on a volatile expression still declines Join Scan.
+
+## Performance Improvements 🚀
+
+- Aggregate Scan pushes every `ORDER BY` key of a `GROUP BY ... LIMIT` query into the DataFusion TopK, joins included, and declares the ordering to Postgres so no `Sort` sits above the scan. Only a single key was pushed before.
+
+- Join Scan and Aggregate Scan join the relations of an all-inner join in the order the Postgres planner's row estimates favour, so the smallest joins run first. Outer, semi, anti, and lateral joins keep the order the query wrote.
+
+- Prune index segments using per-segment min/max field statistics across all columnar fields (not only `partition_by` columns) before plan-time estimation and scan execution, and report `Included` and `Pruned` segment counts under `Segments` in `EXPLAIN ANALYZE`.
+
+## Stability Improvements 💪
+
+- Fixed Join Scan queries that project an expression over an indexed `DATE`, `TIME`, or `TIMETZ` column, such as `d::text` or `to_char(d, 'YYYY-MM-DD')`. A `DATE` expression failed at planning time with `coercion from Timestamp(µs) to the signature Exact(Date32) failed`, and a `TIME` or `TIMETZ` expression failed at execution time with `Unsupported OID for Utf8 Arrow type` (#6577).
+
+- Cancelling or terminating a backend that runs an MPP query no longer leaves it waiting on parallel workers that never exit.
+
+- Range and term queries on integer fields are now correct at the edges of the type (#6673). Fractional values are no longer truncated: `x >= 2.5` and term 2.5 used to match 2, and `x <= -2.5` used to match -2. A bound that is not a number on an integer field is now an error. On int4range and int8range, a fractional bound or value works in terms of integers: `range_term` 2.5 matches nothing.
+
+- Fixed Join Scan declining queries whose `SELECT` list contains an expression over a column that is not columnar, such as `'x/' || s.path` (#6576). Postgres now computes these expressions from the rows Join Scan returns, after the `LIMIT`. An `ORDER BY` or `DISTINCT` expression still needs columnar inputs.
+
+- Fixed `pdb.unicode_words` removing emojis whenever its first option was anything other than `remove_emojis`, for example `'remove_emojis=false'`, `'columnar=true'`, `'pnorms=true'` or `'lowercase=false'`. Only the bare `remove_emojis` flag and `remove_emojis=true` remove emojis now, as documented. Existing indexes created with one of those options were built with emojis removed, so reindex them to make emojis searchable.
+
+- Fixed an issue where large vector index builds could fail with `no unpinned buffers available` because of excessive small segments.
+
+- `pg_stat_user_indexes` now counts the scans of a ParadeDB index. `idx_scan` moves for every executor path that reads the index, so an unused-index check no longer reports a live ParadeDB index as unused.
+
+- Aggregate Scan no longer fails on an `ORDER BY ... LIMIT` over a `LATERAL unnest` group column, and keeps a sort key with a non byte-ordered collation on the Postgres `Sort`. A `LIMIT` above a `DISTINCT` or a window function over a `GROUP BY` no longer loses rows.
+
+- Fixed Aggregate Scan reading a `NUMERIC` literal in an aggregate `FILTER` or `HAVING` clause as the bits of a float, which produced wrong counts such as `count(*) FILTER (WHERE score >= 7.5)` (#6792). A `FILTER` that compares a `NUMERIC` column now falls back to Postgres, because the scan reads `NUMERIC` fields in their storage encoding.
+
+- Fixed missing tokenizer errors when reading or writing range indexes created before 0.26.0, without requiring a reindex.
+
+- `pdb.agg` `terms` facets over an array column, combined with other facets on a join, now run
+  correctly under MPP. Previously the query failed with a transport error, hung until
+  `statement_timeout`, or could return under-counted buckets.
+
+- A query with a `LIMIT` above 8192 no longer fails with `min > max. min = ..., max = 8192` when only part of its `ORDER BY` can be pushed down, such as `ORDER BY pdb.score(id) DESC, id DESC` on a table with a text key. This regressed in 0.26.1.
+
+- Fixed Join Scan returning rows in the wrong order for an `ORDER BY` on a volatile expression that is not in the `SELECT` list, such as `ORDER BY random(), t1.id`. Join Scan dropped the volatile sort key and sorted on the remaining keys. These queries now decline Join Scan.
+
+- Fixed logical replication apply worker errors when loading tokenizer configuration during transaction commit without an active snapshot.

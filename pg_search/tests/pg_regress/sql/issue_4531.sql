@@ -122,6 +122,28 @@ WHERE p.description ||| 'widget'
 ORDER BY p.id DESC LIMIT 10;
 
 -- ============================================================
+-- Test 6: Window aggregates with a FILTER on this shape.
+-- Postgres keeps its own WindowAgg above a base-relation path, so JoinScan
+-- declines: it could neither apply the LIMIT nor compute the filters there.
+-- ============================================================
+EXPLAIN (COSTS OFF)
+SELECT p.id,
+       COUNT(*) FILTER (WHERE p.description ||| 'fine') OVER () AS fine,
+       COUNT(*) FILTER (WHERE p.supplier_id = 1) OVER () AS alpha
+FROM products_4531 p
+WHERE p.description ||| 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 2;
+
+SELECT p.id,
+       COUNT(*) FILTER (WHERE p.description ||| 'fine') OVER () AS fine,
+       COUNT(*) FILTER (WHERE p.supplier_id = 1) OVER () AS alpha
+FROM products_4531 p
+WHERE p.description ||| 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 2;
+
+-- ============================================================
 -- Verify: same query with JoinScan OFF must return same results
 -- ============================================================
 SET paradedb.enable_join_custom_scan = off;

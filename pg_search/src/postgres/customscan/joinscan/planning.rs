@@ -1817,6 +1817,11 @@ pub(super) unsafe fn collect_required_fields(
                 }
             }
         }
+        if let Some(filter) = &window_agg.filter {
+            for column_ref in filter.collect_column_refs() {
+                ensure_column_in_all_sources(&mut plan_sources, column_ref.rti, column_ref.attno);
+            }
+        }
     }
 }
 
@@ -1954,10 +1959,10 @@ fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
 /// relation in `output_rtis`. Such pathkeys are "outer-only" w.r.t. this join
 /// subtree — the parent plan owns sorting on those keys.
 unsafe fn pathkey_is_outer_only(
-    equivclass: *mut pg_sys::EquivalenceClass,
+    equivclass: &pg_sys::EquivalenceClass,
     output_rtis: &[pg_sys::Index],
 ) -> bool {
-    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+    let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
     for member in members.iter_ptr() {
         let check_expr = strip_wrappers((*member).em_expr.cast());
 
@@ -1977,6 +1982,44 @@ unsafe fn pathkey_is_outer_only(
     }
     true
 }
+/// Returns true if the expression is an `OVER ()` window function, or an expression containing such a
+/// function and constants only, meaning it will not affect the sort order of the result.
+///
+/// NOTE: We don't check the OVER () clause because any window func with a non-bare OVER () is
+/// rejected at an earlier point
+fn expr_is_window_constant(expr: *mut pg_sys::Node) -> bool {
+    if expr.is_null() {
+        return false;
+    }
+    if !expr.contains_window_func() {
+        return false;
+    }
+
+    unsafe {
+        // window functions come back whole, un-recursed, so any vars in this list sit outside
+        // of the window function
+        let nodes = PgList::<pg_sys::Node>::from_pg(pg_sys::pull_var_clause(
+            expr,
+            (pg_sys::PVC_INCLUDE_WINDOWFUNCS
+                | pg_sys::PVC_RECURSE_AGGREGATES
+                | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32,
+        ));
+        nodes
+            .iter_ptr()
+            .all(|n| (*n).type_ != pg_sys::NodeTag::T_Var)
+    }
+}
+
+/// Returns true if every member is an `OVER ()` window function, or an expression containing such a
+/// function and constants only, meaning it will not affect the sort order of the result
+fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
+    let members = unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members) };
+    members.iter_ptr().all(|member| {
+        let member = unsafe { &*member };
+        let check_expr = strip_wrappers(member.em_expr.cast());
+        expr_is_window_constant(check_expr)
+    })
+}
 
 /// Check if all ORDER BY columns are fast fields.
 ///
@@ -1984,8 +2027,10 @@ unsafe fn pathkey_is_outer_only(
 /// in their respective ParadeDB indexes (or be paradedb.score() which is handled separately).
 /// Validate whether all ORDER BY clauses can be handled by JoinScan.
 ///
-/// Pathkeys that reference only relations outside this join subtree ("outer-only")
+/// Pathkeys that reference only relations outside this join subtree ("outer-only"),
 /// are skipped — the parent plan is responsible for sorting on those keys.
+///
+/// Pathkeys that don't affect sorting (mainly the output of global window functions) are skipped
 ///
 /// Returns `Ok(())` if:
 /// - No ORDER BY clause exists
@@ -2007,15 +2052,16 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     let source_rtis = collect_source_rtis(sources);
 
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
-        let equivclass = (*pathkey_ptr).pk_eclass;
+        let equivclass = &*(*pathkey_ptr).pk_eclass;
 
-        if pathkey_is_outer_only(equivclass, &source_rtis) {
+        if pathkey_is_outer_only(equivclass, &source_rtis) || pathkey_is_window_constant(equivclass)
+        {
             continue;
         }
 
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
         // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
-        let collation = (*equivclass).ec_collation;
+        let collation = equivclass.ec_collation;
         if !collation_supports(collation, CollationOperation::Ordering) {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation",
@@ -2152,7 +2198,13 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
     }
     for var_ptr in vars.iter_ptr() {
         let var = &*var_ptr;
-        if !resolve_fast_field_from_join_sources(sources, var).is_some() {
+        if !resolve_fast_field_from_join_sources(
+            sources,
+            var.varno as pg_sys::Index,
+            var.varattno as i32,
+        )
+        .is_some()
+        {
             return false;
         }
     }
@@ -2192,6 +2244,8 @@ pub(crate) enum ResolvedExpr {
         window_deps: Vec<WindowAgg>,
     },
     PgProjected,
+    /// A window function, or expression over one, that will return a constant value on all rows
+    WindowConstant,
 }
 
 // ---------------------------------------------------------------------------
@@ -2275,16 +2329,17 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
 
 pub fn resolve_fast_field_from_join_sources(
     sources: &[&JoinSource],
-    var: &pg_sys::Var,
+    varno: pg_sys::Index,
+    varattno: i32,
 ) -> Option<WhichFastField> {
     sources.iter().find_map(|source| {
-        if !source.contains_rti(var.varno as pg_sys::Index) {
+        if !source.contains_rti(varno) {
             return None;
         }
         let hr = PgSearchRelation::open(source.scan_info.heaprelid);
         let ir = PgSearchRelation::open(source.scan_info.indexrelid);
         let td = hr.tuple_desc();
-        unsafe { resolve_fast_field(var.varattno as i32, &td, &ir) }
+        unsafe { resolve_fast_field(varattno, &td, &ir) }
     })
 }
 
@@ -2344,10 +2399,13 @@ unsafe extern "C-unwind" fn expr_deps_walker(
 /// the return type is Arrow-convertible.
 pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
-    sources: &[&JoinSource],
     root: *mut pg_sys::PlannerInfo,
-    plan_for_pg_project_fallback: Option<&RelNode>,
+    plan: &RelNode,
+    enable_pg_project_fallback: bool,
 ) -> Result<ResolvedExpr, JoinDeclineReason> {
+    let plan_for_pg_project_fallback = enable_pg_project_fallback.then_some(plan);
+
+    let sources = plan.sources();
     let tables_str = sources
         .iter()
         .map(|s| source_table_name(s))
@@ -2358,10 +2416,14 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     if let Some(var) = nodecast!(Var, T_Var, expr) {
         let var = unsafe { &*var };
         let varno = var.varno as pg_sys::Index;
-        let is_fast = resolve_fast_field_from_join_sources(sources, var).is_some() || {
-            crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, varno)
+        let is_fast = resolve_fast_field_from_join_sources(&sources, varno, var.varattno as i32)
+            .is_some()
+            || {
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root, varno,
+                )
                 .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)))
-        };
+            };
         if !is_fast {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: target list column is not columnar",
@@ -2429,14 +2491,13 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
 
     // Each embedded window function must itself be absorbable (supported
-    // aggregate, bare OVER (), fast-field argument, no FILTER).
+    // aggregate, bare OVER (), fast-field argument, columnar FILTER columns).
     let mut window_deps = Vec::new();
     if !deps.window_funcs.is_empty() {
-        let parse = &*(*root).parse;
         for (ordinal, wf) in deps.window_funcs.iter().enumerate() {
             // The owning target entry's resno is unknown here; 0 is a
             // placeholder the recording caller replaces (see `window_deps`).
-            match extract_window_agg(*wf, sources, parse, WindowAggId::nested(0, ordinal)) {
+            match extract_window_agg(*wf, root, plan, WindowAggId::nested(0, ordinal)) {
                 Ok(wa) => window_deps.push(wa),
                 Err(e) => {
                     return Err(JoinDeclineReason::new(format!(
@@ -2482,7 +2543,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 let ir = PgSearchRelation::open(source.scan_info.indexrelid);
                 let td = hr.tuple_desc();
                 if resolve_fast_field(varattno as i32, &td, &ir).is_none() {
-                    let col = column_name_for_var(sources, varno, varattno);
+                    let col = column_name_for_var(&plan.sources(), varno, varattno);
                     non_fast_col_info = Some((col, varno, varattno, source.scan_info.heaprelid));
                     break;
                 }
@@ -2586,7 +2647,7 @@ unsafe fn pg_project_or_decline(
 /// When there is no DISTINCT clause, returns `Some(vec![])`.
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[&JoinSource],
+    plan: &RelNode,
 ) -> Option<Vec<ResolvedExpr>> {
     let parse = (*root).parse;
     if (*parse).distinctClause.is_null() {
@@ -2605,7 +2666,13 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .find(|te| (**te).ressortgroupref == tle_ref)?;
 
         let expr = strip_wrappers((*te).expr as *mut pg_sys::Node);
-        let resolved = resolve_target_entry_expr(expr, sources, root, None).ok()?;
+        let resolved = if expr_is_window_constant(expr) {
+            // global window functions don't effect ordering, so we can just note their presence and move
+            // on
+            ResolvedExpr::WindowConstant
+        } else {
+            resolve_target_entry_expr(expr, root, plan, false).ok()?
+        };
         assert!(
             !matches!(resolved, ResolvedExpr::PgProjected),
             "distinct columns can never be postgres projected"
@@ -2997,12 +3064,13 @@ pub(super) unsafe fn extract_orderby(
 
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
-        let equivclass = (*pathkey).pk_eclass;
+        let equivclass = &*(*pathkey).pk_eclass;
 
-        if pathkey_is_outer_only(equivclass, output_rtis) {
+        if pathkey_is_outer_only(equivclass, output_rtis) || pathkey_is_window_constant(equivclass)
+        {
             continue;
         }
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
 
         let nulls_first = (*pathkey).pk_nulls_first;
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]

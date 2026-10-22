@@ -175,6 +175,12 @@ WHERE price @@@ pdb.parse_with_field('12.345') ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
 WHERE price @@@ pdb.parse_with_field('9223372036854775807') ORDER BY id;
 
+-- A string that is not a number must raise an error, not match nothing.
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.term('abc') ORDER BY id;
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.parse_with_field('12,34') ORDER BY id;
+
 DROP TABLE numeric64_high_precision;
 
 CREATE TABLE numeric64_negative_scale (id int PRIMARY KEY, price numeric(8, -2));

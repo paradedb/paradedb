@@ -537,6 +537,11 @@ pub fn convert_value_for_field(
             match clamp_to_int_domain(&value, field_type) {
                 Some(Clamped::Exact(n)) => Ok(n),
                 Some(_) => Err(anyhow::anyhow!("no integer of the field equals {value:?}")),
+                // A `Numeric64` column has no text terms, so a string that is not a number would
+                // become a term that matches nothing instead of an error.
+                None if matches!(field_type, SearchFieldType::Numeric64(..)) => {
+                    Err(anyhow::anyhow!("{value:?} is not a number"))
+                }
                 None => Ok(value),
             }
         }
@@ -962,5 +967,13 @@ mod tests {
     #[case::above_max(uint(1 << 63))]
     fn convert_value_for_field_rejects_numbers_outside_int_domain(#[case] value: PdbOwnedValue) {
         assert!(convert_value_for_field(value, &INT8, None).is_err());
+    }
+
+    #[rstest]
+    #[case::not_a_number(text("abc"))]
+    #[case::empty(text(""))]
+    #[case::off_grid(text("12.345"))]
+    fn convert_value_for_field_rejects_non_values_of_numeric64(#[case] value: PdbOwnedValue) {
+        assert!(convert_value_for_field(value, &numeric64(2), None).is_err());
     }
 }

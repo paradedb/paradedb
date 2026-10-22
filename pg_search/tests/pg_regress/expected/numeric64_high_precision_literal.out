@@ -431,6 +431,14 @@ WHERE price @@@ pdb.parse_with_field('9223372036854775807') ORDER BY id;
 ----+-------
 (0 rows)
 
+-- A string that is not a number must raise an error, not match nothing.
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.term('abc') ORDER BY id;
+ERROR:  Str("abc") is not a number
+SELECT id, price FROM numeric64_high_precision
+WHERE price @@@ pdb.parse_with_field('12,34') ORDER BY id;
+ERROR:  could not parse query string 'price:(12,34)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
 DROP TABLE numeric64_high_precision;
 CREATE TABLE numeric64_negative_scale (id int PRIMARY KEY, price numeric(8, -2));
 INSERT INTO numeric64_negative_scale VALUES (1, 1200), (2, 123400), (3, 'NaN');

@@ -621,3 +621,76 @@ modelBuilder.Entity<MockItem>()
 </CodeGroup>
 
 You can set either parameter on its own or both together. Omitted parameters keep their defaults, and queries automatically use the values configured in the index.
+
+## Write Options
+
+Use `layer_sizes`, `background_layer_sizes`, and `mutable_segment_rows` to configure merging and row buffering when creating an index. See [Write Throughput](/operate/performance-tuning/writes) for defaults and tuning guidance.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description)
+WITH (layer_sizes = '0', background_layer_sizes = '100MB, 1GB', mutable_segment_rows = 1000);
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.paradedbIndex("search_idx", {
+  layerSizes: "0",
+  backgroundLayerSizes: "100MB, 1GB",
+  mutableSegmentRows: 1000,
+}).on(mockItems.id, mockItems.description);
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(MockItem, ParadeDBIndex(
+        fields={'id': {}, 'description': {}},
+        name='search_idx',
+        layer_sizes='0',
+        background_layer_sizes='100MB, 1GB',
+        mutable_segment_rows=1000,
+    ))
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    postgresql_using="paradedb",
+    postgresql_with=dict(indexing.IndexOptions(
+        layer_sizes="0",
+        background_layer_sizes="100MB, 1GB",
+        mutable_segment_rows=1000,
+    )),
+)
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: { id: {}, description: {} },
+  name: :search_idx,
+  index_options: { layer_sizes: "0", background_layer_sizes: "100MB, 1GB", mutable_segment_rows: 1000 }
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasLayerSizes("0")
+    .HasBackgroundLayerSizes("100MB, 1GB")
+    .HasMutableSegmentRows(1000);
+```
+
+</CodeGroup>

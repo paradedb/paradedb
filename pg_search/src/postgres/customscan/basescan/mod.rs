@@ -1759,6 +1759,13 @@ impl CustomScan for BaseScan {
         }
 
         if explainer.is_analyze() {
+            state
+                .custom_state()
+                .search_reader
+                .as_ref()
+                .map(SearchIndexReader::segment_pruning_estimate)
+                .unwrap_or_default()
+                .explain(explainer);
             explainer.add_unsigned_integer(
                 "Heap Fetches",
                 state

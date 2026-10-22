@@ -95,7 +95,7 @@ GROUP BY account_id;
      : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
      :     CooperativeExec
-     :       PgSearchScan: table=pinned_key_items, segments=0, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":99}}]}}
+     :       PgSearchScan: table=pinned_key_items, segments={included=0, pruned=1}, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":99}}]}}
 (10 rows)
 
 SELECT account_id, COUNT(*)
@@ -1584,8 +1584,8 @@ SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
 GROUP BY account_id, kind;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id, kind, (count(*))
    Backend: DataFusion
@@ -1599,7 +1599,7 @@ GROUP BY account_id, kind;
      :       TantivyFetchExec: fetch=[kind]
      :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
      :           CooperativeExec
-     :             PgSearchScan: table=pinned_key_items, segments=0, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":2}},{"boolean":{"must":["all"],"must_not":["all"]}}]}}
+     :             PgSearchScan: table=pinned_key_items, segments={included=0, pruned=1}, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":2}},{"boolean":{"must":["all"],"must_not":["all"]}}]}}
 (14 rows)
 
 SELECT account_id, kind, COUNT(*)

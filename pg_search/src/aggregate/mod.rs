@@ -29,7 +29,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, SegmentPruningEstimate};
 use crate::launch_parallel_process;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -632,6 +632,7 @@ pub fn execute_aggregate(
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
+    segment_pruning: Option<&mut SegmentPruningEstimate>,
     mut visibility_stats: Option<&mut VisibilityStats>,
     mut parallelism: Option<&mut AggregateParallelism>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
@@ -680,6 +681,9 @@ pub fn execute_aggregate(
             query.needs_tokenizer(),
             None,
         )?;
+        if let Some(stats) = segment_pruning {
+            *stats = reader.segment_pruning_estimate();
+        }
 
         let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
 

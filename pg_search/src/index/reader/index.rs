@@ -84,9 +84,10 @@ pub struct DocsEstimate {
 }
 
 /// A count-only summary of the pruning proof for this reader's segment snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SegmentPruningEstimate {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SegmentPruningEstimate {
     pub(crate) candidate_segments: usize,
+    pub(crate) pruned_segments: usize,
     pub(crate) candidate_docs: u64,
 }
 
@@ -1104,6 +1105,9 @@ impl SearchIndexReader {
     /// headers (`MvccSatisfies::Snapshot` — which is lazy and does not open segment components)
     /// so `SegmentPruner` can filter to candidate segments before estimating. Otherwise, open only
     /// the largest segment (`MvccSatisfies::LargestSegment`).
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will maintain persistent, index-wide
+    /// summary statistics so estimation no longer needs to sample a single largest segment.
     pub(crate) fn mvcc_for_estimation(
         index_relation: &PgSearchRelation,
         search_query_input: &SearchQueryInput,
@@ -1176,18 +1180,19 @@ impl SearchIndexReader {
         self.total_docs
     }
 
-    /// Counts exactly the segments a search of this reader would open.
+    /// Counts the candidate and pruned segments in this reader's snapshot.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
+            let non_empty_segments = self
+                .searcher
+                .segment_readers()
+                .iter()
+                .filter(|r| r.num_docs() > 0)
+                .count();
             if self.pruning_query.is_none() {
-                let candidate_segments = self
-                    .searcher
-                    .segment_readers()
-                    .iter()
-                    .filter(|r| r.num_docs() > 0)
-                    .count();
                 SegmentPruningEstimate {
-                    candidate_segments,
+                    candidate_segments: non_empty_segments,
+                    pruned_segments: 0,
                     candidate_docs: self.total_docs,
                 }
             } else {
@@ -1198,6 +1203,7 @@ impl SearchIndexReader {
                     });
                 SegmentPruningEstimate {
                     candidate_segments,
+                    pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
                     candidate_docs,
                 }
             }
@@ -2045,6 +2051,11 @@ impl SearchIndexReader {
     ///
     /// Prunes segments using `.stats` first, then samples the largest surviving candidate segment
     /// and scales its estimates to the candidate portion of the relation.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace single-segment sampling
+    /// with persistent index-wide summary statistics, avoiding both the assumption that the
+    /// largest surviving segment is representative of the rest and the plan-time cost of opening
+    /// term dictionaries across every surviving segment.
     pub fn estimate_docs(&self, total_docs: RowEstimate) -> DocsEstimate {
         if self.segment_readers().is_empty() {
             return DocsEstimate {
@@ -2095,6 +2106,9 @@ impl SearchIndexReader {
     /// then excludes mutable segments from the estimation sample whenever at least one persisted
     /// segment exists in the reader so plan-time estimation never materializes mutable segments
     /// from the heap.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace this largest-segment
+    /// sampling heuristic with index-wide summary statistics.
     fn largest_estimation_candidate(&self, total_docs: f64) -> Option<(&SegmentReader, f64)> {
         let mut candidates: Vec<(SegmentOrdinal, &SegmentReader)> =
             self.candidate_segment_readers().collect();
@@ -2102,31 +2116,38 @@ impl SearchIndexReader {
             .iter()
             .map(|(_, r)| u64::from(r.num_docs()))
             .sum();
+        let non_empty_segments = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .filter(|r| r.num_docs() > 0)
+            .count();
         let _ = self.pruning_estimate.set(SegmentPruningEstimate {
             candidate_segments: candidates.len(),
+            pruned_segments: non_empty_segments.saturating_sub(candidates.len()),
             candidate_docs: all_candidate_docs,
         });
 
-        let persisted_unpruned_docs: u64 = self
+        let persisted_reader_docs: u64 = self
             .segment_readers()
             .iter()
             .filter(|r| !self.directory.is_mutable(&r.segment_id()))
             .map(|r| u64::from(r.num_docs()))
             .sum();
-        let (candidate_docs, unpruned_docs) = if persisted_unpruned_docs > 0 {
+        let (candidate_docs, reader_docs) = if persisted_reader_docs > 0 {
             candidates.retain(|(_, r)| !self.directory.is_mutable(&r.segment_id()));
             let candidate_docs = candidates
                 .iter()
                 .map(|(_, r)| u64::from(r.num_docs()))
                 .sum();
-            (candidate_docs, persisted_unpruned_docs)
+            (candidate_docs, persisted_reader_docs)
         } else {
-            let unpruned_docs = self
+            let reader_docs = self
                 .segment_readers()
                 .iter()
                 .map(|r| u64::from(r.num_docs()))
                 .sum();
-            (all_candidate_docs, unpruned_docs)
+            (all_candidate_docs, reader_docs)
         };
 
         if candidate_docs == 0 {
@@ -2135,9 +2156,9 @@ impl SearchIndexReader {
         let (_, largest_reader) = candidates
             .into_iter()
             .max_by_key(|&(ord, r)| (r.num_docs(), ord))?;
-        let unpruned_proportion = unpruned_docs.max(1) as f64 / total_docs.max(1.0);
+        let reader_proportion = reader_docs.max(1) as f64 / total_docs.max(1.0);
         let segment_doc_proportion =
-            (largest_reader.num_docs() as f64 / candidate_docs as f64) * unpruned_proportion;
+            (largest_reader.num_docs() as f64 / candidate_docs as f64) * reader_proportion;
         Some((largest_reader, segment_doc_proportion))
     }
 

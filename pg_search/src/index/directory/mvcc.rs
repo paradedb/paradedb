@@ -334,6 +334,9 @@ pub enum MvccSatisfies {
     ParallelWorker(SegmentView),
     /// Read only the largest segment visible to the active snapshot (preferring non-empty
     /// persisted segments over mutable segments), for estimates.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will maintain index-wide summary
+    /// statistics for query estimation, replacing single-segment sampling.
     LargestSegment,
     /// Read all segments visible to the active snapshot.
     Snapshot,

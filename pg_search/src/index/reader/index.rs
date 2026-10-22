@@ -951,16 +951,22 @@ impl SearchIndexReader {
     }
 
     fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
-        self.pruning_query
-            .as_ref()
-            .is_none_or(|query| self.pruner().can_match(ord, query))
+        self.segment_num_docs(self.searcher.segment_reader(ord)) > 0
+            && self
+                .pruning_query
+                .as_ref()
+                .is_none_or(|query| self.pruner().can_match(ord, query))
     }
 
-    fn segment_num_docs(&self, reader: &SegmentReader) -> u64 {
-        self.directory
+    fn directory_segment_num_docs(directory: &MVCCDirectory, reader: &SegmentReader) -> u64 {
+        directory
             .segment_num_docs(&reader.segment_id())
             .map(|n| n as u64)
             .unwrap_or_else(|| u64::from(reader.num_docs()))
+    }
+
+    fn segment_num_docs(&self, reader: &SegmentReader) -> u64 {
+        Self::directory_segment_num_docs(&self.directory, reader)
     }
 
     /// Compiles a tantivy `Weight` for a tagged search query.
@@ -1163,8 +1169,15 @@ impl SearchIndexReader {
                 &components.schema,
                 index_created_by_version,
             );
-            (0..components.searcher.segment_readers().len())
-                .filter(|&ord| pruner.can_match(ord as SegmentOrdinal, query))
+            components
+                .searcher
+                .segment_readers()
+                .iter()
+                .enumerate()
+                .filter(|&(ord, reader)| {
+                    Self::directory_segment_num_docs(&components.directory, reader) > 0
+                        && pruner.can_match(ord as SegmentOrdinal, query)
+                })
                 .count()
         } else {
             let directory = MvccSatisfies::LargestSegment.directory(index_relation);
@@ -1182,10 +1195,15 @@ impl SearchIndexReader {
     /// Counts the candidate and pruned segments in this reader's snapshot.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
-            let total_segments = self.searcher.segment_readers().len();
+            let non_empty_segments = self
+                .searcher
+                .segment_readers()
+                .iter()
+                .filter(|r| self.segment_num_docs(r) > 0)
+                .count();
             if self.pruning_query.is_none() {
                 SegmentPruningEstimate {
-                    candidate_segments: total_segments,
+                    candidate_segments: non_empty_segments,
                     pruned_segments: 0,
                     candidate_docs: self.total_docs,
                 }
@@ -1197,7 +1215,7 @@ impl SearchIndexReader {
                     });
                 SegmentPruningEstimate {
                     candidate_segments,
-                    pruned_segments: total_segments.saturating_sub(candidate_segments),
+                    pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
                     candidate_docs,
                 }
             }
@@ -2110,10 +2128,15 @@ impl SearchIndexReader {
             .iter()
             .map(|(_, r)| self.segment_num_docs(r))
             .sum();
-        let total_segments = self.searcher.segment_readers().len();
+        let non_empty_segments = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .filter(|r| self.segment_num_docs(r) > 0)
+            .count();
         let _ = self.pruning_estimate.set(SegmentPruningEstimate {
             candidate_segments: candidates.len(),
-            pruned_segments: total_segments.saturating_sub(candidates.len()),
+            pruned_segments: non_empty_segments.saturating_sub(candidates.len()),
             candidate_docs: all_candidate_docs,
         });
 
@@ -3976,6 +3999,7 @@ mod tests {
                     "could not read logical statistics for field {:?} in segment {segment:?}: injected Logical statistics failure",
                     id.field()
                 ),
+                InjectedStatsFailure::Missing => unreachable!(),
             };
             // Both consumers of the snapshot raise the same error: partition routing reads every
             // entry, the reader's own candidate decision reads only the empirical one.
@@ -4023,6 +4047,95 @@ mod tests {
                     .count(),
                 0,
                 "a failed read must not cache absence or make the segment permanently eligible"
+            );
+        }
+    }
+
+    #[pg_test]
+    fn missing_stats_fall_back_to_fast_field_headers() {
+        Spi::run(
+            "CREATE TABLE missing_stats_fast_fallback (
+                 id bigint PRIMARY KEY,
+                 active boolean NOT NULL,
+                 created_at timestamp NOT NULL,
+                 tag text NOT NULL
+             );
+             CREATE INDEX missing_stats_fast_fallback_idx ON missing_stats_fast_fallback
+             USING paradedb (id, active, created_at, (tag::pdb.literal))
+             WITH (background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO missing_stats_fast_fallback
+             SELECT g, false, TIMESTAMP '2024-01-01 00:00:00' + (g || ' days')::interval, 'alpha'
+             FROM generate_series(1, 10) g;
+             INSERT INTO missing_stats_fast_fallback
+             SELECT g, true, TIMESTAMP '2025-01-01 00:00:00' + (g || ' days')::interval, 'beta'
+             FROM generate_series(11, 20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = open_index("missing_stats_fast_fallback_idx");
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let segment_ids = probe.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
+
+        let guards: Vec<_> = segment_ids
+            .iter()
+            .map(|&segment| inject_stats_failure(segment, InjectedStatsFailure::Missing))
+            .collect();
+
+        let bool_query = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("active"),
+            query: pdb::Query::Term {
+                value: PdbOwnedValue::Bool(true),
+            },
+        };
+        let date_range_2024 = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("created_at"),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("2024-01-01T00:00:00Z".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("2024-12-31T23:59:59Z".into())),
+            },
+        };
+        let date_range_empty = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("created_at"),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("2026-01-01T00:00:00Z".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("2026-12-31T23:59:59Z".into())),
+            },
+        };
+
+        for (query, expected_candidates, expected_docs) in [
+            (range_query("id", 1, 10), 1, 10),
+            (range_query("id", 11, 20), 1, 10),
+            (range_query("id", 1, 20), 2, 20),
+            (range_query("id", 100, 200), 0, 0),
+            (bool_query, 1, 10),
+            (date_range_2024, 1, 10),
+            (date_range_empty, 0, 0),
+            // Dictionary-backed (`Str`) columns are not read from `.fast`, so all segments stay
+            // candidates when `.stats` is absent.
+            (term_query("tag", "alpha"), 2, 10),
+        ] {
+            for scoring in [false, true] {
+                let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                let estimate = reader.segment_pruning_estimate();
+                assert_eq!(
+                    estimate.candidate_segments, expected_candidates,
+                    "{query:?}"
+                );
+                assert_eq!(
+                    estimate.pruned_segments,
+                    2 - expected_candidates,
+                    "{query:?}"
+                );
+                assert_pruning_matches_tantivy(&reader, expected_docs);
+            }
+        }
+
+        for guard in &guards {
+            assert!(
+                guard.hits() > 0,
+                "every segment must have hidden its .stats component and used the .fast fallback"
             );
         }
     }

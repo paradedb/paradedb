@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, FileSlice};
 use tantivy::index::{Segment, SegmentReader};
-use tantivy::schema::Field;
+use tantivy::schema::{Field, FieldType};
 
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
@@ -346,12 +346,18 @@ impl EmpiricalStats {
     /// Read a non-dictionary fast field's empirical statistics directly from a segment's `.fast`
     /// header when `.stats` is absent (e.g., on indexes created before `.stats` existed).
     ///
-    /// Dictionary-backed (`Str` and `Bytes`) columns are skipped so pruning never opens a column
-    /// dictionary.
+    /// Dictionary-backed (`Str` and `Bytes`) columns are skipped so pruning never opens `.fast`
+    /// or a column dictionary for them.
     pub(crate) fn from_fast_field(
         reader: &SegmentReader,
         field: &SearchField,
     ) -> io::Result<Option<Self>> {
+        if matches!(
+            field.field_entry().field_type(),
+            FieldType::Str(_) | FieldType::Bytes(_)
+        ) {
+            return Ok(None);
+        }
         let handles = reader
             .fast_fields()
             .dynamic_column_handles(field.field_name().as_ref())

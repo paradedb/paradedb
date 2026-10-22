@@ -129,6 +129,8 @@ impl SegmentStatsSnapshot {
                 test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let opened = SegmentStats::of_reader(reader);
                 #[cfg(any(test, feature = "pg_test"))]
+                let opened = test_support::maybe_hide(reader.segment_id(), opened);
+                #[cfg(any(test, feature = "pg_test"))]
                 let opened = test_support::maybe_fail(
                     reader.segment_id(),
                     test_support::InjectedStatsFailure::Open,
@@ -287,6 +289,7 @@ pub(crate) mod test_support {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum InjectedStatsFailure {
+        Missing,
         Open,
         Empirical,
         Logical,
@@ -340,6 +343,23 @@ pub(crate) mod test_support {
             "one failure may be injected per segment"
         );
         InjectedStatsFailureGuard { segment_id }
+    }
+
+    pub(super) fn maybe_hide<T>(
+        segment_id: SegmentId,
+        result: io::Result<Option<T>>,
+    ) -> io::Result<Option<T>> {
+        let mut failures = FAILURES
+            .lock()
+            .expect("injected statistics failure lock poisoned");
+        if let Some(failure) = failures.get_mut(&segment_id)
+            && failure.operation == InjectedStatsFailure::Missing
+            && matches!(result, Ok(Some(_)))
+        {
+            failure.hits += 1;
+            return Ok(None);
+        }
+        result
     }
 
     /// Replace only a successful real call, so tests exercise the production error handler and

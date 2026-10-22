@@ -508,23 +508,34 @@ pub unsafe fn try_create_subplan_join_paths(
         return Vec::new();
     }
 
+    let decline = |reason: JoinDeclineReason| {
+        let aliases: Vec<String> = plan
+            .sources()
+            .iter()
+            .map(|s| {
+                RelationAlias::new(s.scan_info.alias.as_deref())
+                    .warning_context(s.scan_info.heaprelid)
+            })
+            .collect();
+        reason.emit(&aliases);
+        Vec::new()
+    };
+
+    // Postgres keeps its own WindowAgg above a base-relation path, so the scan cannot own
+    // the window aggregates here: a pushed LIMIT would starve that node, and the columns it
+    // reads would come out NULL.
+    if (*(*root).parse).hasWindowFuncs {
+        return decline(JoinDeclineReason::new(
+            "JoinScan not used: window functions are not supported with an OR-nested subquery",
+        ));
+    }
+
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
     let (join_clause, limit_offset) =
         match JoinScan::validate_and_build_clause(root, plan.clone(), &join_keys, has_distinct) {
             Ok(res) => res,
-            Err(reason) => {
-                let aliases: Vec<String> = plan
-                    .sources()
-                    .iter()
-                    .map(|s| {
-                        RelationAlias::new(s.scan_info.alias.as_deref())
-                            .warning_context(s.scan_info.heaprelid)
-                    })
-                    .collect();
-                reason.emit(&aliases);
-                return Vec::new();
-            }
+            Err(reason) => return decline(reason),
         };
 
     // No join-level predicate extraction needed for SubPlan-based paths.

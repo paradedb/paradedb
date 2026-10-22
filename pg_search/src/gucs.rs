@@ -112,6 +112,11 @@ static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BU
 /// for the scan.
 static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
+/// Minimum estimated number of dirty (non-all-visible) heap blocks across the table
+/// before emitting a once-per-statement warning when at least half of the scanned
+/// range is not all-visible in the visibility map. Set to 0 to disable.
+static VISIBILITY_MAP_WARNING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
 
@@ -602,6 +607,17 @@ pub fn init() {
         c"Estimated matching row count below which `visibility => 'threshold'` applies transaction visibility checking",
         c"An aggregate using `visibility => 'threshold'` applies MVCC visibility checking when the query's estimated matching row count is strictly less than this, and reads raw index data otherwise. Has no effect on `visibility => 'transaction'` or `visibility => 'raw'`.",
         &VISIBILITY_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.visibility_map_warning_threshold",
+        c"Minimum number of dirty heap blocks before warning about a stale visibility map",
+        c"When a scan checks the visibility map and estimates at least this many non-all-visible heap blocks across the table (covering at least 50% of the scanned block range), emits a once-per-statement warning recommending VACUUM and autovacuum tuning. Set to 0 (or set paradedb.planner_warnings = 'off') to disable.",
+        &VISIBILITY_MAP_WARNING_THRESHOLD,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -1157,6 +1173,10 @@ pub fn expensive_query_cost_factor() -> f64 {
 
 pub fn visibility_threshold() -> u64 {
     VISIBILITY_THRESHOLD.get().max(0) as u64
+}
+
+pub fn visibility_map_warning_threshold() -> u64 {
+    VISIBILITY_MAP_WARNING_THRESHOLD.get().max(0) as u64
 }
 
 pub fn max_term_agg_buckets() -> i32 {

@@ -1716,8 +1716,7 @@ impl CustomScan for JoinScan {
                 let plan_sources = join_clause.plan.sources();
                 for (plan_position, source) in plan_sources.iter().enumerate() {
                     if source.scan_info.indexrelid != pg_sys::InvalidOid {
-                        let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
-                        count_index_scan(indexrel.as_ptr());
+                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
                     }
                     let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);

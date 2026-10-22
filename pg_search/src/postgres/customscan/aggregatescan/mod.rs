@@ -2102,7 +2102,7 @@ impl AggregateScan {
             ExecutionState::Completed => return None,
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
-                unsafe { count_index_scan(state.custom_state().indexrel().as_ptr()) };
+                count_index_scan(state.custom_state().indexrel());
                 let mut row_iter = aggregation_results_iter(state);
                 let first = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
@@ -2295,8 +2295,7 @@ impl AggregateScan {
                 for source in df_state.plan.sources() {
                     predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
                     if source.scan_info.indexrelid != pg_sys::InvalidOid {
-                        let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
-                        unsafe { count_index_scan(indexrel.as_ptr()) };
+                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
                     }
                 }
                 Self::resolve_threshold_visibility(df_state);

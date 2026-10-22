@@ -296,7 +296,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
             .expect("opaque should be a Bm25ScanState")
     };
 
-    count_scan_once(scan, state);
+    count_scan_once(state);
     (*scan).xs_recheck = false;
     (*scan).xs_hitup = std::ptr::null_mut();
     if let Some(index_only) = &mut state.index_only {
@@ -352,7 +352,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
             .expect("opaque should be a Bm25ScanState")
     };
 
-    count_scan_once(scan, state);
+    count_scan_once(state);
     let mut cnt = 0i64;
     loop {
         // Clone the Searcher (cheap Arc clone) to avoid holding a borrow on
@@ -388,10 +388,10 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
 /// The builtin access methods count a scan on its first fetch, so a rescan that never fetches,
 /// as a parallel worker's can, is not a scan. The entries a scan returns are counted by the
 /// executor itself.
-unsafe fn count_scan_once(scan: IndexScanDesc, state: &mut Bm25ScanState) {
+fn count_scan_once(state: &mut Bm25ScanState) {
     if !state.scan_counted {
         state.scan_counted = true;
-        unsafe { count_index_scan((*scan).indexRelation) };
+        count_index_scan(state.reader.index_rel());
     }
 }
 

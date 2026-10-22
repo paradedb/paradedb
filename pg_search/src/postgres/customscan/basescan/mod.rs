@@ -159,7 +159,7 @@ impl BaseScan {
             .indexrel
             .as_ref()
             .expect("custom_state.indexrel should already be open");
-        unsafe { count_index_scan(indexrel.as_ptr()) };
+        count_index_scan(indexrel);
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
@@ -2048,7 +2048,7 @@ impl CustomScan for BaseScan {
             let exec_method = state.custom_state_mut().exec_method_mut();
             let next = exec_method.next(state.custom_state_mut());
             if !matches!(next, ExecState::Eof) {
-                unsafe { count_index_tuples(state.custom_state().indexrel().as_ptr(), 1) };
+                count_index_tuples(state.custom_state().indexrel(), 1);
             }
 
             // get the next matching document from our search results and look for it in the heap

@@ -381,7 +381,7 @@ fn build_query_cache_entry(
     // materialize the match set and apply it as a per-row filter (the slow path).
 
     // Every entry from here on reads the index, so it is one scan of it.
-    unsafe { count_index_scan(index_relation.as_ptr()) };
+    count_index_scan(&index_relation);
     let heap_relation = index_relation
         .heap_relation()
         .expect("a ParadeDB index must have a heap relation");
@@ -471,7 +471,7 @@ unsafe fn build_row_matcher(
     query: SearchQueryInput,
 ) -> RowMatcher {
     unsafe {
-        count_index_scan(index_relation.as_ptr());
+        count_index_scan(&index_relation);
         PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
             .switch_to(|_| RowMatcher::new(index_relation, query))
     }

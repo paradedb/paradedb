@@ -30,6 +30,7 @@ use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -165,16 +166,12 @@ pub fn search_with_query_input_ctid_or_row(
         let index_oid = query.index_oid().unwrap_or_else(|| {
             panic!("pg_search: could not determine the index to use for this query")
         });
+        let index_relation =
+            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+        count_index_scan(&index_relation);
         unsafe {
-            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt).switch_to(|_| {
-                RowMatcher::new(
-                    PgSearchRelation::with_lock(
-                        index_oid,
-                        pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-                    ),
-                    query,
-                )
-            })
+            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
+                .switch_to(|_| RowMatcher::new(index_relation, query))
         }
     });
 
@@ -308,6 +305,8 @@ fn search_with_query_input_impl(
         // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
         // materialize the match set and apply it as a per-row filter (the slow path).
 
+        // Every entry from here on reads the index, so it is one scan of it.
+        count_index_scan(&index_relation);
         let heap_relation = index_relation
             .heap_relation()
             .expect("a ParadeDB index must have a heap relation");

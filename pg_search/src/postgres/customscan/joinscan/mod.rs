@@ -197,6 +197,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations;
 use crate::scan::codec::{
@@ -1638,6 +1639,9 @@ impl CustomScan for JoinScan {
 
                 let plan_sources = join_clause.plan.sources();
                 for (plan_position, source) in plan_sources.iter().enumerate() {
+                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
+                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                    }
                     let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);
                     let visibility_checker =

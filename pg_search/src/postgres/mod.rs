@@ -67,6 +67,7 @@ mod jsonb_support;
 pub mod locks;
 mod parallel;
 pub mod pdb_owned_value;
+pub(crate) mod pgstat;
 pub mod planner_warnings;
 pub mod rel;
 pub(crate) mod search_operator_relations;

@@ -19,11 +19,11 @@
 //! task's subplan to the workers, so workers run their fragments without re-planning.
 //!
 //! Plans travel as `SetPlan` frames through the mesh rings, the same `SetPlanRequest` message
-//! Flight ships over its coordinator stream. The DSM blob carries only the routing tables:
-//! which destination proc each fragment's output partitions go to, which is push-side knowledge
-//! the message has no field for. Every worker reads the blob and selects the `(stage, task)`
-//! slots it owns under [`proc_for_task`]. The fork's `DistributedCodec` serializes the
-//! `Network*Exec` boundaries; [`crate::scan::physical_codec`] serializes the `pg_search` execs.
+//! Flight ships over its coordinator stream. The DSM blob carries the stage sizing list
+//! (`stage_num`, `task_count`) so every worker can select the `(stage, task)` slots it owns under
+//! [`proc_for_task`] before waiting on its `SetPlan` frames. The fork's `DistributedCodec`
+//! serializes the `Network*Exec` boundaries; [`crate::scan::physical_codec`] serializes the
+//! `pg_search` execs.
 //!
 //! The blob rides DSM rather than the mesh rings: workers read it while setting up, before they
 //! attach to the mesh, so startup needs no receive loop; one read-only copy serves every worker;
@@ -37,19 +37,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_distributed::shm::{MppMesh, proc_for_task};
 
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
-use crate::postgres::customscan::mpp::worker_fragments::{
-    DiscoveredStage, FragmentAssignment, FragmentRouting, classify_stages,
-};
-
-/// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.
-/// Shared by all workers; each selects the `task_idx` slots it owns. The stage's plan arrives
-/// separately, as a per-task `SetPlan` frame.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct DispatchedStage {
-    stage_num: u32,
-    task_count: usize,
-    routing: FragmentRouting,
-}
+use crate::postgres::customscan::mpp::worker_fragments::{FragmentAssignment, StageEntry};
 
 /// First byte of the DSM plan region. Only the dispatch blob is shipped today (every MPP
 /// customscan dispatches); the tag is kept so a future re-plan fallback can be distinguished
@@ -64,7 +52,7 @@ fn blob_config() -> impl bincode::config::Config {
 /// Frame the blob into the exact DSM dispatch payload:
 /// `[TAG_BLOB][u64 len LE][blob]`.
 ///
-/// MPP launch is plan-first, so the physical stages and their routing metadata exist before DSM
+/// MPP launch is plan-first, so the physical stages and their sizing metadata exist before DSM
 /// allocation. Building this frame first lets the caller size DSM from `payload.len()` instead
 /// of estimating from an unrelated serialized logical-plan length.
 pub fn frame_dispatch_payload(blob: &[u8]) -> Vec<u8> {
@@ -92,23 +80,14 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
 /// Build the exact-size dispatch payload from the stages the launch enumerated. The stage
 /// subplans travel separately: the coordinator serializes each through the leader's
 /// [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
-pub fn dispatch_payload_from_stages(stages: &[DiscoveredStage]) -> Result<Vec<u8>> {
-    let entries = classify_stages(stages)?;
-    let dispatched: Vec<DispatchedStage> = entries
-        .into_iter()
-        .map(|stage| DispatchedStage {
-            stage_num: stage.stage_num,
-            task_count: stage.task_count,
-            routing: stage.routing,
-        })
-        .collect();
-    let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
+pub fn dispatch_payload_from_stages(stages: &[StageEntry]) -> Result<Vec<u8>> {
+    let blob = bincode::serde::encode_to_vec(stages, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
     Ok(frame_dispatch_payload(&blob))
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.
-fn read_dispatch_blob(payload: &[u8]) -> Result<Vec<DispatchedStage>> {
+fn read_dispatch_blob(payload: &[u8]) -> Result<Vec<StageEntry>> {
     let blob = unframe_dispatch_payload(payload)?;
     let (stages, _) = bincode::serde::decode_from_slice(blob, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob decode: {e}")))?;
@@ -118,28 +97,26 @@ fn read_dispatch_blob(payload: &[u8]) -> Result<Vec<DispatchedStage>> {
 /// Fan a stage out to the `task_idx` slots `this_proc` owns under `proc_for_task`.
 fn push_owned_tasks(
     out: &mut Vec<FragmentAssignment>,
-    stage_num: u32,
-    task_count: usize,
-    routing: &FragmentRouting,
+    stage: StageEntry,
     this_proc: u32,
     n_workers: u32,
 ) -> Result<()> {
-    let Some(last_task_idx) = task_count.checked_sub(1) else {
+    let Some(last_task_idx) = stage.task_count.checked_sub(1) else {
         return Ok(());
     };
     let last_task_idx = u32::try_from(last_task_idx).map_err(|_| {
         DataFusionError::Internal(format!(
-            "mpp dispatch: task_count {task_count} exceeds transport u32 task IDs \
-             (stage_id={stage_num})"
+            "mpp dispatch: task_count {} exceeds transport u32 task IDs \
+             (stage_id={})",
+            stage.task_count, stage.stage_num
         ))
     })?;
     for task_idx in 0..=last_task_idx {
         if proc_for_task(n_workers, task_idx) == this_proc {
             out.push(FragmentAssignment {
-                stage_id: stage_num,
+                stage_id: stage.stage_num,
                 task_idx,
-                task_count,
-                routing: routing.clone(),
+                task_count: stage.task_count,
             });
         }
     }
@@ -147,8 +124,7 @@ fn push_owned_tasks(
 }
 
 /// Expand the dispatch blob body into this worker's fragment assignments: the `(stage, task)`
-/// slots this proc owns plus their routing. The plans arrive separately, one `SetPlan` frame per
-/// fragment.
+/// slots this proc owns. The plans arrive separately, one `SetPlan` frame per fragment.
 fn expand_to_assignments(
     body: &[u8],
     this_proc: u32,
@@ -157,14 +133,7 @@ fn expand_to_assignments(
     let stages = read_dispatch_blob(body)?;
     let mut out = Vec::new();
     for stage in stages {
-        push_owned_tasks(
-            &mut out,
-            stage.stage_num,
-            stage.task_count,
-            &stage.routing,
-            this_proc,
-            n_workers,
-        )?;
+        push_owned_tasks(&mut out, stage, this_proc, n_workers)?;
     }
     Ok(out)
 }
@@ -209,11 +178,14 @@ mod tests {
 
     #[test]
     fn assigns_every_logical_task_once_after_short_launch() {
-        let routing = FragmentRouting::Coalesce { dest_proc: 0 };
+        let stage = StageEntry {
+            stage_num: 7,
+            task_count: 5,
+        };
         let assigned_by_proc = (1..=3)
             .map(|proc_idx| {
                 let mut assignments = Vec::new();
-                push_owned_tasks(&mut assignments, 7, 5, &routing, proc_idx, 3).unwrap();
+                push_owned_tasks(&mut assignments, stage, proc_idx, 3).unwrap();
                 assignments
             })
             .collect::<Vec<_>>();
@@ -261,9 +233,10 @@ mod tests {
         let mut assignments = Vec::new();
         let err = push_owned_tasks(
             &mut assignments,
-            7,
-            (u32::MAX as usize) + 2,
-            &FragmentRouting::Coalesce { dest_proc: 0 },
+            StageEntry {
+                stage_num: 7,
+                task_count: (u32::MAX as usize) + 2,
+            },
             1,
             1,
         )

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792697729461,
+  "lastUpdate": 1792697745721,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -28609,6 +28609,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.5265416148142,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ujjawalpathak6@gmail.com",
+            "name": "Kumar Ujjawal",
+            "username": "kumarUjjawal"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8cd30c852c678a13468fd86a691b4d434e378a7",
+          "message": "fix: preserve Numeric64 comparison semantics without overflowing (#6978)\n\n# Ticket(s) Closed\n\n- Closes #6102\n\n## What\n\nReplaces #6369, originally authored by Javier Garcia (@IamYipi). Replays\nhis four commits with authorship and original commit references\npreserved, followed by a separate finishing commit.\n\n## Why\n\nRounding Numeric64 query literals changes comparison results, and\ncomputing an off-grid ceiling can overflow.\n\n## How\n\nUse exact grid comparisons and overflow-safe bounds while preserving NaN\nordering and storage rounding. Also fix off-grid negation pruning and\ncheck negative-floor overflow.\n\n## Tests\n\n128 numeric unit tests and six exact PostgreSQL 17 regressions pass,\nincluding the requested overflow case with verified pushdown. The new\nregression fails before the fix. Formatting and workspace-wide Clippy\npass; full suites and hosted CI were not run locally.\n\n---------\n\nCo-authored-by: Javier Garcia <93437997+IamYipi@users.noreply.github.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T11:07:20-07:00",
+          "tree_id": "63a089079b29a85c4b5316d2770ea5b9d375e2a4",
+          "url": "https://github.com/paradedb/paradedb/commit/a8cd30c852c678a13468fd86a691b4d434e378a7"
+        },
+        "date": 1792697733650,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.826892079818126,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.24098053596621,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.628574675875026,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.36918176793786,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.62366465447784,
             "unit": "queries/s"
           }
         ]

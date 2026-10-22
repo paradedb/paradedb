@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792706035721,
+  "lastUpdate": 1792709173265,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -23414,6 +23414,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.948,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "109eac7c7c265974bdbdc1ffbc7b36fb56b9dcab",
+          "message": "perf: order an all-inner join by the planner's row estimates (#6925)\n\nThis PR joins the relations of an all-inner join in the order the\nPostgres planner's row estimates favour, in both `JoinScan` and the\nDataFusion aggregate path.\n\n## Ticket(s) Closed\n\nNone. Found while triaging a slow aggregate on a three-way join.\n\n## What\n\nBoth paths build the join tree from `root->parse->jointree`, so\nrelations join in written order. A selective predicate on the last table\ncuts the result only at the top, after the two large tables were joined.\n\n## Why\n\nThe planner estimates every join it costed, with the selectivity of\nevery restriction and search predicate folded in. Its path shape is not\na usable signal. It also encodes the join strategy PG picked for its own\nexecutor, such as an index nested loop under a `LIMIT` or a hash join\nthat probes with the largest input, and following it made the\ndisjunctive benchmark joins 1.2x to 1.5x slower.\n\n## How\n\nAn accepted tree of three or more scans under inner joins is rebuilt as\na left-deep chain. The pair the planner estimates smallest joins first,\nin written order. Each next relation joins onto the chain with a key or\nfilter and keeps the joined set smallest, per `find_join_rel`. Ties keep\nthe written order. Only the leaf order matters, since DataFusion\nflattens inner joins into a left-deep chain and picks the build side\nitself.\n\nOuter, semi, anti, and lateral joins keep the parse-tree nesting, as\ndoes a step the planner never costed (`join_collapse_limit = 1`).\nAcceptance does not change.\n\n## Tests\n\n`join_order_from_path` covers explicit and comma joins, the aggregate\npath, a selective table written last, ON filters that move up or meet at\none join, an outer join that stays put, and a two-table join. Existing\nplans change order only where a relation carries a selective predicate.\nRows are unchanged.\n\nOn the stackoverflow benchmark, `join_distinct_parent_sort` runs 2.1x\nfaster at 20M rows, since the chain now starts from `posts ⋈ comments`\nunder `c.score > 0`. The other queries stay within noise.",
+          "timestamp": "2026-10-22T15:03:35-07:00",
+          "tree_id": "211b002ffb4da61b84ba3ee584be8d61d244e53f",
+          "url": "https://github.com/paradedb/paradedb/commit/109eac7c7c265974bdbdc1ffbc7b36fb56b9dcab"
+        },
+        "date": 1792709161838,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.679,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.811,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.516,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.461,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.662,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.258,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.883,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.476,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 6.96,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.095,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.868,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.173,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.989,
             "unit": "ms"
           }
         ]

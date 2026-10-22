@@ -270,17 +270,9 @@ impl<'a> SegmentPruner<'a> {
             SearchQueryInput::FieldedQuery { field, query } => {
                 self.field_can_match(segment, field, query)
             }
-            SearchQueryInput::TermSet { terms } => {
-                if terms.is_empty() {
-                    segment.is_none()
-                } else {
-                    Self::terms_by_field(terms)
-                        .into_iter()
-                        .any(|(field, values)| {
-                            self.terms_can_match(segment, field, values.into_iter())
-                        })
-                }
-            }
+            SearchQueryInput::TermSet { terms } => Self::terms_by_field(terms)
+                .into_iter()
+                .any(|(field, values)| self.terms_can_match(segment, field, values.into_iter())),
             SearchQueryInput::Boolean {
                 must,
                 should,

@@ -1192,32 +1192,48 @@ impl SearchIndexReader {
         self.total_docs
     }
 
+    fn non_empty_segment_count(&self) -> usize {
+        self.searcher
+            .segment_readers()
+            .iter()
+            .filter(|r| self.segment_num_docs(r) > 0)
+            .count()
+    }
+
+    fn pruning_estimate_from_candidates(
+        &self,
+        candidates: &[(SegmentOrdinal, &SegmentReader)],
+    ) -> SegmentPruningEstimate {
+        let non_empty_segments = self.non_empty_segment_count();
+        let candidate_segments = candidates.len();
+        let candidate_docs = if self.pruning_query.is_none() {
+            self.total_docs
+        } else {
+            candidates
+                .iter()
+                .map(|(_, r)| self.segment_num_docs(r))
+                .sum()
+        };
+        SegmentPruningEstimate {
+            candidate_segments,
+            pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
+            candidate_docs,
+        }
+    }
+
     /// Counts the candidate and pruned segments in this reader's snapshot.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
-            let non_empty_segments = self
-                .searcher
-                .segment_readers()
-                .iter()
-                .filter(|r| self.segment_num_docs(r) > 0)
-                .count();
             if self.pruning_query.is_none() {
                 SegmentPruningEstimate {
-                    candidate_segments: non_empty_segments,
+                    candidate_segments: self.non_empty_segment_count(),
                     pruned_segments: 0,
                     candidate_docs: self.total_docs,
                 }
             } else {
-                let (candidate_segments, candidate_docs) = self
-                    .candidate_segment_readers()
-                    .fold((0, 0), |(count, docs), (_, reader)| {
-                        (count + 1, docs + self.segment_num_docs(reader))
-                    });
-                SegmentPruningEstimate {
-                    candidate_segments,
-                    pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
-                    candidate_docs,
-                }
+                let candidates: Vec<(SegmentOrdinal, &SegmentReader)> =
+                    self.candidate_segment_readers().collect();
+                self.pruning_estimate_from_candidates(&candidates)
             }
         })
     }
@@ -2128,17 +2144,9 @@ impl SearchIndexReader {
             .iter()
             .map(|(_, r)| self.segment_num_docs(r))
             .sum();
-        let non_empty_segments = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .filter(|r| self.segment_num_docs(r) > 0)
-            .count();
-        let _ = self.pruning_estimate.set(SegmentPruningEstimate {
-            candidate_segments: candidates.len(),
-            pruned_segments: non_empty_segments.saturating_sub(candidates.len()),
-            candidate_docs: all_candidate_docs,
-        });
+        let _ = self
+            .pruning_estimate
+            .set(self.pruning_estimate_from_candidates(&candidates));
 
         let persisted_reader_docs: u64 = self
             .segment_readers()
@@ -3577,7 +3585,7 @@ mod tests {
             value: PdbOwnedValue::Str("alpha".into()),
         });
         for (terms, expected, candidates, passes) in [
-            (vec![], 0, 2, 0),
+            (vec![], 0, 0, 0),
             (same_field, 1, 1, 1),
             (mixed_fields, 2, 2, 2),
             (unsupported, 20, 2, 2),
@@ -4058,17 +4066,19 @@ mod tests {
                  id bigint PRIMARY KEY,
                  active boolean NOT NULL,
                  created_at timestamp NOT NULL,
-                 tag text NOT NULL
+                 tag text NOT NULL,
+                 nullable_num bigint
              );
              CREATE INDEX missing_stats_fast_fallback_idx ON missing_stats_fast_fallback
-             USING paradedb (id, active, created_at, (tag::pdb.literal))
+             USING paradedb (id, active, created_at, (tag::pdb.literal), nullable_num)
              WITH (background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO missing_stats_fast_fallback
-             SELECT g, false, TIMESTAMP '2024-01-01 00:00:00' + (g || ' days')::interval, 'alpha'
+             SELECT g, false, TIMESTAMP '2024-01-01 00:00:00' + (g || ' days')::interval, 'alpha',
+                    CASE WHEN g = 1 THEN NULL ELSE 1 END
              FROM generate_series(1, 10) g;
              INSERT INTO missing_stats_fast_fallback
-             SELECT g, true, TIMESTAMP '2025-01-01 00:00:00' + (g || ' days')::interval, 'beta'
+             SELECT g, true, TIMESTAMP '2025-01-01 00:00:00' + (g || ' days')::interval, 'beta', 1
              FROM generate_series(11, 20) g;
              RESET paradedb.global_mutable_segment_rows;",
         )
@@ -4103,6 +4113,32 @@ mod tests {
                 upper_bound: Bound::Included(PdbOwnedValue::Str("2026-12-31T23:59:59Z".into())),
             },
         };
+        let not_nullable_range = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![range_query("nullable_num", 1, 1)],
+            minimum_should_match: None,
+        };
+        let not_nullable_term = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: FieldName::from("nullable_num"),
+                query: pdb::Query::Term {
+                    value: PdbOwnedValue::I64(1),
+                },
+            }],
+            minimum_should_match: None,
+        };
+        let not_nullable_exists = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: FieldName::from("nullable_num"),
+                query: pdb::Query::Exists,
+            }],
+            minimum_should_match: None,
+        };
 
         for (query, expected_candidates, expected_docs) in [
             (range_query("id", 1, 10), 1, 10),
@@ -4112,6 +4148,11 @@ mod tests {
             (bool_query, 1, 10),
             (date_range_2024, 1, 10),
             (date_range_empty, 0, 0),
+            // Segment 1 has min=1, max=1, nullable=false so `must_not` prunes it; segment 0 has
+            // min=1, max=1, nullable=true so it stays a candidate and yields the 1 NULL row.
+            (not_nullable_range, 1, 1),
+            (not_nullable_term, 1, 1),
+            (not_nullable_exists, 1, 1),
             // Dictionary-backed (`Str`) columns are not read from `.fast`, so all segments stay
             // candidates when `.stats` is absent.
             (term_query("tag", "alpha"), 2, 10),
@@ -4138,6 +4179,20 @@ mod tests {
                 "every segment must have hidden its .stats component and used the .fast fallback"
             );
         }
+
+        Spi::run("SET paradedb.enable_segment_pruning = off;").unwrap();
+        STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
+        let disabled = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
+        let estimate = disabled.segment_pruning_estimate();
+        assert_eq!(estimate.candidate_segments, 2);
+        assert_eq!(estimate.pruned_segments, 0);
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "disabling paradedb.enable_segment_pruning must skip statistics opens"
+        );
+        assert_pruning_matches_tantivy(&disabled, 0);
+        Spi::run("RESET paradedb.enable_segment_pruning;").unwrap();
     }
 
     /// Missing statistics retain mutable segments without materializing their in-memory index.

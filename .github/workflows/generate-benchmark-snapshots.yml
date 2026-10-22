@@ -3,8 +3,8 @@
 # Generate Benchmark Heap Snapshots
 #
 # Stack Overflow and Cohere: native pgrx clusters backed up with pgBackRest to
-# s3://paradedb-ci-benchmarks/snapshots/{dataset}/{size}/. Sampled source data must
-# exist at datasets/{dataset}/sampled/{size}/{csv|parquet}/ in that bucket.
+# s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/. Sampled source
+# data must exist at datasets/{dataset}/v1/sampled/{size}/{csv|parquet}/ in that bucket.
 # Stack Exchange and Wikipedia: benchmarker Docker heaps archived to
 # s3://paradedb-ci-benchmarks/snapshots/benchmarker/{dataset}/heap.tar.zst.
 # Each path uses the same platform and format as its benchmark's restore path.
@@ -101,7 +101,7 @@ jobs:
     env:
       pg_version: 18
       BACKREST_STANZA: bench
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_BUCKET: paradedb-benchmark
       BACKREST_REPO_PATH_PREFIX: /snapshots
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
@@ -140,8 +140,7 @@ jobs:
           cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
-            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
-            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}"
+            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
@@ -150,7 +149,7 @@ jobs:
       - name: Clear existing snapshot
         run: |
           set -euo pipefail
-          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/${{ matrix.size }}/"
+          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/v1/${{ matrix.size }}/pg_backrest/"
           aws s3api list-multipart-uploads --bucket "${BACKREST_REPO_BUCKET}" --prefix "$prefix" \
             --query 'Uploads[].{Key:Key,UploadId:UploadId}' --output text 2>/dev/null \
             | while read -r key uid; do

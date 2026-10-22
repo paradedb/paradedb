@@ -77,7 +77,7 @@ jobs:
     env:
       pg_version: 18
       BACKREST_STANZA: bench
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_BUCKET: paradedb-benchmark
       BACKREST_REPO_PATH_PREFIX: /snapshots
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com

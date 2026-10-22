@@ -7,7 +7,7 @@ This is a basic, single-query latency, benchmarking suite for ParadeDB. It execu
 ## Prerequisites
 
 The benchmarking scripts require a Postgres database with [`pg_search`](/pg_search) installed. If you are building `pg_search` with
-`cargo pgrx`, make sure to build in `--release` mode. It also requires AWS credentials to be available in order to load the data.
+`cargo pgrx`, make sure to build in `--release` mode. It also requires AWS credentials with access to the CI account’s `paradedb-benchmark` bucket to load data and restore snapshots.
 
 ### pg_stat_statements
 
@@ -46,13 +46,13 @@ cargo run --release -- benchmark \
   --index bm25
 ```
 
-To reuse that heap through pgBackRest, stop Postgres before snapshotting or restoring:
+Heap snapshots live at `s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/`. To reuse that heap through pgBackRest, stop Postgres before snapshotting or restoring:
 
 ```bash
 PGDATA="/home/runner/.pgrx/data-18"
 BACKREST_ARGS=(
   --stanza bench
-  --repo-bucket paradedb-ci-benchmarks
+  --repo-bucket paradedb-benchmark
   --repo-path-prefix /snapshots
   --repo-region us-east-1
   --repo-endpoint s3.us-east-1.amazonaws.com

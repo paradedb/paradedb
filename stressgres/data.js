@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792656815460,
+  "lastUpdate": 1792656832684,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -486166,6 +486166,106 @@ window.BENCHMARK_DATA = {
             "value": 44.1640625,
             "unit": "median mem",
             "extra": "avg mem: 43.97978734295316, max mem: 58.1640625, count: 59218"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792656822432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.828023948768654, max cpu: 9.352168, count: 59201"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.91114064796203, max mem: 21.93359375, count: 59201"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.639260415309179, max cpu: 4.8096194, count: 59201"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.305913395149574, max mem: 21.30859375, count: 59201"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.126754321642526, max cpu: 32.941177, count: 59201"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.08990577386784, max mem: 22.09375, count: 59201"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.925862738804, max document_count: 10002.0, count: 59201"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.919832435264, max document_count: 10002.0, count: 59201"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59201"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.631733,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.588884053597422, max cpu: 33.022114, count: 59201"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 45.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.108221224092496, max mem: 59.69921875, count: 59201"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.412212218188174, max cpu: 32.796486, count: 59201"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 45.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.84910101022364, max mem: 59.82421875, count: 59201"
           }
         ]
       }

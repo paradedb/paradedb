@@ -87,9 +87,9 @@ GROUP BY has_flag
 ORDER BY has_flag;
  has_flag | count 
 ----------+-------
-          |     2
  f        |     1
  t        |     2
+          |     2
 (3 rows)
 
 -- 4c: EXPLAIN to confirm aggregate custom scan for pdb.agg on nullable bool

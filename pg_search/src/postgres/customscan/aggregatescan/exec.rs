@@ -18,9 +18,11 @@
 use crate::gucs;
 use crate::gucs::WorkMem;
 
-use crate::aggregate::{AggregateRequest, execute_aggregate, scrub_missing_sentinel_value};
-use crate::api::HashMap;
+use crate::aggregate::{
+    AggregateRequest, execute_aggregate, is_null_sentinel, scrub_missing_sentinel_value,
+};
 use crate::api::version::VersionInfo;
+use crate::api::{HashMap, SortDirection};
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
@@ -78,23 +80,24 @@ pub fn aggregation_results_iter(
         .into_iter()
         .map(|column| column.field_name)
         .collect();
+    let key_orders = aggregate_clause.grouping_key_orders();
     // Routing (see create_custom_path) sends high-cardinality GROUP BYs to
     // DataFusion using an estimate, but a stale/wrong estimate can still land an
     // over-cap query here. Truncation at the cap is only recoverable for a single
     // grouping column bounded by a static LIMIT+OFFSET within the cap: the ordered
-    // prefix Tantivy returns covers the requested window. Otherwise a dropped
-    // group is silent data loss, so we error instead.
+    // prefix Tantivy returns covers the requested window, up to where its NULL group
+    // may be out of place (see `place_null_groups`). Otherwise a dropped group is
+    // silent data loss, so we error instead.
+    let static_fetch = aggregate_clause.static_fetch();
     let truncation_recoverable = grouping_fields.len() == 1
-        && aggregate_clause
-            .static_fetch()
-            .is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
+        && static_fetch.is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
 
     let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
     let mut visibility_stats = std::mem::take(&mut state.custom_state_mut().visibility_stats);
     let mut parallelism = AggregateParallelism::default();
     let collect_visibility_stats =
         unsafe { !planstate.is_null() && !(*planstate).instrument.is_null() };
-    let result: AggregationResults = execute_aggregate(
+    let mut result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
@@ -112,13 +115,16 @@ pub fn aggregation_results_iter(
     state.custom_state_mut().bitmap_exec = bitmap_exec;
     state.custom_state_mut().visibility_stats = visibility_stats;
     state.custom_state_mut().parallelism = collect_visibility_stats.then_some(parallelism);
+    let ordered_prefix = result.place_null_groups(&key_orders);
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an
     // incomplete GROUP BY. Fail loudly instead. This is an interim guard until we
     // route on cost between Tantivy and DataFusion; see
     // https://github.com/paradedb/paradedb/issues/5565.
-    if !truncation_recoverable && result.any_terms_truncated(bucket_limit as u64) {
+    if !(truncation_recoverable && static_fetch.is_some_and(|fetch| fetch <= ordered_prefix))
+        && result.any_terms_truncated(bucket_limit as u64)
+    {
         let on_fields = if grouping_fields.is_empty() {
             String::new()
         } else {
@@ -369,6 +375,70 @@ impl AggregationResults {
         }
 
         max_buckets != 0 && walk(self.0.values(), max_buckets)
+    }
+
+    /// Moves the NULL group of each `GROUP BY` level that ORDER BY sorts by its key to the end
+    /// ORDER BY puts NULLs at. Tantivy ranks the group's string key below every number, so on a
+    /// numeric or boolean level it comes back first in ASC and last in DESC; on a text level the
+    /// sentinel already sorts at that end.
+    ///
+    /// Returns how many leading groups of a truncated level are still the first groups in ORDER
+    /// BY's order, or `usize::MAX` when no level ORDER BY sorts was truncated.
+    fn place_null_groups(&mut self, key_orders: &[Option<SortDirection>]) -> usize {
+        fn walk(
+            results: &mut HashMap<String, TantivyAggregationResult>,
+            key_orders: &[Option<SortDirection>],
+        ) -> usize {
+            let mut prefix = usize::MAX;
+            for (name, result) in results.iter_mut() {
+                match result {
+                    TantivyAggregationResult::BucketResult(BucketResult::Terms {
+                        buckets,
+                        sum_other_doc_count,
+                        ..
+                    }) if *name == GroupedKey::NAME => {
+                        let Some((key_order, deeper)) = key_orders.split_first() else {
+                            continue;
+                        };
+                        if let Some(direction) = *key_order {
+                            let null = buckets
+                                .iter()
+                                .position(|b| matches!(&b.key, Key::Str(s) if is_null_sentinel(s)));
+                            if *sum_other_doc_count > 0 {
+                                // On a numeric or boolean level DESC ranks the string key last, so
+                                // the cap may have cut a NULL group ORDER BY puts first.
+                                let maybe_cut = direction == SortDirection::DescNullsFirst
+                                    && buckets.iter().any(|b| !matches!(b.key, Key::Str(_)));
+                                prefix = prefix.min(match null {
+                                    // ORDER BY puts the group after every one the cap cut.
+                                    Some(_) if !direction.is_nulls_first() => buckets.len() - 1,
+                                    None if maybe_cut => 0,
+                                    _ => buckets.len(),
+                                });
+                            }
+                            if let Some(pos) = null {
+                                let null = buckets.remove(pos);
+                                if direction.is_nulls_first() {
+                                    buckets.insert(0, null);
+                                } else {
+                                    buckets.push(null);
+                                }
+                            }
+                        }
+                        for bucket in buckets.iter_mut() {
+                            prefix = prefix.min(walk(&mut bucket.sub_aggregation.0, deeper));
+                        }
+                    }
+                    TantivyAggregationResult::BucketResult(BucketResult::Filter(filter)) => {
+                        prefix = prefix.min(walk(&mut filter.sub_aggregations.0, key_orders));
+                    }
+                    _ => {}
+                }
+            }
+            prefix
+        }
+
+        walk(&mut self.0, key_orders)
     }
 
     pub fn is_empty(&self) -> bool {

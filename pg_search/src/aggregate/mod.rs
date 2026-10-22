@@ -37,7 +37,7 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::build::{
-    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey, GroupedKey,
 };
 use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
@@ -62,6 +62,7 @@ use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
+use tantivy::aggregation::bucket::{CustomOrder, Order, OrderTarget};
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
@@ -838,10 +839,14 @@ pub fn execute_aggregate(
             // have tantivy finalize the intermediate results from each worker
             let mut aggregations: Aggregations = agg_req.try_into()?;
             // normalize missing on terms here too before merge, but only for SQL-originated requests
-            if agg_from_sql {
-                let schema = index.schema()?;
-                set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
-            }
+            let widened = agg_from_sql
+                && set_missing_on_terms(
+                    &mut aggregations,
+                    &index.schema()?,
+                    &use_min_sentinel_fields,
+                );
+            // A widened level holds one bucket more than the cap.
+            let bucket_limit = bucket_limit + u32::from(widened);
             // Get the tokenizer manager from the index (has all custom tokenizers registered)
             let tokenizer_manager = reader.searcher().index().tokenizers().clone();
             let collector = DistributedAggregationCollector::from_aggs(
@@ -885,19 +890,17 @@ pub fn execute_aggregate(
                 if let Some(output) = visibility_stats {
                     output.merge(stats);
                 }
+                let mut aggregations: Aggregations = agg_req.try_into()?;
+                let widened = agg_from_sql
+                    && set_missing_on_terms(
+                        &mut aggregations,
+                        &index.schema()?,
+                        &use_min_sentinel_fields,
+                    );
+                // A widened level holds one bucket more than the cap.
+                let bucket_limit = bucket_limit + u32::from(widened);
                 Ok(agg_results.into_final_result(
-                    {
-                        let mut aggregations: Aggregations = agg_req.try_into()?;
-                        if agg_from_sql {
-                            let schema = index.schema()?;
-                            set_missing_on_terms(
-                                &mut aggregations,
-                                &schema,
-                                &use_min_sentinel_fields,
-                            );
-                        }
-                        aggregations
-                    },
+                    aggregations,
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
                 )?)
             } else {
@@ -912,39 +915,43 @@ pub fn execute_aggregate(
 pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
 pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
 
-// recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
+/// True for either string sentinel.
+pub fn is_null_sentinel(key: &str) -> bool {
+    key == NULL_SENTINEL_MIN || key == NULL_SENTINEL_MAX
+}
+
+// recursively set a `missing` bucket on all terms aggregations so NULL values produce a group;
+// returns whether a `GROUP BY` level was given one more bucket than the cap to hold it
 fn set_missing_on_terms(
     aggs: &mut Aggregations,
     schema: &SearchIndexSchema,
     use_min_sentinel_fields: &HashSet<String>,
-) {
+) -> bool {
     use crate::schema::SearchFieldType;
 
-    for Aggregation {
-        agg,
-        sub_aggregation,
-    } in aggs.values_mut()
+    let mut widened = false;
+    for (
+        name,
+        Aggregation {
+            agg,
+            sub_aggregation,
+        },
+    ) in aggs.iter_mut()
     {
         if let AggregationVariants::Terms(terms) = agg
             && terms.missing.is_none()
         {
             // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
             let use_min = use_min_sentinel_fields.contains(&terms.field);
-            // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
-            // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
-            // for numeric column) would break the sort order.
+            // NOTE: A `pdb.agg()` terms aggregation takes a sentinel of the column's own type,
+            // because Tantivy sorts buckets by their key type and a string sorts below every
+            // number. Such a sentinel lands in the bucket of a real value equal to it.
             //
-            // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
-            // theoretically collide with valid data values, though this is unlikely in practice.
-            // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
+            // A `GROUP BY` level takes a string whatever the column type. Tantivy then counts
+            // the rows without a value apart (`TermMissingAgg`) on a numeric or boolean column,
+            // so no value can join the NULL group, and the scan moves the group to the end
+            // ORDER BY puts NULLs at.
             let sentinel = match schema.get_field_type(&terms.field) {
-                Some(SearchFieldType::I64(_)) => {
-                    if use_min {
-                        Key::I64(i64::MIN)
-                    } else {
-                        Key::I64(i64::MAX)
-                    }
-                }
                 Some(SearchFieldType::Date(_)) => {
                     // DateTime fields: Tantivy's terms aggregation doesn't accept Key::I64
                     // for DateTime columns (it validates the Key type against column type).
@@ -955,8 +962,38 @@ fn set_missing_on_terms(
                     //
                     // As of v0.24.1 (DATETIME_I64_STORAGE_VERSION), this is a legacy-only
                     // codepath: new indexes store datetime values as i64 and so use the
-                    // I64 sentinel arm above.
+                    // arms below.
                     continue;
+                }
+                _ if *name == GroupedKey::NAME => {
+                    // Tantivy ranks this string ahead of every number, so under ASC NULLS LAST
+                    // a numeric or boolean level would hand the group a place the cap keeps for
+                    // a value.
+                    if !use_min
+                        && matches!(
+                            terms.order,
+                            Some(CustomOrder {
+                                target: OrderTarget::Key,
+                                order: Order::Asc
+                            })
+                        )
+                    {
+                        terms.size = terms.size.map(|size| size + 1);
+                        terms.segment_size = terms.segment_size.map(|size| size + 1);
+                        widened = true;
+                    }
+                    if use_min {
+                        Key::Str(NULL_SENTINEL_MIN.to_string())
+                    } else {
+                        Key::Str(NULL_SENTINEL_MAX.to_string())
+                    }
+                }
+                Some(SearchFieldType::I64(_)) => {
+                    if use_min {
+                        Key::I64(i64::MIN)
+                    } else {
+                        Key::I64(i64::MAX)
+                    }
                 }
                 Some(SearchFieldType::U64(_)) => {
                     // For U64, 0 is a common value so we use string for MIN
@@ -991,15 +1028,16 @@ fn set_missing_on_terms(
             };
             terms.missing = Some(sentinel);
         }
-        set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
+        widened |= set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
     }
+    widened
 }
 
 /// True for a bucket key that stands in for NULL: the sentinels
 /// [`set_missing_on_terms`] chooses per column type.
 fn is_missing_sentinel(key: &serde_json::Value) -> bool {
     match key {
-        serde_json::Value::String(s) => s == NULL_SENTINEL_MAX || s == NULL_SENTINEL_MIN,
+        serde_json::Value::String(s) => is_null_sentinel(s),
         serde_json::Value::Number(n) => {
             n.as_i64().is_some_and(|v| v == i64::MAX || v == i64::MIN)
                 || n.as_u64().is_some_and(|v| v == u64::MAX)

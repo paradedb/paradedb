@@ -310,6 +310,23 @@ impl AggregateCSClause {
         self.limit_offset.as_ref().and_then(|lo| lo.static_fetch())
     }
 
+    /// The direction ORDER BY sorts each `GROUP BY` level by its own key in, or `None` for a
+    /// level whose column ORDER BY does not name.
+    pub fn grouping_key_orders(&self) -> Vec<Option<SortDirection>> {
+        let orderby_info = self.orderby.orderby_info();
+        self.targetlist
+            .grouping_columns()
+            .into_iter()
+            .map(|column| {
+                let field = FieldName::from(column.field_name);
+                orderby_info.iter().find_map(|info| match &info.feature {
+                    OrderByFeature::Field { name, .. } if *name == field => Some(info.direction),
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+
     pub fn index_created_by_version(&self) -> Option<Version> {
         self.index_created_by_version
     }
@@ -646,7 +663,6 @@ unsafe fn detect_aggregate_orderby(
 
 impl CollectNested<GroupedKey> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
-        let orderby_info = self.orderby.orderby_info();
         let grouping_columns = self.targetlist.grouping_columns();
 
         let max_buckets = gucs::max_term_agg_buckets() as u32;
@@ -689,18 +705,8 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
             None
         };
 
-        Ok(grouping_columns.into_iter().map(move |column| {
-            let orderby = orderby_info.iter().find(|info| {
-                if let OrderByFeature::Field {
-                    name: field_name, ..
-                } = &info.feature
-                {
-                    field_name == &FieldName::from(column.field_name.clone())
-                } else {
-                    false
-                }
-            });
-
+        let levels = grouping_columns.into_iter().zip(self.grouping_key_orders());
+        Ok(levels.map(move |(column, key_order)| {
             let mut terms_agg = TermsAggregation {
                 field: column.field_name.clone(),
                 size: Some(size),
@@ -717,10 +723,10 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
                     target: OrderTarget::Count,
                     order: agg_order.direction.into(),
                 });
-            } else if let Some(orderby) = orderby {
+            } else if let Some(direction) = key_order {
                 terms_agg.order = Some(CustomOrder {
                     target: OrderTarget::Key,
-                    order: orderby.direction.into(),
+                    order: direction.into(),
                 });
             }
 

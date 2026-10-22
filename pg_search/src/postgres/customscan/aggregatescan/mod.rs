@@ -131,9 +131,9 @@ use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
-use self::datafusion_build::validate_join_keys;
 use super::joinscan::build::FunctionRti;
 use super::pullup::SourceContext;
+use crate::postgres::customscan::joinscan::planning::validate_join_keys;
 
 #[derive(Default)]
 pub struct AggregateScan;

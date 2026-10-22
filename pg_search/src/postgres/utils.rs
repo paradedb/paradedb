@@ -219,6 +219,39 @@ impl Default for ExprContextGuard {
     }
 }
 
+/// RAII guard that ensures an active snapshot is set for the life of the guard.
+///
+/// Most callers (ordinary DML, queries, VACUUM, background merge workers) already run with an
+/// active snapshot. The logical-replication apply worker, however, applies remote changes and runs
+/// pre-commit cleanup without pushing one or having an active portal, while operations like SPI
+/// queries, expression planning (`RelationGetIndexExpressions` -> `eval_const_expressions`), and
+/// out-of-line TOAST detoasting (`get_toast_snapshot`) require an active snapshot. This guard
+/// pushes the transaction snapshot only when the caller lacks an active snapshot, and pops it on
+/// normal scope exit.
+///
+/// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
+/// active-snapshot stack; popping again here would underflow it, so the drop implementation
+/// uses `impl_safe_drop!` to skip cleanup while unwinding.
+pub struct ActiveSnapshotGuard {
+    pushed: bool,
+}
+
+impl ActiveSnapshotGuard {
+    pub fn ensure() -> Self {
+        let pushed = unsafe { !pg_sys::ActiveSnapshotSet() };
+        if pushed {
+            unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        }
+        Self { pushed }
+    }
+}
+
+impl_safe_drop!(ActiveSnapshotGuard, |self| {
+    if self.pushed {
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
+});
+
 /// Recursively sort all object keys in JSON for deterministic output
 pub fn sort_json_keys(value: &mut serde_json::Value) {
     match value {

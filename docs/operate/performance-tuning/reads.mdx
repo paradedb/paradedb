@@ -62,9 +62,9 @@ SELECT pg_prewarm('search_idx');
 
 ParadeDB relies on Postgres' [visibility map](https://www.postgresql.org/docs/current/storage-vm.html) to confirm that matching index entries are visible without reading the underlying heap pages:
 
-- **Aggregates (`ParadeDB Aggregate Scan`)** skip MVCC checks for entire segments or bitmap windows when their heap blocks are marked all-visible, avoiding per-row `ctid` lookups and heap fetches.
-- **Joins (`ParadeDB Join Scan`) and covering scans (`ParadeDB Base Scan`)** confirm visibility directly from the visibility map and skip or defer `ctid` fast-field reads and heap page access for all-visible blocks.
-- **Top-K and heap-fetching scans (`ParadeDB Base Scan`)** avoid stepping over dead tuples left behind by unvacuumed updates and deletes.
+- Aggregates (`ParadeDB Aggregate Scan`) skip MVCC checks for entire segments or bitmap windows when their heap blocks are marked all-visible, avoiding per-row `ctid` lookups and heap fetches.
+- Joins (`ParadeDB Join Scan`) and covering scans (`ParadeDB Base Scan`) confirm visibility directly from the visibility map and skip or defer `ctid` fast-field reads and heap page access for all-visible blocks.
+- Top-K and heap-fetching scans (`ParadeDB Base Scan`) avoid stepping over dead tuples left behind by unvacuumed updates and deletes.
 
 When a table experiences writes (`INSERT`, `UPDATE`, or `DELETE`), Postgres clears the all-visible bit in the visibility map for every modified 8 KB heap page until `VACUUM` runs. Because the visibility map tracks pages rather than individual rows, updating even a small percentage of rows scattered across a large table can mark the majority of its heap pages as not all-visible long before Postgres' default `autovacuum_vacuum_scale_factor` (`0.2`, or 20% of table rows) triggers a `VACUUM`. Similarly, newly inserted pages after a bulk load are not marked all-visible until `VACUUM` runs.
 

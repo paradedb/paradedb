@@ -30,13 +30,7 @@ use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
-<<<<<<< HEAD
-=======
-use crate::postgres::index::{
-    any_leaf_partition_index, is_partitioned_index, partition_member_index,
-};
 use crate::postgres::pgstat::count_index_scan;
->>>>>>> c407dfd (fix: count ParadeDB index scans in `pg_stat_user_indexes` (#6914))
 use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -172,16 +166,12 @@ pub fn search_with_query_input_ctid_or_row(
         let index_oid = query.index_oid().unwrap_or_else(|| {
             panic!("pg_search: could not determine the index to use for this query")
         });
+        let index_relation =
+            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+        count_index_scan(&index_relation);
         unsafe {
-            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt).switch_to(|_| {
-                RowMatcher::new(
-                    PgSearchRelation::with_lock(
-                        index_oid,
-                        pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-                    ),
-                    query,
-                )
-            })
+            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
+                .switch_to(|_| RowMatcher::new(index_relation, query))
         }
     });
 
@@ -315,6 +305,8 @@ fn search_with_query_input_impl(
         // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
         // materialize the match set and apply it as a per-row filter (the slow path).
 
+        // Every entry from here on reads the index, so it is one scan of it.
+        count_index_scan(&index_relation);
         let heap_relation = index_relation
             .heap_relation()
             .expect("a ParadeDB index must have a heap relation");
@@ -411,238 +403,3 @@ fn search_with_query_input_impl(
 
     result
 }
-<<<<<<< HEAD
-=======
-
-/// Materialize the match sets for one concrete leaf index: the slow path behind the
-/// scalar operator, collecting matching CTIDs into a memory-bounded set that is reused
-/// for every row of the scan.
-fn build_query_cache_entry(
-    fcinfo: pg_sys::FunctionCallInfo,
-    ctid: Option<Ctid>,
-    index_relation: PgSearchRelation,
-    search_query_input: SearchQueryInput,
-) -> QueryCacheEntry {
-    let is_partial =
-        unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
-    let null_guard = index_relation
-        .schema()
-        .expect("a ParadeDB index must have a schema")
-        .null_guard(&search_query_input);
-    let is_match_all = search_query_input.is_match_all() && !is_partial;
-
-    // `all()` matches every document, but a partial index may not contain every table row.
-    if is_match_all && null_guard.is_none() {
-        return QueryCacheEntry {
-            matches: KeySet::All,
-            missing_values: None,
-        };
-    }
-
-    if ctid.is_none() {
-        let index_info = unsafe { &*index_relation.index_info() };
-        if is_partial
-            && index_info.ii_IndexAttrNumbers[..index_info.ii_NumIndexAttrs as usize]
-                .iter()
-                .all(|&attno| attno == 0)
-        {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "searches on expression-only partial indexes require an index scan",
-                function_name!(),
-            )
-            .set_hint(
-                "Add a directly indexed table column to support searches without an index scan.",
-            )
-            .report(PgLogLevel::ERROR);
-        }
-        report_missing_row_identity();
-    }
-
-    // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
-    // materialize the match set and apply it as a per-row filter (the slow path).
-
-    // Every entry from here on reads the index, so it is one scan of it.
-    count_index_scan(&index_relation);
-    let heap_relation = index_relation
-        .heap_relation()
-        .expect("a ParadeDB index must have a heap relation");
-    let mut visibility = VisibilityChecker::with_rel_and_snap(&heap_relation, unsafe {
-        pg_sys::GetActiveSnapshot()
-    });
-    let mut cache_context = unsafe { PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt) };
-
-    // Collect matching CTIDs into a memory-bounded set (spills to a temp file past
-    // `work_mem`), reused for every row of the scan.
-    let matches = if is_match_all {
-        KeySet::All
-    } else {
-        let search_reader = SearchIndexReader::open(
-            &index_relation,
-            search_query_input,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-        .expect("search_with_query_input: should be able to open a SearchIndexReader");
-
-        unsafe { cache_context.switch_to(|_| search_reader.collect_ctidset(&mut visibility)) }
-    };
-
-    let missing_values = if let Some(null_guard) = null_guard {
-        // Collect rows where the field is absent (the complement of `exists`). Membership in
-        // this set means SQL NULL for negation semantics.
-        let complement_query = SearchQueryInput::WithIndex {
-            oid: index_relation.oid(),
-            query: Box::new(SearchQueryInput::Boolean {
-                must: vec![SearchQueryInput::All],
-                should: Default::default(),
-                must_not: vec![null_guard],
-                minimum_should_match: None,
-            }),
-        };
-
-        let complement_reader = SearchIndexReader::open(
-            &index_relation,
-            complement_query,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-        .expect("search_with_query_input: should be able to open a complement SearchIndexReader");
-
-        Some(unsafe {
-            cache_context.switch_to(|_| complement_reader.collect_ctidset(&mut visibility))
-        })
-    } else {
-        None
-    };
-
-    QueryCacheEntry {
-        matches,
-        missing_values,
-    }
-}
-
-/// The index a row is matched against: the query's own index, or, when that is a
-/// partitioned parent with no storage of its own (#4643), the member attached to the
-/// partition the row came from. For a row without a `tableoid`, `without_tableoid` decides
-/// from the parent.
-fn resolve_index(
-    query: &SearchQueryInput,
-    tableoid: Option<pg_sys::Oid>,
-    without_tableoid: impl FnOnce(&PgSearchRelation) -> PgSearchRelation,
-) -> PgSearchRelation {
-    let index_oid = query.index_oid().unwrap_or_else(|| {
-        panic!("pg_search: could not determine the index to use for this query")
-    });
-    let index_relation =
-        PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-    if !is_partitioned_index(index_oid) {
-        return index_relation;
-    }
-    match tableoid {
-        Some(child_heap_oid) => partition_member_index(child_heap_oid, index_oid)
-            .unwrap_or_else(|| report_missing_partition_index(Some(child_heap_oid), index_oid)),
-        None => without_tableoid(&index_relation),
-    }
-}
-
-/// A [`RowMatcher`] in the function's own memory context, so it outlives this call.
-unsafe fn build_row_matcher(
-    fcinfo: pg_sys::FunctionCallInfo,
-    index_relation: PgSearchRelation,
-    query: SearchQueryInput,
-) -> RowMatcher {
-    unsafe {
-        count_index_scan(&index_relation);
-        PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
-            .switch_to(|_| RowMatcher::new(index_relation, query))
-    }
-}
-
-/// The detoasted query argument as a [`SearchQueryInput`].
-unsafe fn deserialize_query(query_datum: *mut pg_sys::varlena) -> SearchQueryInput {
-    unsafe {
-        SearchQueryInput::from_datum(query_datum.into(), false)
-            .expect("the query argument cannot be NULL")
-    }
-}
-
-/// The `tableoid` shipped as a column of the trailing record argument when the planner
-/// resolved a partitioned index (#4643). `None` when the record has no such column, e.g.
-/// for a form without row identity or an unpartitioned index.
-///
-/// A call site's record has one shape, so its `tableoid` column is found on the first row,
-/// and a call site without one stops reading its record after that.
-unsafe fn record_tableoid(
-    fcinfo: pg_sys::FunctionCallInfo,
-    field: &mut Option<Option<TableOidField>>,
-) -> Option<pg_sys::Oid> {
-    unsafe {
-        // The record is the last argument of every heap-filter form.
-        let nargs = (*fcinfo).nargs;
-        if nargs < 4 || matches!(field, Some(None)) {
-            return None;
-        }
-        let record = pg_getarg_datum(fcinfo, nargs as usize - 1)?;
-        let header =
-            pg_sys::pg_detoast_datum(record.cast_mut_ptr()).cast::<pg_sys::HeapTupleHeaderData>();
-        let field = field
-            .get_or_insert_with(|| {
-                let (attno, _) =
-                    PgHeapTuple::from_composite_datum(record).get_attribute_by_name("tableoid")?;
-                let record_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
-                    pgrx::heap_tuple_header_get_type_id(header),
-                    pgrx::heap_tuple_header_get_typmod(header),
-                ));
-                let tupdesc = PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
-                    .switch_to(|_| pg_sys::CreateTupleDescCopy(record_desc.as_ptr()));
-                Some(TableOidField { attno, tupdesc })
-            })
-            .as_ref()?;
-        let mut tuple: pg_sys::HeapTupleData = std::mem::zeroed();
-        tuple.t_len = pgrx::heap_tuple_header_get_datum_length(header) as u32;
-        tuple.t_data = header;
-        let datum = heap_getattr_raw(&mut tuple, field.attno, field.tupdesc)?;
-        pg_sys::Oid::from_datum(datum, false)
-    }
-}
-
-/// A search evaluated without access to the identity of the row it is filtering.
-fn report_missing_row_identity() -> ! {
-    ErrorReport::new(
-        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-        "search query requires row identity that is unavailable in this context",
-        function_name!(),
-    )
-    .set_hint("Apply the search operator in a table query. Use an ordinary SQL predicate to define a partial index.")
-    .report(PgLogLevel::ERROR);
-    unreachable!()
-}
-
-/// A partition with no valid member of the partitioned index the query was planned with,
-/// or a partitioned index with no valid member at all.
-fn report_missing_partition_index(
-    child_heap_oid: Option<pg_sys::Oid>,
-    parent_index_oid: pg_sys::Oid,
-) -> ! {
-    let parent = PgSearchRelation::open(parent_index_oid);
-    let message = match child_heap_oid {
-        Some(child_heap_oid) => format!(
-            "partition \"{}\" has no valid member of the partitioned index \"{}\"",
-            PgSearchRelation::open(child_heap_oid).name(),
-            parent.name(),
-        ),
-        None => format!(
-            "partitioned index \"{}\" has no valid member index",
-            parent.name()
-        ),
-    };
-    ErrorReport::new(
-        PgSqlErrorCode::ERRCODE_UNDEFINED_OBJECT,
-        message,
-        function_name!(),
-    )
-    .report(PgLogLevel::ERROR);
-    unreachable!()
-}
->>>>>>> c407dfd (fix: count ParadeDB index scans in `pg_stat_user_indexes` (#6914))

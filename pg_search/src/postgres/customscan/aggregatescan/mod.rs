@@ -2290,16 +2290,11 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
-<<<<<<< HEAD
-=======
-                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
                 for source in df_state.plan.sources() {
-                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
                     if source.scan_info.indexrelid != pg_sys::InvalidOid {
                         count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
                     }
                 }
->>>>>>> c407dfd (fix: count ParadeDB index scans in `pg_stat_user_indexes` (#6914))
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,

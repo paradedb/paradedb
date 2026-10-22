@@ -32,7 +32,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
-use decimal_bytes::Decimal;
+use decimal_bytes::{Decimal, Decimal64NoScale};
 
 // ============================================================================
 // Numeric64 Scaling (I64 Fixed-Point)
@@ -48,8 +48,6 @@ use decimal_bytes::Decimal;
 /// scale_i64("123.45", 2) // Returns Ok(12345)
 /// ```
 pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
-    use decimal_bytes::Decimal64NoScale;
-
     let decimal = Decimal64NoScale::new(numeric_str, scale as i32).map_err(|e| {
         anyhow::anyhow!(
             "Failed to scale '{}' with scale {}: {:?}. This may occur if the value exceeds i64 range after scaling.",
@@ -60,46 +58,6 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
     })?;
 
     Ok(decimal.value())
-}
-
-/// Scale an OwnedValue to I64 fixed-point representation.
-///
-/// Handles Str, I64, U64, and F64 values, converting to scaled I64.
-/// Uses direct primitive constructors (`from_i64`, `from_u64`, `from_f64`)
-/// for efficient conversion without string intermediates.
-///
-/// # Example
-/// ```ignore
-/// scale_owned_value(OwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
-/// scale_owned_value(OwnedValue::I64(100), 2) // Returns Ok(OwnedValue::I64(10000))
-/// ```
-pub fn scale_owned_value(value: PdbOwnedValue, scale: i16) -> Result<PdbOwnedValue> {
-    use decimal_bytes::Decimal64NoScale;
-
-    let scale_i32 = scale as i32;
-
-    let scaled = match &value {
-        // Use direct primitive constructors for efficiency
-        PdbOwnedValue::I64(i) => Decimal64NoScale::from_i64(*i, scale_i32)
-            .map_err(|e| anyhow::anyhow!("Failed to scale i64 {}: {:?}", i, e))?
-            .value(),
-        PdbOwnedValue::U64(u) => Decimal64NoScale::from_u64(*u, scale_i32)
-            .map_err(|e| anyhow::anyhow!("Failed to scale u64 {}: {:?}", u, e))?
-            .value(),
-        PdbOwnedValue::F64(f) => Decimal64NoScale::from_f64(*f, scale_i32)
-            .map_err(|e| anyhow::anyhow!("Failed to scale f64 {}: {:?}", f, e))?
-            .value(),
-        // Fall back to string parsing for string values
-        PdbOwnedValue::Str(s) => scale_i64(s, scale)?,
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Cannot scale non-numeric value: {:?}",
-                value
-            ));
-        }
-    };
-
-    Ok(PdbOwnedValue::I64(scaled))
 }
 
 // ============================================================================
@@ -266,12 +224,14 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
 
 /// The integers that a field holds: the values of an `I64` or a `U64` field, or the bounds of
 /// the ranges in an `int4range` or an `int8range` field, which are stored as `I64` values. Dates
-/// and times are stored in `I64` fields too, but they are not numbers.
+/// and times are stored in `I64` fields too, but they are not numbers. `Numeric64` holds
+/// scaled integers plus sentinels for NaN and the infinities.
 #[derive(Clone, Copy)]
 enum IntDomain {
     I32,
     I64,
     U64,
+    Numeric64 { scale: i16 },
 }
 
 impl IntDomain {
@@ -281,6 +241,7 @@ impl IntDomain {
         match field_type {
             SearchFieldType::I64(oid) if !is_datetime_type(*oid) => Some(Self::I64),
             SearchFieldType::U64(_) => Some(Self::U64),
+            SearchFieldType::Numeric64(_, scale) => Some(Self::Numeric64 { scale: *scale }),
             SearchFieldType::Range(oid) => match (*oid).try_into() {
                 Ok(BuiltinOid::INT4RANGEOID) => Some(Self::I32),
                 Ok(BuiltinOid::INT8RANGEOID) => Some(Self::I64),
@@ -295,6 +256,7 @@ impl IntDomain {
             Self::I32 => i32::MIN.into(),
             Self::I64 => i64::MIN.into(),
             Self::U64 => u64::MIN.into(),
+            Self::Numeric64 { .. } => Decimal64NoScale::min_value().value().into(),
         }
     }
 
@@ -303,13 +265,14 @@ impl IntDomain {
             Self::I32 => i32::MAX.into(),
             Self::I64 => i64::MAX.into(),
             Self::U64 => u64::MAX.into(),
+            Self::Numeric64 { .. } => Decimal64NoScale::max_value().value().into(),
         }
     }
 
     /// `n`, an integer of the domain, as a value of the field's type.
     fn value(self, n: i128) -> PdbOwnedValue {
         match self {
-            Self::I32 | Self::I64 => {
+            Self::I32 | Self::I64 | Self::Numeric64 { .. } => {
                 PdbOwnedValue::I64(i64::try_from(n).expect("n should fit an i64"))
             }
             Self::U64 => PdbOwnedValue::U64(u64::try_from(n).expect("n should fit a u64")),
@@ -341,27 +304,49 @@ pub fn clamp_to_int_domain(value: &PdbOwnedValue, field_type: &SearchFieldType) 
     {
         return None;
     }
-    Some(if decimal < Decimal::from(domain.min()) {
+    let (min, max, shift) = match domain {
+        IntDomain::Numeric64 { scale } => {
+            if decimal.is_special() {
+                return Some(Clamped::Exact(PdbOwnedValue::I64(
+                    Decimal64NoScale::from_decimal(&decimal, i32::from(scale))
+                        .ok()?
+                        .value(),
+                )));
+            }
+            // Scientific notation keeps the bounds in Decimal arithmetic. In particular,
+            // `Decimal64NoScale::to_decimal` can overflow its u64 intermediate at negative scales.
+            let exponent = -i32::from(scale);
+            (
+                Decimal::from_str(&format!("{}e{exponent}", domain.min())).ok()?,
+                Decimal::from_str(&format!("{}e{exponent}", domain.max())).ok()?,
+                scale,
+            )
+        }
+        _ => (Decimal::from(domain.min()), Decimal::from(domain.max()), 0),
+    };
+    // Compare before converting to an integer, so arbitrarily large finite literals clamp
+    // without overflowing and still sort below the positive infinity and NaN sentinels.
+    Some(if decimal < min {
         Clamped::Below(domain.value(domain.min()))
-    } else if decimal > Decimal::from(domain.max()) {
+    } else if decimal > max {
         Clamped::Above(domain.value(domain.max()))
     } else {
-        match floor_of(&decimal) {
+        match floor_of(&decimal, shift) {
             (floor, true) => Clamped::Exact(domain.value(floor)),
             (floor, false) => Clamped::Above(domain.value(floor)),
         }
     })
 }
 
-/// The largest integer not above `decimal`, which lies between the smallest and the largest
-/// integers of a field, and whether it equals `decimal`.
-fn floor_of(decimal: &Decimal) -> (i128, bool) {
+/// The floor of `decimal * 10^shift` and whether it is exact. The shifted value lies
+/// within the field's finite integer domain, checked by [`clamp_to_int_domain`].
+fn floor_of(decimal: &Decimal, shift: i16) -> (i128, bool) {
     let mut digits = Vec::new();
     let (negative, exponent) = decimal
         .read_parts_into(&mut digits)
         .expect("a number between two integers is finite");
-    // `decimal` is `±0.d1d2... × 10^exponent`, so its first `exponent` digits are its integer part.
-    let integer_len = usize::try_from(exponent).unwrap_or(0);
+    // `decimal` is `±0.d1d2... × 10^exponent`; shift the integer boundary for Numeric64.
+    let integer_len = usize::try_from(i64::from(exponent) + i64::from(shift)).unwrap_or(0);
     let integer = (0..integer_len).fold(0_i128, |integer, i| {
         integer * 10 + i128::from(digits.get(i).copied().unwrap_or(0))
     });
@@ -465,14 +450,6 @@ where
     }
 }
 
-/// Scale a numeric bound value for Numeric64 storage.
-pub fn scale_numeric_bound(
-    bound: Bound<PdbOwnedValue>,
-    scale: i16,
-) -> Result<Bound<PdbOwnedValue>> {
-    convert_bound(bound, |v| scale_owned_value(v, scale))
-}
-
 /// Convert a numeric bound to lexicographically sortable raw bytes.
 /// Used for NumericBytes fields stored as Tantivy Bytes columns.
 pub fn numeric_bound_to_bytes(
@@ -551,16 +528,20 @@ pub fn convert_value_for_field(
     index_created_by_version: Option<Version>,
 ) -> Result<PdbOwnedValue> {
     match field_type {
-        SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
         SearchFieldType::NumericBytes(..) => {
             numeric_value_to_decimal_bytes(value, index_created_by_version)
         }
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(oid) if is_datetime_type(*oid) => Ok(string_to_i64(value)),
-        SearchFieldType::I64(_) | SearchFieldType::U64(_) => {
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::Numeric64(..) => {
             match clamp_to_int_domain(&value, field_type) {
                 Some(Clamped::Exact(n)) => Ok(n),
                 Some(_) => Err(anyhow::anyhow!("no integer of the field equals {value:?}")),
+                // A `Numeric64` column has no text terms, so a string that is not a number would
+                // become a term that matches nothing instead of an error.
+                None if matches!(field_type, SearchFieldType::Numeric64(..)) => {
+                    Err(anyhow::anyhow!("{value:?} is not a number"))
+                }
                 None => Ok(value),
             }
         }
@@ -581,40 +562,6 @@ mod tests {
         assert_eq!(scale_i64("123.45", 2).unwrap(), 12345);
         assert_eq!(scale_i64("0.999", 3).unwrap(), 999);
         assert_eq!(scale_i64("-50.5", 1).unwrap(), -505);
-    }
-
-    #[test]
-    fn test_scale_owned_value() {
-        // String input
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::Str("123.45".to_string()), 2).unwrap(),
-            PdbOwnedValue::I64(12345)
-        );
-        // F64 input (uses from_f64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::F64(0.999), 3).unwrap(),
-            PdbOwnedValue::I64(999)
-        );
-        // I64 input (uses from_i64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::I64(50), 1).unwrap(),
-            PdbOwnedValue::I64(500)
-        );
-        // U64 input (uses from_u64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::U64(100), 2).unwrap(),
-            PdbOwnedValue::I64(10000)
-        );
-        // Negative value via string
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::Str("-50.5".to_string()), 1).unwrap(),
-            PdbOwnedValue::I64(-505)
-        );
-        // Negative I64 (uses from_i64 directly)
-        assert_eq!(
-            scale_owned_value(PdbOwnedValue::I64(-25), 2).unwrap(),
-            PdbOwnedValue::I64(-2500)
-        );
     }
 
     #[test]
@@ -673,6 +620,73 @@ mod tests {
 
         // Both layouts decode to the same value.
         assert_eq!(Decimal::from_bytes(&legacy).unwrap().to_string(), "-49990");
+    }
+
+    #[test]
+    fn test_scale_i64_still_rounds_for_stored_values() {
+        assert_eq!(scale_i64("12.345", 2).unwrap(), 1235);
+        assert_eq!(
+            clamp_to_int_domain(&text("12.345"), &numeric64(2)),
+            Some(Above(int(1234)))
+        );
+    }
+
+    fn numeric64(scale: i16) -> SearchFieldType {
+        SearchFieldType::Numeric64(pgrx::pg_sys::NUMERICOID, scale)
+    }
+
+    #[rstest]
+    #[case(2, "12.345", 1234, false)]
+    #[case(2, "-12.345", -1235, false)]
+    #[case(2, "1e-41", 0, false)]
+    #[case(2, "-1e-41", -1, false)]
+    #[case(0, "12.5", 12, false)]
+    #[case(-2, "1234", 12, false)]
+    #[case(2, "92233720368547758.075", 999999999999999999, false)]
+    #[case(2, "1e400", 999999999999999999, false)]
+    #[case(2, "-1e400", -999999999999999999, true)]
+    fn numeric64_off_grid_bounds(
+        #[case] scale: i16,
+        #[case] literal: &str,
+        #[case] boundary: i64,
+        #[case] below: bool,
+        #[values(true, false)] inclusive: bool,
+    ) {
+        let bound = if inclusive {
+            Included(text(literal))
+        } else {
+            Excluded(text(literal))
+        };
+        let expected = if below {
+            (Included(int(boundary)), Excluded(int(boundary)))
+        } else {
+            (Excluded(int(boundary)), Included(int(boundary)))
+        };
+        assert_eq!(
+            clamp_int_bounds(&numeric64(scale), bound.clone(), bound).unwrap(),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case("12.34", 1234)]
+    #[case("NaN", Decimal64NoScale::nan().value())]
+    #[case("Infinity", Decimal64NoScale::infinity().value())]
+    #[case("-Infinity", Decimal64NoScale::neg_infinity().value())]
+    fn numeric64_exact_bounds(
+        #[case] literal: &str,
+        #[case] encoded: i64,
+        #[values(true, false)] inclusive: bool,
+    ) {
+        let (bound, expected) = if inclusive {
+            (Included(text(literal)), Included(int(encoded)))
+        } else {
+            (Excluded(text(literal)), Excluded(int(encoded)))
+        };
+        assert_eq!(
+            clamp_int_bounds(&numeric64(2), bound.clone(), bound).unwrap(),
+            (expected.clone(), expected)
+        );
     }
 
     #[test]
@@ -753,6 +767,59 @@ mod tests {
     #[case::int4range(INT4RANGE, int(i32::MAX.into()), Exact(int(i32::MAX.into())))]
     #[case::int4range_above_max(INT4RANGE, int(3_000_000_000), Above(int(i32::MAX.into())))]
     #[case::int4range_below_min(INT4RANGE, float(-3e9), Below(int(i32::MIN.into())))]
+    #[case::numeric64_exact(numeric64(2), text("12.3400"), Exact(int(1234)))]
+    #[case::numeric64_negative(numeric64(2), text("-12.34"), Exact(int(-1234)))]
+    #[case::numeric64_fraction(numeric64(2), text("12.345"), Above(int(1234)))]
+    #[case::numeric64_negative_fraction(numeric64(2), text("-12.345"), Above(int(-1235)))]
+    #[case::numeric64_i64(numeric64(2), int(12), Exact(int(1200)))]
+    #[case::numeric64_u64(numeric64(2), uint(12), Exact(int(1200)))]
+    #[case::numeric64_float(numeric64(2), float(12.345), Above(int(1234)))]
+    #[case::numeric64_zero_scale(numeric64(0), text("12.5"), Above(int(12)))]
+    #[case::numeric64_negative_scale(numeric64(-2), text("1234"), Above(int(12)))]
+    #[case::numeric64_negative_scale_exact(numeric64(-2), text("1200"), Exact(int(12)))]
+    #[case::numeric64_negative_scale_zero(numeric64(-2), text("-0.00"), Exact(int(0)))]
+    #[case::numeric64_exponent(numeric64(2), text("1.5e3"), Exact(int(150000)))]
+    #[case::numeric64_tiny(numeric64(2), text("1e-41"), Above(int(0)))]
+    #[case::numeric64_tiny_negative(numeric64(2), text("-1e-41"), Above(int(-1)))]
+    #[case::numeric64_long_fraction(
+        numeric64(2),
+        text("1.2300000000000000000000000000000000000000000000001"),
+        Above(int(123))
+    )]
+    #[case::numeric64_long_negative(numeric64(2), text("-1.2300000000000000000000000000000000000000000000001"), Above(int(-124)))]
+    #[case::numeric64_long_exact(
+        numeric64(2),
+        text("1.2300000000000000000000000000000000000000000000000"),
+        Exact(int(123))
+    )]
+    #[case::numeric64_max(
+        numeric64(2),
+        text("9999999999999999.99"),
+        Exact(int(999999999999999999))
+    )]
+    #[case::numeric64_min(numeric64(2), text("-9999999999999999.99"), Exact(int(-999999999999999999)))]
+    #[case::numeric64_above_max(
+        numeric64(2),
+        text("9999999999999999.991"),
+        Above(int(999999999999999999))
+    )]
+    #[case::numeric64_below_min(numeric64(2), text("-9999999999999999.991"), Below(int(-999999999999999999)))]
+    #[case::numeric64_ceil_overflow(
+        numeric64(2),
+        text("92233720368547758.075"),
+        Above(int(999999999999999999))
+    )]
+    #[case::numeric64_i64_overflow(
+        numeric64(2),
+        text("100000000000000000000"),
+        Above(int(999999999999999999))
+    )]
+    #[case::numeric64_i128_overflow(numeric64(0), text("-170141183460469231731687303715884105727.1"), Below(int(-999999999999999999)))]
+    #[case::numeric64_huge(numeric64(2), text("1e400"), Above(int(999999999999999999)))]
+    #[case::numeric64_nan(numeric64(2), text("NaN"), Exact(int(Decimal64NoScale::nan().value())))]
+    #[case::numeric64_infinity(numeric64(2), text("Infinity"), Exact(int(Decimal64NoScale::infinity().value())))]
+    #[case::numeric64_negative_infinity(numeric64(2), text("-Infinity"), Exact(int(Decimal64NoScale::neg_infinity().value())))]
+    #[case::numeric64_float_nan(numeric64(2), float(f64::NAN), Exact(int(Decimal64NoScale::nan().value())))]
     fn test_clamp_to_int_domain(
         #[case] field_type: SearchFieldType,
         #[case] value: PdbOwnedValue,
@@ -774,6 +841,9 @@ mod tests {
     #[case::timestamp_field(TIMESTAMP, text("infinity"))]
     #[case::float_field(SearchFieldType::F64(pgrx::pg_sys::FLOAT8OID), int(5))]
     #[case::numrange_field(SearchFieldType::Range(pgrx::pg_sys::NUMRANGEOID), text("5"))]
+    #[case::numeric64_empty(numeric64(2), text(""))]
+    #[case::numeric64_garbage(numeric64(2), text("abc"))]
+    #[case::numeric64_malformed(numeric64(2), text("1.2.3"))]
     fn test_clamp_to_int_domain_none(
         #[case] field_type: SearchFieldType,
         #[case] value: PdbOwnedValue,
@@ -897,5 +967,13 @@ mod tests {
     #[case::above_max(uint(1 << 63))]
     fn convert_value_for_field_rejects_numbers_outside_int_domain(#[case] value: PdbOwnedValue) {
         assert!(convert_value_for_field(value, &INT8, None).is_err());
+    }
+
+    #[rstest]
+    #[case::not_a_number(text("abc"))]
+    #[case::empty(text(""))]
+    #[case::off_grid(text("12.345"))]
+    fn convert_value_for_field_rejects_non_values_of_numeric64(#[case] value: PdbOwnedValue) {
+        assert!(convert_value_for_field(value, &numeric64(2), None).is_err());
     }
 }

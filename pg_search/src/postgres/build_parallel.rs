@@ -1875,7 +1875,7 @@ mod tests {
             CREATE EXTENSION IF NOT EXISTS vector;
             SET maintenance_work_mem = '128MB';
             SET max_parallel_workers = 8;
-            SET paradedb.vector_clustering_threshold = 500;
+            SET paradedb.vector_clustering_threshold = 1;
             CREATE TABLE vector_build (
                 id BIGINT, tenant_id BIGINT, name TEXT, padding TEXT,
                 empty_emb vector(3), emb vector(3)

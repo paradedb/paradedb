@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Join Scan no longer declines queries whose `SELECT` list contains a volatile function, such as `random()`. Postgres now computes these expressions from the rows Join Scan returns, once per output row after the `LIMIT`, as it does in its own plans. An `ORDER BY` on a volatile expression still declines Join Scan.

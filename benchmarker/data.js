@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792649782704,
+  "lastUpdate": 1792695018414,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22820,6 +22820,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.993,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ujjawalpathak6@gmail.com",
+            "name": "Kumar Ujjawal",
+            "username": "kumarUjjawal"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8cd30c852c678a13468fd86a691b4d434e378a7",
+          "message": "fix: preserve Numeric64 comparison semantics without overflowing (#6978)\n\n# Ticket(s) Closed\n\n- Closes #6102\n\n## What\n\nReplaces #6369, originally authored by Javier Garcia (@IamYipi). Replays\nhis four commits with authorship and original commit references\npreserved, followed by a separate finishing commit.\n\n## Why\n\nRounding Numeric64 query literals changes comparison results, and\ncomputing an off-grid ceiling can overflow.\n\n## How\n\nUse exact grid comparisons and overflow-safe bounds while preserving NaN\nordering and storage rounding. Also fix off-grid negation pruning and\ncheck negative-floor overflow.\n\n## Tests\n\n128 numeric unit tests and six exact PostgreSQL 17 regressions pass,\nincluding the requested overflow case with verified pushdown. The new\nregression fails before the fix. Formatting and workspace-wide Clippy\npass; full suites and hosted CI were not run locally.\n\n---------\n\nCo-authored-by: Javier Garcia <93437997+IamYipi@users.noreply.github.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T11:07:20-07:00",
+          "tree_id": "63a089079b29a85c4b5316d2770ea5b9d375e2a4",
+          "url": "https://github.com/paradedb/paradedb/commit/a8cd30c852c678a13468fd86a691b4d434e378a7"
+        },
+        "date": 1792695006423,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.32,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.697,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.665,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.531,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.04,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.712,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.281,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.908,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.471,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.092,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.189,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.072,
             "unit": "ms"
           }
         ]

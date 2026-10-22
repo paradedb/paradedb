@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792706016410,
+  "lastUpdate": 1792706035721,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -29053,6 +29053,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 36.02845818759397,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3a73bf7154bbfd90a188f5577158597b2fa3bc5",
+          "message": "perf: Warn for a stale visibility map. (#6973)\n\n## What\n\nEmits a once-per-query warning via `warn_stale_visibility_map` when\n`VisibilityChecker::scan_dirty_blocks` estimates that at least\n`paradedb.visibility_map_warning_threshold` (default `10000`) heap\nblocks across the table are not all-visible. Also expands the autovacuum\ndocumentation in `docs/operate/performance-tuning/reads.mdx`.\n\n## Why\n\nWhen `VACUUM` or autovacuum has not kept up with writes or bulk loads,\nthe Postgres visibility map remains clear across large portions of the\nheap, forcing scans and aggregates to fall back to per-tuple `ctid` and\nheap visibility checks without an obvious signal to the user.\n\n## How\n\nAccumulates scanned block spans and dirty block counts in\n`VisibilityChecker` (`ScannedVisibilityProgress`) as segment visibility\nranges are checked, extrapolates the dirty block count to the table\n(`nblocks`) once at least `1 / num_segments` of the table has been\nsampled, and emits a deduplicated warning in the leader process linking\nto\nhttps://www.paradedb.com/docs/operate/performance-tuning/reads#configuring-autovacuum.\n\n## Tests\n\n- Unit test `test_scanned_visibility_progress_extrapolation` in\n`pg_search/src/postgres/heap.rs`.\n- `pg_regress` test in\n`pg_search/tests/pg_regress/sql/visibility_explain.sql`.",
+          "timestamp": "2026-10-22T13:25:53-07:00",
+          "tree_id": "7a2c56d49373f2501612dd0b3c67f81175c19125",
+          "url": "https://github.com/paradedb/paradedb/commit/e3a73bf7154bbfd90a188f5577158597b2fa3bc5"
+        },
+        "date": 1792706020380,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.920107704378758,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.43765360805919,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.605152745921544,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.895821986873013,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.44937704839084,
             "unit": "queries/s"
           }
         ]

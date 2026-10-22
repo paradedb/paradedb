@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792627561111,
+  "lastUpdate": 1792632886824,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22028,6 +22028,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 10.023,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "113442152+devcool20@users.noreply.github.com",
+            "name": "Divyanshu Sharma",
+            "username": "devcool20"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d344ed4e11b251bf86b0c2aa903f2e7af064b38e",
+          "message": "fix: reclaim temporary memory during heap filter evaluation (#6782)\n\nFixes #6739\n\n### Background & Root Cause\nWhen ParadeDB evaluates heap filters via\n`HeapFieldFilter::evaluate_expression_inner`, PostgreSQL expressions are\nevaluated for candidate tuples using `ExecEvalExpr`.\n\nPreviously, `ExecEvalExpr` was invoked in whatever memory context\nhappened to be active during scan iteration, without switching into\n`ExprContext`'s per-tuple memory context (`ecxt_per_tuple_memory`) or\nresetting it after evaluating each candidate. When heap filter\npredicates contained expressions that allocate temporary memory (such as\n`jsonb_build_array(...)`, regex operations, or text formatting\nfunctions), these allocations accumulated across thousands of rejected\ncandidates in a single scan, resulting in unbounded memory growth (e.g.\nRSS bloating up to ~894 MiB on 100k examined rows).\n\n### Solution\n1. **Memory Context Isolation**: Switch `CurrentMemoryContext` to\n`(*econtext).ecxt_per_tuple_memory` prior to calling `ExecEvalExpr`.\n2. **Per-Candidate Scratch Memory Reset**: Convert the PostgreSQL datum\nto a boolean stack value (`bool::from_datum`), then immediately reset\n`(*econtext).ecxt_per_tuple_memory` (`per_tuple_context.reset()`).\n3. **Regression Test & Changelog**: Added regression test\n`issue_6739.sql` and unreleased changelog fragment `6739.stability.mdx`.\n\n---\n\n### Before & After Fix Comparison\n\n#### Reproduction Query\n```sql\nCREATE TABLE repro (id bigint PRIMARY KEY, body text, tags jsonb);\nINSERT INTO repro\nSELECT i, 'common ' || repeat('search document ', 10), '[\"other\"]'::jsonb\nFROM generate_series(1, 100000) AS i;\n\nCREATE INDEX repro_idx ON repro USING paradedb (id, body);\n\n-- Query with allocating expression in pushed-down heap filter over 100k candidate rows:\nSELECT id FROM repro\nWHERE body @@@ 'common'\n  AND (\n    tags @> jsonb_build_array('never1')\n    OR tags @> jsonb_build_array('never2')\n    OR tags @> jsonb_build_array('never3')\n    OR tags @> jsonb_build_array('never4')\n    OR tags @> jsonb_build_array('never5')\n    OR tags @> jsonb_build_array('never6')\n  )\nORDER BY pdb.score(id) DESC\nLIMIT 1;\n```\n\n#### Memory Benchmark Results\n\n| Query Variant | Peak Backend RSS Before Fix | Peak Backend RSS After\nFix | Result |\n| :--- | :--- | :--- | :--- |\n| **`jsonb_build_array` function heap filter** | **~894.4 MiB** *(leaked\nacross 100k candidates)* | **~139.5 MiB** *(bounded, O(1) scratch\nspace)* | **~84% reduction in peak RSS** |\n| **Equivalent constant JSONB query** | ~139.4 MiB | ~139.4 MiB |\nBaseline |\n\n---\n\n### Changes Summary\n- `pg_search/src/query/heap_field_filter.rs`: Wrapped expression\nevaluation in `per_tuple_context.switch_to` and reset\n`per_tuple_context` per candidate.\n- `pg_search/tests/pg_regress/sql/issue_6739.sql`: Regression test\ncovering allocating function evaluation in heap filters.\n- `pg_search/tests/pg_regress/expected/issue_6739.out`: Expected\nregression test output.\n- `docs/project/changelog/unreleased/6739.stability.mdx`: Stability\nchangelog fragment.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-21T17:52:10-07:00",
+          "tree_id": "621e21e20371292497853965a9f13521db8a1b73",
+          "url": "https://github.com/paradedb/paradedb/commit/d344ed4e11b251bf86b0c2aa903f2e7af064b38e"
+        },
+        "date": 1792632876260,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.531,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.346,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.397,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.478,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.143,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.888,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.195,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.025,
             "unit": "ms"
           }
         ]

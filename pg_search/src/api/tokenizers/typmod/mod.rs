@@ -18,6 +18,7 @@
 mod definitions;
 mod validation;
 
+use crate::postgres::utils::ActiveSnapshotGuard;
 use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
@@ -545,27 +546,6 @@ struct StmtHolder(OwnedPreparedStatement);
 // SAFETY:  we don't do threads in postgres
 unsafe impl Send for StmtHolder {}
 unsafe impl Sync for StmtHolder {}
-
-struct ActiveSnapshotGuard {
-    pushed: bool,
-}
-
-impl ActiveSnapshotGuard {
-    fn ensure() -> Self {
-        let pushed = unsafe { !pg_sys::ActiveSnapshotSet() };
-        if pushed {
-            unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
-        }
-        Self { pushed }
-    }
-}
-
-// Transaction abort resets the snapshot stack, so do not pop it while unwinding.
-crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
-    if self.pushed {
-        unsafe { pg_sys::PopActiveSnapshot() };
-    }
-});
 
 static LOAD_CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
 static SAVE_CACHE: OnceLock<Mutex<crate::api::HashMap<Vec<String>, i32>>> = OnceLock::new();

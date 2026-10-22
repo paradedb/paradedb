@@ -665,49 +665,7 @@ fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
-<<<<<<< HEAD
-) -> Option<DocsEstimate> {
-=======
 ) -> Option<(DocsEstimate, usize)> {
-    // A partitioned index has no storage of its own (#4643). A predicate above an Append
-    // covers every partition, so one leaf stands in for the tree: its match ratio is the
-    // selectivity, and its counts scale up to the rows of every leaf. The largest leaf is
-    // tried first, since the first in OID order is often a default or near-empty partition
-    // whose rows say nothing about the rest. A leaf a `REINDEX` holds is skipped instead
-    // of waited on, and one that holds no rows yields to the next.
-    if is_partitioned_index(indexrel.oid()) {
-        let mut leaves: Vec<_> = leaf_partition_index_oids(indexrel)
-            .into_iter()
-            .map(|oid| (oid, leaf_heap_rows(oid)))
-            .collect();
-        leaves.sort_by(|a, b| b.1.unwrap_or(-1.0).total_cmp(&a.1.unwrap_or(-1.0)));
-        let ordered: Vec<pg_sys::Oid> = leaves.iter().map(|(oid, _)| *oid).collect();
-        let (sample_oid, estimate, segment_count) = free_leaf_partition_indexes(&ordered)
-            .find_map(|leaf| {
-                open_and_estimate_docs(&leaf, search_query_input.clone(), None)
-                    .filter(|(estimate, _)| estimate.total_docs > 0)
-                    .map(|(estimate, segment_count)| (leaf.oid(), estimate, segment_count))
-            })?;
-        // A leaf that has never been counted is taken to be the sample's size.
-        let sample_rows = estimate.total_docs as f64;
-        let total_rows = leaves
-            .iter()
-            .filter(|(oid, _)| *oid != sample_oid)
-            .map(|(_, rows)| rows.unwrap_or(sample_rows))
-            .sum::<f64>()
-            + sample_rows;
-        let scale = total_rows / sample_rows;
-        return Some((
-            DocsEstimate {
-                matching_docs: (estimate.matching_docs as f64 * scale).ceil() as usize,
-                total_docs: total_rows.ceil() as u64,
-                query_cost: (estimate.query_cost as f64 * scale).ceil() as u64,
-            },
-            segment_count,
-        ));
-    }
-
->>>>>>> 2075f35 (perf: Prune segments before estimation and aggregate execution (#6974))
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
@@ -727,21 +685,6 @@ fn open_and_estimate_docs(
     Some((estimate, reader.estimated_segment_count()))
 }
 
-<<<<<<< HEAD
-/// One index open, both planning answers: selectivity (matching/total docs) and the
-/// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
-/// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// a separate traversal estimate back-to-back.
-=======
-/// The planner's row count for the partition a leaf index is attached to, `None` when
-/// that partition has never been counted.
-fn leaf_heap_rows(index_oid: pg_sys::Oid) -> Option<f64> {
-    let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, true) };
-    (heap_oid != pg_sys::InvalidOid)
-        .then(|| lookup_reltuples(heap_oid))
-        .flatten()
-}
-
 pub(crate) struct SelectivityAndCost {
     pub(crate) selectivity: Option<f64>,
     pub(crate) query_cost: Option<u64>,
@@ -753,7 +696,6 @@ pub(crate) struct SelectivityAndCost {
 /// basescan path generation needs all three for the same combined query, so it opens
 /// once here instead of calling `estimate_selectivity` and a separate traversal/segment
 /// estimate back-to-back.
->>>>>>> 2075f35 (perf: Prune segments before estimation and aggregate execution (#6974))
 ///
 /// Returns [`SelectivityAndCost`]:
 /// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate, None)`

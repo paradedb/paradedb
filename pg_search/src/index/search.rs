@@ -84,6 +84,20 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
                         remove_emojis: *remove_emojis,
                         filters: filters.clone(),
                     });
+
+                    // Before #6873, any `unicode_words` typmod with at least one option (even
+                    // `remove_emojis=false`) was parsed as `remove_emojis=true`, so indexes built
+                    // then reference the `remove_emojis=true` tokenizer name
+                    if !remove_emojis {
+                        tokenizers.push(SearchTokenizer::UnicodeWords {
+                            remove_emojis: true,
+                            filters: filters.clone(),
+                        });
+                        tokenizers.push(SearchTokenizer::UnicodeWordsDeprecated {
+                            remove_emojis: true,
+                            filters: filters.clone(),
+                        });
+                    }
                 }
 
                 // <= `0.22.3`, Lindera tokenizers did not support user-specified keep_whitespace. They defaulted to true.

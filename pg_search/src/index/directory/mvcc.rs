@@ -1014,8 +1014,11 @@ impl Directory for MVCCDirectory {
     }
 
     fn wants_cancel(&self) -> bool {
+        // The merger's SIGTERM handler sets `ProcDiePending`, so a fast shutdown has to stop
+        // the loops that poll here too, not only a query cancel.
         unsafe {
             pg_sys::QueryCancelPending != 0
+                || pg_sys::ProcDiePending != 0
                 || !pg_sys::IsTransactionState()
                 || pg_sys::IsAbortedTransactionBlockState()
         }

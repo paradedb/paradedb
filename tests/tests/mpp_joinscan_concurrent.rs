@@ -316,11 +316,14 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
         queries.load(Ordering::Relaxed) > 0 && updates.load(Ordering::Relaxed) > 0,
         "the readers and the writer must both have run"
     );
-    assert!(
-        distributed.load(Ordering::Relaxed) > 0,
-        "no query ran distributed; the test exercised nothing (queries={}, updates={})",
-        queries.load(Ordering::Relaxed),
-        updates.load(Ordering::Relaxed)
-    );
+    if distributed.load(Ordering::Relaxed) == 0 {
+        anyhow::bail!(
+            "no query ran distributed; the test exercised nothing (queries={}, updates={})\n\
+             activity at end:\n{}",
+            queries.load(Ordering::Relaxed),
+            updates.load(Ordering::Relaxed),
+            activity_dump(&mut setup).await.unwrap_or_default()
+        );
+    }
     Ok(())
 }

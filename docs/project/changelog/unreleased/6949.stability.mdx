@@ -1,0 +1,7 @@
+---
+header: stability
+---
+
+`pdb.agg` `terms` facets over an array column, combined with other facets on a join, now run
+correctly under MPP. Previously the query failed with a transport error, hung until
+`statement_timeout`, or could return under-counted buckets.

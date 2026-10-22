@@ -68,6 +68,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::mpp::interrupt::{cancel_pending, interrupted};
 use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -549,6 +550,26 @@ impl PgSearchScanPlan {
 
     pub fn has_deferred_fields(&self) -> bool {
         !self.deferred_fields.is_empty()
+    }
+
+    /// The `ParallelScanState` pool this scan claims segments from; `None` for a serial scan.
+    /// Only meaningful before execution: a consumed or never-initialized scan has no pool to
+    /// report, and asking is a caller bug.
+    pub(crate) fn source_idx(&self) -> Option<usize> {
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => scan_state.0.source_idx,
+            ExecutionState::Consumed | ExecutionState::Uninitialized => {
+                crate::postgres::customscan::mpp::fail_loud(format!(
+                    "PgSearchScan source_idx: scan {} has no execution state to read a pool from",
+                    self.table_alias
+                ))
+            }
+        }
     }
 
     /// The planner's row estimate for this scan, whole-plan and never divided among the
@@ -1401,6 +1422,12 @@ impl ExecutionPlan for PgSearchScanPlan {
 
                 if scanner.can_pushdown_score_threshold() {
                     scanner.set_score_threshold(score_threshold);
+                }
+                // `block_on_next` holds interrupts while this stream runs, so the scanner's own
+                // check can't fire. Bail out instead and let the caller act on the interrupt
+                // once `block_on` has returned.
+                if cancel_pending() {
+                    Err::<(), DataFusionError>(interrupted())?;
                 }
                 let next_batch = scanner.next(
                     &ffhelper,

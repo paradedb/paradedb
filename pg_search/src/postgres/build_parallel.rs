@@ -998,11 +998,18 @@ impl<'a> WorkerBuildState<'a> {
 
     fn persist_segments(&mut self, segments: &[SegmentMeta]) -> anyhow::Result<()> {
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-        let meta = self
+        let meta = match self
             .writer
             .as_mut()
             .expect("writer should be set")
-            .persist_build_segments(segments)?;
+            .persist_build_segments(segments)
+        {
+            Ok(meta) => meta,
+            Err(error) => {
+                check_for_interrupts!();
+                return Err(error);
+            }
+        };
         if let Some(meta) = meta {
             self.on_segment_flushed(meta.id());
             self.nmerges += usize::from(segments.len() > 1);

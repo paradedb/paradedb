@@ -230,7 +230,7 @@ impl MetaPage {
         MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
     }
 
-    /// Drains existing mergers and retains MergeLock through VACUUM's exclusion-list handoff.
+    /// `acquire_merge_lock` for VACUUM: waits for admitted mergers to drop their merge-page pins first.
     pub unsafe fn acquire_merge_lock_for_cleanup(&self) -> MergeLock {
         assert!(block_number_is_valid(self.data.merge_lock));
         MergeLock::acquire_for_cleanup(self.bman.buffer_access().rel(), self.data.merge_lock)
@@ -316,11 +316,21 @@ impl MetaPage {
     }
 }
 
-/// Merger lifetime protection without retaining a content LWLock or deferring interrupts.
-/// The merge-page pin covers VACUUM selection; the cleanup-page pin covers old metadata views.
+/// Pins a merger holds from admission to publication. VACUUM waits on the merge-page pin before
+/// selecting segments and on the cleanup-page pin before deactivating its exclusion list.
 pub struct MergePins {
     _merge_barrier: PinnedBuffer,
     _cleanup_barrier: PinnedBuffer,
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl MergePins {
+    pub(crate) fn pg_buffers(&self) -> [pg_sys::Buffer; 2] {
+        [
+            self._merge_barrier.pg_buffer(),
+            self._cleanup_barrier.pg_buffer(),
+        ]
+    }
 }
 
 // legacy hardcoded page support for various index objects
@@ -488,10 +498,7 @@ mod tests {
         unsafe {
             let holdoff = pg_sys::InterruptHoldoffCount;
             assert_eq!(holdoff, 0);
-            for buffer in [
-                pins._merge_barrier.pg_buffer(),
-                pins._cleanup_barrier.pg_buffer(),
-            ] {
+            for buffer in pins.pg_buffers() {
                 assert!(pg_sys::ConditionalLockBuffer(buffer));
                 pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
             }

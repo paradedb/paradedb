@@ -54,7 +54,7 @@ impl MergeLock {
         Self::from_buffer(bman, buffer)
     }
 
-    /// Waits for retained merger pins, then keeps exclusive ownership through VACUUM setup.
+    /// Like `acquire`, but first waits for every other pin on the merge page (`LockBufferForCleanup`).
     pub unsafe fn acquire_for_cleanup(
         indexrel: &PgSearchRelation,
         block_number: pg_sys::BlockNumber,

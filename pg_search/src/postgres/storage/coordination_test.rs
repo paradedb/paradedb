@@ -40,6 +40,7 @@ unsafe fn pause(ready_name: &CStr, gate_name: &CStr) {
     if ready.is_null() || CStr::from_ptr(ready).to_bytes().is_empty() {
         return;
     }
+    // A set `_ready` without its `_gate` is a test bug; let the lookup ERROR.
     let gate = pg_sys::GetConfigOptionByName(gate_name.as_ptr(), std::ptr::null_mut(), false);
     for value in [ready, gate] {
         let key: i64 = CStr::from_ptr(value).to_str().unwrap().parse().unwrap();
@@ -163,4 +164,14 @@ unsafe fn test_hold_merger(index: PgRelation, fail: bool) -> i32 {
         pgrx::error!("injected merge-pin ERROR");
     }
     pg_sys::InterruptHoldoffCount as i32
+}
+
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::prelude::*;
+
+    /// Target for `pgrx_tests::run_test` so `tests/merge_cleanup.rs` can start the test server
+    /// without running a real test as a side effect.
+    #[pg_test]
+    fn bootstrap_test_server() {}
 }

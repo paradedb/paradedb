@@ -863,9 +863,8 @@ pub fn execute_aggregate(
         } else {
             // couldn't launch any workers, so we just execute the aggregate right here in this backend
             let segment_ids = reader
-                .segment_readers()
-                .iter()
-                .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
+                .candidate_segment_readers()
+                .map(|(_, r)| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
                 .collect::<Vec<_>>();
             let mut state = State::new(1, segment_ids.len());
             let mut worker = ParallelAggregationWorker::new_local(
@@ -881,33 +880,41 @@ pub fn execute_aggregate(
                 &mut state,
             );
 
-            if let Some((agg_results, stats)) = worker.execute_aggregate(
+            let worker_result = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
                 Some(planstate),
                 Some(&reader),
-            )? {
+            )?;
+            if worker_result.is_none() && reader.segment_readers().is_empty() {
+                return Ok(AggregationResults::default());
+            }
+
+            let mut aggregations: Aggregations = agg_req.try_into()?;
+            if agg_from_sql {
+                let schema = index.schema()?;
+                set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
+            }
+            let agg_results = if let Some((agg_results, stats)) = worker_result {
                 if let Some(output) = visibility_stats {
                     output.merge(stats);
                 }
-                Ok(agg_results.into_final_result(
-                    {
-                        let mut aggregations: Aggregations = agg_req.try_into()?;
-                        if agg_from_sql {
-                            let schema = index.schema()?;
-                            set_missing_on_terms(
-                                &mut aggregations,
-                                &schema,
-                                &use_min_sentinel_fields,
-                            );
-                        }
-                        aggregations
-                    },
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?)
+                agg_results
             } else {
-                Ok(AggregationResults::default())
-            }
+                let tokenizer_manager = reader.searcher().index().tokenizers().clone();
+                DistributedAggregationCollector::from_aggs(
+                    aggregations.clone(),
+                    AggContextParams::new(
+                        AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                        tokenizer_manager,
+                    ),
+                )
+                .merge_fruits(Vec::new())?
+            };
+            Ok(agg_results.into_final_result(
+                aggregations,
+                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+            )?)
         }
     }
 }
@@ -1380,27 +1387,27 @@ pub mod mvcc_collector {
     unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
 
     impl<SC: SegmentCollector> MVCCFilterSegmentCollector<SC> {
-        fn resolve_lock(&mut self) -> Option<Arc<Mutex<VisibilityChecker>>> {
+        fn resolve_lock(&mut self) -> Option<&Mutex<VisibilityChecker>> {
+            if let SegmentVisibilityState::Unchecked(checker) = &self.visibility {
+                let lock = VisibilityChecker::for_segment_arc(checker, self.segment_ord)
+                    .expect("failed to check segment visibility");
+                self.visibility = match lock {
+                    Some(lock) => {
+                        // All-visible segments forward documents directly and need no batch buffers.
+                        self.doc_buffer.reserve(BATCH_SIZE);
+                        if self.requires_scoring {
+                            self.score_buffer.reserve(BATCH_SIZE);
+                        }
+                        self.visibility_buffer.reserve(BATCH_SIZE);
+                        SegmentVisibilityState::NeedsChecks(lock)
+                    }
+                    None => SegmentVisibilityState::AllVisible,
+                };
+            }
             match &self.visibility {
                 SegmentVisibilityState::AllVisible => None,
-                SegmentVisibilityState::NeedsChecks(lock) => Some(Arc::clone(lock)),
-                SegmentVisibilityState::Unchecked(checker) => {
-                    let lock = VisibilityChecker::for_segment_arc(checker, self.segment_ord)
-                        .expect("failed to check segment visibility");
-                    self.visibility = match &lock {
-                        Some(lock) => {
-                            // All-visible segments forward documents directly and need no batch buffers.
-                            self.doc_buffer.reserve(BATCH_SIZE);
-                            if self.requires_scoring {
-                                self.score_buffer.reserve(BATCH_SIZE);
-                            }
-                            self.visibility_buffer.reserve(BATCH_SIZE);
-                            SegmentVisibilityState::NeedsChecks(Arc::clone(lock))
-                        }
-                        None => SegmentVisibilityState::AllVisible,
-                    };
-                    lock
-                }
+                SegmentVisibilityState::NeedsChecks(lock) => Some(lock.as_ref()),
+                SegmentVisibilityState::Unchecked(_) => unreachable!(),
             }
         }
 
@@ -1503,13 +1510,14 @@ pub mod mvcc_collector {
         }
 
         fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            let segment_ord = self.segment_ord;
             let Some(lock) = self.resolve_lock() else {
                 self.inner.collect_bitmap(base, mask);
                 return;
             };
-            let (visible, dirty) =
-                lock.lock()
-                    .partition_bitmap_visibility(self.segment_ord, base, mask);
+            let (visible, dirty) = lock
+                .lock()
+                .partition_bitmap_visibility(segment_ord, base, mask);
             if visible.iter().any(|word| !word.is_empty()) {
                 // Bitmap collection is count-only, so buffered IDs can be counted later.
                 self.inner.collect_bitmap(base, &visible);

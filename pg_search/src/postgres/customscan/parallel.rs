@@ -169,22 +169,13 @@ pub(crate) fn aggregate_nworkers(
             if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
             && reader.query().is_fast_count();
         let mut visibility_map_words = 0u64;
-        // `MVCCFilterSegmentCollector` defers segment visibility until a document matches, so a
-        // non-`fast_count` aggregate with `rows == 0.0` never scans the visibility map. When
-        // `rows > 0.0` (or `fast_count` uses `CountAllCollector`, which checks segment visibility
-        // before `weight.count`), we conservatively charge visibility-map words across all
-        // candidate segments rather than guessing how matching rows are distributed across them.
-        if (rows > 0.0 || fast_count)
-            && solve_mvcc
-            && crate::gucs::enable_visibility_map_shortcuts()
-        {
+        if fast_count && solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
             let view = reader.segment_view();
             let entries = view.entries();
             for (ord, segment) in reader.candidate_segment_readers() {
                 let entry = &entries[ord as usize];
-                if !matches!(entry.docs, SegmentViewDocs::Immutable { .. })
-                    || segment.num_docs() == 0
-                {
+                let num_docs = entry.max_doc().saturating_sub(entry.num_deleted_docs());
+                if !matches!(entry.docs, SegmentViewDocs::Immutable { .. }) || num_docs == 0 {
                     continue;
                 }
                 let Ok(Some(blocks)) = SearchIndexReader::block_bounds(segment) else {
@@ -194,9 +185,7 @@ pub(crate) fn aggregate_nworkers(
                     continue;
                 }
                 let (first, last) = (u64::from(*blocks.start()), u64::from(*blocks.end()));
-                if last - first + 1
-                    < BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(segment.num_docs())
-                {
+                if last - first + 1 < BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(num_docs) {
                     visibility_map_words += last / 32 - first / 32 + 1;
                 }
             }

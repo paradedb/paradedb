@@ -1920,7 +1920,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn display_shows_pruned_segments_only_when_nonzero() {
         use crate::index::reader::index::SegmentPruningEstimate;
 

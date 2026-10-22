@@ -951,11 +951,16 @@ impl SearchIndexReader {
     }
 
     fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
-        self.searcher.segment_reader(ord).num_docs() > 0
-            && self
-                .pruning_query
-                .as_ref()
-                .is_none_or(|query| self.pruner().can_match(ord, query))
+        self.pruning_query
+            .as_ref()
+            .is_none_or(|query| self.pruner().can_match(ord, query))
+    }
+
+    fn segment_num_docs(&self, reader: &SegmentReader) -> u64 {
+        self.directory
+            .segment_num_docs(&reader.segment_id())
+            .map(|n| n as u64)
+            .unwrap_or_else(|| u64::from(reader.num_docs()))
     }
 
     /// Compiles a tantivy `Weight` for a tagged search query.
@@ -1158,14 +1163,8 @@ impl SearchIndexReader {
                 &components.schema,
                 index_created_by_version,
             );
-            components
-                .searcher
-                .segment_readers()
-                .iter()
-                .enumerate()
-                .filter(|&(ord, reader)| {
-                    reader.num_docs() > 0 && pruner.can_match(ord as SegmentOrdinal, query)
-                })
+            (0..components.searcher.segment_readers().len())
+                .filter(|&ord| pruner.can_match(ord as SegmentOrdinal, query))
                 .count()
         } else {
             let directory = MvccSatisfies::LargestSegment.directory(index_relation);
@@ -1183,15 +1182,10 @@ impl SearchIndexReader {
     /// Counts the candidate and pruned segments in this reader's snapshot.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
-            let non_empty_segments = self
-                .searcher
-                .segment_readers()
-                .iter()
-                .filter(|r| r.num_docs() > 0)
-                .count();
+            let total_segments = self.searcher.segment_readers().len();
             if self.pruning_query.is_none() {
                 SegmentPruningEstimate {
-                    candidate_segments: non_empty_segments,
+                    candidate_segments: total_segments,
                     pruned_segments: 0,
                     candidate_docs: self.total_docs,
                 }
@@ -1199,11 +1193,11 @@ impl SearchIndexReader {
                 let (candidate_segments, candidate_docs) = self
                     .candidate_segment_readers()
                     .fold((0, 0), |(count, docs), (_, reader)| {
-                        (count + 1, docs + u64::from(reader.num_docs()))
+                        (count + 1, docs + self.segment_num_docs(reader))
                     });
                 SegmentPruningEstimate {
                     candidate_segments,
-                    pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
+                    pruned_segments: total_segments.saturating_sub(candidate_segments),
                     candidate_docs,
                 }
             }
@@ -2114,17 +2108,12 @@ impl SearchIndexReader {
             self.candidate_segment_readers().collect();
         let all_candidate_docs: u64 = candidates
             .iter()
-            .map(|(_, r)| u64::from(r.num_docs()))
+            .map(|(_, r)| self.segment_num_docs(r))
             .sum();
-        let non_empty_segments = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .filter(|r| r.num_docs() > 0)
-            .count();
+        let total_segments = self.searcher.segment_readers().len();
         let _ = self.pruning_estimate.set(SegmentPruningEstimate {
             candidate_segments: candidates.len(),
-            pruned_segments: non_empty_segments.saturating_sub(candidates.len()),
+            pruned_segments: total_segments.saturating_sub(candidates.len()),
             candidate_docs: all_candidate_docs,
         });
 
@@ -2132,20 +2121,20 @@ impl SearchIndexReader {
             .segment_readers()
             .iter()
             .filter(|r| !self.directory.is_mutable(&r.segment_id()))
-            .map(|r| u64::from(r.num_docs()))
+            .map(|r| self.segment_num_docs(r))
             .sum();
         let (candidate_docs, reader_docs) = if persisted_reader_docs > 0 {
             candidates.retain(|(_, r)| !self.directory.is_mutable(&r.segment_id()));
             let candidate_docs = candidates
                 .iter()
-                .map(|(_, r)| u64::from(r.num_docs()))
+                .map(|(_, r)| self.segment_num_docs(r))
                 .sum();
             (candidate_docs, persisted_reader_docs)
         } else {
             let reader_docs = self
                 .segment_readers()
                 .iter()
-                .map(|r| u64::from(r.num_docs()))
+                .map(|r| self.segment_num_docs(r))
                 .sum();
             (all_candidate_docs, reader_docs)
         };
@@ -2155,10 +2144,11 @@ impl SearchIndexReader {
         }
         let (_, largest_reader) = candidates
             .into_iter()
-            .max_by_key(|&(ord, r)| (r.num_docs(), ord))?;
+            .max_by_key(|&(ord, r)| (self.segment_num_docs(r), ord))?;
         let reader_proportion = reader_docs.max(1) as f64 / total_docs.max(1.0);
-        let segment_doc_proportion =
-            (largest_reader.num_docs() as f64 / candidate_docs as f64) * reader_proportion;
+        let segment_doc_proportion = (self.segment_num_docs(largest_reader) as f64
+            / candidate_docs as f64)
+            * reader_proportion;
         Some((largest_reader, segment_doc_proportion))
     }
 

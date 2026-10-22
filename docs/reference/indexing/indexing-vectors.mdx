@@ -268,7 +268,7 @@ modelBuilder.Entity<MockItem>()
 
 ## Vector Quantization
 
-Use `vector_fields` to configure quantization per vector field. This example disables quantization for `embedding`; the setting takes effect when the index is created or rebuilt with `REINDEX`.
+Use `vector_fields` to configure quantization for each vector field. This example disables quantization for `embedding`. The setting takes effect during `CREATE INDEX` or `REINDEX`.
 
 <CodeGroup>
 ```sql SQL

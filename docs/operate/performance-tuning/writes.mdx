@@ -71,7 +71,7 @@ SET paradedb.global_mutable_segment_rows = -1
 
 ## Configuring Write Options When Creating an Index
 
-The ORM index builders accept these options at creation time. For example, disable foreground merging, set background merge thresholds, and buffer up to 1,000 rows in mutable segments:
+You can also set write options when creating an index through an ORM. This example disables foreground merging, sets background merge thresholds, and buffers up to 1,000 rows in mutable segments:
 
 <CodeGroup>
 ```sql SQL

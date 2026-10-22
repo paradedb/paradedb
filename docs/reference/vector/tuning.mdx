@@ -37,7 +37,7 @@ does not affect new or existing segments until `REINDEX` rebuilds the index.
 
 ## Inspecting Vector Indexes
 
-Inspect vector storage with `vector_info` and build settings with `vector_config`. The following calls inspect the `embedding` field of `search_idx`:
+Use `vector_info` to inspect vector storage and `vector_config` to check build settings. These examples inspect the `embedding` field of `search_idx`:
 
 <CodeGroup>
 ```sql SQL
@@ -78,4 +78,4 @@ await dbContext.Database.VectorConfig("search_idx", "embedding").ToListAsync();
 
 </CodeGroup>
 
-`paradedb.vector_estimator_info` reports cluster estimates for quantized segments. It requires at least one visible quantized segment; small indexes stored as flat vectors have none.
+`paradedb.vector_estimator_info` reports cluster estimates and requires at least one visible quantized segment. It cannot inspect small indexes stored as flat vectors.

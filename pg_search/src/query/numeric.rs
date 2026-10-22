@@ -32,7 +32,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
-use decimal_bytes::Decimal;
+use decimal_bytes::{Decimal, Decimal64NoScale};
 
 // ============================================================================
 // Numeric64 Scaling (I64 Fixed-Point)
@@ -106,6 +106,9 @@ pub fn scale_owned_value(value: PdbOwnedValue, scale: i16) -> Result<PdbOwnedVal
 // Query-literal placement on the Numeric64 grid
 // ============================================================================
 
+const NUMERIC64_MIN: i64 = Decimal64NoScale::min_value().value();
+const NUMERIC64_MAX: i64 = Decimal64NoScale::max_value().value();
+
 /// Which side of a range a bound belongs to.
 ///
 /// A query literal that falls between two grid points has to move outwards to the grid
@@ -136,14 +139,6 @@ impl GridPosition {
         match self {
             GridPosition::Exact(v) => v,
             GridPosition::Between { floor } => floor,
-        }
-    }
-
-    /// The smallest grid value that is greater than or equal to the literal.
-    pub fn ceil(self) -> i64 {
-        match self {
-            GridPosition::Exact(v) => v,
-            GridPosition::Between { floor } => floor + 1,
         }
     }
 
@@ -275,7 +270,8 @@ pub fn locate_on_grid(numeric_str: &str, scale: i16) -> Result<GridPosition> {
     } else if negative {
         // -(grid_value + fraction) sits strictly between -(grid_value + 1) and -grid_value.
         GridPosition::Between {
-            floor: i64::try_from(-(grid_value + 1)).map_err(|_| overflow())?,
+            floor: i64::try_from(-grid_value.checked_add(1).ok_or_else(overflow)?)
+                .map_err(|_| overflow())?,
         }
     } else {
         GridPosition::Between {
@@ -303,7 +299,9 @@ pub fn locate_owned_value_on_grid(value: &PdbOwnedValue, scale: i16) -> Result<G
 /// for them, so their behaviour is unchanged.
 pub fn literal_is_on_grid(value: &PdbOwnedValue, scale: i16) -> Result<bool> {
     match locate_owned_value_on_grid(value, scale) {
-        Ok(position) => Ok(position.is_exact()),
+        Ok(position) => {
+            Ok(position.is_exact() && (NUMERIC64_MIN..=NUMERIC64_MAX).contains(&position.floor()))
+        }
         Err(_) => Ok(true),
     }
 }
@@ -675,11 +673,11 @@ where
 ///
 /// PostgreSQL does not apply the column typmod to a comparison operand, so a literal with more
 /// fractional digits than the field scale is compared exactly. When such a literal falls
-/// between two grid points, the bound moves to the neighbouring grid point that keeps the same
-/// set of matching values, and becomes inclusive:
+/// between two grid points, use its floor to preserve the matching set without computing a
+/// ceiling that could overflow:
 ///
 /// * an upper bound (`<` or `<=`) becomes `<=` the grid point below the literal,
-/// * a lower bound (`>` or `>=`) becomes `>=` the grid point above it.
+/// * a lower bound (`>` or `>=`) becomes `>` that same grid point.
 ///
 /// A literal that is exactly on the grid keeps its own inclusive or exclusive bound.
 pub fn scale_numeric_bound(
@@ -694,18 +692,25 @@ pub fn scale_numeric_bound(
     };
 
     match locate_owned_value_on_grid(&value, scale) {
+        // Finite literals must not reach the reserved NaN and infinity encodings. Clamp to
+        // the finite storage domain, preserving which side of the literal is requested.
+        Ok(position) if position.floor() < NUMERIC64_MIN => Ok(match side {
+            BoundSide::Lower => Bound::Included(PdbOwnedValue::I64(NUMERIC64_MIN)),
+            BoundSide::Upper => Bound::Excluded(PdbOwnedValue::I64(NUMERIC64_MIN)),
+        }),
+        Ok(position) if position.floor() > NUMERIC64_MAX => Ok(match side {
+            BoundSide::Lower => Bound::Excluded(PdbOwnedValue::I64(NUMERIC64_MAX)),
+            BoundSide::Upper => Bound::Included(PdbOwnedValue::I64(NUMERIC64_MAX)),
+        }),
         Ok(GridPosition::Exact(scaled)) => Ok(if inclusive {
             Bound::Included(PdbOwnedValue::I64(scaled))
         } else {
             Bound::Excluded(PdbOwnedValue::I64(scaled))
         }),
-        Ok(position @ GridPosition::Between { .. }) => {
-            let grid = match side {
-                BoundSide::Lower => position.ceil(),
-                BoundSide::Upper => position.floor(),
-            };
-            Ok(Bound::Included(PdbOwnedValue::I64(grid)))
-        }
+        Ok(GridPosition::Between { floor }) => Ok(match side {
+            BoundSide::Lower => Bound::Excluded(PdbOwnedValue::I64(floor)),
+            BoundSide::Upper => Bound::Included(PdbOwnedValue::I64(floor)),
+        }),
         // Not an ordinary decimal — `NaN`, the infinities, or a value out of `i64` range. The
         // grid has nothing to say about these, so hand them back to the path that handled them
         // before this function learned about grids, and keep its behaviour exactly.
@@ -1067,16 +1072,16 @@ mod tests {
         assert!(locate_on_grid("1.2.3", 2).is_err());
         // Beyond i64 once scaled.
         assert!(locate_on_grid("99999999999999999999", 2).is_err());
+        // The negative floor must reject overflow before adding one to i128::MAX.
+        assert!(locate_on_grid("-170141183460469231731687303715884105727.1", 0).is_err());
     }
 
     #[test]
-    fn test_grid_position_floor_and_ceil() {
+    fn test_grid_position_floor() {
         assert_eq!(GridPosition::Exact(7).floor(), 7);
-        assert_eq!(GridPosition::Exact(7).ceil(), 7);
         assert!(GridPosition::Exact(7).is_exact());
 
         assert_eq!(GridPosition::Between { floor: 7 }.floor(), 7);
-        assert_eq!(GridPosition::Between { floor: 7 }.ceil(), 8);
         assert!(!GridPosition::Between { floor: 7 }.is_exact());
     }
 
@@ -1095,7 +1100,7 @@ mod tests {
         // price > 1e-41 is price >= 0.01, and price < 1e-41 is price <= 0.00.
         assert_eq!(
             scale_numeric_bound(Bound::Excluded(s("1e-41")), 2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1))
+            Bound::Excluded(PdbOwnedValue::I64(0))
         );
         assert_eq!(
             scale_numeric_bound(Bound::Excluded(s("1e-41")), 2, BoundSide::Upper).unwrap(),
@@ -1104,7 +1109,7 @@ mod tests {
         // price >= -1e-41 is price >= 0.00, and price <= -1e-41 is price <= -0.01.
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("-1e-41")), 2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(0))
+            Bound::Excluded(PdbOwnedValue::I64(-1))
         );
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("-1e-41")), 2, BoundSide::Upper).unwrap(),
@@ -1147,11 +1152,11 @@ mod tests {
         // `> 12.345` and `>= 12.345` both mean `>= 12.35`.
         assert_eq!(
             scale_numeric_bound(Bound::Excluded(s("12.345")), 2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1235))
+            Bound::Excluded(PdbOwnedValue::I64(1234))
         );
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("12.345")), 2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(1235))
+            Bound::Excluded(PdbOwnedValue::I64(1234))
         );
     }
 
@@ -1164,7 +1169,7 @@ mod tests {
         );
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("-12.345")), 2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(-1234))
+            Bound::Excluded(PdbOwnedValue::I64(-1235))
         );
     }
 
@@ -1176,7 +1181,7 @@ mod tests {
         );
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("12.5")), 0, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(13))
+            Bound::Excluded(PdbOwnedValue::I64(12))
         );
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("1234")), -2, BoundSide::Upper).unwrap(),
@@ -1184,8 +1189,52 @@ mod tests {
         );
         assert_eq!(
             scale_numeric_bound(Bound::Included(s("1234")), -2, BoundSide::Lower).unwrap(),
-            Bound::Included(PdbOwnedValue::I64(13))
+            Bound::Excluded(PdbOwnedValue::I64(12))
         );
+    }
+
+    #[test]
+    fn test_numeric64_bounds_outside_finite_storage() {
+        use decimal_bytes::Decimal64NoScale;
+
+        let min = Decimal64NoScale::min_value().value();
+        let max = Decimal64NoScale::max_value().value();
+        for (literal, lower, upper) in [
+            (
+                "92233720368547758.075",
+                Excluded(int(max)),
+                Included(int(max)),
+            ),
+            (
+                "92233720368547758.07",
+                Excluded(int(max)),
+                Included(int(max)),
+            ),
+            (
+                "-92233720368547758.075",
+                Included(int(min)),
+                Excluded(int(min)),
+            ),
+            (
+                "-92233720368547758.08",
+                Included(int(min)),
+                Excluded(int(min)),
+            ),
+        ] {
+            assert!(!literal_is_on_grid(&s(literal), 2).unwrap(), "{literal}");
+            for bound in [Included(s(literal)), Excluded(s(literal))] {
+                assert_eq!(
+                    scale_numeric_bound(bound.clone(), 2, BoundSide::Lower).unwrap(),
+                    lower,
+                    "lower bound: {literal}"
+                );
+                assert_eq!(
+                    scale_numeric_bound(bound, 2, BoundSide::Upper).unwrap(),
+                    upper,
+                    "upper bound: {literal}"
+                );
+            }
+        }
     }
 
     #[test]

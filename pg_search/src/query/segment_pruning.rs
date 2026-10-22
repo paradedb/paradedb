@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 use std::ops::Bound;
 
 use super::SearchQueryInput;
-use super::numeric::{convert_value_for_field, is_outside_int_domain};
+use super::numeric::{convert_value_for_field, is_outside_int_domain, literal_is_on_grid};
 use super::pdb_query::{canonicalize_range_bounds_for_field, pdb};
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
@@ -70,6 +70,13 @@ impl<'a> SegmentPruner<'a> {
     }
 
     fn term_value(&self, field: &SearchField, value: &PdbOwnedValue) -> Option<PdbOwnedValue> {
+        // An off-grid Numeric64 term matches nothing, even if rounding would match every row.
+        // It must not provide a match-all proof that prunes its negation.
+        if let crate::schema::SearchFieldType::Numeric64(_, scale) = field.field_type()
+            && !literal_is_on_grid(value, scale).ok()?
+        {
+            return None;
+        }
         let value = convert_value_for_field(
             value.clone(),
             &field.field_type(),

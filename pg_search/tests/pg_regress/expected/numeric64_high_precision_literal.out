@@ -169,4 +169,164 @@ FROM numeric64_high_precision;
   0 |  3 |  3 |  2 |  2 |      0 |      4 |      1 |       0 |       1 |       4
 (1 row)
 
+-- The ceiling of this scale-2 literal exceeds i64::MAX. It must not wrap and
+-- match ordinary rows. NaN sorts above every finite literal in PostgreSQL.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > 92233720368547758.075
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price
+   Sort Key: numeric64_high_precision.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_high_precision
+         Output: id, price
+         Table: numeric64_high_precision
+         Index: numeric64_high_precision_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: id, price
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":"92233720368547758.075"},"upper_bound":null}}]}}
+(12 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+INSERT INTO numeric64_high_precision (price) VALUES ('NaN'), (NULL);
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  6 |   NaN
+(1 row)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price >= 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  6 |   NaN
+(1 row)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price < 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+(5 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price <= 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+(5 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price = 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price <> 92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+  6 |   NaN
+(6 rows)
+
+-- An exact grid point at i64::MAX must not be mistaken for the NaN sentinel.
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price = 92233720368547758.07 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+-- Check both sides near i64::MIN as well.
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > -92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+  6 |   NaN
+(6 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price >= -92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+  6 |   NaN
+(6 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price < -92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price <= -92233720368547758.075 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+-- PostgreSQL's own counts without pushdown, including NaN and excluding NULL.
+SELECT
+    count(*) FILTER (WHERE price > 92233720368547758.075) AS gt,
+    count(*) FILTER (WHERE price >= 92233720368547758.075) AS ge,
+    count(*) FILTER (WHERE price < 92233720368547758.075) AS lt,
+    count(*) FILTER (WHERE price <= 92233720368547758.075) AS le,
+    count(*) FILTER (WHERE price = 92233720368547758.075) AS eq,
+    count(*) FILTER (WHERE price <> 92233720368547758.075) AS ne,
+    count(*) FILTER (WHERE price = 92233720368547758.07) AS eq_max,
+    count(*) FILTER (WHERE price > -92233720368547758.075) AS gt_neg,
+    count(*) FILTER (WHERE price >= -92233720368547758.075) AS ge_neg,
+    count(*) FILTER (WHERE price < -92233720368547758.075) AS lt_neg,
+    count(*) FILTER (WHERE price <= -92233720368547758.075) AS le_neg
+FROM numeric64_high_precision;
+ gt | ge | lt | le | eq | ne | eq_max | gt_neg | ge_neg | lt_neg | le_neg 
+----+----+----+----+----+----+--------+--------+--------+--------+--------
+  1 |  1 |  5 |  5 |  0 |  6 |      0 |      6 |      6 |      0 |      0
+(1 row)
+
+-- A uniform segment must not be pruned for the negation of an off-grid term.
+DROP INDEX numeric64_high_precision_idx;
+TRUNCATE numeric64_high_precision;
+INSERT INTO numeric64_high_precision (price) VALUES (0.00);
+CREATE INDEX numeric64_high_precision_idx ON numeric64_high_precision USING paradedb (
+    id, price
+) WITH (partition_by = 'price');
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price <> 1e-41 ORDER BY id;
+ id | price 
+----+-------
+  8 |  0.00
+(1 row)
+
 DROP TABLE numeric64_high_precision;

@@ -43,8 +43,8 @@ use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{
-    AggregateUDF, Expr, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
-    WindowFunctionDefinition, col,
+    AggregateUDF, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder,
+    LogicalPlanBuilderOptions, SortExpr, WindowFunctionDefinition, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -61,6 +61,8 @@ use super::window_func::{
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
+use crate::postgres::customscan::aggregatescan::datafusion_exec::FilterExprExecContext;
+use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
 use crate::postgres::customscan::datafusion::topk_agg::{
@@ -1684,7 +1686,8 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         let WindowAggDef::Sql(sql) = &info.agg_def else {
             continue;
         };
-        let expr = window_expr(sql, join_clause)?;
+        let mut expr = window_expr(sql, join_clause)?;
+        expr = maybe_apply_filter_to_expr(expr, info.filter.as_ref(), &join_clause.plan)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1699,6 +1702,40 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         return Ok(df);
     }
     df.window(window_exprs)
+}
+
+fn maybe_apply_filter_to_expr(
+    expr: Expr,
+    filter: Option<&FilterExpr>,
+    plan: &RelNode,
+) -> Result<Expr> {
+    let Some(f) = filter else {
+        return Ok(expr);
+    };
+    let filter = f
+        .to_datafusion(&FilterExprExecContext {
+            targetlist: None,
+            plan: Some(plan),
+        })
+        .ok_or(DataFusionError::Internal(
+            "couldn't convert window function predicate to a datafusion predicate".to_string(),
+        ))?;
+    let expr = match expr {
+        Expr::AggregateFunction(_) => expr.filter(filter).build()?,
+        Expr::WindowFunction(mut wf) => {
+            wf.params.filter = Some(Box::new(filter));
+            Expr::WindowFunction(wf)
+        }
+        // the only other non-aggregate shape we expect is the constant shape from
+        // `lower_sql_window_agg`.
+        Expr::Literal(l, m) => Expr::Literal(l, m),
+        other => {
+            return internal_err!(
+                "Found unexpected expression shape {other:?} when applying filter"
+            );
+        }
+    };
+    Ok(expr)
 }
 
 /// The extracted window aggregates, each paired with its `window_agg_N` column
@@ -1725,10 +1762,11 @@ fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<SeparatedWin
         if join_clause.window_aggs.canonical_index(index) != index {
             continue;
         }
-        let e = match &info.agg_def {
+        let mut e = match &info.agg_def {
             WindowAggDef::Sql(sql) => aggregate_expr(sql, join_clause)?,
             WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
         };
+        e = maybe_apply_filter_to_expr(e, info.filter.as_ref(), &join_clause.plan)?;
         match unalias(e.clone()) {
             Expr::AggregateFunction(_) => exprs.push((index.as_col_name(), e)),
             Expr::Literal(_, _) => consts.push((index.as_col_name(), e)),

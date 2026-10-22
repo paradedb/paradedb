@@ -7,11 +7,11 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-        amd64) checksum="8d5522da13df3b7b764d473f14283f02e4362fdbb9a7b2e1d7044f0066ec3145" ;; \
-        arm64) checksum="1f56d4c7941230f34b12d6855e225e334b5f54373786b7ebfea5ce51ce59ff70" ;; \
+        amd64) checksum="6ac9ce81070c4663d3a338bdf24347e87a44d2db9ddc8b5b4823f4d5071cdc52" ;; \
+        arm64) checksum="eaccdf7ca4f0b88c63678837114b54e622838300b321c47cb9d683d52729886d" ;; \
         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.26.2/postgresql-17-pg-search_0.26.2-1PARADEDB-trixie_${arch}.deb"; \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.26.3/postgresql-17-pg-search_0.26.3-1PARADEDB-trixie_${arch}.deb"; \
     echo "${checksum} */tmp/pg_search.deb" | sha256sum --strict --check -; \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb; \
     apt-get purge -y --auto-remove curl; \

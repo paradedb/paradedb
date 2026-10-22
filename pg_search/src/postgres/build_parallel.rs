@@ -1505,8 +1505,6 @@ pub(super) fn build_index(
 pub(crate) mod plan {
     use super::*;
 
-    pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
-
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
@@ -1545,19 +1543,6 @@ pub(crate) mod plan {
         let maintenance_workers = maintenance_workers
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
-
-        // For vector builds, beyond 4 workers there's no improvement to index build time:
-        // clustering dominates and parallelizes internally (rayon + BLAS threads), so
-        // parallelizing the heap scan/segment flushing isn't the bottleneck. Constrain to 4
-        // because fewer concurrent merges means less memory.
-        let maintenance_workers = if indexrel
-            .schema()
-            .is_ok_and(|schema| schema.has_vector_field())
-        {
-            maintenance_workers.min(MAX_VECTOR_BUILD_WORKERS)
-        } else {
-            maintenance_workers
-        };
 
         if maintenance_workers < 3 {
             ErrorReport::new(
@@ -1724,46 +1709,52 @@ mod tests {
         use crate::postgres::rel::PgSearchRelation;
 
         setup_parallel_build_large_table();
-        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
-        Spi::run("CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = 8);").unwrap();
-        let heap_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large'::regclass::oid")
-            .unwrap()
-            .unwrap();
-        let index_oid =
-            Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large_idx'::regclass::oid")
-                .unwrap()
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE parallel_build_large ADD COLUMN emb vector(3);").unwrap();
+        for indexed_fields in ["id, name", "id, name, emb vector_cosine_ops"] {
+            Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+            Spi::run(&format!("CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb ({indexed_fields}) WITH (target_segment_count = 8);")).unwrap();
+            let heap_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let index_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large_idx'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let heaprel = PgSearchRelation::open(heap_oid);
+            Spi::run("SET max_parallel_workers = 8;").unwrap();
+            for (target, available, without_leader, with_leader) in [
+                (1, 8, 0, 0),
+                (7, 4, 1, 0),
+                (7, 8, 7, 6),
+                (8, 0, 0, 0),
+                (8, 1, 1, 1),
+                (8, 2, 2, 1),
+                (8, 4, 4, 3),
+                (8, 6, 4, 3),
+                (8, 7, 4, 7),
+                (8, 8, 8, 7),
+                (12, 4, 4, 3),
+                (12, 5, 4, 5),
+                (12, 8, 6, 5),
+            ] {
+                Spi::run(&format!(
+                    "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
+                     SET max_parallel_maintenance_workers = {available};"
+                ))
                 .unwrap();
-        let heaprel = PgSearchRelation::open(heap_oid);
-        Spi::run("SET max_parallel_workers = 8;").unwrap();
-        for (target, available, without_leader, with_leader) in [
-            (1, 8, 0, 0),
-            (7, 4, 1, 0),
-            (7, 8, 7, 6),
-            (8, 0, 0, 0),
-            (8, 1, 1, 1),
-            (8, 2, 2, 1),
-            (8, 4, 4, 3),
-            (8, 6, 4, 3),
-            (8, 7, 4, 7),
-            (8, 8, 8, 7),
-            (12, 4, 4, 3),
-            (12, 5, 4, 5),
-            (12, 8, 6, 5),
-        ] {
-            Spi::run(&format!(
-                "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
-                 SET max_parallel_maintenance_workers = {available};"
-            ))
-            .unwrap();
-            let indexrel = PgSearchRelation::open(index_oid);
-            for (leader, expected) in [(false, without_leader), (true, with_leader)] {
-                Spi::run(&format!("SET parallel_leader_participation = {leader};")).unwrap();
-                assert_eq!(
-                    super::plan::create_index_nworkers(&heaprel, &indexrel),
-                    expected,
-                    "target={target}, available={available}, leader={leader}"
-                );
+                let indexrel = PgSearchRelation::open(index_oid);
+                for (leader, expected) in [(false, without_leader), (true, with_leader)] {
+                    Spi::run(&format!("SET parallel_leader_participation = {leader};")).unwrap();
+                    assert_eq!(
+                        super::plan::create_index_nworkers(&heaprel, &indexrel),
+                        expected,
+                        "fields={indexed_fields}, target={target}, available={available}, leader={leader}"
+                    );
+                }
             }
+            drop(heaprel);
+            Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
         }
     }
 

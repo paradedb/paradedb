@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792571931299,
+  "lastUpdate": 1792655891942,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -177266,6 +177266,64 @@ window.BENCHMARK_DATA = {
             "value": 23.55910343733402,
             "unit": "median tps",
             "extra": "avg tps: 23.35922219913983, max tps: 33.575276777794116, count: 59314"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792655881019,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 124.58236673802425,
+            "unit": "median tps",
+            "extra": "avg tps: 122.79094121645862, max tps: 130.42404160444946, count: 59308"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 510.4209249336699,
+            "unit": "median tps",
+            "extra": "avg tps: 543.4958579439209, max tps: 5555.143865584606, count: 59308"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 737.8178650641914,
+            "unit": "median tps",
+            "extra": "avg tps: 707.0553145894769, max tps: 942.478123234253, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 154.35995304551943,
+            "unit": "median tps",
+            "extra": "avg tps: 152.06229874174062, max tps: 166.25181954044126, count: 59308"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 237.69068199395258,
+            "unit": "median tps",
+            "extra": "avg tps: 306.8987164876331, max tps: 2169.6870903134723, count: 118616"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.854471785601742,
+            "unit": "median tps",
+            "extra": "avg tps: 20.645367327820576, max tps: 33.978078702744135, count: 59308"
           }
         ]
       }

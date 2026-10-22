@@ -39,7 +39,8 @@ pub struct Bm25ScanState {
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
     ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
-    /// Set once the scan is counted in the index statistics.
+    /// Set once the scan is counted in the index statistics. Set from the start for a parallel
+    /// scan, which the leader counts when it publishes the segment list.
     scan_counted: bool,
 }
 
@@ -223,9 +224,10 @@ pub extern "C-unwind" fn amrescan(
         )
         .expect("amrescan: should be able to open a SearchIndexReader");
 
-        // For parallel scans, leader initializes shared state with its segment list
-        if is_parallel {
-            unsafe { parallel::maybe_init_parallel_scan(scan, &reader) };
+        // For parallel scans, leader initializes shared state with its segment list. Publishing
+        // starts a round of the scan, and the leader may never fetch, so the round counts here.
+        if is_parallel && unsafe { parallel::maybe_init_parallel_scan(scan, &reader) } {
+            count_index_scan(&indexrel);
         }
 
         reader
@@ -253,7 +255,7 @@ pub extern "C-unwind" fn amrescan(
         index_only,
         ambulkdelete_epoch,
         ctid_cache: None,
-        scan_counted: false,
+        scan_counted: !scan.parallel_scan.is_null(),
     };
 
     scan.opaque = PgMemoryContexts::CurrentMemoryContext
@@ -385,9 +387,8 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     cnt
 }
 
-/// The builtin access methods count a scan on its first fetch, so a rescan that never fetches,
-/// as a parallel worker's can, is not a scan. The entries a scan returns are counted by the
-/// executor itself.
+/// The builtin access methods count a scan on its first fetch, so a rescan that never fetches is
+/// not a scan. The entries a scan returns are counted by the executor itself.
 fn count_scan_once(state: &mut Bm25ScanState) {
     if !state.scan_counted {
         state.scan_counted = true;

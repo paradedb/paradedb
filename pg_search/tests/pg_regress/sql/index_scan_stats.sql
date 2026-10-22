@@ -99,6 +99,58 @@ SELECT pg_stat_force_next_flush();
 SELECT * FROM scan_counts();
 RESET paradedb.enable_join_custom_scan;
 
+-- A parallel scan counts once, however many workers share it. Each insert makes its own segment, so
+-- the scan has segments to split.
+SET paradedb.global_mutable_segment_rows = 0;
+CREATE TABLE scan_stats_parallel (id serial PRIMARY KEY, description text);
+CREATE INDEX scan_stats_parallel_idx ON scan_stats_parallel USING paradedb (id, description);
+INSERT INTO scan_stats_parallel (description) SELECT 'shoes ' || i FROM generate_series(1, 100) i;
+INSERT INTO scan_stats_parallel (description) SELECT 'shoes ' || i FROM generate_series(101, 200) i;
+INSERT INTO scan_stats_parallel (description) SELECT 'shoes ' || i FROM generate_series(201, 300) i;
+INSERT INTO scan_stats_parallel (description) SELECT 'shoes ' || i FROM generate_series(301, 400) i;
+RESET paradedb.global_mutable_segment_rows;
+
+CREATE FUNCTION parallel_scans() RETURNS bigint LANGUAGE sql AS $$
+    SELECT idx_scan FROM pg_stat_user_indexes WHERE indexrelname = 'scan_stats_parallel_idx';
+$$;
+
+SET paradedb.enable_aggregate_custom_scan = false;
+SET max_parallel_workers_per_gather = 2;
+SET paradedb.min_rows_per_worker = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SELECT pg_stat_force_next_flush();
+SELECT parallel_scans();
+
+SELECT * FROM scan_nodes($$SELECT count(*) FROM scan_stats_parallel WHERE description @@@ 'shoes'$$);
+SELECT count(*) FROM scan_stats_parallel WHERE description @@@ 'shoes';
+SELECT pg_stat_force_next_flush();
+SELECT parallel_scans();
+
+-- The same through the access method.
+SET paradedb.enable_custom_scan = false;
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+SET enable_indexscan = on;
+SELECT * FROM scan_nodes($$SELECT count(*) FROM scan_stats_parallel WHERE description @@@ 'shoes'$$);
+SELECT count(*) FROM scan_stats_parallel WHERE description @@@ 'shoes';
+SELECT pg_stat_force_next_flush();
+SELECT parallel_scans();
+
+RESET paradedb.enable_custom_scan;
+RESET enable_seqscan;
+RESET enable_bitmapscan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;
+RESET paradedb.min_rows_per_worker;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
+RESET min_parallel_index_scan_size;
+
 DROP FUNCTION scan_nodes(text);
 DROP FUNCTION scan_counts();
-DROP TABLE scan_stats, scan_stats_other;
+DROP FUNCTION parallel_scans();
+DROP TABLE scan_stats, scan_stats_other, scan_stats_parallel;

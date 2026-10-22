@@ -18,6 +18,12 @@
 //! The counters behind `pg_stat_user_indexes` for a ParadeDB index. Postgres leaves them to the
 //! access method, and its `pgstat_count_index_*` macros have no binding, so the same bumps happen
 //! here for every path that reads the index.
+//!
+//! A parallel scan counts once, like a parallel btree scan on PostgreSQL 18. The leader sets it up
+//! before any worker starts and may never read a row itself, so it counts the scan and the workers
+//! that share it don't. A process that reads the whole index on its own, as the inner side of a
+//! parallel hash join does, counts its own scan. Entries count where they are returned, so the
+//! workers' counts add up.
 
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;

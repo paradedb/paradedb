@@ -159,7 +159,14 @@ impl BaseScan {
             .indexrel
             .as_ref()
             .expect("custom_state.indexrel should already be open");
-        count_index_scan(indexrel);
+        let shares_leaders_scan = state
+            .custom_state()
+            .parallel
+            .as_ref()
+            .is_some_and(|parallel| !parallel.is_leader());
+        if !shares_leaders_scan {
+            count_index_scan(indexrel);
+        }
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();

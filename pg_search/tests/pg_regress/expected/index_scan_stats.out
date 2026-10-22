@@ -31,9 +31,10 @@ BEGIN
 END;
 $$;
 -- The counters reach the view after the backend flushes them.
-CREATE FUNCTION scan_counts() RETURNS TABLE (index_name name, idx_scan bigint, idx_tup_read bigint)
+CREATE FUNCTION scan_counts()
+RETURNS TABLE (index_name name, idx_scan bigint, idx_tup_read bigint, idx_tup_fetch bigint)
 LANGUAGE sql AS $$
-    SELECT indexrelname, idx_scan, idx_tup_read
+    SELECT indexrelname, idx_scan, idx_tup_read, idx_tup_fetch
     FROM pg_stat_user_indexes
     WHERE indexrelname IN ('scan_stats_idx', 'scan_stats_other_idx')
     ORDER BY indexrelname;
@@ -45,13 +46,13 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |        0 |            0
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |        0 |            0 |             0
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
--- ParadeDB custom scan.
+-- ParadeDB custom scan. It reads `id` from the index alone, so no row counts as fetched.
 SELECT * FROM scan_nodes($$SELECT id FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id$$);
                    scan_nodes                   
 ------------------------------------------------
@@ -72,10 +73,37 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |        1 |            2
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |        1 |            2 |             0
+ scan_stats_other_idx |        0 |            0 |             0
+(2 rows)
+
+-- A row the custom scan reads from the heap also counts as fetched.
+SELECT * FROM scan_nodes($$SELECT id, description FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id$$);
+                   scan_nodes                   
+------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on scan_stats
+(1 row)
+
+SELECT id, description FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id;
+ id |  description  
+----+---------------
+  1 | running shoes
+  2 | leather shoes
+(2 rows)
+
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT * FROM scan_counts();
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |        2 |            4 |             2
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
 -- A rescan counts again, once per outer row.
@@ -102,10 +130,10 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |        5 |            2
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |        6 |            4 |             2
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
 -- Postgres index scan through the access method.
@@ -132,10 +160,10 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |        6 |            4
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |        7 |            6 |             4
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
 -- Postgres bitmap scan through the access method. The recheck filter reads the index once more.
@@ -164,10 +192,10 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |        8 |            6
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |        9 |            8 |             4
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
 -- The search runs as a heap filter when no scan can use the index.
@@ -194,10 +222,10 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |        9 |            6
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |       10 |            8 |             4
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
 RESET paradedb.enable_custom_scan;
@@ -225,10 +253,10 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |       10 |            6
- scan_stats_other_idx |        0 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |       11 |            8 |             4
+ scan_stats_other_idx |        0 |            0 |             0
 (2 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;
@@ -253,10 +281,10 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 SELECT * FROM scan_counts();
-      index_name      | idx_scan | idx_tup_read 
-----------------------+----------+--------------
- scan_stats_idx       |       11 |            6
- scan_stats_other_idx |        1 |            0
+      index_name      | idx_scan | idx_tup_read | idx_tup_fetch 
+----------------------+----------+--------------+---------------
+ scan_stats_idx       |       12 |            8 |             4
+ scan_stats_other_idx |        1 |            0 |             0
 (2 rows)
 
 RESET paradedb.enable_join_custom_scan;

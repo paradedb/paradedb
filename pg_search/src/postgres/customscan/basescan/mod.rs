@@ -89,7 +89,7 @@ use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
-use crate::postgres::pgstat::{count_index_scan, count_index_tuples};
+use crate::postgres::pgstat::{count_heap_fetch, count_index_scan, count_index_tuples};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
@@ -2054,6 +2054,8 @@ impl CustomScan for BaseScan {
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
             let next = exec_method.next(state.custom_state_mut());
+            // A `Virtual` row comes out of the index like an index-only scan's, so it counts as
+            // read too. Only a row fetched from the heap below counts as fetched.
             if !matches!(next, ExecState::Eof) {
                 count_index_tuples(state.custom_state().indexrel(), 1);
             }
@@ -2077,6 +2079,7 @@ impl CustomScan for BaseScan {
                             // the ctid is visible
                             Some(slot) => {
                                 exec_method.increment_visible();
+                                count_heap_fetch(state.custom_state().indexrel());
                                 slot
                             }
 

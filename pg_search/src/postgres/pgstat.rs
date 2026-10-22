@@ -56,6 +56,21 @@ pub(crate) fn count_index_tuples(indexrel: &PgSearchRelation, n: i64) {
     });
 }
 
+/// Counts one heap fetch through `indexrel` that found a visible row, as `index_fetch_heap` does
+/// with `pgstat_count_heap_fetch`.
+pub(crate) fn count_heap_fetch(indexrel: &PgSearchRelation) {
+    bump(indexrel, |counts| {
+        #[cfg(feature = "pg15")]
+        {
+            counts.t_tuples_fetched += 1;
+        }
+        #[cfg(not(feature = "pg15"))]
+        {
+            counts.tuples_fetched += 1;
+        }
+    });
+}
+
 /// Applies `bump` to the backend's pending counters for `indexrel`, unless it collects no
 /// statistics. Mirrors `pgstat_should_count_relation`, which links the relation to its pending
 /// entry on the first count.

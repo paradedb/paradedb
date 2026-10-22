@@ -31,9 +31,10 @@ END;
 $$;
 
 -- The counters reach the view after the backend flushes them.
-CREATE FUNCTION scan_counts() RETURNS TABLE (index_name name, idx_scan bigint, idx_tup_read bigint)
+CREATE FUNCTION scan_counts()
+RETURNS TABLE (index_name name, idx_scan bigint, idx_tup_read bigint, idx_tup_fetch bigint)
 LANGUAGE sql AS $$
-    SELECT indexrelname, idx_scan, idx_tup_read
+    SELECT indexrelname, idx_scan, idx_tup_read, idx_tup_fetch
     FROM pg_stat_user_indexes
     WHERE indexrelname IN ('scan_stats_idx', 'scan_stats_other_idx')
     ORDER BY indexrelname;
@@ -42,9 +43,15 @@ $$;
 SELECT pg_stat_force_next_flush();
 SELECT * FROM scan_counts();
 
--- ParadeDB custom scan.
+-- ParadeDB custom scan. It reads `id` from the index alone, so no row counts as fetched.
 SELECT * FROM scan_nodes($$SELECT id FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id$$);
 SELECT id FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id;
+SELECT pg_stat_force_next_flush();
+SELECT * FROM scan_counts();
+
+-- A row the custom scan reads from the heap also counts as fetched.
+SELECT * FROM scan_nodes($$SELECT id, description FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id$$);
+SELECT id, description FROM scan_stats WHERE description @@@ 'shoes' ORDER BY id;
 SELECT pg_stat_force_next_flush();
 SELECT * FROM scan_counts();
 

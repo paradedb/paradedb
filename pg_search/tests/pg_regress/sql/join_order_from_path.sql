@@ -104,6 +104,25 @@ JOIN jo_authors a ON a.id = b.author_id AND r.rating <> b.author_id % 5
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
 
+-- An ON condition over three relations links the authors only once books and
+-- reviews have joined. The planner estimates books and the two authors as the
+-- smallest pair, but that pair has no join condition of its own, so the chain
+-- does not start there.
+EXPLAIN (COSTS OFF)
+SELECT b.id, r.id
+FROM jo_books b
+JOIN jo_reviews r ON r.book_id = b.id
+JOIN jo_authors a ON a.id > b.author_id + r.rating
+WHERE a.bio @@@ 'orchid'
+ORDER BY b.id, r.id LIMIT 5;
+
+SELECT b.id, r.id
+FROM jo_books b
+JOIN jo_reviews r ON r.book_id = b.id
+JOIN jo_authors a ON a.id > b.author_id + r.rating
+WHERE a.bio @@@ 'orchid'
+ORDER BY b.id, r.id LIMIT 5;
+
 -- Comma joins carry their keys in WHERE; they take the same order.
 EXPLAIN (COSTS OFF)
 SELECT b.id, r.id

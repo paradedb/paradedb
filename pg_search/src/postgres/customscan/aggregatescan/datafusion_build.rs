@@ -1091,7 +1091,9 @@ fn is_plain_inner_tree(plan: &RelNode) -> bool {
 }
 
 /// Whether `leaf` joins onto the relations of `chain` with an equi-key or a
-/// filter. Without either it would join as a cross join.
+/// filter. Without either it would join as a cross join. A filter counts only
+/// when `leaf` is the last of its relations to join, since
+/// [`attach_join_filter`] cannot place it below the join that sees all of them.
 fn joins_onto(
     chain: &[pg_sys::Index],
     leaf: pg_sys::Index,
@@ -1101,9 +1103,11 @@ fn joins_onto(
     keys.iter().any(|k| {
         (k.outer_rti == leaf && chain.contains(&k.inner_rti))
             || (k.inner_rti == leaf && chain.contains(&k.outer_rti))
-    }) || filters
-        .iter()
-        .any(|(_, rtis)| rtis.contains(&leaf) && rtis.iter().any(|r| chain.contains(r)))
+    }) || filters.iter().any(|(_, rtis)| {
+        rtis.contains(&leaf)
+            && rtis.len() > 1
+            && rtis.iter().all(|r| *r == leaf || chain.contains(r))
+    })
 }
 
 /// The estimated row count of the join over `rtis`, when the planner costed

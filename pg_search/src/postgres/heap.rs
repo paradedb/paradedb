@@ -77,6 +77,42 @@ crate::impl_safe_drop!(HeapBufferPin, |self| {
     }
 });
 
+#[derive(Clone, Copy, Debug, Default)]
+struct DirtyBlockCount(u64);
+
+#[derive(Clone, Copy, Debug, Default)]
+struct BlockSpan(u64);
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ScannedVisibilityProgress {
+    dirty: DirtyBlockCount,
+    span: BlockSpan,
+}
+
+impl ScannedVisibilityProgress {
+    fn record(&mut self, dirty: DirtyBlockCount, span: BlockSpan) {
+        self.dirty.0 += dirty.0;
+        self.span.0 += span.0;
+    }
+
+    /// Extrapolates the dirty fraction observed across scanned segments to the relation's
+    /// total `nblocks`, returning true once a representative sample (`>= 1 / num_segments`
+    /// of `nblocks`) is at least 50% dirty and extrapolates to `>= threshold` dirty blocks.
+    fn is_stale(&self, nblocks: BlockNumber, num_segments: usize, threshold: u64) -> bool {
+        if threshold == 0 {
+            return false;
+        }
+        let nblocks = u64::from(nblocks);
+        let num_segments = num_segments.max(1) as u64;
+        let dirty = self.dirty.0;
+        let span = self.span.0;
+        span > 0
+            && span.saturating_mul(num_segments) >= nblocks
+            && dirty.saturating_mul(2) >= span
+            && u128::from(nblocks) * u128::from(dirty) >= u128::from(threshold) * u128::from(span)
+    }
+}
+
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct SegmentVisibilityStats {
     skipped: bool,
@@ -188,6 +224,7 @@ pub struct VisibilityChecker {
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
     dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
+    scanned_visibility: ScannedVisibilityProgress,
     /// Caches whether each segment has been proven all-visible under this checker's snapshot.
     segment_visibility: HashMap<SegmentOrdinal, bool>,
     segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
@@ -334,6 +371,7 @@ impl VisibilityChecker {
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
                 dirty_blocks: HashMap::default(),
+                scanned_visibility: ScannedVisibilityProgress::default(),
                 segment_visibility: HashMap::default(),
                 segment_checks: HashMap::default(),
                 visibility_stats: None,
@@ -356,6 +394,7 @@ impl VisibilityChecker {
     pub fn with_ffhelper(mut self, ffhelper: Arc<FFHelper>) -> Self {
         self.segment_checks.clear();
         self.dirty_blocks.clear();
+        self.scanned_visibility = ScannedVisibilityProgress::default();
         self.segment_visibility.clear();
         self.ffhelper = Some(ffhelper);
         self
@@ -364,6 +403,7 @@ impl VisibilityChecker {
     pub fn set_ffhelper(&mut self, ffhelper: Arc<FFHelper>) {
         self.segment_checks.clear();
         self.dirty_blocks.clear();
+        self.scanned_visibility = ScannedVisibilityProgress::default();
         self.segment_visibility.clear();
         self.ffhelper = Some(ffhelper);
     }
@@ -580,15 +620,10 @@ impl VisibilityChecker {
         if let Some(ranges) = self.dirty_blocks.get(&segment_id) {
             return Some(ranges.clone());
         }
-        Some(if self.visibility_stats.is_some() {
-            self.scan_dirty_blocks::<true>(segment_id, blocks)
-        } else {
-            self.scan_dirty_blocks::<false>(segment_id, blocks)
-        })
+        Some(self.scan_dirty_blocks(segment_id, blocks))
     }
 
-    /// Compiles statistics work out of the ordinary-query scan.
-    fn scan_dirty_blocks<const COLLECT_STATS: bool>(
+    fn scan_dirty_blocks(
         &mut self,
         segment_id: SegmentId,
         blocks: Range<BlockNumber>,
@@ -597,7 +632,7 @@ impl VisibilityChecker {
         let mut block = blocks.start / 32 * 32;
         let mut scratch = vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
         let mut ranges: Vec<Range<BlockNumber>> = Vec::new();
-        let mut dirty_count = 0;
+        let mut dirty_count = 0u64;
         while block < blocks.end {
             check_for_interrupts!();
             let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
@@ -607,13 +642,6 @@ impl VisibilityChecker {
             self.retain_invisible_blocks(block, missing);
             for (word, &bits) in missing.iter().enumerate() {
                 let mut bits = u64::from_le_bytes(bits.into_bytes());
-                if COLLECT_STATS {
-                    let word_start = block + word as BlockNumber * 32;
-                    let first = blocks.start.saturating_sub(word_start);
-                    let end = (blocks.end - word_start).min(32);
-                    let counted_bits = bits & (u64::MAX << first) & (u64::MAX >> (64 - end));
-                    dirty_count += u64::from(counted_bits.count_ones());
-                }
                 while bits != 0 {
                     let bit = bits.trailing_zeros();
                     let len = (bits >> bit).trailing_ones();
@@ -623,6 +651,7 @@ impl VisibilityChecker {
                     if range.is_empty() {
                         continue;
                     }
+                    dirty_count += u64::from(range.end - range.start);
                     if let Some(last) = ranges.last_mut().filter(|last| last.end == range.start) {
                         last.end = range.end;
                     } else {
@@ -632,15 +661,24 @@ impl VisibilityChecker {
             }
             block = block.saturating_add(words as BlockNumber * 32);
         }
-        if COLLECT_STATS {
-            self.visibility_stats
-                .as_ref()
-                .expect("visibility instrumentation must be enabled")
+        if let Some(stats) = &self.visibility_stats {
+            stats
                 .lock()
                 .segments
                 .entry(segment_id)
                 .or_default()
                 .blocks_requiring_checks = Some(dirty_count);
+        }
+        let span = u64::from(blocks.end).saturating_sub(u64::from(blocks.start));
+        self.scanned_visibility
+            .record(DirtyBlockCount(dirty_count), BlockSpan(span));
+        let num_segments = self.ffhelper.as_ref().map_or(1, |ff| ff.num_segments());
+        if self.scanned_visibility.is_stale(
+            self.nblocks,
+            num_segments,
+            crate::gucs::visibility_map_warning_threshold(),
+        ) {
+            crate::postgres::planner_warnings::warn_stale_visibility_map(self.heaprel.name());
         }
         let ranges: Arc<[Range<BlockNumber>]> = ranges.into();
         self.dirty_blocks.insert(segment_id, ranges.clone());
@@ -1949,6 +1987,39 @@ mod unit_tests {
         assert_eq!(collected, vec![(0, 10), (2, 30)]);
 
         assert_eq!(vis.iter_visible().collect::<Vec<_>>(), vec![10, 30]);
+    }
+
+    #[test]
+    fn test_scanned_visibility_progress_extrapolation() {
+        // 16,000-block table across 16 ctid-sorted segments (1,000 blocks/segment).
+        // Scanning 1 dirty segment extrapolates to 16,000 dirty blocks >= 10,000 threshold.
+        let mut progress = ScannedVisibilityProgress::default();
+        progress.record(DirtyBlockCount(1_000), BlockSpan(1_000));
+        assert!(progress.is_stale(16_000, 16, 10_000));
+        assert!(!progress.is_stale(16_000, 16, 0));
+
+        // Tiny 1-block tail segment on a 20,000-block table with 10 segments must not
+        // extrapolate to the whole table on its own.
+        let mut tail_only = ScannedVisibilityProgress::default();
+        tail_only.record(DirtyBlockCount(1), BlockSpan(1));
+        assert!(!tail_only.is_stale(20_000, 10, 10_000));
+        // Once a full clean segment (2,000 blocks, 0 dirty) is also scanned, the sample is
+        // representative and overall staleness is 1 / 2001 (< 50%), so it does not warn.
+        tail_only.record(DirtyBlockCount(0), BlockSpan(2_000));
+        assert!(!tail_only.is_stale(20_000, 10, 10_000));
+
+        // Below 50% dirty fraction does not warn even if dirty count exceeds threshold.
+        let mut mostly_clean = ScannedVisibilityProgress::default();
+        mostly_clean.record(DirtyBlockCount(12_000), BlockSpan(30_000));
+        assert!(!mostly_clean.is_stale(30_000, 1, 10_000));
+
+        // Overlapping unsorted segments (each spanning all 5,000 blocks of a 5,000-block table)
+        // must not double-count to exceed a 10,000-block threshold.
+        let mut overlapping = ScannedVisibilityProgress::default();
+        for _ in 0..4 {
+            overlapping.record(DirtyBlockCount(5_000), BlockSpan(5_000));
+        }
+        assert!(!overlapping.is_stale(5_000, 4, 10_000));
     }
 }
 

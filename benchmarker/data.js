@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792709288660,
+  "lastUpdate": 1792711880155,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15820,6 +15820,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 185.374,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c407dfd73acc9771cfbc983fb0418571c1a1cfad",
+          "message": "fix: count ParadeDB index scans in `pg_stat_user_indexes` (#6914)\n\n## Ticket(s) Closed\n\n- Closes #6911\n\n## What\n\nThis PR counts the scans of a ParadeDB index in `pg_stat_user_indexes`.\n\n`idx_scan` now moves for the index AM, the base, aggregate and join\ncustom scans, and a search that runs as a heap filter. `idx_tup_read`\nalso counts the entries the base scan returns, and `idx_tup_fetch` the\nrows it reads from the heap. Before, both stayed at zero for every\nParadeDB index.\n\n## Why\n\nUnused-index checks read these counters. They listed live ParadeDB\nindexes as unused and told people to drop them.\n\n## How\n\nPostgres leaves the counters to the access method, and `pgrx` has no\nbinding for its `pgstat_count_index_*` macros, so `postgres/pgstat.rs`\ndoes the same bumps on `pgstat_info`. Each path counts once where its\nscan starts. The index AM counts on the first fetch, like the builtin\nAMs. A parallel scan counts once, as a parallel btree scan does on\nPostgreSQL 18. The leader sets the scan up before any worker starts and\nmay never fetch, so it counts the scan, and the workers that share it\ndon't. The base scan counts in `init_search_reader`, the aggregate scan\nwhen its execution starts, the join scan once per source index, and the\nheap-filter path when it builds the match set of a query. The executor\nalready counts the entries the AM returns in `index_getnext_tid` and\n`index_getbitmap`, so only the base scan counts its own. A `Virtual` row\ncounts as read but not fetched, as in an index-only scan.\n\nA bitmap scan counts twice. The planner keeps the search as a recheck\nfilter on the heap scan, and that filter reads the index again.\n\n## Tests\n\nThe new `index_scan_stats` regress test runs each path and reads the\ncounters after `pg_stat_force_next_flush()`. It also runs a parallel\nbase scan and a parallel index scan with two workers. Without the leader\nrule, each of them added three scans instead of one.",
+          "timestamp": "2026-10-22T15:03:30-07:00",
+          "tree_id": "df93d6ca3356309502261b6f61bf96ea8180cfb5",
+          "url": "https://github.com/paradedb/paradedb/commit/c407dfd73acc9771cfbc983fb0418571c1a1cfad"
+        },
+        "date": 1792711868569,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.163,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.949,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 340.321,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.093,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.832,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 184.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.202,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.306,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.909,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.523,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.218,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 198.907,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.039,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.34,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 185.204,
             "unit": "ms"
           }
         ]

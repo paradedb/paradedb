@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792657208479,
+  "lastUpdate": 1792658496236,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111736,6 +111736,52 @@ window.BENCHMARK_DATA = {
             "value": 1298.2289800392737,
             "unit": "median tps",
             "extra": "avg tps: 1189.8516570849245, max tps: 1945.5305054901667, count: 59432"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792658484919,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1639.9877169864828,
+            "unit": "median tps",
+            "extra": "avg tps: 1654.6908312563992, max tps: 1815.091212021984, count: 59410"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.795428059517919,
+            "unit": "median tps",
+            "extra": "avg tps: 3.0434390634010207, max tps: 4.991373583733309, count: 59410"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 676.2551452627648,
+            "unit": "median tps",
+            "extra": "avg tps: 616.3355097873032, max tps: 1014.7477643729585, count: 59410"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2864.4991257580295,
+            "unit": "median tps",
+            "extra": "avg tps: 2772.119383003032, max tps: 3229.150328926706, count: 59410"
           }
         ]
       }

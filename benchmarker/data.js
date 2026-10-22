@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792698292362,
+  "lastUpdate": 1792703327916,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -23216,6 +23216,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.926,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3a73bf7154bbfd90a188f5577158597b2fa3bc5",
+          "message": "perf: Warn for a stale visibility map. (#6973)\n\n## What\n\nEmits a once-per-query warning via `warn_stale_visibility_map` when\n`VisibilityChecker::scan_dirty_blocks` estimates that at least\n`paradedb.visibility_map_warning_threshold` (default `10000`) heap\nblocks across the table are not all-visible. Also expands the autovacuum\ndocumentation in `docs/operate/performance-tuning/reads.mdx`.\n\n## Why\n\nWhen `VACUUM` or autovacuum has not kept up with writes or bulk loads,\nthe Postgres visibility map remains clear across large portions of the\nheap, forcing scans and aggregates to fall back to per-tuple `ctid` and\nheap visibility checks without an obvious signal to the user.\n\n## How\n\nAccumulates scanned block spans and dirty block counts in\n`VisibilityChecker` (`ScannedVisibilityProgress`) as segment visibility\nranges are checked, extrapolates the dirty block count to the table\n(`nblocks`) once at least `1 / num_segments` of the table has been\nsampled, and emits a deduplicated warning in the leader process linking\nto\nhttps://www.paradedb.com/docs/operate/performance-tuning/reads#configuring-autovacuum.\n\n## Tests\n\n- Unit test `test_scanned_visibility_progress_extrapolation` in\n`pg_search/src/postgres/heap.rs`.\n- `pg_regress` test in\n`pg_search/tests/pg_regress/sql/visibility_explain.sql`.",
+          "timestamp": "2026-10-22T13:25:53-07:00",
+          "tree_id": "7a2c56d49373f2501612dd0b3c67f81175c19125",
+          "url": "https://github.com/paradedb/paradedb/commit/e3a73bf7154bbfd90a188f5577158597b2fa3bc5"
+        },
+        "date": 1792703314718,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.296,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.667,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.644,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.507,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.227,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.322,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.455,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.075,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.101,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.849,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.131,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.948,
             "unit": "ms"
           }
         ]

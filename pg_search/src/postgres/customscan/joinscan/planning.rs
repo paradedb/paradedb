@@ -66,7 +66,6 @@ use crate::schema::SearchFieldType;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
-use datafusion::error::DataFusionError;
 use pgrx::{PgList, pg_sys};
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
@@ -1392,7 +1391,7 @@ fn numeric_bytes_layouts_differ(
 ///   = BinaryView") - a hard query-time error instead of a graceful
 ///   fallback to Postgres's native join.
 /// - Two `NumericBytes` sides whose indexes encode negative values
-///   differently (see `planning::numeric_bytes_layouts_differ`): the
+///   differently (see `numeric_bytes_layouts_differ`): the
 ///   byte encoding itself is incompatible, regardless of declared scale.
 ///
 /// So this returns `true` in exactly two cases: both sides `Numeric64`
@@ -1427,7 +1426,8 @@ fn numeric_pushdown_safe(
 }
 
 pub fn validate_join_keys(plan: &RelNode) -> Result<(), String> {
-    let result = plan.apply(|node| {
+    let mut result = Ok(());
+    let _ = plan.apply(|node| {
         let RelNode::Join(j) = node else {
             return Ok(TreeNodeRecursion::Continue);
         };
@@ -1436,9 +1436,8 @@ pub fn validate_join_keys(plan: &RelNode) -> Result<(), String> {
             let Some(((left_source, left_attno), (right_source, right_attno))) =
                 key.resolve_against(&j.left, &j.right)
             else {
-                return Err(DataFusionError::Internal(
-                    "failed to resolve join keys against base relations".to_string(),
-                ));
+                result = Err("failed to resolve join keys against base relations".to_string());
+                return Ok(TreeNodeRecursion::Stop);
             };
 
             let left_hr = PgSearchRelation::open(left_source.scan_info.heaprelid);
@@ -1453,29 +1452,26 @@ pub fn validate_join_keys(plan: &RelNode) -> Result<(), String> {
             };
 
             let (Some(left_ff), Some(right_ff)) = (left_ff, right_ff) else {
-                return Err(DataFusionError::Internal(
-                    "join conditions must reference columnar indexed fields".to_string(),
-                ));
+                result = Err("join conditions must reference columnar indexed fields".to_string());
+                return Ok(TreeNodeRecursion::Stop);
             };
 
-            let either_numeric = left_ff.field_type().is_some_and(|ft| ft.is_numeric()) || right_ff.field_type().is_some_and(|ft| ft.is_numeric());
+            let either_numeric = left_ff.field_type().is_some_and(|ft| ft.is_numeric())
+                || right_ff.field_type().is_some_and(|ft| ft.is_numeric());
             if either_numeric && !numeric_pushdown_safe(&left_ff, &left_ir, &right_ff, &right_ir) {
-                return Err(DataFusionError::Internal(
-                    "join conditions compare NUMERIC columns with an unresolvable or mismatched representation".to_string(),
-                ));
+                result = Err(
+                    "join conditions compare NUMERIC columns with an unresolvable \
+                    or mismatched representation"
+                        .to_string(),
+                );
+                return Ok(TreeNodeRecursion::Stop);
             }
         }
 
         Ok(TreeNodeRecursion::Continue)
     });
 
-    match result {
-        Ok(_) => Ok(()),
-        Err(e) => match e {
-            DataFusionError::Internal(msg) => Err(msg),
-            _ => Err("failed to validate join keys".to_string()),
-        },
-    }
+    result
 }
 
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.

@@ -542,7 +542,10 @@ await db
   .select({
     id: mockItems.id,
     snippet: search.snippet(mockItems.description),
-    snippetPositions: search.snippetPositions(mockItems.description, { limit: 1, offset: 0 }),
+    snippetPositions: search.snippetPositions(mockItems.description, {
+      limit: 1,
+      offset: 0,
+    }),
   })
   .from(mockItems)
   .where(search.matchAny(mockItems.description, "shoes"))

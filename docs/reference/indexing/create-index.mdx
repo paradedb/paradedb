@@ -635,11 +635,13 @@ WITH (layer_sizes = '0', background_layer_sizes = '100MB, 1GB', mutable_segment_
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
-indexing.paradedbIndex("search_idx", {
-  layerSizes: "0",
-  backgroundLayerSizes: "100MB, 1GB",
-  mutableSegmentRows: 1000,
-}).on(mockItems.id, mockItems.description);
+indexing
+  .paradedbIndex("search_idx", {
+    layerSizes: "0",
+    backgroundLayerSizes: "100MB, 1GB",
+    mutableSegmentRows: 1000,
+  })
+  .on(mockItems.id, mockItems.description);
 ```
 
 ```python Django

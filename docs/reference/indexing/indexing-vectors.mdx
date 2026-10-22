@@ -280,9 +280,15 @@ WITH (vector_fields = '{"embedding":{"quantization":false}}');
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
-indexing.paradedbIndex("search_idx", {
-  vectorFields: { embedding: { quantization: false } },
-}).on(mockItems.id, mockItems.description, indexing.vectorField(mockItems.embedding, "cosine"));
+indexing
+  .paradedbIndex("search_idx", {
+    vectorFields: { embedding: { quantization: false } },
+  })
+  .on(
+    mockItems.id,
+    mockItems.description,
+    indexing.vectorField(mockItems.embedding, "cosine"),
+  );
 ```
 
 ```python Django

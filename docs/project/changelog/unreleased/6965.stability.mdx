@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed Join Scan returning rows in the wrong order for an `ORDER BY` on a volatile expression that is not in the `SELECT` list, such as `ORDER BY random(), t1.id`. Join Scan dropped the volatile sort key and sorted on the remaining keys. These queries now decline Join Scan.

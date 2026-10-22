@@ -508,23 +508,34 @@ pub unsafe fn try_create_subplan_join_paths(
         return Vec::new();
     }
 
+    let decline = |reason: JoinDeclineReason| {
+        let aliases: Vec<String> = plan
+            .sources()
+            .iter()
+            .map(|s| {
+                RelationAlias::new(s.scan_info.alias.as_deref())
+                    .warning_context(s.scan_info.heaprelid)
+            })
+            .collect();
+        reason.emit(&aliases);
+        Vec::new()
+    };
+
+    // Postgres keeps its own WindowAgg above a base-relation path, so the scan cannot own
+    // the window aggregates here: a pushed LIMIT would starve that node, and the columns it
+    // reads would come out NULL.
+    if (*(*root).parse).hasWindowFuncs {
+        return decline(JoinDeclineReason::new(
+            "JoinScan not used: window functions are not supported with an OR-nested subquery",
+        ));
+    }
+
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
     let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, &plan, &join_keys, has_distinct) {
+        match JoinScan::validate_and_build_clause(root, plan.clone(), &join_keys, has_distinct) {
             Ok(res) => res,
-            Err(reason) => {
-                let aliases: Vec<String> = plan
-                    .sources()
-                    .iter()
-                    .map(|s| {
-                        RelationAlias::new(s.scan_info.alias.as_deref())
-                            .warning_context(s.scan_info.heaprelid)
-                    })
-                    .collect();
-                reason.emit(&aliases);
-                return Vec::new();
-            }
+            Err(reason) => return decline(reason),
         };
 
     // No join-level predicate extraction needed for SubPlan-based paths.
@@ -598,11 +609,11 @@ impl JoinScan {
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
     ///
     /// Returns `Err` with a descriptive message if any activation check fails.
-    /// The caller can then optionally perform join-level predicate extraction on
-    /// the returned clause before passing it to `finalize_clause_into_path`.
+    /// The search predicates of the plan and of the window `FILTER`s are tagged
+    /// before returning, so a caller cannot add predicates to the clause afterwards.
     unsafe fn validate_and_build_clause(
         root: *mut pg_sys::PlannerInfo,
-        plan: &RelNode,
+        plan: RelNode,
         join_keys: &[build::JoinKeyPair],
         has_distinct: bool,
     ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
@@ -656,7 +667,7 @@ impl JoinScan {
             ));
         }
 
-        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
+        if has_distinct && distinct_columns_are_fast_fields(root, &plan).is_none() {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
@@ -715,8 +726,8 @@ impl JoinScan {
             } else if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, check_expr) {
                 let window_agg = match extract_window_agg(
                     wf,
-                    &all_sources,
-                    parse,
+                    root,
+                    &plan,
                     window_func::WindowAggId::bare(te.resno as pg_sys::AttrNumber),
                 ) {
                     Ok(wa) => wa,
@@ -726,12 +737,7 @@ impl JoinScan {
                 };
                 window_aggs.push(window_agg);
             } else {
-                match planning::resolve_target_entry_expr(
-                    check_expr,
-                    &all_sources,
-                    root,
-                    Some(plan),
-                ) {
+                match planning::resolve_target_entry_expr(check_expr, root, &plan, true) {
                     Err(reason) => return Err(reason),
                     Ok(planning::ResolvedExpr::PgProjected) => {
                         pg_projected_resnos.push(te.resno);
@@ -826,7 +832,7 @@ impl JoinScan {
         }
 
         // --- Build JoinCSClause ---
-        let mut join_clause = JoinCSClause::new(plan.clone())
+        let mut join_clause = JoinCSClause::new(plan)
             .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct)
             .with_window_aggs(window_aggs)
@@ -846,6 +852,17 @@ impl JoinScan {
         if join_clause.limit_offset.is_some() {
             is_limit_pushdown_safe(root, &join_clause)?;
         }
+
+        let mut predicates = join_clause.plan.search_predicates();
+        for p in join_clause.window_agg_filter_predicates() {
+            if !predicates.contains(&p) {
+                predicates.push(p);
+            }
+        }
+        crate::postgres::customscan::joinscan::build::assign_tagged_queries(
+            join_clause.plan.sources_mut(),
+            &predicates,
+        );
 
         Ok((join_clause, limit_offset))
     }
@@ -2146,8 +2163,7 @@ unsafe fn build_output_projection(
     // calls walk the same parse tree. Consider caching the result in a
     // planning-phase-scoped structure to avoid redundant work.
     let distinct_entries = if private_data.join_clause.has_distinct {
-        let all_sources = private_data.join_clause.plan.sources();
-        distinct_columns_are_fast_fields(root, &all_sources)
+        distinct_columns_are_fast_fields(root, &private_data.join_clause.plan)
     } else {
         None
     };
@@ -2163,6 +2179,11 @@ unsafe fn build_output_projection(
         let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
 
         for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
+            if matches!(entry, planning::ResolvedExpr::WindowConstant) {
+                // global window functions return the same value for every row, so they don't affect
+                // DISTINCT output. skip them
+                continue;
+            }
             let tle_ref = (*clause_ptr).tleSortGroupRef;
             if let Some(parse_te) = parse_tlist
                 .iter_ptr()
@@ -2195,7 +2216,6 @@ unsafe fn build_output_projection(
 
     // For non-DISTINCT entries (or entries not matched above), resolve any expressions
     // so DataFusion can evaluate them and exec_custom_scan can project their results.
-    let all_sources = private_data.join_clause.plan.sources();
     for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
         let te = &(*te);
         if resolved_entries[scan_idx].is_some() {
@@ -2222,8 +2242,12 @@ unsafe fn build_output_projection(
         let scan_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
-            && let Ok(resolved) =
-                planning::resolve_target_entry_expr(scan_expr, &all_sources, root, None)
+            && let Ok(resolved) = planning::resolve_target_entry_expr(
+                scan_expr,
+                root,
+                &private_data.join_clause.plan,
+                false,
+            )
         {
             resolved_entries[scan_idx] = Some(resolved);
         }
@@ -2303,7 +2327,9 @@ unsafe fn build_output_projection(
                             field_name: field_name.clone(),
                         }
                     }
-                    Some(planning::ResolvedExpr::PgProjected) | None => info.into(),
+                    Some(planning::ResolvedExpr::PgProjected)
+                    | Some(planning::ResolvedExpr::WindowConstant)
+                    | None => info.into(),
                 }
             })
             .collect(),
@@ -2504,12 +2530,6 @@ impl JoinScan {
         let (mut plan, multi_table_clauses) =
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
-        let predicates = plan.search_predicates();
-        crate::postgres::customscan::joinscan::build::assign_tagged_queries(
-            plan.sources_mut(),
-            &predicates,
-        );
-
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
         // The planner can simplify the operator out of the quals, so the query as written counts too.
@@ -2544,7 +2564,7 @@ impl JoinScan {
         let join_keys = plan.join_keys();
 
         let (join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
+            Self::validate_and_build_clause(root, plan, &join_keys, has_distinct).map_err(warn)?;
 
         let path = Self::finalize_clause_into_path(
             root,

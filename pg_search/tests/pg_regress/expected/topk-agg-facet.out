@@ -2311,6 +2311,675 @@ LIMIT 3;
            4
 (1 row)
 
+-- DISTINCT with window aggregates that read a column (#6501). The DISTINCT
+-- pathkeys include every target entry; a window-only entry is the same on
+-- every row, so it orders nothing and JoinScan still absorbs the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    SUM(r.score) OVER () AS total_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score,
+    COUNT(r.score) OVER () AS score_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.window_agg('sum(score) OVER ()'::text)), (pdb.window_agg('min(score) OVER ()'::text)), (pdb.window_agg('max(score) OVER ()'::text)), (pdb.window_agg('count(score) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Distinct: true
+   Order By: p.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, window_agg_1@1 as col_2, window_agg_2@2 as col_3, window_agg_3@3 as col_4, window_agg_4@4 as col_5, get_field(__topk@0, c1) as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(DISTINCT col_1, p_0.ctid_0, 2, [1]) ORDER BY [col_1 DESC NULLS FIRST] as __topk, sum(r_1.score) as window_agg_1, min(r_1.score) as window_agg_2, max(r_1.score) as window_agg_3, count(r_1.score) as window_agg_4]
+     :         VisibilityFilterExec: tables=[p, r], pruned=[r]
+     :           ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, score@2 as score, ctid_1@3 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[id@1, ctid_0@0, score@3, ctid_1@4]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT DISTINCT
+    p.id,
+    SUM(r.score) OVER () AS total_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score,
+    COUNT(r.score) OVER () AS score_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+ id | total_score | min_score | max_score | score_count 
+----+-------------+-----------+-----------+-------------
+  5 |         321 |        65 |        95 |           4
+  3 |         321 |        65 |        95 |           4
+(2 rows)
+
+-- The same without an ORDER BY: the DISTINCT pathkeys alone.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 2;
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: (pdb.window_agg('sum(score) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Distinct: true
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[window_agg_1@1 as col_1]
+     :   GlobalLimitExec: skip=0, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(DISTINCT __distinct, 2, []) as __topk, sum(r_1.score) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r], pruned=[p, r]
+     :           ProjectionExec: expr=[true as __distinct, score@0 as score, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[score@3, ctid_0@1, ctid_1@4]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT DISTINCT SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 2;
+ total_score 
+-------------
+         321
+(1 row)
+
+-- AVG returns an unbounded NUMERIC, which must not stop the DISTINCT column
+-- check for a window-only entry (#6501).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.window_agg('avg(score) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Distinct: true
+   Order By: p.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, window_agg_1@1 as col_2, get_field(__topk@0, c1) as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(DISTINCT col_1, p_0.ctid_0, 2, [1]) ORDER BY [col_1 DESC NULLS FIRST] as __topk, avg(r_1.score) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r], pruned=[r]
+     :           ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, score@2 as score, ctid_1@3 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[id@1, ctid_0@0, score@3, ctid_1@4]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT DISTINCT p.id, AVG(r.score) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+ id | avg_score 
+----+-----------
+  5 |     80.25
+  3 |     80.25
+(2 rows)
+
+-- An entry mixing a column with a window aggregate varies by row: it is part
+-- of the DISTINCT key, which the scan cannot compute, so JoinScan declines.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC, score_plus_count
+LIMIT 3;
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, r)
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.id DESC, ((r.score + count(*) OVER w1))
+               ->  WindowAgg
+                     Window: w1 AS ()
+                     ->  Hash Join
+                           Hash Cond: (r.product_id = p.id)
+                           ->  Seq Scan on product_reviews r
+                           ->  Hash
+                                 ->  Custom Scan (ParadeDB Base Scan) on products p
+                                       Table: products
+                                       Index: products_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+
+SELECT DISTINCT p.id, r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC, score_plus_count
+LIMIT 3;
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, r)
+ id | score_plus_count 
+----+------------------
+  5 |               69
+  3 |               95
+  1 |               74
+(3 rows)
+
+-- Test 27h: Window aggregates with a FILTER clause over a JOIN. JoinScan
+-- computes `agg FILTER (WHERE ...) OVER ()` in its Top-K aggregate node.
+-- The join has four rows: scores 95 and 70 (product 1), 91 (product 3) and
+-- 65 (product 5). Filters read either side of the join, an unfiltered
+-- COUNT(*) sits beside the filtered one (they must stay separate columns),
+-- and a filter that matches nothing gives 0 for COUNT and NULL otherwise.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count,
+    SUM(r.score) FILTER (WHERE p.price > 1600) OVER () AS pricey_score,
+    AVG(r.score) FILTER (WHERE r.score > 80) OVER () AS high_avg,
+    MIN(r.score) FILTER (WHERE r.score > 80) OVER () AS high_min,
+    MAX(r.score) FILTER (WHERE r.score < 80 AND p.rating > 4.7) OVER () AS low_max,
+    COUNT(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_count,
+    SUM(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text)), (pdb.window_agg('sum(score) FILTER (WHERE (p.price > ''1600''::double precision)) OVER ()'::text)), (pdb.window_agg('avg(score) FILTER (WHERE (r.score > 80)) OVER ()'::text)), (pdb.window_agg('min(score) FILTER (WHERE (r.score > 80)) OVER ()'::text)), (pdb.window_agg('max(score) FILTER (WHERE ((r.score < 80) AND (p.rating > ''4.7''::double precision))) OVER ()'::text)), (pdb.window_agg('count(score) FILTER (WHERE (r.score > 1000)) OVER ()'::text)), (pdb.window_agg('sum(score) FILTER (WHERE (r.score > 1000)) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, window_agg_4@4 as col_6, window_agg_5@5 as col_7, window_agg_6@6 as col_8, window_agg_7@7 as col_9, window_agg_8@8 as col_10, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, count(1) FILTER (WHERE __common_expr_1) as window_agg_2, sum(r_1.score) FILTER (WHERE p_0.price > Float64(1600)) as window_agg_3, avg(r_1.score) FILTER (WHERE __common_expr_1) as window_agg_4, min(r_1.score) FILTER (WHERE __common_expr_1) as window_agg_5, max(r_1.score) FILTER (WHERE r_1.score < Int64(80) AND p_0.rating > Float64(4.7)) as window_agg_6, count(r_1.score) FILTER (WHERE __common_expr_2) as window_agg_7, sum(r_1.score) FILTER (WHERE __common_expr_2) as window_agg_8]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           ProjectionExec: expr=[score@0 > 80 as __common_expr_1, score@0 > 1000 as __common_expr_2, id@1 as id, score@0 as score, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1, price@4 as price, rating@5 as rating]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[score@6, id@1, ctid_0@0, ctid_1@4, price@2, rating@3]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count,
+    SUM(r.score) FILTER (WHERE p.price > 1600) OVER () AS pricey_score,
+    AVG(r.score) FILTER (WHERE r.score > 80) OVER () AS high_avg,
+    MIN(r.score) FILTER (WHERE r.score > 80) OVER () AS high_min,
+    MAX(r.score) FILTER (WHERE r.score < 80 AND p.rating > 4.7) OVER () AS low_max,
+    COUNT(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_count,
+    SUM(r.score) FILTER (WHERE r.score > 1000) OVER () AS none_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | total_count | high_count | pricey_score | high_avg | high_min | low_max | none_count | none_sum 
+----+-------+-------------+------------+--------------+----------+----------+---------+------------+----------
+  1 |    95 |           4 |          2 |          230 |       93 |       91 |      70 |          0 |         
+  3 |    91 |           4 |          2 |          230 |       93 |       91 |      70 |          0 |         
+  1 |    70 |           4 |          2 |          230 |       93 |       91 |      70 |          0 |         
+(3 rows)
+
+-- Filtered window aggregates inside target list expressions.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () + 1 AS high_plus_one,
+    r.score + COUNT(*) FILTER (WHERE r.score > 80) OVER () AS score_plus_high,
+    (COUNT(*) FILTER (WHERE r.score > 80) OVER ())::float8 / COUNT(*) OVER () AS high_ratio
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, ((pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text) + 1)), ((r.score + pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))), (((pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))::double precision / (pdb.window_agg('count(*) OVER ()'::text))::double precision))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 + 1 as col_3, get_field(__topk@0, c1) + window_agg_1@1 as col_4, pdb_eval_expr_funcexpr_01980a78(window_agg_1@1) / pdb_eval_expr_funcexpr_02120823(window_agg_4@2) as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE r_1.score > Int64(80)) as window_agg_1, count(1) as window_agg_4]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, ctid_0@0, ctid_1@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () + 1 AS high_plus_one,
+    r.score + COUNT(*) FILTER (WHERE r.score > 80) OVER () AS score_plus_high,
+    (COUNT(*) FILTER (WHERE r.score > 80) OVER ())::float8 / COUNT(*) OVER () AS high_ratio
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | high_plus_one | score_plus_high | high_ratio 
+----+-------+---------------+-----------------+------------
+  1 |    95 |             3 |              97 |        0.5
+  3 |    91 |             3 |              93 |        0.5
+  1 |    70 |             3 |              72 |        0.5
+(3 rows)
+
+-- DISTINCT with a filtered window aggregate: the filter applies to the join
+-- rows before DISTINCT, so product 1 contributes both of its reviews.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Distinct: true
+   Order By: p.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, window_agg_1@1 as col_2, get_field(__topk@0, c1) as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(DISTINCT col_1, p_0.ctid_0, 2, [1]) ORDER BY [col_1 DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE r_1.score > Int64(80)) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r], pruned=[r]
+     :           ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, score@2 as score, ctid_1@3 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[id@1, ctid_0@0, score@3, ctid_1@4]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT DISTINCT
+    p.id,
+    COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+ id | high_count 
+----+------------
+  5 |          2
+  3 |          2
+(2 rows)
+
+-- A filtered window aggregate in a subquery without a LIMIT: no Top-K
+-- aggregate, so JoinScan computes it in a DataFusion window node.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM (
+    SELECT
+        p.id,
+        r.score,
+        COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+ORDER BY score DESC
+LIMIT 5;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, r.score, (pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))
+   ->  Sort
+         Output: p.id, r.score, (pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))
+         Sort Key: r.score DESC
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, r.score, (pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))
+               Relation Tree: p INNER r
+               Join Cond: p.id = r.product_id
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, score@3 as col_2, window_agg_1@4 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   WindowAggExec: wdw=[window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+                 :     VisibilityFilterExec: tables=[p, r]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT * FROM (
+    SELECT
+        p.id,
+        r.score,
+        COUNT(*) FILTER (WHERE r.score > 80) OVER () AS high_count
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+ORDER BY score DESC
+LIMIT 5;
+ id | score | high_count 
+----+-------+------------
+  1 |    95 |          2
+  3 |    91 |          2
+  1 |    70 |          2
+  5 |    65 |          2
+(4 rows)
+
+-- A filter on a columnar text field. The scan compares the stored value, so
+-- 'apple' matches nothing, as in PostgreSQL, and `<>` combines with a
+-- comparison on the other side of the join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('count(*) FILTER (WHERE (p.brand = ''Apple''::text)) OVER ()'::text)), (pdb.window_agg('count(*) FILTER (WHERE (p.brand = ''apple''::text)) OVER ()'::text)), (pdb.window_agg('count(*) FILTER (WHERE ((p.brand <> ''Apple''::text) AND (r.score > 60))) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE p_0.brand = Utf8View("Apple")) as window_agg_1, count(1) FILTER (WHERE p_0.brand = Utf8View("apple")) as window_agg_2, count(1) FILTER (WHERE p_0.brand != Utf8View("Apple") AND r_1.score > Int64(60)) as window_agg_3]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@5, ctid_0@0, ctid_1@3, brand@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, eager=[brand], query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE p.brand = 'Apple') OVER () AS apple_count,
+    COUNT(*) FILTER (WHERE p.brand = 'apple') OVER () AS lowercase_apple_count,
+    COUNT(*) FILTER (WHERE p.brand <> 'Apple' AND r.score > 60) OVER () AS other_brand_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | apple_count | lowercase_apple_count | other_brand_count 
+----+-------+-------------+-----------------------+-------------------
+  1 |    95 |           2 |                     0 |                 2
+  3 |    91 |           2 |                     0 |                 2
+  1 |    70 |           2 |                     0 |                 2
+(3 rows)
+
+-- pdb.agg() with a FILTER. The same spec without and with a filter is two
+-- aggregates, and EXPLAIN shows each pdb_agg(...) call with its FILTER. Plain
+-- EXPLAIN: the VERBOSE output list deparses the search operator with the index
+-- OID, which changes from run to run.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1, pdb_agg({"avg":{"field":"score"}}) FILTER (WHERE r_1.score > Int64(80)) as window_agg_2, pdb_agg({"value_count":{"field":"score"}}) FILTER (WHERE p_0.__p_0_tag_0) as window_agg_3]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           ProjectionExec: expr=[CAST(score@0 AS Float64) as __common_expr_1, id@1 as id, score@0 as score, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1, __p_0_tag_0@4 as __p_0_tag_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[score@5, id@1, ctid_0@0, ctid_1@3, __p_0_tag_0@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"gaming","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) FILTER (WHERE r.score > 80) OVER () AS high_avg_score,
+    pdb.agg('{"value_count": {"field": "score"}}'::jsonb) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_reviews
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score |    avg_score     | high_avg_score  | gaming_reviews 
+----+-------+------------------+-----------------+----------------
+  1 |    95 | {"value": 80.25} | {"value": 93.0} | {"value": 1.0}
+  3 |    91 | {"value": 80.25} | {"value": 93.0} | {"value": 1.0}
+  1 |    70 | {"value": 80.25} | {"value": 93.0} | {"value": 1.0}
+(3 rows)
+
+-- Search operators in a filter, on either side of the join and combined with a
+-- column comparison. Each becomes a tagged query on its source scan, and the
+-- filter reads the tag column. Plain EXPLAIN: the VERBOSE output list
+-- deparses the operator with the index OID, which changes from run to run.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
+    COUNT(*) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_count,
+    COUNT(*) FILTER (WHERE r.content ||| 'battery' OR r.score > 90) OVER () AS battery_or_high
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, window_agg_3@3 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE r_1.__r_1_tag_0) as window_agg_1, count(1) FILTER (WHERE p_0.__p_0_tag_0) as window_agg_2, count(1) FILTER (WHERE r_1.__r_1_tag_1 OR r_1.score > Int64(90)) as window_agg_3]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@5, ctid_0@0, ctid_1@3, __p_0_tag_0@2, __r_1_tag_0@6, __r_1_tag_1@7]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"gaming","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"match":{"field":"content","value":"battery","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content ||| 'keyboard') OVER () AS keyboard_count,
+    COUNT(*) FILTER (WHERE p.description ||| 'gaming') OVER () AS gaming_count,
+    COUNT(*) FILTER (WHERE r.content ||| 'battery' OR r.score > 90) OVER () AS battery_or_high
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | keyboard_count | gaming_count | battery_or_high 
+----+-------+----------------+--------------+-----------------
+  1 |    95 |              1 |            1 |               3
+  3 |    91 |              1 |            1 |               3
+  1 |    70 |              1 |            1 |               3
+(3 rows)
+
+-- A comparison the scan could translate, on a column that is not columnar
+-- (content is tokenized): the scan has no values to compare, so JoinScan
+-- declines at planning and PostgreSQL's WindowAgg computes the value.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content = 'Battery could be better') OVER () AS battery_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+WARNING:  JoinScan not used: window function FILTER clause depends on non-columnar field (tables: p, r)
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: r.score DESC
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Hash Join
+                     Hash Cond: (r.product_id = p.id)
+                     ->  Seq Scan on product_reviews r
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on products p
+                                 Table: products
+                                 Index: products_idx
+                                 Exec Method: ColumnarExecState
+                                 Columnar: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content = 'Battery could be better') OVER () AS battery_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+WARNING:  JoinScan not used: window function FILTER clause depends on non-columnar field (tables: p, r)
+ id | score | battery_count 
+----+-------+---------------
+  1 |    95 |             1
+  3 |    91 |             1
+  1 |    70 |             1
+(3 rows)
+
+-- An operator the scan cannot translate (LIKE): JoinScan declines, and
+-- PostgreSQL's WindowAgg computes the value.
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content LIKE '%better%') OVER () AS better_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+WARNING:  JoinScan not used: unsupported window function FILTER clause was provided (tables: p, r)
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: r.score DESC
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Hash Join
+                     Hash Cond: (r.product_id = p.id)
+                     ->  Seq Scan on product_reviews r
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on products p
+                                 Table: products
+                                 Index: products_idx
+                                 Exec Method: ColumnarExecState
+                                 Columnar: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) FILTER (WHERE r.content LIKE '%better%') OVER () AS better_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+WARNING:  JoinScan not used: unsupported window function FILTER clause was provided (tables: p, r)
+ id | score | better_count 
+----+-------+--------------
+  1 |    95 |            1
+  3 |    91 |            1
+  1 |    70 |            1
+(3 rows)
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

@@ -1,7 +1,8 @@
--- An all-inner join runs as a left-deep chain in the order the planner joined
--- the relations, so the sides it found most selective join first. The query
--- text puts the two large tables first; the planner starts from the
--- two-author side.
+-- An all-inner join of three or more relations runs as a left-deep chain in
+-- the order the planner's row estimates favour: the pair estimated smallest
+-- joined first, then whichever keeps the joined set smallest. The query text
+-- puts the two large tables first; the chain starts from books and the two
+-- matching authors.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 CREATE TABLE jo_authors (id INT PRIMARY KEY, name TEXT, bio TEXT);
@@ -36,7 +37,7 @@ SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan = on;
 SET paradedb.enable_aggregate_custom_scan = on;
 
--- The planner joins books with the two matching authors before the reviews.
+-- Books join the two matching authors first, then the reviews.
 EXPLAIN (COSTS OFF)
 SELECT b.id, r.id
 FROM jo_books b
@@ -52,8 +53,8 @@ JOIN jo_authors a ON a.id = b.author_id
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
 
--- The selective table written last. The chain still starts from the join the
--- planner ran first, and the physical plan follows it.
+-- The selective table written last. The chain still starts from it, and the
+-- physical plan follows.
 EXPLAIN (COSTS OFF)
 SELECT b.id, r.id
 FROM jo_reviews r
@@ -103,7 +104,7 @@ JOIN jo_authors a ON a.id = b.author_id AND r.rating <> b.author_id % 5
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
 
--- Comma joins carry their keys in WHERE; they join in the planner's order too.
+-- Comma joins carry their keys in WHERE; they take the same order.
 EXPLAIN (COSTS OFF)
 SELECT b.id, r.id
 FROM jo_books b, jo_reviews r, jo_authors a
@@ -133,8 +134,8 @@ JOIN jo_authors a ON a.id = b.author_id
 WHERE a.bio @@@ 'orchid'
 ORDER BY b.id, r.id LIMIT 5;
 
--- Two inputs of one join stay in the order written, whichever side the
--- planner hashes.
+-- Two inputs of one join stay in the order written; DataFusion picks the
+-- build side.
 EXPLAIN (COSTS OFF)
 SELECT a.id, b.id
 FROM jo_authors a

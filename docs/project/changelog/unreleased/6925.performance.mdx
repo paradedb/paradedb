@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Join Scan and Aggregate Scan join the relations of an all-inner join in the order the Postgres planner joined them, so the most selective relations join first. Outer, semi, anti, and lateral joins keep the order the query wrote.
+Join Scan and Aggregate Scan join the relations of an all-inner join in the order the Postgres planner's row estimates favour, so the smallest joins run first. Outer, semi, anti, and lateral joins keep the order the query wrote.

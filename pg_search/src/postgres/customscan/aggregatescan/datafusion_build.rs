@@ -333,8 +333,8 @@ pub unsafe fn collect_join_agg_sources(
 ///
 /// The parse tree gives the skeleton, the path gives the keys, and
 /// [`RelNode::inject_equi_keys`] attaches the keys to the correct join levels.
-/// When the skeleton is all inner joins, [`follow_path_join_order`] renests it
-/// the way the planner joined the relations.
+/// When the skeleton is all inner joins, [`order_chain_by_planner_estimates`]
+/// renests it in the order the planner's row estimates favour.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
@@ -350,16 +350,14 @@ pub unsafe fn extract_join_tree_from_parse(
         return Err("jointree is null".into());
     }
 
-    let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
-    if let Some(shape) = &path_info.join_shape {
-        let path_keys: Vec<JoinKeyPair> = path_info
-            .equi_keys
-            .iter()
-            .chain(&path_info.wrapped_equi_keys)
-            .cloned()
-            .collect();
-        plan = follow_path_join_order(plan, shape, &path_keys);
-    }
+    let plan = build_relnode_from_fromexpr(root, jointree, sources)?;
+    let path_keys: Vec<JoinKeyPair> = path_info
+        .equi_keys
+        .iter()
+        .chain(&path_info.wrapped_equi_keys)
+        .cloned()
+        .collect();
+    let mut plan = order_chain_by_planner_estimates(root, plan, &path_keys);
 
     // Wrapper-only keys supplement the query tree, which already supplies every
     // syntactic equality. They are injected as a set once any join level is
@@ -1070,50 +1068,6 @@ fn extract_equi_keys_from_quals(
     Ok(())
 }
 
-/// The inner-join nesting of a planner path over its base relations.
-#[derive(Debug)]
-pub(crate) enum PathJoinShape {
-    Base(pg_sys::Index),
-    Join(Box<PathJoinShape>, Box<PathJoinShape>),
-}
-
-impl PathJoinShape {
-    /// The order in which a left-deep chain joins the relations the way the
-    /// planner did. DataFusion's `EliminateCrossJoin` flattens every inner-join
-    /// subtree into its leaves and rebuilds a left-deep chain from that order,
-    /// each time taking the first leaf that shares a key with what it has so
-    /// far. The nesting of a [`RelNode`] tree never reaches execution, only its
-    /// leaf order does. A relation the planner joined onto a join follows that
-    /// join's leaves, so DataFusion builds the join first. Two base relations
-    /// keep the order the query wrote them, since DataFusion picks the build
-    /// side from row estimates on its own. A join of two joins has no
-    /// left-deep equivalent and yields `None`.
-    fn leaf_order(
-        &self,
-        parse_index: &HashMap<pg_sys::Index, usize>,
-        out: &mut Vec<pg_sys::Index>,
-    ) -> Option<()> {
-        match self {
-            Self::Base(rti) => out.push(*rti),
-            Self::Join(outer, inner) => match (outer.as_ref(), inner.as_ref()) {
-                (Self::Base(a), Self::Base(b)) => {
-                    let index =
-                        |rti: &pg_sys::Index| parse_index.get(rti).copied().unwrap_or(usize::MAX);
-                    let (first, second) = if index(a) <= index(b) { (a, b) } else { (b, a) };
-                    out.push(*first);
-                    out.push(*second);
-                }
-                (Self::Base(leaf), tree) | (tree, Self::Base(leaf)) => {
-                    tree.leaf_order(parse_index, out)?;
-                    out.push(*leaf);
-                }
-                (Self::Join(..), Self::Join(..)) => return None,
-            },
-        }
-        Some(())
-    }
-}
-
 /// A tree of scans under inner joins that carry no subplan or search clause
 /// and whose filters name their relations. The chain rebuild can take that
 /// shape apart and put it back together.
@@ -1136,19 +1090,98 @@ fn is_plain_inner_tree(plan: &RelNode) -> bool {
         .expect("inspecting the join tree cannot fail")
 }
 
-/// Whether every relation of a left-deep chain joins onto the relations before
-/// it with an equi-key or a filter. One without either would run as a cross
-/// join.
-fn chain_is_keyed(order: &[pg_sys::Index], keys: &[JoinKeyPair], filters: &[JoinFilter]) -> bool {
-    (1..order.len()).all(|i| {
-        let (prefix, leaf) = (&order[..i], order[i]);
-        keys.iter().any(|k| {
-            (k.outer_rti == leaf && prefix.contains(&k.inner_rti))
-                || (k.inner_rti == leaf && prefix.contains(&k.outer_rti))
-        }) || filters
-            .iter()
-            .any(|(_, rtis)| rtis.contains(&leaf) && rtis.iter().any(|r| prefix.contains(r)))
-    })
+/// Whether `leaf` joins onto the relations of `chain` with an equi-key or a
+/// filter. Without either it would join as a cross join.
+fn joins_onto(
+    chain: &[pg_sys::Index],
+    leaf: pg_sys::Index,
+    keys: &[JoinKeyPair],
+    filters: &[JoinFilter],
+) -> bool {
+    keys.iter().any(|k| {
+        (k.outer_rti == leaf && chain.contains(&k.inner_rti))
+            || (k.inner_rti == leaf && chain.contains(&k.outer_rti))
+    }) || filters
+        .iter()
+        .any(|(_, rtis)| rtis.contains(&leaf) && rtis.iter().any(|r| chain.contains(r)))
+}
+
+/// The estimated row count of the join over `rtis`, when the planner costed
+/// that join. It did not when `join_collapse_limit` or `from_collapse_limit`
+/// pinned the written nesting, or under GEQO. The estimate folds in the
+/// selectivity of every restriction on the relations, the search predicates
+/// included, and of the join clauses between them.
+unsafe fn join_rel_rows(root: *mut pg_sys::PlannerInfo, rtis: &[pg_sys::Index]) -> Option<f64> {
+    let mut relids: *mut pg_sys::Bitmapset = std::ptr::null_mut();
+    for rti in rtis {
+        relids = pg_sys::bms_add_member(relids, *rti as i32);
+    }
+    let rel = pg_sys::find_join_rel(root, relids);
+    pg_sys::bms_free(relids);
+    (!rel.is_null()).then(|| (*rel).rows)
+}
+
+/// The order a left-deep chain should join `parse_order` in: the pair of
+/// relations the planner estimates smallest joined first, then at each step
+/// the relation that keeps the joined set smallest. The chosen path's nesting
+/// is no guide here, since it also encodes the join strategy the planner
+/// picked for its own executor: an index nested loop under a `LIMIT` starts
+/// from the relation that supplies the order, and a hash join probes with the
+/// largest input. The chain runs as hash joins over full scans whatever the
+/// order, so only the sizes of the joined sets matter. Ties keep the written
+/// order, and so does the pair. `None` when a step has no candidate that
+/// joins onto the chain, or one the planner never costed.
+fn estimated_join_order(
+    root: *mut pg_sys::PlannerInfo,
+    parse_order: &[pg_sys::Index],
+    keys: &[JoinKeyPair],
+    filters: &[JoinFilter],
+) -> Option<Vec<pg_sys::Index>> {
+    let parse_index = |rti: pg_sys::Index| parse_order.iter().position(|r| *r == rti);
+    let smallest = |candidates: Vec<(f64, Option<usize>, pg_sys::Index)>| {
+        candidates
+            .into_iter()
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+            .map(|(_, _, rti)| rti)
+    };
+
+    let mut pairs = Vec::new();
+    for (i, &a) in parse_order.iter().enumerate() {
+        for &b in &parse_order[i + 1..] {
+            if joins_onto(&[a], b, keys, filters) {
+                pairs.push((unsafe { join_rel_rows(root, &[a, b])? }, i, a, b));
+            }
+        }
+    }
+    let (_, _, a, b) = pairs
+        .into_iter()
+        .min_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)))?;
+    let mut chain = vec![a, b];
+    let mut remaining: Vec<pg_sys::Index> = parse_order
+        .iter()
+        .copied()
+        .filter(|r| !chain.contains(r))
+        .collect();
+
+    while !remaining.is_empty() {
+        let mut candidates = Vec::new();
+        for &rti in &remaining {
+            if !joins_onto(&chain, rti, keys, filters) {
+                continue;
+            }
+            let mut joined = chain.clone();
+            joined.push(rti);
+            candidates.push((
+                unsafe { join_rel_rows(root, &joined)? },
+                parse_index(rti),
+                rti,
+            ));
+        }
+        let next = smallest(candidates)?;
+        chain.push(next);
+        remaining.retain(|r| *r != next);
+    }
+    Some(chain)
 }
 
 /// The relations a join filter reads. Only a bare `PgExpression` qualifies,
@@ -1250,20 +1283,21 @@ fn attach_join_filter(plan: RelNode, filter: JoinLevelExpr, rtis: &[pg_sys::Inde
     .data
 }
 
-/// Rebuild an all-inner join tree as a left-deep chain in the order the
-/// planner joined the relations, so the ones it found most selective join
-/// first. The parse tree keeps every join key and ON filter. Only the leaf
-/// order moves, which is all DataFusion keeps of the tree (see
-/// [`PathJoinShape::leaf_order`]). Outer, semi, anti, and lateral nodes, a
-/// planner tree over a different relation set, and a bushy planner tree keep
-/// the parse-tree order. So does an order that would leave a join with no key
-/// and no filter. The planner picks such a join only over tiny inputs, and
-/// DataFusion would restructure the cross join anyway. `path_keys` are the
-/// equi-keys the planner path carries beyond the query text. The caller
-/// injects them after the rebuild, so here they only inform that gate.
-fn follow_path_join_order(
+/// Rebuild an all-inner join tree of three or more relations as a left-deep
+/// chain in the order of [`estimated_join_order`], so the relations the
+/// planner found most selective join first. The parse tree keeps every join
+/// key and ON filter. Only the leaf order moves, which is all DataFusion keeps
+/// of the tree: its `EliminateCrossJoin` flattens every inner-join subtree
+/// into its leaves and rebuilds a left-deep chain from that order. Two
+/// relations stay as written, since DataFusion picks the build side from row
+/// estimates on its own. Outer, semi, anti, and lateral nodes keep the
+/// parse-tree order, as does an order the estimates cannot settle.
+/// `path_keys` are the equi-keys the planner path carries beyond the query
+/// text. The caller injects them after the rebuild, so here they only tell
+/// which relations join onto the chain.
+fn order_chain_by_planner_estimates(
+    root: *mut pg_sys::PlannerInfo,
     plan: RelNode,
-    shape: &PathJoinShape,
     path_keys: &[JoinKeyPair],
 ) -> RelNode {
     if !is_plain_inner_tree(&plan) {
@@ -1274,27 +1308,16 @@ fn follow_path_join_order(
         .iter()
         .map(|s| s.scan_info.heap_rti)
         .collect();
-    let parse_index: HashMap<pg_sys::Index, usize> = parse_order
-        .iter()
-        .enumerate()
-        .map(|(i, rti)| (*rti, i))
-        .collect();
-    let mut planner_order = Vec::new();
-    if shape.leaf_order(&parse_index, &mut planner_order).is_none() || planner_order == parse_order
-    {
-        return plan;
-    }
-    let mut parse_rtis = parse_order;
-    let mut planner_rtis = planner_order.clone();
-    parse_rtis.sort_unstable();
-    planner_rtis.sort_unstable();
-    if parse_rtis != planner_rtis {
+    if parse_order.len() < 3 {
         return plan;
     }
     let keys = plan.join_keys();
     let filters = join_filters(&plan);
     let all_keys: Vec<JoinKeyPair> = keys.iter().chain(path_keys).cloned().collect();
-    if !chain_is_keyed(&planner_order, &all_keys, &filters) {
+    let Some(order) = estimated_join_order(root, &parse_order, &all_keys, &filters) else {
+        return plan;
+    };
+    if order == parse_order {
         return plan;
     }
 
@@ -1303,11 +1326,11 @@ fn follow_path_join_order(
         .into_iter()
         .map(|s| (s.scan_info.heap_rti, Box::new(s.clone())))
         .collect();
-    let mut leaves = planner_order.iter().map(|rti| {
+    let mut leaves = order.iter().map(|rti| {
         RelNode::Scan(
             scans
                 .remove(rti)
-                .expect("the planner order and the parse tree cover the same relations"),
+                .expect("the estimated order and the parse tree cover the same relations"),
         )
     });
     let first = leaves
@@ -1346,9 +1369,6 @@ pub(crate) struct PathRestrictInfo {
     /// Whether every join-level path node was either inspected directly or
     /// traversed through a known transparent wrapper.
     coverage: PathPredicateCoverage,
-    /// The planner's inner-join nesting over the base relations, when every
-    /// node of the selected path spells it out.
-    join_shape: Option<PathJoinShape>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1504,7 +1524,6 @@ fn analyze_join_path_restrictinfo(
         search_clauses: Vec::new(),
         decline_reason: None,
         coverage: PathPredicateCoverage::Complete,
-        join_shape: None,
     };
     let mut on_clauses = Vec::new();
     if !root.is_null()
@@ -1518,7 +1537,7 @@ fn analyze_join_path_restrictinfo(
             sources,
             on_clauses: &on_clauses,
         };
-        info.join_shape = walk_path_restrictinfo(&cx, path, false, &mut info);
+        walk_path_restrictinfo(&cx, path, false, &mut info);
     }
     info
 }
@@ -1649,17 +1668,14 @@ unsafe fn classify_path_restrictinfo(
     }
 }
 
-/// Inventory the predicates of `path`, and read its inner-join nesting on
-/// the way back up. A join that is not inner, or an opaque node over several
-/// relations, hides the nesting from every join above it.
 fn walk_path_restrictinfo(
     cx: &PathWalkContext<'_>,
     path: *mut pg_sys::Path,
     behind_transparent_wrapper: bool,
     info: &mut PathRestrictInfo,
-) -> Option<PathJoinShape> {
+) {
     if path.is_null() {
-        return None;
+        return;
     }
 
     // Parameterized nested-loop clauses can be removed from the parent
@@ -1689,9 +1705,10 @@ fn walk_path_restrictinfo(
     if let Some(subpath) = transparent_path_subpath(path) {
         if subpath.is_null() || subpath == path {
             info.mark_incomplete(unsafe { (*path).type_ });
-            return None;
+            return;
         }
-        return walk_path_restrictinfo(cx, subpath, true, info);
+        walk_path_restrictinfo(cx, subpath, true, info);
+        return;
     }
 
     let tag = unsafe { (*path).type_ };
@@ -1704,15 +1721,10 @@ fn walk_path_restrictinfo(
         // are covered separately by baserestrictinfo. A non-transparent path
         // over a join relation is opaque and cannot be reconstructed safely.
         let parent = unsafe { (*path).parent };
-        if parent.is_null() {
-            return None;
-        }
-        let relids = unsafe { (*parent).relids };
-        if unsafe { pg_sys::bms_num_members(relids) } > 1 {
+        if !parent.is_null() && unsafe { pg_sys::bms_num_members((*parent).relids) } > 1 {
             info.mark_incomplete(tag);
-            return None;
         }
-        return unsafe { bms_iter(relids) }.next().map(PathJoinShape::Base);
+        return;
     }
 
     let join_path = unsafe { &*(path as *mut pg_sys::JoinPath) };
@@ -1732,24 +1744,18 @@ fn walk_path_restrictinfo(
         );
     }
 
-    // Both inputs are inventoried before the nesting is decided, so a decline
-    // below a non-inner join is still recorded.
-    let outer = walk_path_restrictinfo(
+    walk_path_restrictinfo(
         cx,
         join_path.outerjoinpath,
         behind_transparent_wrapper,
         info,
     );
-    let inner = walk_path_restrictinfo(
+    walk_path_restrictinfo(
         cx,
         join_path.innerjoinpath,
         behind_transparent_wrapper,
         info,
     );
-    if join_path.jointype != pg_sys::JoinType::JOIN_INNER {
-        return None;
-    }
-    Some(PathJoinShape::Join(Box::new(outer?), Box::new(inner?)))
 }
 
 /// Validate that the selected lower path has complete, supported

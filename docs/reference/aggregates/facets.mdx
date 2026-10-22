@@ -128,7 +128,7 @@ await dbContext
 
 ## Facets with `GROUP BY`
 
-In a `GROUP BY` query, a bare `pdb.agg(...)` computes an aggregation per group. To compute a single facet across all matching rows alongside grouped results, wrap `pdb.agg(...)` in `pdb.combine_agg(...) OVER ()`. Standard `OVER ()` window aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) over group columns or group aggregates are pushed down alongside it:
+In a `GROUP BY` query, a bare `pdb.agg(...)` computes an aggregation per group. To compute a single facet across all matching rows alongside grouped results, wrap `pdb.agg(...)` in `pdb.combine_agg(...) OVER ()`:
 
 <CodeGroup>
 ```sql SQL
@@ -220,4 +220,4 @@ await dbContext.MockItems
 
 </CodeGroup>
 
-These cross-group facet helpers require ParadeDB 0.26.2 or newer.
+Standard `OVER ()` window aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) over group columns or group aggregates are pushed down alongside it. These cross-group facet helpers require ParadeDB 0.26.2 or newer.

@@ -50,7 +50,6 @@ These settings affect queries that combine a ParadeDB predicate with `ORDER BY .
 | `paradedb.limit_fetch_multiplier`      | `1.0`    | user    | Multiplies the query `LIMIT` to choose the initial Top K fetch size.                         |
 | `paradedb.topk_retry_scale_factor`     | `2`      | user    | Multiplies the fetch size on retries when the first Top K pass does not collect enough rows. |
 | `paradedb.max_topk_chunk_size`         | `100000` | user    | Maximum chunk size for Top K collection.                                                     |
-| `paradedb.check_topk_scan`             | `on`     | user    | Logs a warning when a `LIMIT` query expected to use Top K cannot use it.                     |
 | `paradedb.enable_segmented_topk`       | `on`     | user    | Enables segmented Top K pruning for late-materialized string and byte columns.               |
 | `paradedb.expensive_query_cost_factor` | `25.0`   | user    | Scales planner cost estimates for fuzzy, regex, and more-like-this queries.                  |
 
@@ -62,9 +61,7 @@ These settings affect `pdb.agg`, `GROUP BY`, and faceted search. See [Aggregate 
 | ---------------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.                                                                                     |
 | `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes.                                                                         |
-| `paradedb.check_aggregate_scan`                | `on`      | user    | Logs a warning when a query expected to use aggregate scan cannot use it.                                                                                         |
 | `paradedb.enable_bitmap_postings`              | `on`      | user    | Uses posting bitmaps for eligible counts; disable to use ordinary postings.                                                                                       |
-| `paradedb.add_doc_count_to_aggs`               | `off`     | user    | Internal testing setting for aggregate null-handling compatibility.                                                                                               |
 | `paradedb.visibility_threshold`                | `10000`   | user    | With aggregate visibility set to `threshold`, applies transaction visibility checks below this estimated matching row count. Reads raw index data at or above it. |
 
 ## Vector Search

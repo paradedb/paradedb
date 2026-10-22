@@ -2057,6 +2057,8 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = &*(*pathkey_ptr).pk_eclass;
 
+        // A volatile key has no Vars, so `pathkey_is_outer_only` would take it for an outer
+        // relation's key and the sort would silently drop it.
         if equivclass.ec_has_volatile {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: ORDER BY columns cannot contain volatile functions",
@@ -2402,10 +2404,11 @@ unsafe extern "C-unwind" fn expr_deps_walker(
 /// Check if an expression in the target list can be evaluated and projected by JoinScan.
 ///
 /// Plain Vars, score functions, and indexed expressions are mapped to their respective
-/// ResolvedExpr variants. General expressions (and constants) are checked to ensure they
-/// contain no aggregates, window functions, or volatile functions, all Var dependencies are
-/// fast fields (with score function arguments excluded from fast field requirements), and
-/// the return type is Arrow-convertible.
+/// ResolvedExpr variants. A general expression (or constant) declines on an aggregate. It
+/// runs inside the scan when every Var it reads is a fast field (score function arguments
+/// excluded) and its result type is Arrow-convertible; otherwise, volatile functions
+/// included, Postgres computes it over the scan's rows when `enable_pg_project_fallback`
+/// is set.
 pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     root: *mut pg_sys::PlannerInfo,
@@ -2485,7 +2488,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         return pg_project_or_decline(
             expr,
             plan_for_pg_project_fallback,
-            "JoinScan not used: target list expression contains a volatile function".to_string(),
+            "target list expression contains a volatile function".to_string(),
         )
         .inspect_err(|_| {
             pgrx::debug1!(
@@ -3079,15 +3082,17 @@ pub(super) unsafe fn extract_orderby(
         let pathkey = pathkey_ptr;
         let equivclass = &*(*pathkey).pk_eclass;
 
-        if equivclass.ec_has_volatile {
-            return None;
-        }
+        // `order_by_columns_are_fast_fields` declines volatile keys on these same pathkeys
+        // first; one arriving here would pass `pathkey_is_outer_only` and drop out of the sort.
+        debug_assert!(
+            !equivclass.ec_has_volatile,
+            "volatile ORDER BY key reached extract_orderby"
+        );
 
         if pathkey_is_outer_only(equivclass, output_rtis) || pathkey_is_window_constant(equivclass)
         {
             continue;
         }
-
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
 
         let nulls_first = (*pathkey).pk_nulls_first;

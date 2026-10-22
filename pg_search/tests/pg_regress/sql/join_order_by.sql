@@ -184,6 +184,28 @@ WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5;
 
+-- Same, with the volatile expression reading a column of the other side, so the Postgres
+-- projection takes its input from a Var appended to the scan's output.
+
+SELECT setseed(0.5);
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, round((random() * t2.id)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+SELECT setseed(0.5);
+
+SELECT t1.id, round((random() * t2.id)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
 -- =============================================================================
 -- TEST 2.5: Volatile ORDER BY key in the target list declines JoinScan
 -- =============================================================================
@@ -208,6 +230,19 @@ FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY random(), t1.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2.7: Volatile expression Postgres can't project declines JoinScan
+-- =============================================================================
+-- pdb.score() exists only inside the scan, so the fallback can't take the expression.
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, random() * pdb.score(t1.id) AS rand_score
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5;
 
 -- =============================================================================

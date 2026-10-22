@@ -37,7 +37,6 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
@@ -1000,15 +999,6 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-            // execution may skip some of these segments.
-            let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                crate::index::open_index(directory)
-                    .expect("custom_scan: should be able to open index");
-                segment_count.load(Ordering::Relaxed)
-            };
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
@@ -1100,9 +1090,10 @@ impl CustomScan for BaseScan {
             };
 
             // Seeded only by the final `else` branch's selectivity open (every other branch leaves
-            // it `None`). It feeds the TopK cost memo so the worker decision reuses that open
-            // instead of opening the index a second time.
+            // them `None`). They feed the TopK cost memo and segment count so the worker decision
+            // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
+            let mut precomputed_segment_count: Option<usize> = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
@@ -1113,15 +1104,25 @@ impl CustomScan for BaseScan {
                 match estimation_query.resolve(&query) {
                     Ok(indexable) => {
                         // Ask the index. This is the one branch that opens, so reuse that same
-                        // open's cost for the TopK worker decision instead of opening twice.
-                        let (sel, cost) =
+                        // open's cost and segment count for the worker decision instead of opening
+                        // twice.
+                        let estimated =
                             estimate_selectivity_and_cost(&bm25_index, indexable.clone(), None);
-                        precomputed_query_cost = cost;
-                        sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                        precomputed_query_cost = estimated.query_cost;
+                        precomputed_segment_count = estimated.segment_count;
+                        estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
                     }
                     Err(guess) => guess,
                 }
             };
+
+            let segment_count = precomputed_segment_count.unwrap_or_else(|| {
+                SearchIndexReader::estimate_segment_count(
+                    &bm25_index,
+                    &schema,
+                    estimation_query.resolve(&query).ok(),
+                )
+            });
 
             // Use planning_estimate for costing so parameterized limits still
             // contribute a non-zero row estimate (otherwise the parallel-worker
@@ -1751,6 +1752,13 @@ impl CustomScan for BaseScan {
         }
 
         if explainer.is_analyze() {
+            state
+                .custom_state()
+                .search_reader
+                .as_ref()
+                .map(SearchIndexReader::segment_pruning_estimate)
+                .unwrap_or_default()
+                .explain(explainer);
             explainer.add_unsigned_integer(
                 "Heap Fetches",
                 state
@@ -1859,7 +1867,7 @@ impl CustomScan for BaseScan {
                 // Get or create a search reader for estimates.
                 // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
                 // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
-                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                //   reader using SearchIndexReader::mvcc_for_estimation for estimation purposes only
                 let query_tree =
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
@@ -1874,20 +1882,23 @@ impl CustomScan for BaseScan {
                             .as_ref()
                             .expect("indexrel should be open");
 
+                        let query_for_estimates = base_query.without_heap_filters();
+                        let mvcc_style =
+                            SearchIndexReader::mvcc_for_estimation(indexrel, &query_for_estimates);
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.without_heap_filters(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
+                            query_for_estimates.clone(),
+                            false,      // don't need scores for estimates
+                            mvcc_style, // Use snapshot when prunable, largest segment otherwise
+                            None,       // No expr_context needed for estimates
+                            None,       // No planstate needed for estimates
                             base_query.needs_tokenizer(),
                             None,
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 
                         temp_reader
-                            .build_query_tree_with_estimates(base_query.without_heap_filters())
+                            .build_query_tree_with_estimates(query_for_estimates)
                             .expect("building query tree with estimates should not fail")
                     };
 

@@ -119,6 +119,7 @@ fn aggregate_impl(
         None,                 // No bitmap intersection in API context
         None,                 // No EXPLAIN instrumentation
         None,
+        None,
     )?;
 
     if aggregate.0.is_empty() {

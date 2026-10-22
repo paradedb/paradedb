@@ -69,6 +69,9 @@ static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>:
 /// Allows visibility proofs from segment bounds and heap-block document ranges.
 static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows pruning segments via `.stats` and `.fast` field bounds before estimation and execution.
+static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
@@ -435,6 +438,15 @@ pub fn init() {
         c"Enable visibility-map shortcuts for segments and document ranges",
         c"When disabled, fetch each matching document's CTID and use per-row visibility checks",
         &ENABLE_VISIBILITY_MAP_SHORTCUTS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_segment_pruning",
+        c"Enable segment pruning from per-segment field statistics",
+        c"When disabled, queries do not prune segments via .stats or .fast bounds during planning or execution",
+        &ENABLE_SEGMENT_PRUNING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1015,6 +1027,10 @@ pub fn enable_aggregate_custom_scan() -> bool {
 
 pub fn enable_visibility_map_shortcuts() -> bool {
     ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
+pub fn enable_segment_pruning() -> bool {
+    ENABLE_SEGMENT_PRUNING.get()
 }
 
 pub fn enable_bitmap_postings() -> bool {

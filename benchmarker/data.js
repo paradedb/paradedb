@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792636679569,
+  "lastUpdate": 1792636695331,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -27573,6 +27573,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 35.59430072289664,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f94f9156f631eae41bd9fd938bcda9ba668d372f",
+          "message": "chore: pin Tantivy to buffered-union seek_danger fix (#6958)\n\n## Summary\n- Bump the synchronized Tantivy / tantivy-common / tantivy-tokenizer-api\nGit pins from `dd6c6003` to `dc37e703`\n([paradedb/tantivy#339](https://github.com/paradedb/tantivy/pull/339)).\n- That commit disables the buggy `BufferedUnionScorer::seek_danger`\noverride (upstream\n[#3086](https://github.com/quickwit-oss/tantivy/issues/3086) /\n[#3088](https://github.com/quickwit-oss/tantivy/pull/3088)).\n- Requested by review on the Tantivy PR so `benchmarker` can validate\nbefore landing.\n\n## Test plan\n- [x] `cargo metadata --locked --format-version 1` (all Tantivy Git\npackages resolve to `dc37e703`)\n- [x] Run CI / `benchmarker` against this branch\n- [x] Confirm no unexpected regressions on filter ∩ disjunction-max\nstyle query workloads\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nSigned-off-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-10-21T18:09:56-07:00",
+          "tree_id": "fc8d6e80bea9871096b280eb81bf575b4520093c",
+          "url": "https://github.com/paradedb/paradedb/commit/f94f9156f631eae41bd9fd938bcda9ba668d372f"
+        },
+        "date": 1792636684409,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.17891064552914,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.38347032950893,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.391823541791254,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.618012112510556,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 35.93103455287938,
             "unit": "queries/s"
           }
         ]

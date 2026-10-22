@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792655913257,
+  "lastUpdate": 1792655930841,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -223646,6 +223646,124 @@ window.BENCHMARK_DATA = {
             "value": 44.38671875,
             "unit": "median mem",
             "extra": "avg mem: 44.61051716026149, max mem: 48.38671875, count: 59314"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792655902376,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.980582,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.006185488039112, max cpu: 30.78156, count: 59308"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.45976558548172, max mem: 47.4609375, count: 59308"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.566618118712008, max cpu: 28.070175, count: 59308"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 32.55884008059621, max mem: 32.57421875, count: 59308"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.434640594458899, max cpu: 18.786694, count: 59308"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.31943308659877, max mem: 50.390625, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 19696,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19820.128110878803, max block_count: 37928.0, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.9778544714711453, max cpu: 4.692082, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.595619873162136, max mem: 28.69140625, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.22469144128954, max segment_count: 38.0, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.407154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.403461328773076, max cpu: 28.728182, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 45.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.78513352699046, max mem: 45.80859375, count: 59308"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.334348778028895, max cpu: 28.276878, count: 118616"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.34915129230036, max mem: 58.546875, count: 118616"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.077845092630163, max cpu: 23.483368, count: 59308"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.15256360335031, max mem: 48.84375, count: 59308"
           }
         ]
       }

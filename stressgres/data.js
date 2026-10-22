@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792655891942,
+  "lastUpdate": 1792655913257,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -416176,6 +416176,88 @@ window.BENCHMARK_DATA = {
             "value": 611.694273389189,
             "unit": "median tps",
             "extra": "avg tps: 614.1648966931613, max tps: 679.6115787348378, count: 55282"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792655889693,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 579.1045364131713,
+            "unit": "median tps",
+            "extra": "avg tps: 578.8279071466437, max tps: 604.4006491183051, count: 55255"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 535.4067362170674,
+            "unit": "median tps",
+            "extra": "avg tps: 534.5518190565102, max tps: 578.6927626414366, count: 55255"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 209.9018362225269,
+            "unit": "median tps",
+            "extra": "avg tps: 209.52867413840485, max tps: 219.44443644224484, count: 55255"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 574.873020715557,
+            "unit": "median tps",
+            "extra": "avg tps: 571.1351212120768, max tps: 635.6695532163533, count: 55255"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 417.9152530510319,
+            "unit": "median tps",
+            "extra": "avg tps: 418.16535446351764, max tps: 445.03713442516755, count: 55255"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.678090065879053,
+            "unit": "median tps",
+            "extra": "avg tps: 14.667267943704333, max tps: 15.224117650484889, count: 55255"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 678.63531995459,
+            "unit": "median tps",
+            "extra": "avg tps: 681.68352327688, max tps: 746.4647849177704, count: 55255"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 691.9717601395981,
+            "unit": "median tps",
+            "extra": "avg tps: 694.840948788056, max tps: 763.6838240153952, count: 55255"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 319.4671828223312,
+            "unit": "median tps",
+            "extra": "avg tps: 319.5605905673858, max tps: 337.38252861312003, count: 55255"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 587.7571101742575,
+            "unit": "median tps",
+            "extra": "avg tps: 589.9156829836464, max tps: 647.9725992587142, count: 55255"
           }
         ]
       }

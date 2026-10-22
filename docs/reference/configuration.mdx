@@ -40,6 +40,7 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                          |
 | `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                     |
 | `paradedb.planner_warnings`                    | `warning`     | user    | Controls warnings when an optimized scan cannot be used. Accepts `off`, `warning`, or `error`.                             |
+| `paradedb.spill_to_disk`                      | `off`         | user    | Allows eligible join and aggregate queries to spill to disk when they exceed `work_mem`.                                  |
 
 ## Top K
 
@@ -52,6 +53,7 @@ These settings affect queries that combine a ParadeDB predicate with `ORDER BY .
 | `paradedb.max_topk_chunk_size`         | `100000` | user    | Maximum chunk size for Top K collection.                                                     |
 | `paradedb.enable_segmented_topk`       | `on`     | user    | Enables segmented Top K pruning for late-materialized string and byte columns.               |
 | `paradedb.expensive_query_cost_factor` | `25.0`   | user    | Scales planner cost estimates for fuzzy, regex, and more-like-this queries.                  |
+| `paradedb.disjunction_pruning`         | `auto`   | user    | Selects the pruning algorithm for eligible scored Top K disjunctions. Accepts `auto`, `wand`, or `maxscore`. |
 
 ## Aggregates
 
@@ -131,7 +133,7 @@ Set these options in the index's `WITH` clause. The linked guides explain when c
 | `partition_by`          | None                      | Columns used to partition index segments.                                                                                      | [Index Partitioning](/reference/indexing/partition-by)                              |
 | `target_segment_count`  | Automatic                 | Target number of segments during `CREATE INDEX` or `REINDEX`. Overridden by a non-zero `paradedb.global_target_segment_count`. | [Read Throughput](/operate/performance-tuning/reads#adjusting-target-segment-count) |
 | `search_tokenizer`      | Indexed field's tokenizer | Default search-time tokenizer for text and JSON fields.                                                                        | [Search Tokenizer](/reference/tokenizers/search-tokenizer)                          |
-| `training_sample_ratio` | `0.32`                    | Fraction of vectors sampled for clustering during an index build. Accepts `0.000001` through `1.0`.                            | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `training_sample_ratio` | `0.32`                    | Fraction of vectors sampled whenever a segment is clustered. Accepts `0.000001` through `1.0`.                                | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `max_leaf_size`         | `200`                     | Maximum sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                          | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `vector_fields`         | No overrides              | JSON configuration for each vector field, including quantization.                                                              | [Vector Quantization](/reference/indexing/indexing-vectors#vector-quantization)     |
 

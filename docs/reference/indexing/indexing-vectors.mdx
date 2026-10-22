@@ -244,7 +244,7 @@ modelBuilder.Entity<MockItem>()
 </CodeGroup>
 
 <ParamField body="training_sample_ratio" default={0.32}>
-  The fraction of indexed vectors sampled to train the clustering at build time.
+  The fraction of indexed vectors sampled for training whenever a segment is clustered.
   Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The
   default samples 32% of the vectors. Larger samples can improve centroid
   quality at the cost of a slower, more memory-intensive build.

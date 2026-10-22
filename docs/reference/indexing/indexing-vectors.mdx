@@ -265,3 +265,71 @@ modelBuilder.Entity<MockItem>()
   obsolete index options. The new defaults sample 32% of vectors and use a
   maximum training leaf size of 100.
 </Note>
+
+## Vector Quantization
+
+Use `vector_fields` to configure quantization per vector field. This example disables quantization for `embedding`; the setting takes effect when the index is created or rebuilt with `REINDEX`.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, embedding vector_cosine_ops)
+WITH (vector_fields = '{"embedding":{"quantization":false}}');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.paradedbIndex("search_idx", {
+  vectorFields: { embedding: { quantization: false } },
+}).on(mockItems.id, mockItems.description, indexing.vectorField(mockItems.embedding, "cosine"));
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(MockItem, ParadeDBIndex(
+        fields={'id': {}, 'description': {}, 'embedding': {'metric': 'cosine'}},
+        name='search_idx',
+        vector_fields={'embedding': {'quantization': False}},
+    ))
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.VectorField(MockItem.embedding, metric="cosine"),
+    postgresql_using="paradedb",
+    postgresql_with=dict(indexing.VectorIndexOptions(
+        vector_fields={"embedding": {"quantization": False}},
+    )),
+)
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: { id: {}, description: {}, embedding: { metric: :cosine } },
+  name: :search_idx,
+  index_options: { vector_fields: { embedding: { quantization: false } } }
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Embedding, VectorMetric.Cosine)
+    .HasVectorQuantization("embedding", false);
+```
+
+</CodeGroup>

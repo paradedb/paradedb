@@ -89,12 +89,14 @@ FROM paradedb.vector_info('remerge_idx', 'vec') v
 JOIN paradedb.index_info('remerge_idx') i USING (segno)
 WHERE v.vector_format = 'ivf';
 
--- Exhaustive probing: the ceiling clamps to each segment's cluster count,
--- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so
--- the distance gate cannot stop early. The twice-merged index must return
--- every distinct row exactly once — nothing lost, nothing doubled.
+-- Heap still has every row. IVF doc/cluster accounting above already proves
+-- the merge lost nothing at the storage layer. Stacked IVF's hard 25% top
+-- prune means max_probe=1.0 is no longer an exhaustive scan, so the ANN path
+-- only checks that returned ids are unique (nothing doubled) rather than
+-- requiring every row.
+SELECT count(*) = 50000 AS heap_has_all_rows FROM remerge;
 SET paradedb.vector_cluster_max_probe = 1.0;
-SELECT count(*) AS returned, count(DISTINCT id) AS distinct_ids
+SELECT count(*) = count(DISTINCT id) AS ann_returns_unique_ids
 FROM (
     SELECT id
     FROM remerge

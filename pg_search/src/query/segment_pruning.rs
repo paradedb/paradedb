@@ -30,14 +30,14 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use tantivy::SegmentOrdinal;
 use tantivy::schema::FieldType;
 
-/// Answers pruning questions directly for one segment of the execution snapshot.
+/// Answers pruning questions directly for one segment of a [`SegmentStatsSnapshot`].
 ///
 /// A positive `can_match` answer retains the segment; it is not evidence that a match exists.
 /// `matches_all` requires a guarantee for every document, including NULLs. Unsupported query
 /// shapes provide neither an exclusion nor a match-all guarantee. Statistics errors propagate
 /// through the snapshot as query errors.
 pub(crate) struct SegmentPruner<'a> {
-    snapshot: &'a SegmentStatsSnapshot,
+    snapshot: Option<&'a SegmentStatsSnapshot>,
     schema: &'a SearchIndexSchema,
     index_created_by_version: Option<Version>,
 }
@@ -49,10 +49,27 @@ impl<'a> SegmentPruner<'a> {
         index_created_by_version: Option<Version>,
     ) -> Self {
         Self {
-            snapshot,
+            snapshot: Some(snapshot),
             schema,
             index_created_by_version,
         }
+    }
+
+    fn for_schema(schema: &'a SearchIndexSchema) -> Self {
+        Self {
+            snapshot: None,
+            schema,
+            index_created_by_version: None,
+        }
+    }
+
+    /// True when `search_query_input` can exclude segments via [`Self::can_match`].
+    pub(crate) fn has_prunable_predicate(
+        schema: &'a SearchIndexSchema,
+        search_query_input: &SearchQueryInput,
+    ) -> bool {
+        crate::gucs::enable_segment_pruning()
+            && !Self::for_schema(schema).can_match_query(None, search_query_input)
     }
 
     fn eligible_field(&self, field: &FieldName) -> Option<SearchField> {
@@ -67,6 +84,12 @@ impl<'a> SegmentPruner<'a> {
     fn eligible_value_field(&self, field: &FieldName) -> Option<SearchField> {
         self.eligible_field(field)
             .filter(SearchField::stats_describe_terms)
+    }
+
+    fn empirical(&self, segment: SegmentOrdinal, field: &SearchField) -> Option<EmpiricalStats> {
+        self.snapshot
+            .expect("segment statistics snapshot required for segment probe")
+            .empirical(segment as usize, field)
     }
 
     fn term_value(&self, field: &SearchField, value: &PdbOwnedValue) -> Option<PdbOwnedValue> {
@@ -112,14 +135,17 @@ impl<'a> SegmentPruner<'a> {
 
     fn terms_can_match<'v>(
         &self,
-        segment: SegmentOrdinal,
+        segment: Option<SegmentOrdinal>,
         field: &FieldName,
         mut terms: impl Iterator<Item = &'v PdbOwnedValue>,
     ) -> bool {
         let Some(field) = self.eligible_value_field(field) else {
             return true;
         };
-        let stats = self.snapshot.empirical(segment as usize, &field);
+        let Some(segment) = segment else {
+            return false;
+        };
+        let stats = self.empirical(segment, &field);
         terms.any(|value| {
             // A number that no integer of the field equals matches nothing.
             !is_outside_int_domain(value, &field.field_type())
@@ -131,14 +157,17 @@ impl<'a> SegmentPruner<'a> {
 
     fn terms_match_all<'v>(
         &self,
-        segment: SegmentOrdinal,
+        segment: Option<SegmentOrdinal>,
         field: &FieldName,
         mut terms: impl Iterator<Item = &'v PdbOwnedValue>,
     ) -> bool {
         let Some(field) = self.eligible_value_field(field) else {
             return false;
         };
-        let stats = self.snapshot.empirical(segment as usize, &field);
+        let Some(segment) = segment else {
+            return true;
+        };
+        let stats = self.empirical(segment, &field);
         terms.any(|value| {
             self.term_value(&field, value)
                 .is_some_and(|value| term_matches_all(stats.as_ref(), &value))
@@ -147,7 +176,7 @@ impl<'a> SegmentPruner<'a> {
 
     fn field_can_match(
         &self,
-        segment: SegmentOrdinal,
+        segment: Option<SegmentOrdinal>,
         field: &FieldName,
         query: &pdb::Query,
     ) -> bool {
@@ -168,15 +197,14 @@ impl<'a> SegmentPruner<'a> {
                 let Some(field) = self.eligible_value_field(field) else {
                     return true;
                 };
+                let Some(segment) = segment else {
+                    return false;
+                };
                 let Some((lower, upper)) = self.range_bounds(&field, lower_bound, upper_bound)
                 else {
                     return true;
                 };
-                range_can_match(
-                    self.snapshot.empirical(segment as usize, &field).as_ref(),
-                    &lower,
-                    &upper,
-                )
+                range_can_match(self.empirical(segment, &field).as_ref(), &lower, &upper)
             }
             _ => true,
         }
@@ -184,7 +212,7 @@ impl<'a> SegmentPruner<'a> {
 
     fn field_matches_all(
         &self,
-        segment: SegmentOrdinal,
+        segment: Option<SegmentOrdinal>,
         field: &FieldName,
         query: &pdb::Query,
     ) -> bool {
@@ -194,10 +222,16 @@ impl<'a> SegmentPruner<'a> {
             pdb::Query::ScoreAdjusted { query, .. } => {
                 self.field_matches_all(segment, field, query)
             }
-            pdb::Query::Exists => self
-                .eligible_field(field)
-                .and_then(|field| self.snapshot.empirical(segment as usize, &field))
-                .is_some_and(|stats| !stats.nullable),
+            pdb::Query::Exists => {
+                let Some(field) = self.eligible_field(field) else {
+                    return false;
+                };
+                let Some(segment) = segment else {
+                    return true;
+                };
+                self.empirical(segment, &field)
+                    .is_some_and(|stats| !stats.nullable)
+            }
             pdb::Query::Term { value } => {
                 self.terms_match_all(segment, field, std::iter::once(value))
             }
@@ -211,15 +245,14 @@ impl<'a> SegmentPruner<'a> {
                 let Some(field) = self.eligible_value_field(field) else {
                     return false;
                 };
+                let Some(segment) = segment else {
+                    return true;
+                };
                 let Some((lower, upper)) = self.range_bounds(&field, lower_bound, upper_bound)
                 else {
                     return false;
                 };
-                range_matches_all(
-                    self.snapshot.empirical(segment as usize, &field).as_ref(),
-                    &lower,
-                    &upper,
-                )
+                range_matches_all(self.empirical(segment, &field).as_ref(), &lower, &upper)
             }
             _ => false,
         }
@@ -227,6 +260,10 @@ impl<'a> SegmentPruner<'a> {
 
     /// False proves that this segment cannot contribute a matching document.
     pub(crate) fn can_match(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
+        self.can_match_query(Some(segment), query)
+    }
+
+    fn can_match_query(&self, segment: Option<SegmentOrdinal>, query: &SearchQueryInput) -> bool {
         match query {
             SearchQueryInput::All => true,
             SearchQueryInput::Empty => false,
@@ -242,30 +279,35 @@ impl<'a> SegmentPruner<'a> {
                 must_not,
                 minimum_should_match,
             } => boolean_can_match(
-                must.iter().map(|q| self.can_match(segment, q)),
-                should.iter().map(|q| self.can_match(segment, q)),
-                must_not.iter().map(|q| self.matches_all(segment, q)),
+                must.iter().map(|q| self.can_match_query(segment, q)),
+                should.iter().map(|q| self.can_match_query(segment, q)),
+                must_not.iter().map(|q| self.matches_all_query(segment, q)),
                 *minimum_should_match,
             ),
             SearchQueryInput::Boost { query, .. }
             | SearchQueryInput::ConstScore { query, .. }
-            | SearchQueryInput::WithIndex { query, .. } => self.can_match(segment, query),
+            | SearchQueryInput::WithIndex { query, .. } => self.can_match_query(segment, query),
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                disjuncts.iter().any(|q| self.can_match(segment, q))
+                disjuncts.iter().any(|q| self.can_match_query(segment, q))
             }
-            SearchQueryInput::ScoreFilter { query, .. } => {
-                query.as_deref().is_none_or(|q| self.can_match(segment, q))
-            }
+            SearchQueryInput::ScoreFilter { query, .. } => query
+                .as_deref()
+                .is_none_or(|q| self.can_match_query(segment, q)),
             SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                self.can_match(segment, indexed_query)
+                self.can_match_query(segment, indexed_query)
             }
             _ => true,
         }
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
+    fn matches_all(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
+        self.matches_all_query(Some(segment), query)
+    }
+
     /// True proves every document satisfies the query. Used for negation; ordinary user
     /// clauses still run through the original compiled query.
-    fn matches_all(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
+    fn matches_all_query(&self, segment: Option<SegmentOrdinal>, query: &SearchQueryInput) -> bool {
         match query {
             SearchQueryInput::All => true,
             SearchQueryInput::Empty => false,
@@ -281,16 +323,16 @@ impl<'a> SegmentPruner<'a> {
                 must_not,
                 minimum_should_match,
             } => boolean_matches_all(
-                must.iter().map(|q| self.matches_all(segment, q)),
-                should.iter().map(|q| self.matches_all(segment, q)),
-                must_not.iter().map(|q| self.can_match(segment, q)),
+                must.iter().map(|q| self.matches_all_query(segment, q)),
+                should.iter().map(|q| self.matches_all_query(segment, q)),
+                must_not.iter().map(|q| self.can_match_query(segment, q)),
                 *minimum_should_match,
             ),
             SearchQueryInput::Boost { query, .. }
             | SearchQueryInput::ConstScore { query, .. }
-            | SearchQueryInput::WithIndex { query, .. } => self.matches_all(segment, query),
+            | SearchQueryInput::WithIndex { query, .. } => self.matches_all_query(segment, query),
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                disjuncts.iter().any(|q| self.matches_all(segment, q))
+                disjuncts.iter().any(|q| self.matches_all_query(segment, q))
             }
             // Score and heap filters may reject any row that matches their indexed child.
             _ => false,

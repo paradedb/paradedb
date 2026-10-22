@@ -96,6 +96,10 @@ impl Collector for CountAllCollector {
         segment: &SegmentReader,
     ) -> tantivy::Result<<Self::Child as SegmentCollector>::Fruit> {
         pgrx::check_for_interrupts!();
+        // Tradeoff: check whether the segment is all-visible before calling `weight.count(segment)`.
+        // Computing `weight.count(segment)` first would skip the visibility-map check on segments
+        // with 0 matching documents, but would walk the segment's postings twice whenever the
+        // segment is not all-visible and falls through to `self.inner.collect_segment`.
         if VisibilityChecker::for_segment_arc(&self.checker, ord)?.is_none() {
             let doc_count = if self.matches_all {
                 segment.num_docs()

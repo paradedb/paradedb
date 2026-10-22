@@ -1088,6 +1088,7 @@ impl CustomScan for AggregateScan {
             .add_to_explainer(explainer);
 
         if explainer.is_analyze() {
+            state.custom_state().segment_pruning.explain(explainer);
             let stats = &state.custom_state().visibility_stats;
             let [skipped, checked, total, requiring_checks] = stats.totals();
             explainer.add_group("Visibility", |explainer| {

@@ -468,7 +468,9 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
+    /// Uses [`SearchIndexReader::mvcc_for_estimation`] (`MvccSatisfies::Snapshot` when the
+    /// query has predicates that can prune segments via `.stats`, or
+    /// `MvccSatisfies::LargestSegment` otherwise) for cheap estimation. When the
     /// query has heap filters or `PostgresExpression`s (which need executor
     /// state we don't have at planning time), falls back to `total_docs` as
     /// an upper bound - looser estimate but avoids evaluating Param-bearing
@@ -499,11 +501,12 @@ impl JoinSourceCandidate {
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let needs_tokenizer_manager = query.needs_tokenizer();
+        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
             false,
-            MvccSatisfies::LargestSegment,
+            mvcc_style,
             NonNull::new(expr_context.as_ptr()),
             None,
             needs_tokenizer_manager,
@@ -511,11 +514,8 @@ impl JoinSourceCandidate {
         )
         .expect("Failed to open index reader for estimation");
 
-        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-        // execution may skip some of these segments.
-        self.segment_count = Some(reader.total_segment_count());
-
         let estimate = reader.estimate_docs(row_estimate);
+        self.segment_count = Some(reader.estimated_segment_count());
         self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }

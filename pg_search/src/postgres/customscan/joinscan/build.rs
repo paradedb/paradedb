@@ -1533,14 +1533,12 @@ impl RelNode {
     /// left subtree and the other is in the right. This prevents
     /// `resolve_against` failures caused by both RTIs being in the same subtree.
     ///
-    /// **Why AggregateScan needs this but JoinScan does not:**
-    /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
-    /// for each join pair - so equi-keys arrive pre-distributed across join
-    /// levels by the planner itself. AggregateScan hooks into
-    /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
-    /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
-    /// all equi-keys land in a flat WHERE clause, not distributed across join
-    /// nodes, so this method is needed to place each key at the correct level.
+    /// **Why both scans need this:** JoinScan and AggregateScan reconstruct
+    /// the join tree from the parse tree. For implicit joins
+    /// (`FROM a, b, c WHERE ...`) all equi-keys land in a flat WHERE clause,
+    /// not distributed across join nodes, and a chain rebuilt in the
+    /// planner's estimated order starts with no keys at all, so this method
+    /// places each key at the correct level.
     pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
         for key in keys {
             self.inject_single_equi_key(key);

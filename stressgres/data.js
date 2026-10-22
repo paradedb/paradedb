@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792655985241,
+  "lastUpdate": 1792656815460,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -473538,6 +473538,58 @@ window.BENCHMARK_DATA = {
             "value": 24.171531707227466,
             "unit": "median tps",
             "extra": "avg tps: 40.951245164692324, max tps: 603.3653779519641, count: 59218"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792656804362,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3956.3617473131735,
+            "unit": "median tps",
+            "extra": "avg tps: 3933.973654189315, max tps: 4239.730424550985, count: 59201"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4549.799750124784,
+            "unit": "median tps",
+            "extra": "avg tps: 4563.090776986287, max tps: 5738.945819794063, count: 59201"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.35765988180269,
+            "unit": "median tps",
+            "extra": "avg tps: 168.2769662564938, max tps: 3034.143213582443, count: 59201"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.15243064665262,
+            "unit": "median tps",
+            "extra": "avg tps: 40.89782042464453, max tps: 578.1500796162934, count: 59201"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.245381833639968,
+            "unit": "median tps",
+            "extra": "avg tps: 40.997914296407096, max tps: 589.4781079492122, count: 59201"
           }
         ]
       }

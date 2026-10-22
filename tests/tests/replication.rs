@@ -253,11 +253,11 @@ async fn test_logical_replication() -> Result<()> {
 
     // Create the bm25 index on the description field
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING paradedb (id, description);
+    USING paradedb (id, (description::pdb.unicode_words('lowercase=true')));
     "
     .execute(&mut source_conn);
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING paradedb (id, description);
+    USING paradedb (id, (description::pdb.unicode_words('lowercase=true')));
     "
     .execute(&mut target_conn);
 

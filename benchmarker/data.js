@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792711931487,
+  "lastUpdate": 1792711951291,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16018,6 +16018,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 184.134,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2075f35750e32f57f3405dddf0fde64528896f13",
+          "message": "perf: Prune segments before estimation and aggregate execution (#6974)\n\n# Ticket(s) Closed\n\n- Part of #6078.\n\n## What\n\nPrune segments via `.stats` (with a `.fast` header fallback for\nnumeric/bool/datetime fields on older segments) before plan-time\nestimation and aggregate execution, defer per-segment MVCC visibility\nchecks in `MVCCFilterSegmentCollector` until a matching document is\ncollected, and surface `Included` / `Pruned` segment counts in `EXPLAIN\nANALYZE`.\n\n## Why\n\nOn skewed or partitioned indexes (for example, when `id` is correlated\nwith `creation_date`), the largest segment in the index may fall outside\na query's range or term bounds. Sampling that segment during planning\nestimates 0 matching rows and 0 cost, which causes `aggregate_nworkers`\nand join costing to underestimate scan work and disable parallelism.\nAdditionally, `execute_aggregate` previously published all segments to\nworkers without pruning and eagerly checked segment-level MVCC\nvisibility in `MVCCFilterCollector::for_segment` even for segments where\nthe query matched 0 documents.\n\nIndex-wide estimation improvements are deferred to #6976; this PR keeps\nsingle-largest-segment estimation (`largest_estimation_candidate`),\napplied to the surviving candidate segments after pruning.\n\n## How\n\n- Generalize `SegmentPruner::has_prunable_predicate` to any positive\nquery predicate on a field with usable `.stats` or `.fast` bounds,\nrather than gating on `partition_by` columns.\n- Fall back to `.fast` header `min_value` / `max_value`\n(`EmpiricalStats::from_fast_field`, without opening `.term` / `.idx`\ndictionaries) when `.stats` is absent on older segments.\n- Open `MvccSatisfies::Snapshot` during estimation when a query has a\nprunable predicate (`SearchIndexReader::mvcc_for_estimation`), prune to\ncandidate segments first, and exclude mutable segments from the\nestimation sample whenever a persisted segment exists.\n- Filter `execute_aggregate` and `aggregate_nworkers` to\n`candidate_segment_readers()`, and defer\n`VisibilityChecker::for_segment_arc` and batch-buffer reservation in\n`MVCCFilterSegmentCollector` until the first matching document is\ncollected.\n- Report `Segments` (`Included` and `Pruned`) in `EXPLAIN ANALYZE` for\n`BaseScan` and single-table `AggregateScan`, and\n`segments={included=..., pruned=...}` in `PgSearchScan` when `pruned >\n0`.\n\n## Tests\n\nA few benchmarks got faster, and a few got slower. From spot checking,\nit looks like benchmarks which got:\n* ... faster got faster due to segments being pruned (due to time being\ncorrelated with the primary key in the `stackoverflow` dataset).\n* ... slower got slower due to our estimate of the total amount of work\nincreasing (because it got more accurate, rather than estimating 0 rows)\n\nThe new benchmark's `EXPLAIN ANALYZE VERBOSE` looks like:\n```sql\n Custom Scan (ParadeDB Aggregate Scan) on stackoverflow_posts  (cost=0.00..0.00 rows=1 width=32) (actual time=215.548..215.549 rows=1.00 loops=1)\n   Index: stackoverflow_posts_idx\n   Tantivy Query: {..}\n     Applies to Aggregates: CUSTOM_AGG({\"date_histogram\":{\"field\":\"creation_date\",\"fixed_interval\":\"1d\"}})\n     Aggregate Definition: {..}\n   Segments:\n     Included: 10\n     Pruned: 22\n   Visibility:\n     Segments Skipped: 0\n     Segments Checked: 10\n     Blocks Total: 2108045\n     Blocks Requiring Checks: 128566\n   Parallelism:\n     Workers Requested: 7\n     Workers Launched: 7\n     Worker Selection: Cost model\n     Estimated Query Work: 27594.72\n     Parallel Threshold: 1000.70\n   Buffers: shared hit=19871\n Planning:\n   Buffers: shared hit=1075\n Planning Time: 26.346 ms\n Execution Time: 215.850 ms\n(24 rows)\n```",
+          "timestamp": "2026-10-22T15:04:41-07:00",
+          "tree_id": "02bd22fc0740cec35e877108dac524811de81922",
+          "url": "https://github.com/paradedb/paradedb/commit/2075f35750e32f57f3405dddf0fde64528896f13"
+        },
+        "date": 1792711939933,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.644,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 92.737,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 350.152,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.379,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 106.078,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 192.482,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.412,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 147.152,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 207.606,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 192.664,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 16.297,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 80.847,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 205.53,
             "unit": "ms"
           }
         ]

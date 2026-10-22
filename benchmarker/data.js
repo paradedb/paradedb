@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792647615747,
+  "lastUpdate": 1792649768437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -15424,6 +15424,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 158.426,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-21T22:48:29-06:00",
+          "tree_id": "755881491b90fd538c43b2b55b61271b2ece906c",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792649758312,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.951,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.876,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 340.304,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.534,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.044,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.388,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.418,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.576,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.272,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.367,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.271,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 161.339,
             "unit": "ms"
           }
         ]

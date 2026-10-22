@@ -18,6 +18,7 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::api::HashMap;
+use crate::index::directory::mvcc::MVCCDirectory;
 use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentInclusion, SegmentStats};
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
@@ -30,6 +31,7 @@ use tantivy::{Searcher, SegmentOrdinal};
 /// component, as with mutable segments; failures to open an existing component abort the query.
 struct CapturedSegment {
     id: SegmentId,
+    is_mutable: bool,
     stats: OnceLock<Option<SegmentStats>>,
 }
 
@@ -49,13 +51,17 @@ pub(crate) struct SegmentStatsSnapshot {
 
 impl SegmentStatsSnapshot {
     /// Capture the segments `searcher` was built on: one `Arc` clone of the searcher, no I/O.
-    pub(crate) fn capture(searcher: &Searcher) -> Arc<Self> {
+    pub(crate) fn capture(searcher: &Searcher, directory: &MVCCDirectory) -> Arc<Self> {
         let segments = searcher
             .segment_readers()
             .iter()
-            .map(|reader| CapturedSegment {
-                id: reader.segment_id(),
-                stats: OnceLock::new(),
+            .map(|reader| {
+                let id = reader.segment_id();
+                CapturedSegment {
+                    id,
+                    is_mutable: directory.is_mutable(&id),
+                    stats: OnceLock::new(),
+                }
             })
             .collect::<Box<[_]>>();
         let ordinal_by_id = segments
@@ -85,14 +91,24 @@ impl SegmentStatsSnapshot {
         self.segment_index(id).map(|ord| ord as SegmentOrdinal)
     }
 
-    /// Decode one field for one execution segment. Missing components or entries return None;
-    /// read and conversion errors abort the query. Decoded entries are not cached.
+    /// Decode one field for one segment. When a persisted segment has no `.stats` component,
+    /// falls back to reading non-dictionary fast-field `min`/`max` headers directly. Missing
+    /// entries return `None`; read and conversion errors abort the query. Decoded entries are
+    /// not cached.
     pub(crate) fn empirical(&self, ord: usize, field: &SearchField) -> Option<EmpiricalStats> {
-        let stats = self.stats(ord)?;
         let segment_id = self.segments[ord].id;
-        #[cfg(any(test, feature = "pg_test"))]
-        test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let empirical = stats.empirical_for(field);
+        let empirical = if let Some(stats) = self.stats(ord) {
+            #[cfg(any(test, feature = "pg_test"))]
+            test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            stats.empirical_for(field)
+        } else if !self.segments[ord].is_mutable {
+            #[cfg(any(test, feature = "pg_test"))]
+            test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let reader = self.searcher.segment_reader(ord as SegmentOrdinal);
+            EmpiricalStats::from_fast_field(reader, field)
+        } else {
+            return None;
+        };
         #[cfg(any(test, feature = "pg_test"))]
         let empirical = test_support::maybe_fail(
             segment_id,
@@ -112,6 +128,8 @@ impl SegmentStatsSnapshot {
                 #[cfg(any(test, feature = "pg_test"))]
                 test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let opened = SegmentStats::of_reader(reader);
+                #[cfg(any(test, feature = "pg_test"))]
+                let opened = test_support::maybe_hide(reader.segment_id(), opened);
                 #[cfg(any(test, feature = "pg_test"))]
                 let opened = test_support::maybe_fail(
                     reader.segment_id(),
@@ -141,22 +159,22 @@ impl SegmentStatsSnapshot {
             return SegmentInclusion::Excluded;
         }
         let segment_id = self.segments[ord].id;
-        let Some(stats) = self.stats(ord) else {
-            return SegmentInclusion::PartiallyIncluded;
-        };
+        let stats = self.stats(ord);
         let empirical = self.empirical(ord, field);
-        let logical = stats.logical(field.field());
-        #[cfg(any(test, feature = "pg_test"))]
-        let logical = test_support::maybe_fail(
-            segment_id,
-            test_support::InjectedStatsFailure::Logical,
-            logical,
-        );
-        let logical = logical.unwrap_or_else(|error| {
-            pgrx::error!(
-                "could not read logical statistics for field {:?} in segment {segment_id:?}: {error}",
-                field.field()
-            )
+        let logical = stats.and_then(|stats| {
+            let logical = stats.logical(field.field());
+            #[cfg(any(test, feature = "pg_test"))]
+            let logical = test_support::maybe_fail(
+                segment_id,
+                test_support::InjectedStatsFailure::Logical,
+                logical,
+            );
+            logical.unwrap_or_else(|error| {
+                pgrx::error!(
+                    "could not read logical statistics for field {:?} in segment {segment_id:?}: {error}",
+                    field.field()
+                )
+            })
         });
         let Some((lower, upper)) = range.values() else {
             if logical.is_some_and(|b| !b.may_hold_nulls()) {
@@ -271,6 +289,7 @@ pub(crate) mod test_support {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum InjectedStatsFailure {
+        Missing,
         Open,
         Empirical,
         Logical,
@@ -324,6 +343,23 @@ pub(crate) mod test_support {
             "one failure may be injected per segment"
         );
         InjectedStatsFailureGuard { segment_id }
+    }
+
+    pub(super) fn maybe_hide<T>(
+        segment_id: SegmentId,
+        result: io::Result<Option<T>>,
+    ) -> io::Result<Option<T>> {
+        let mut failures = FAILURES
+            .lock()
+            .expect("injected statistics failure lock poisoned");
+        if let Some(failure) = failures.get_mut(&segment_id)
+            && failure.operation == InjectedStatsFailure::Missing
+            && matches!(result, Ok(Some(_)))
+        {
+            failure.hits += 1;
+            return Ok(None);
+        }
+        result
     }
 
     /// Replace only a successful real call, so tests exercise the production error handler and

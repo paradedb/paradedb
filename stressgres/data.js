@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792656832684,
+  "lastUpdate": 1792657128402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -455916,6 +455916,58 @@ window.BENCHMARK_DATA = {
             "value": 39.06314594974279,
             "unit": "median tps",
             "extra": "avg tps: 60.53794569403407, max tps: 544.115020260555, count: 58825"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e66821a01a7fec2051983610172ac8a18987b3aa",
+          "message": "feat: Allow joinscan to postgres-project volatile expressions (#6965)\n\n# Ticket(s) Closed\n\n- Closes #6910 \n\n## What\nWith #6501 being closed by #6935, supporting volatile expression\nprojection is no longer blocked. This PR enables their support.\n\n## How\n- Add a `pg_project_or_decline` fallback for the volatile case in\n`resolve_target_entry_expr`.\n- Add a path key check that rejects any volatile `ORDER BY` members.\n\n## Tests\n- new regression tests\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-10-22T04:48:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e66821a01a7fec2051983610172ac8a18987b3aa"
+        },
+        "date": 1792657117442,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 38.018878413459674,
+            "unit": "median tps",
+            "extra": "avg tps: 58.37329545074861, max tps: 545.490074145356, count: 58732"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.666401821421452,
+            "unit": "median tps",
+            "extra": "avg tps: 32.655602568091176, max tps: 367.9387444164686, count: 58732"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 73.07897672204899,
+            "unit": "median tps",
+            "extra": "avg tps: 134.69250449955462, max tps: 1227.5194882861924, count: 58732"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.56138446175541,
+            "unit": "median tps",
+            "extra": "avg tps: 31.218299814021776, max tps: 278.56385143569537, count: 58732"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 39.09284419763464,
+            "unit": "median tps",
+            "extra": "avg tps: 60.73235352755675, max tps: 548.427716135236, count: 58732"
           }
         ]
       }

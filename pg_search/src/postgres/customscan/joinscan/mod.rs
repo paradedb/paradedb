@@ -146,7 +146,7 @@ pub mod visibility_filter;
 pub mod window_func;
 
 pub use self::build::{CtidColumn, ScoreColumn};
-use self::build::{JoinCSClause, JoinKeyPair, PlannerRootId, RelNode, RelationAlias};
+use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
@@ -500,7 +500,6 @@ pub unsafe fn try_create_subplan_join_paths(
         None => return Vec::new(),
     };
     let plan = collected.plan;
-    let join_keys = collected.join_keys;
 
     // Only proceed if the plan actually contains a join (from SubPlan extraction).
     if !plan.has_semi_or_anti() {
@@ -532,7 +531,7 @@ pub unsafe fn try_create_subplan_join_paths(
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
     let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, plan.clone(), &join_keys, has_distinct) {
+        match JoinScan::validate_and_build_clause(root, plan.clone(), has_distinct) {
             Ok(res) => res,
             Err(reason) => return decline(reason),
         };
@@ -556,7 +555,6 @@ impl JoinScan {
     unsafe fn validate_and_build_clause(
         root: *mut pg_sys::PlannerInfo,
         plan: RelNode,
-        join_keys: &[JoinKeyPair],
         has_distinct: bool,
     ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
         let all_sources = plan.sources();
@@ -725,7 +723,7 @@ impl JoinScan {
         }
 
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
-        validate_join_keys(join_keys, &all_sources)
+        validate_join_keys(&plan)
             .map_err(|e| JoinDeclineReason::new(format!("JoinScan not used: {e}")))?;
 
         // --- Build JoinCSClause ---
@@ -2461,10 +2459,9 @@ impl JoinScan {
         }
 
         let has_distinct = !(*parse).distinctClause.is_null();
-        let join_keys = plan.join_keys();
 
         let (join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, plan, &join_keys, has_distinct).map_err(warn)?;
+            Self::validate_and_build_clause(root, plan, has_distinct).map_err(warn)?;
 
         let path = Self::finalize_clause_into_path(
             root,

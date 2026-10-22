@@ -63,6 +63,7 @@ use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
 use crate::schema::SearchFieldType;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
+use datafusion::error::DataFusionError;
 use pgrx::{PgList, pg_sys};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
@@ -373,51 +374,56 @@ fn numeric_pushdown_safe(
     }
 }
 
-pub fn validate_join_keys(
-    join_keys: &[JoinKeyPair],
-    sources: &[&JoinSource],
-) -> Result<(), String> {
-    for jk in join_keys {
-        let outer_source = sources.iter().find(|s| s.contains_rti(jk.outer_rti));
-        let inner_source = sources.iter().find(|s| s.contains_rti(jk.inner_rti));
-        match (outer_source, inner_source) {
-            (Some(outer), Some(inner)) => {
-                let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
-                let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
-                let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
-                let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                let outer_ff = unsafe {
-                    resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                };
-                let inner_ff = unsafe {
-                    resolve_fast_field(jk.inner_attno as i32, &inner_hr.tuple_desc(), &inner_ir)
-                };
-                match (&outer_ff, &inner_ff) {
-                    (Some(outer_ff), Some(inner_ff)) => {
-                        let either_numeric =
-                            outer_ff.field_type().is_some_and(|ft| ft.is_numeric())
-                                || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
-                        if either_numeric
-                            && !numeric_pushdown_safe(outer_ff, &outer_ir, inner_ff, &inner_ir)
-                        {
-                            return Err(
-                                "join conditions compare NUMERIC columns with an unresolvable or mismatched representation".to_string(),
-                            );
-                        }
-                    }
-                    _ => {
-                        return Err(
-                            "join conditions must reference columnar indexed fields".to_string()
-                        );
-                    }
-                }
-            }
-            _ => {
-                return Err("failed to resolve join keys to base relations".to_string());
+pub fn validate_join_keys(plan: &RelNode) -> Result<(), String> {
+    let result = plan.apply(|node| {
+        let RelNode::Join(j) = node else {
+            return Ok(TreeNodeRecursion::Continue);
+        };
+
+        for key in &j.equi_keys {
+            let Some(((left_source, left_attno), (right_source, right_attno))) =
+                key.resolve_against(&j.left, &j.right)
+            else {
+                return Err(DataFusionError::Internal(
+                    "failed to resolve join keys against base relations".to_string(),
+                ));
+            };
+
+            let left_hr = PgSearchRelation::open(left_source.scan_info.heaprelid);
+            let left_ir = PgSearchRelation::open(left_source.scan_info.indexrelid);
+            let right_hr = PgSearchRelation::open(right_source.scan_info.heaprelid);
+            let right_ir = PgSearchRelation::open(right_source.scan_info.indexrelid);
+
+            let left_ff =
+                unsafe { resolve_fast_field(left_attno as i32, &left_hr.tuple_desc(), &left_ir) };
+            let right_ff = unsafe {
+                resolve_fast_field(right_attno as i32, &right_hr.tuple_desc(), &right_ir)
+            };
+
+            let (Some(left_ff), Some(right_ff)) = (left_ff, right_ff) else {
+                return Err(DataFusionError::Internal(
+                    "join conditions must reference columnar indexed fields".to_string(),
+                ));
+            };
+
+            let either_numeric = left_ff.field_type().is_some_and(|ft| ft.is_numeric()) || right_ff.field_type().is_some_and(|ft| ft.is_numeric());
+            if either_numeric && !numeric_pushdown_safe(&left_ff, &left_ir, &right_ff, &right_ir) {
+                return Err(DataFusionError::Internal(
+                    "join conditions compare NUMERIC columns with an unresolvable or mismatched representation".to_string(),
+                ));
             }
         }
+
+        Ok(TreeNodeRecursion::Continue)
+    });
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => match e {
+            DataFusionError::Internal(msg) => Err(msg),
+            _ => Err("failed to validate join keys".to_string()),
+        },
     }
-    Ok(())
 }
 
 /// Build a [`RelNode`] tree using two complementary sources of information:

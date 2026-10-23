@@ -26,7 +26,8 @@ permissions:
   actions: write
   contents: write
 
-# Only the gh-pages reset joins the publication queue; dispatch stays parallel.
+# Only the reset job, which clears benchmark history on gh-pages, uses the publication queue.
+# Jobs that dispatch benchmark workflows run in parallel.
 
 jobs:
   reset:

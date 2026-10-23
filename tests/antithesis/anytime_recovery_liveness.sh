@@ -69,10 +69,13 @@ echo "qgen recovery liveness: pausing faults for ${QUIET_SECONDS}s; qgen must fi
 
 UNPAUSE_AT_MS=$((($(date +%s) + QUIET_SECONDS) * 1000))
 poke "${UNPAUSE_AT_MS}" "$((RECOVER_SECONDS * 1000))"
-sleep "${RECOVER_SECONDS}"
+# Keep the declaration and single-flight lock for the entire requested pause.
+# The recovery deadline is still RECOVER_SECONDS; removing the declaration at
+# that deadline would report resumption while injection is still paused.
+sleep "${QUIET_SECONDS}"
 restore
 
-echo "qgen recovery liveness: qgen survived the quiet period"
+echo "qgen recovery liveness: quiet period ended; recovery assertions are reported by qgen"
 
 # Exit 0 either way: the assertion belongs to the driver, whose failing case carries the repro.
 exit 0

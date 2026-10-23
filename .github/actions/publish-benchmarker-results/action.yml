@@ -8,10 +8,6 @@ inputs:
   ref:
     description: "Full SHA of the commit benchmarked"
     required: true
-  image_tag:
-    description: "Image tag tested"
-    required: false
-    default: "paradedb-source:ci"
   results_dir:
     description: "Directory containing results json and html files"
     required: false
@@ -39,7 +35,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Upload dashboards
+    - name: Upload Dashboards
       uses: actions/upload-artifact@v7
       with:
         overwrite: true
@@ -50,7 +46,7 @@ runs:
           ${{ inputs.results_dir }}/*.html
         if-no-files-found: warn
 
-    - name: Extract tracked metrics
+    - name: Extract Tracked Metrics
       shell: bash
       env:
         RESULTS_DIR: ${{ inputs.results_dir }}
@@ -138,7 +134,7 @@ runs:
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: false
 
-    - name: Read latency baseline
+    - name: Read Latency Baseline
       if: inputs.pr_number != '' && steps.publish_latency.outcome == 'success'
       shell: bash
       env:
@@ -170,7 +166,7 @@ runs:
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: false
 
-    - name: Read QPS baseline
+    - name: Read QPS Baseline
       if: inputs.pr_number != '' && steps.publish_throughput.outcome == 'success'
       shell: bash
       env:
@@ -179,7 +175,7 @@ runs:
         sed '1s/^window.BENCHMARK_DATA = //' benchmark-data-repository/benchmarker/data.js |
           jq --arg suite "benchmarker ${DATASET} (throughput)" '.entries[$suite][-2] // {}' > _throughput_baseline.json
 
-    - name: Stage dashboards (HTML only) for gh-pages
+    - name: Stage Dashboards (HTML Only) for gh-pages
       shell: bash
       env:
         RESULTS_DIR: ${{ inputs.results_dir }}
@@ -193,7 +189,7 @@ runs:
         fi
         ls -la _ghpages_html
 
-    - name: Publish dashboards to gh-pages
+    - name: Publish Dashboards to gh-pages
       if: hashFiles('_ghpages_html/*.html') != ''
       uses: peaceiris/actions-gh-pages@v4
       with:
@@ -205,7 +201,7 @@ runs:
         user_email: "github-actions[bot]@users.noreply.github.com"
         commit_message: "benchmarker dashboards for ${{ inputs.ref }} (${{ inputs.dataset }})"
 
-    - name: Comment benchmark comparison and dashboard links
+    - name: Comment Benchmark Comparison and Dashboard Links
       if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
       shell: bash
       env:
@@ -263,7 +259,7 @@ runs:
         cat _comment.md >> "${GITHUB_STEP_SUMMARY}"
         gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
 
-    - name: Fail if no metrics were extracted
+    - name: Fail if No Metrics Were Extracted
       shell: bash
       env:
         METRICS_FILE: ${{ inputs.metrics_file }}

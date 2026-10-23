@@ -34,7 +34,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Configure PGDG APT repository
+    - name: Configure PGDG APT Repository
       if: inputs.pg_impl == 'system'
       shell: bash
       run: |

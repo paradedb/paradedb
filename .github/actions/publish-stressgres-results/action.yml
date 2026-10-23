@@ -6,7 +6,7 @@ inputs:
     description: "The .toml Stressgres scenario to run (e.g. single-node-planner-paths.toml)"
     required: true
   ref:
-    description: "Git ref or short SHA to report in benchmarks"
+    description: "Full SHA of the commit benchmarked"
     required: true
   github_token:
     description: "GitHub token for publishing and comments"

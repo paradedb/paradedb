@@ -15,6 +15,8 @@ on:
     paths:
       - ".github/actions/build-paradedb-image/**"
       - ".github/actions/publish-benchmarker-results/**"
+      - ".github/actions/stage-benchmark-results/**"
+      - ".github/workflows/publish-benchmark-results.yml"
       - ".github/actions/setup-benchmarker/**"
       - ".github/workflows/benchmark-pg_search-benchmarker.yml"
       - "docker/Dockerfile.source"
@@ -60,10 +62,11 @@ on:
         default: "paradedb/paradedb:latest-pg18"
 
 permissions:
+  actions: read # discover result artifacts for the queued publisher
   contents: write # github-action-benchmark pushes to the gh-pages branch
   pull-requests: write # comment benchmark alerts on PRs
 
-# No concurrency group: let every run complete and append to gh-pages history.
+# Benchmark jobs run in parallel. Publication jobs use the shared gh-pages queue.
 
 jobs:
   benchmark-hn:
@@ -73,7 +76,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
@@ -84,7 +87,7 @@ jobs:
       IMAGE_TAG: paradedb-source:ci
 
     steps:
-      # The label triggers this run; remove it so it can be re-applied to re-run.
+      # Remove the label so it can be applied again to start another run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn')
         env:
@@ -101,7 +104,7 @@ jobs:
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
-          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
+          # Use workflow_dispatch `commit` when set. Otherwise use github.sha (the PR merge
           # commit, or the commit pushed to main).
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
@@ -128,22 +131,22 @@ jobs:
           repository: paradedb/benchmarker
           ref: ${{ inputs.benchmarker_hn_ref || 'main' }}
 
-      - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
+      - name: Pull ${{ env.DATASET }} Dataset (Public S3, Anonymous)
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
-      - name: Start database
+      - name: Start Database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
           COMPOSE_PROFILES: paradedb
         run: docker compose up -d --wait
 
-      - name: Load data (paradedb)
+      - name: Load Data (paradedb)
         working-directory: benchmarker
         run: ./bin/loader load --backend paradedb "./datasets/${DATASET}"
 
-      - name: Restart database for a clean start
+      - name: Restart Database for a Clean Start
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
@@ -152,11 +155,11 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait
 
-      - name: Run k6 scripts
+      - name: Run k6 Scripts
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
+            {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -169,7 +172,7 @@ jobs:
           fi
           for script in "${scripts[@]}"; do
             name="$(basename "$script" .js)"
-            # Warm-up pass (discarded) fills page cache + shared_buffers; the
+            # The warm-up pass fills the page cache and shared_buffers. The
             # second pass is the measured, exported one.
             echo "== warming ${name} (discarded) =="
             ( cd "$root/results" && taskset -c 5-7 "$root/k6" run "$script" >/dev/null )
@@ -185,7 +188,7 @@ jobs:
             mv "${dashboard_html[0]}" "$root/results/${name}.html"
           done
 
-      - name: Dump database logs on failure
+      - name: Dump Database Logs on Failure
         if: failure() || cancelled()
         run: |
           echo "== Docker containers =="
@@ -195,17 +198,15 @@ jobs:
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
-      - name: Publish Benchmarker Results
+      - name: Stage Benchmarker Results
         if: success()
-        uses: ./.github/actions/publish-benchmarker-results
+        uses: ./.github/actions/stage-benchmark-results
         with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"${{ env.DATASET }}",
+             "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
 
   benchmark-datasets:
     name: Benchmarker (${{ matrix.dataset }})
@@ -214,7 +215,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'push' ||
@@ -240,7 +241,7 @@ jobs:
       - name: Initialize Environment
         run: echo "VOLUME_ROOT=${RUNNER_TEMP}/volumes" >> "$GITHUB_ENV"
 
-      # The label triggers this run; remove it so it can be re-applied to re-run.
+      # Remove the label so it can be applied again to start another run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request'
         env:
@@ -257,7 +258,7 @@ jobs:
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
-          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
+          # Use workflow_dispatch `commit` when set. Otherwise use github.sha (the PR merge
           # commit, or the commit pushed to main).
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
@@ -284,7 +285,7 @@ jobs:
           repository: ${{ inputs[format('benchmarker_{0}_repo', matrix.dataset)] || 'paradedb/benchmarker' }}
           ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
 
-      - name: Pull ${{ env.DATASET }} benchmark config (public S3, anonymous)
+      - name: Pull ${{ env.DATASET }} Benchmark Config (Public S3, Anonymous)
         working-directory: benchmarker
         run: |
           set -euo pipefail
@@ -319,7 +320,7 @@ jobs:
           sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${target_dir}"
           rm -f "${RUNNER_TEMP}/heap.tar.zst"
 
-      - name: Build ${{ env.DATASET }} index with ${{ env.IMAGE_TAG }}
+      - name: Build ${{ env.DATASET }} Index with ${{ env.IMAGE_TAG }}
         working-directory: benchmarker/datasets/_ci_config
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
@@ -340,11 +341,11 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait --wait-timeout 300 paradedb
 
-      - name: Run ${{ env.DATASET }} benchmark
+      - name: Run ${{ env.DATASET }} Benchmark
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
+            {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -382,7 +383,7 @@ jobs:
           done
           run_benchmark count mixed
 
-      - name: Dump database logs on failure
+      - name: Dump Database Logs on Failure
         if: failure() || cancelled()
         run: |
           echo "== Docker containers =="
@@ -392,28 +393,33 @@ jobs:
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
-      - name: Publish Benchmarker Results
+      - name: Stage Benchmarker Results
         if: success()
-        uses: ./.github/actions/publish-benchmarker-results
+        uses: ./.github/actions/stage-benchmark-results
         with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"${{ env.DATASET }}",
+             "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
+
+  publish-results:
+    name: Publish Benchmark Results
+    needs: [benchmark-hn, benchmark-datasets]
+    if: always() && !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure'))
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit
 
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-hn, benchmark-datasets]
-    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-datasets.result == 'failure') && github.event_name == 'push'
+    needs: [benchmark-hn, benchmark-datasets, publish-results]
+    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-datasets.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack on Failure (push only)
+      - name: Notify Slack on Failure (Push only)
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

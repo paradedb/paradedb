@@ -2,6 +2,10 @@ name: Set Up pg_search Build Environment
 description: Install and initialize PostgreSQL, Rust, cargo-pgrx, and a shared Rust build cache
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   pg_version:
     description: "PostgreSQL major version to build against."
     required: false
@@ -29,6 +33,7 @@ runs:
     - name: Set Up pg_search Toolchain
       uses: ./.github/actions/setup-pg-search-toolchain
       with:
+        source_directory: ${{ inputs.source_directory }}
         pg_version: ${{ inputs.pg_version }}
         cache_prefix_key: ${{ inputs.cache_prefix_key }}
         cache_save: ${{ inputs.cache_save }}
@@ -38,5 +43,6 @@ runs:
       id: postgres
       uses: ./.github/actions/setup-postgres
       with:
+        source_directory: ${{ inputs.source_directory }}
         pg_version: ${{ inputs.pg_version }}
         extra_packages: ${{ inputs.extra_packages }}

@@ -1,0 +1,60 @@
+name: Publish Stressgres Results
+description: Publish Stressgres benchmark results to gh-pages
+
+inputs:
+  test_file:
+    description: "Stressgres scenario file (e.g. single-node-planner-paths.toml)"
+    required: true
+  ref:
+    description: "Full SHA of the commit benchmarked"
+    required: true
+  github_token:
+    description: "GitHub token for publishing and comments"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Necessary to avoid "destination path is not empty" error
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
+    - name: Publish TPS Metrics
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "pg_search ${{ inputs.test_file }} Performance - TPS"
+        ref: ${{ inputs.ref }}
+        tool: customBiggerIsBetter
+        output-file-path: pg_search_tps.json
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        auto-push: ${{ github.event_name != 'pull_request' }}
+        benchmark-data-dir-path: stressgres
+        alert-threshold: "115%"
+        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ github.event_name == 'pull_request' }}
+
+    # Necessary to avoid "destination path is not empty" error
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
+    - name: Publish Other Metrics
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
+        ref: ${{ inputs.ref }}
+        tool: customSmallerIsBetter
+        output-file-path: pg_search_other.json
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        auto-push: ${{ github.event_name != 'pull_request' }}
+        benchmark-data-dir-path: stressgres
+        alert-threshold: "110%"
+        comment-on-alert: true
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ github.event_name == 'pull_request' }}

@@ -2,12 +2,16 @@ name: Fetch Benchmark Sources from Main
 description: Fetch latest benchmark code and suites from `main`
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   github-token:
     description: "GitHub token to authenticate with"
     required: true
 
 # We manually fetch benchmark code from `main` when backfilling old commits that may predate
-# newer queries. Callers fetch composite actions separately before invoking this action.
+# newer queries. Workflow actions stay in the root checkout.
 
 runs:
   using: "composite"
@@ -21,15 +25,16 @@ runs:
         fetch-depth: 1
         ref: main
 
-    - name: Copy latest benchmarks into place
+    - name: Copy Latest Benchmarks into Place
       shell: bash
+      env:
+        SOURCE_DIRECTORY: ${{ inputs.source_directory }}
       run: |
-        rm -rf benchmarks
-        cp -rv bench-temp/benchmarks .
+        for directory in benchmarks stressgres; do
+          rm -rf "${SOURCE_DIRECTORY:?}/${directory}"
+          cp -rv "bench-temp/${directory}" "${SOURCE_DIRECTORY}/"
+        done
 
-        echo "Copied benchmark files to benchmarks/:"
-        ls -la benchmarks/
-
-    - name: Cleanup temporary checkout
+    - name: Cleanup Temporary Checkout
       shell: bash
       run: rm -rf bench-temp

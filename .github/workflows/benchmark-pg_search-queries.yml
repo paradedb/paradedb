@@ -409,7 +409,7 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 1m
-          # paired-bootstrap owns real alerting; the point threshold stays only as a
+          # Paired-bootstrap detects regressions. The point threshold is a
           # catastrophic-regression backstop in case the overlap step is skipped.
           alert_strategy: paired-bootstrap
           alert_threshold: 200%
@@ -460,7 +460,7 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 10m
-          # paired-bootstrap owns real alerting; the point threshold stays only as a
+          # Paired-bootstrap detects regressions. The point threshold is a
           # catastrophic-regression backstop in case the overlap step is skipped.
           alert_strategy: paired-bootstrap
           alert_threshold: 200%
@@ -480,11 +480,11 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          # A size that was skipped/failed leaves its .tsv missing; touch both so `cat` (and thus
+          # Skipped or failed sizes leave no .tsv file. Create both files so `cat` (and thus
           # pipefail) doesn't abort when only one size ran.
           touch sweep_summary_1m.tsv sweep_summary_10m.tsv
           if [ ! -s sweep_summary_1m.tsv ] && [ ! -s sweep_summary_10m.tsv ]; then
-            echo "No sweep summaries -- nothing to comment."
+            echo "No sweep summaries. Nothing to comment."
             exit 0
           fi
           # One row per (query, target) measured at either size, so queries added to
@@ -501,10 +501,10 @@ jobs:
               printf '| `%s` | %s%% | %s | %s |\n' "$q" "${t#r}" "${c1:-n/a}" "${c10:-n/a}"
             done)
           {
-            printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
+            printf '### Cohere recall for `%s` index\n\n' "${{ env.COHERE_INDEX }}"
             printf '| query | target | 1m | 10m |\n|-------|--------|----|----|\n'
             printf '%s\n' "$rows"
-            printf '\n<sub>Each successful cell shows the selected parameter value, achieved recall@10, and p50 / p95 / p99 latency. Latency is measured once per held-out query vector (the same set recall uses). ⚠️ Not reached means no measured point met the target; latency for that target is neither measured nor published.</sub>\n'
+            printf '\n<sub>Each successful cell shows the selected parameter value, achieved recall@10, and p50 / p95 / p99 latency. Latency is measured once per held-out query vector (the same set recall uses). ⚠️ Not reached means no measured point met the target. Latency for that target is neither measured nor published.</sub>\n'
           } > recall_body.md
           cat recall_body.md
           if [ -n "${PR_NUMBER}" ]; then

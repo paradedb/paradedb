@@ -21,7 +21,7 @@ inputs:
     description: "GitHub token to authenticate with"
     required: true
   publish:
-    description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
+    description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only main runs update the baseline. All runs compare against it."
     required: false
     default: "false"
   alert_threshold:
@@ -35,10 +35,10 @@ inputs:
     description: >-
       How regressions are detected. "point-ratio": only the alert_threshold point comparison.
       "paired-bootstrap": percentile series whose runs published per-query samples alert when the
-      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x -- pairing cancels
+      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x. Pairing cancels
       cross-query latency variance, so this is both less noisy and more sensitive than a point
       comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
-      p99 series stay charted but never alert; a single-run p99 cannot evidence a regression.
+      p99 series stay on the charts but never trigger alerts. One run is not enough to detect a p99 regression.
     required: false
     default: "point-ratio"
 

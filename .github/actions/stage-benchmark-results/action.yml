@@ -6,7 +6,7 @@ inputs:
     description: "Benchmark type: benchmarker, queries, or stressgres"
     required: true
   metadata:
-    description: "Publication inputs as JSON; credentials are removed before upload"
+    description: "Publication inputs as JSON. Credentials are removed before upload."
     required: true
   path:
     description: "Result files to upload"

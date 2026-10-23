@@ -82,7 +82,7 @@ jobs:
               echo "App token usable after ${attempt} attempt(s)"
               exit 0
             fi
-            echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
+            echo "App token not usable yet (attempt ${attempt}/10). Retrying in 5s."
             sleep 5
           done
           echo "App token never became usable after 10 attempts" >&2

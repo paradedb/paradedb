@@ -206,7 +206,7 @@ runs:
         {
           printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:0:7}"
           jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json '
-            "Baselines: latency `\(($latency[0].commit.id // "—") | .[0:7])`, QPS `\(($throughput[0].commit.id // "—") | .[0:7])`.\n"
+            "Baselines: latency `\(($latency[0].commit.id // "n/a") | .[0:7])`, QPS `\(($throughput[0].commit.id // "n/a") | .[0:7])`.\n"
           '
           printf '| Benchmark | Current | Previous | Ratio |\n|---|---:|---:|---:|\n'
           jq -nr \
@@ -225,12 +225,12 @@ runs:
                    if $current.value > 0 then $previous.value / $current.value else null end
                  else $current.value / $previous.value end
                else null end) as $ratio
-            | (if $ratio == null then "—" else
+            | (if $ratio == null then "n/a" else
                  "\($ratio * 100 | round / 100)x" + (if $ratio > 1.15 then " ⚠️" else "" end)
                end) as $ratio_text
-            | "| `\($current.name)` | \($current | display) | \(if $previous == null then "—" else $previous | display end) | \($ratio_text) |"
+            | "| `\($current.name)` | \($current | display) | \(if $previous == null then "n/a" else $previous | display end) | \($ratio_text) |"
           '
-          printf '\nRatio: current/previous for latency, previous/current for QPS; below 1 is better. ⚠️ marks regressions above 1.15x. — means no comparable baseline.\n'
+          printf '\nRatio: current/previous for latency, previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
           printf '\n'
           printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
           printf '%s\n' "$links"
@@ -245,7 +245,7 @@ runs:
       env:
         METRICS_FILE: benchmarker/benchmarker_metrics.json
       run: |
-        [ -f "${METRICS_FILE}" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
+        [ -f "${METRICS_FILE}" ] || { echo "No metrics file because an earlier step failed. Skipping the check."; exit 0; }
         n=$(jq 'length' "${METRICS_FILE}")
         echo "extracted metric rows: ${n}"
         if [ "${n:-0}" -eq 0 ]; then

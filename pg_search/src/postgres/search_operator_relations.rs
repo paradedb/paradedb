@@ -39,11 +39,22 @@ use crate::api::operator::{SearchPredicate, is_paradedb_search_operator};
 use crate::nodecast;
 use crate::postgres::node::{NodeExt, WalkControl};
 
+/// Where in the query a search operator was applied to a relation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchedIn {
+    /// `WHERE`, `JOIN ... ON`, or aggregate-free `HAVING` (and possibly `FILTER` too).
+    Scan,
+    /// Only inside `FILTER (WHERE ...)` on an aggregate or window function.
+    FilterOnly,
+}
+
 /// A range table entry the query applies a search operator to.
 struct SearchedRelation {
     relid: pg_sys::Oid,
     /// The alias keeps the two sides of a self-join apart.
     alias: Vec<u8>,
+    /// Where the query applied a search operator to the entry.
+    searched_in: SearchedIn,
     /// Parser locations of the `Var`s that reference the entry.
     var_locations: Vec<i32>,
 }
@@ -80,6 +91,23 @@ impl Drop for RecordScope {
 /// Whether the query being planned applies a search operator to the relation scanned as `rti`,
 /// or to a parent it was expanded from.
 pub unsafe fn applies_to(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> bool {
+    applies_to_matching(root, rti, |_| true)
+}
+
+/// Whether the query being planned applies a search operator in a scan or join qualification
+/// (`WHERE`, `JOIN ... ON`, or aggregate-free `HAVING`) to the relation scanned as `rti`,
+/// or to a parent it was expanded from.
+pub unsafe fn applies_to_scan(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> bool {
+    applies_to_matching(root, rti, |searched| {
+        searched.searched_in == SearchedIn::Scan
+    })
+}
+
+unsafe fn applies_to_matching(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    matches_scope: impl Fn(&SearchedRelation) -> bool,
+) -> bool {
     RECORDS.with(|records| {
         let records = records.borrow();
         let Some(record) = records.last() else {
@@ -101,7 +129,9 @@ pub unsafe fn applies_to(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> 
         let alias = rte_alias_bytes(&*rte);
         let candidates: Vec<&SearchedRelation> = record
             .iter()
-            .filter(|searched| searched.relid == (*rte).relid && searched.alias == alias)
+            .filter(|searched| {
+                searched.relid == (*rte).relid && searched.alias == alias && matches_scope(searched)
+            })
             .collect();
         if candidates.is_empty() {
             return false;
@@ -219,15 +249,23 @@ unsafe fn query_applies_search_operator(query: *mut pg_sys::Query, depth: usize)
             search_predicate_operand(node).is_some()
         })
     };
-    let nested_queries = |node: *mut pg_sys::Node| {
+    let target_list = |node: *mut pg_sys::Node| {
         node.any(|node| {
-            nodecast!(Query, T_Query, node)
-                .is_some_and(|subquery| query_applies_search_operator(subquery, depth + 1))
+            if let Some(subquery) = nodecast!(Query, T_Query, node) {
+                return query_applies_search_operator(subquery, depth + 1);
+            }
+            if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
+                return predicates((*aggref).aggfilter.cast());
+            }
+            if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+                return predicates((*wf).aggfilter.cast());
+            }
+            false
         })
     };
     predicates((*query).jointree.cast())
         || predicates((*query).havingQual)
-        || nested_queries((*query).targetList.cast())
+        || target_list((*query).targetList.cast())
         || PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable)
             .iter_ptr()
             .any(|rte| {
@@ -242,8 +280,122 @@ unsafe fn query_applies_search_operator(query: *mut pg_sys::Query, depth: usize)
 /// What one query level knows about one of its range table entries.
 #[derive(Default)]
 struct Entry {
-    searched: bool,
+    searched_in: Option<SearchedIn>,
     var_locations: Vec<i32>,
+}
+
+impl Entry {
+    fn mark_searched(&mut self, scope: SearchedIn) {
+        if self.searched_in != Some(SearchedIn::Scan) {
+            self.searched_in = Some(scope);
+        }
+    }
+}
+
+/// Context of an expression subtree during [`collect_searched_relations`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WalkContext {
+    /// `SELECT` list expressions and aggregate/window arguments: a search operator here is a
+    /// value, not a predicate.
+    Value,
+    /// `WHERE`, `JOIN ... ON`, and aggregate-free `HAVING`: predicates that filter the scan/join.
+    ScanPredicate,
+    /// `FILTER (WHERE ...)` on an aggregate or window function.
+    FilterPredicate,
+}
+
+impl WalkContext {
+    fn searched_in(self) -> Option<SearchedIn> {
+        match self {
+            Self::Value => None,
+            Self::ScanPredicate => Some(SearchedIn::Scan),
+            Self::FilterPredicate => Some(SearchedIn::FilterOnly),
+        }
+    }
+}
+
+unsafe fn own_var(var: *mut pg_sys::Var, entry_count: usize) -> Option<usize> {
+    let rti = usize::try_from((*var).varno).ok()?;
+    ((*var).varlevelsup == 0 && rti > 0 && rti < entry_count).then_some(rti)
+}
+
+unsafe fn visit_expr(
+    node: *mut pg_sys::Node,
+    context: WalkContext,
+    depth: usize,
+    entry_count: usize,
+    entries: &mut [Entry],
+    found: &mut Vec<SearchedRelation>,
+) {
+    node.walk(|node| {
+        if let Some(subquery) = nodecast!(Query, T_Query, node) {
+            collect_searched_relations(subquery, depth + 1, found);
+            return WalkControl::SkipChildren;
+        }
+        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
+            visit_expr(
+                (*aggref).aggdirectargs.cast(),
+                WalkContext::Value,
+                depth,
+                entry_count,
+                entries,
+                found,
+            );
+            visit_expr(
+                (*aggref).args.cast(),
+                WalkContext::Value,
+                depth,
+                entry_count,
+                entries,
+                found,
+            );
+            visit_expr(
+                (*aggref).aggfilter.cast(),
+                WalkContext::FilterPredicate,
+                depth,
+                entry_count,
+                entries,
+                found,
+            );
+            return WalkControl::SkipChildren;
+        }
+        if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+            visit_expr(
+                (*wf).args.cast(),
+                WalkContext::Value,
+                depth,
+                entry_count,
+                entries,
+                found,
+            );
+            visit_expr(
+                (*wf).aggfilter.cast(),
+                WalkContext::FilterPredicate,
+                depth,
+                entry_count,
+                entries,
+                found,
+            );
+            return WalkControl::SkipChildren;
+        }
+        if let Some(scope) = context.searched_in()
+            && let Some(operand) = search_predicate_operand(node)
+        {
+            for var in operand.collect_nodes::<pg_sys::Var>() {
+                if let Some(rti) = own_var(var, entry_count) {
+                    entries[rti].mark_searched(scope);
+                }
+            }
+        }
+        if let Some(var) = nodecast!(Var, T_Var, node)
+            && let Some(rti) = own_var(var, entry_count)
+            && (*var).location >= 0
+            && !entries[rti].var_locations.contains(&(*var).location)
+        {
+            entries[rti].var_locations.push((*var).location);
+        }
+        WalkControl::Continue
+    });
 }
 
 /// Collects the searched entries of `query` and of the queries nested in it. Each level only
@@ -260,49 +412,45 @@ unsafe fn collect_searched_relations(
     let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable);
     let mut entries: Vec<Entry> = (0..=rtable.len()).map(|_| Entry::default()).collect();
     let entry_count = entries.len();
-    let own_var = move |var: *mut pg_sys::Var| -> Option<usize> {
-        let rti = usize::try_from((*var).varno).ok()?;
-        ((*var).varlevelsup == 0 && rti > 0 && rti < entry_count).then_some(rti)
-    };
-    // The SELECT list only references entries. A search operator there is a value, not a
-    // predicate a scan would run. A `SubLink` hands its `subselect`, a `Query`, to the walker,
-    // and that nested query gets a level of its own.
-    let mut visit = |node: *mut pg_sys::Node, predicates: bool| {
-        node.walk(|node| {
-            if let Some(subquery) = nodecast!(Query, T_Query, node) {
-                collect_searched_relations(subquery, depth + 1, found);
-                return WalkControl::SkipChildren;
-            }
-            if predicates && let Some(operand) = search_predicate_operand(node) {
-                for var in operand.collect_nodes::<pg_sys::Var>() {
-                    if let Some(rti) = own_var(var) {
-                        entries[rti].searched = true;
-                    }
-                }
-            }
-            if let Some(var) = nodecast!(Var, T_Var, node)
-                && let Some(rti) = own_var(var)
-                && (*var).location >= 0
-                && !entries[rti].var_locations.contains(&(*var).location)
-            {
-                entries[rti].var_locations.push((*var).location);
-            }
-            WalkControl::Continue
-        });
-    };
     // WHERE and JOIN ... ON through the join tree, plus HAVING, which the planner moves to
-    // WHERE when it carries no aggregate.
-    visit((*query).jointree.cast(), true);
-    visit((*query).havingQual, true);
-    visit((*query).targetList.cast(), false);
+    // WHERE when it carries no aggregate. Inside SELECT or HAVING, an `Aggref` or `WindowFunc`
+    // `FILTER (WHERE ...)` clause is recorded as a filter predicate while its arguments and
+    // top-level SELECT expressions are treated as values.
+    visit_expr(
+        (*query).jointree.cast(),
+        WalkContext::ScanPredicate,
+        depth,
+        entry_count,
+        &mut entries,
+        found,
+    );
+    visit_expr(
+        (*query).havingQual,
+        WalkContext::ScanPredicate,
+        depth,
+        entry_count,
+        &mut entries,
+        found,
+    );
+    visit_expr(
+        (*query).targetList.cast(),
+        WalkContext::Value,
+        depth,
+        entry_count,
+        &mut entries,
+        found,
+    );
     for (rti, rte) in rtable.iter_ptr().enumerate().map(|(i, rte)| (i + 1, rte)) {
         match (*rte).rtekind {
-            pg_sys::RTEKind::RTE_RELATION if entries[rti].searched => {
-                found.push(SearchedRelation {
-                    relid: (*rte).relid,
-                    alias: rte_alias_bytes(&*rte).to_vec(),
-                    var_locations: std::mem::take(&mut entries[rti].var_locations),
-                });
+            pg_sys::RTEKind::RTE_RELATION => {
+                if let Some(searched_in) = entries[rti].searched_in {
+                    found.push(SearchedRelation {
+                        relid: (*rte).relid,
+                        alias: rte_alias_bytes(&*rte).to_vec(),
+                        searched_in,
+                        var_locations: std::mem::take(&mut entries[rti].var_locations),
+                    });
+                }
             }
             pg_sys::RTEKind::RTE_SUBQUERY => {
                 collect_searched_relations((*rte).subquery, depth + 1, found);

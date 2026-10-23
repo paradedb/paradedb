@@ -161,25 +161,22 @@ WHERE id @@@ pdb.all()
 GROUP BY DATE(created_at)
 ORDER BY 1 DESC
 LIMIT 2;
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (date(created_at)), (count(*))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: (date(created_at)), (count(*))
-         Sort Key: (date(events_nullable.created_at)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: (date(created_at)), (count(*))
-               Backend: DataFusion
-               Indexes: events_nullable_idx (events_nullable)
-               Group By: date(created_at)
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=2), expr=[pdb_timestamp_to_date(events_nullable_0.created_at)@0 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at)], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(16 rows)
+         Backend: DataFusion
+         Indexes: events_nullable_idx (events_nullable)
+         Group By: date(created_at)
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=2), expr=[pdb_timestamp_to_date(events_nullable_0.created_at)@0 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at)], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(13 rows)
 
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt
 FROM events_nullable

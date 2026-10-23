@@ -193,6 +193,52 @@ ORDER BY p.id DESC LIMIT 10;
 (3 rows)
 
 -- ============================================================
+-- Test 6: Window aggregates with a FILTER on this shape.
+-- Postgres keeps its own WindowAgg above a base-relation path, so JoinScan
+-- declines: it could neither apply the LIMIT nor compute the filters there.
+-- ============================================================
+EXPLAIN (COSTS OFF)
+SELECT p.id,
+       COUNT(*) FILTER (WHERE p.description ||| 'fine') OVER () AS fine,
+       COUNT(*) FILTER (WHERE p.supplier_id = 1) OVER () AS alpha
+FROM products_4531 p
+WHERE p.description ||| 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 2;
+WARNING:  JoinScan not used: window functions are not supported with an OR-nested subquery (tables: p, s)
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id DESC
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Custom Scan (ParadeDB Base Scan) on products_4531 p
+                     Filter: ((supplier_id IS NULL) OR (ANY (supplier_id = (hashed SubPlan 1).col1)))
+                     Table: products_4531
+                     Index: products_4531_id_name_description_supplier_id_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                     SubPlan 1
+                       ->  Seq Scan on suppliers_4531 s
+(14 rows)
+
+SELECT p.id,
+       COUNT(*) FILTER (WHERE p.description ||| 'fine') OVER () AS fine,
+       COUNT(*) FILTER (WHERE p.supplier_id = 1) OVER () AS alpha
+FROM products_4531 p
+WHERE p.description ||| 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 2;
+WARNING:  JoinScan not used: window functions are not supported with an OR-nested subquery (tables: p, s)
+ id | fine | alpha 
+----+------+-------
+  6 |    1 |     1
+  4 |    1 |     1
+(2 rows)
+
+-- ============================================================
 -- Verify: same query with JoinScan OFF must return same results
 -- ============================================================
 SET paradedb.enable_join_custom_scan = off;

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashSet;
 use crate::api::version::Version;
 use crate::gucs;
 use crate::index::kdtree::KdTree;
@@ -493,6 +494,9 @@ impl<'a> BuildWorker<'a> {
                 pg_sys::UnregisterSnapshot(snapshot);
             }
             drained?;
+            // Vectors are clustered only during merges, so cluster eligible segments that
+            // didn't need merging to reach the target segment count.
+            build_state.cluster_flat_segments()?;
             Ok((reltuples as f64, build_state.nmerges))
         }
     }
@@ -792,6 +796,7 @@ struct WorkerBuildState<'a> {
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
+    segment_ids: HashSet<SegmentId>,
     local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
     is_leader: bool,
     // the first flushed segment's on-disk size, once observed. Segments are memory-budget
@@ -835,12 +840,9 @@ impl<'a> WorkerBuildState<'a> {
         // If we're making more than one segment, do an early cutoff based on doc
         // count in case the memory budget is so high that all the docs fit into one
         // segment. For a single-segment target, leave it unbounded (memory-driven).
-        // Any vector-specific doc cap is applied in `SerialIndexWriter::open`.
         //
         // Partitioned builds cut segments at partition boundaries instead, so their writers stay
-        // memory-driven on their share of the worker budget. (A vector schema's doc cap in
-        // `SerialIndexWriter::open` still applies; an overfull partition then flushes in capped
-        // segments that `finish_partition` merges back down in bounded passes.)
+        // memory-driven on their share of the worker budget.
         let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
@@ -898,6 +900,7 @@ impl<'a> WorkerBuildState<'a> {
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
+            segment_ids: Default::default(),
             local_tuple_done_count: 0,
             is_leader,
             sampled_segment_bytes: None,
@@ -916,6 +919,7 @@ impl<'a> WorkerBuildState<'a> {
     /// segments the whole build still has to write. On the first flush, also hand the guard the
     /// segment's on-disk size (segments are memory-budget bound, so one sample is representative).
     fn on_segment_flushed(&mut self, segment_id: SegmentId) {
+        self.segment_ids.insert(segment_id);
         let written = self.coordination.add_segments_written();
         let remaining = self.target_segment_count.saturating_sub(written);
 
@@ -948,10 +952,25 @@ impl<'a> WorkerBuildState<'a> {
         }
         let writer = self.writer.take().expect("writer should be set");
         if let Some((segment_meta, _)) = writer.commit()? {
+            self.segment_ids.insert(segment_meta.id());
             self.unmerged_metas.push(segment_meta);
         }
         self.try_merge(true)?;
 
+        unsafe { set_ps_display_remove_suffix() };
+        Ok(())
+    }
+
+    fn cluster_flat_segments(&mut self) -> anyhow::Result<()> {
+        if !self.indexrel.schema()?.has_vector_field() || self.segment_ids.is_empty() {
+            return Ok(());
+        }
+        let flat_segments = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?
+            .flat_vector_segments(&self.segment_ids);
+        for segment_id in flat_segments {
+            check_for_interrupts!();
+            self.merge_now(&[segment_id])?;
+        }
         unsafe { set_ps_display_remove_suffix() };
         Ok(())
     }
@@ -1040,7 +1059,21 @@ impl<'a> WorkerBuildState<'a> {
         );
         let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-        let merged = merger.merge_segments(segment_ids_to_merge)?;
+        let merged = match merger.merge_segments(segment_ids_to_merge) {
+            Ok(merged) => merged,
+            Err(error) => {
+                // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
+                // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+                check_for_interrupts!();
+                return Err(error);
+            }
+        };
+        for segment_id in segment_ids_to_merge {
+            self.segment_ids.remove(segment_id);
+        }
+        if let Some(meta) = &merged {
+            self.segment_ids.insert(meta.id());
+        }
 
         // garbage collect the index, returning to the fsm
         pgrx::debug1!("do_merge: garbage collecting");
@@ -1820,14 +1853,15 @@ mod tests {
                                 mw, lp, mwm, ts, count
                             );
                         } else if *ts == 32 {
+                            // The parallel heap scan hands out blocks on demand, so a participant
+                            // short on CPU scans fewer rows and flushes fewer segments than its
+                            // quota, while its peers merge back down to theirs. Skew only ever
+                            // pulls the total below the target. The floor tolerates about a
+                            // quarter of the rows moving between participants.
+                            let expected = 24..=33;
                             assert!(
-                                (28..=33).contains(&count),
-                                "Expected 28-33 segments with workers={}, leader={}, mem={}, segments={}, got {}",
-                                mw,
-                                lp,
-                                mwm,
-                                ts,
-                                count
+                                expected.contains(&count),
+                                "Expected {expected:?} segments with workers={mw}, leader={lp}, mem={mwm}, segments={ts}, got {count}"
                             );
                         }
 
@@ -1854,32 +1888,122 @@ mod tests {
         cleanup_parallel_build_large_table();
     }
 
-    /// A row count that is an exact multiple of the vector doc-count cap leaves the writer with
-    /// no pending segment at commit; the final merge must still run.
     #[pg_test]
-    fn test_single_segment_build_exact_doc_cap_multiple() {
-        let nrows = crate::index::writer::index::DEFAULT_MAX_DOCS_PER_SEGMENT * 5;
-        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
-        Spi::run(&format!(
-            r#"
-            CREATE TABLE exact_cap_multiple (id SERIAL8, emb vector(8));
-            INSERT INTO exact_cap_multiple (emb)
-            SELECT ('[' || array_to_string(array(SELECT random() FROM generate_series(1, 8)), ',') || ']')::vector
-            FROM generate_series(1, {nrows});
-            "#
-        ))
-        .unwrap();
+    fn test_vector_build_clusters_flat_segments() {
         Spi::run(
-            "CREATE INDEX exact_cap_multiple_idx ON exact_cap_multiple USING paradedb (id, emb vector_cosine_ops) WITH (target_segment_count = 1);",
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET maintenance_work_mem = '128MB';
+            SET max_parallel_workers = 8;
+            SET paradedb.vector_clustering_threshold = 500;
+            CREATE TABLE vector_build (
+                id BIGINT, tenant_id BIGINT, name TEXT, padding TEXT,
+                empty_emb vector(3), emb vector(3)
+            );
+            INSERT INTO vector_build
+            SELECT i, i % 8, CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END,
+                   repeat('unindexed padding ', 60), NULL,
+                   ARRAY[i::real, (i % 11)::real, 1.0]::vector
+            FROM generate_series(1, 20000) i;
+            ANALYZE vector_build;
+            "#,
         )
         .unwrap();
 
-        let count: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM paradedb.index_info('exact_cap_multiple_idx');",
+        for (partitioned, workers, target, leader) in [
+            (false, 0, 1, true),
+            (false, 0, 4, true),
+            (false, 2, 4, true),
+            (false, 2, 4, false),
+            (true, 0, 4, true),
+            (true, 2, 4, false),
+        ] {
+            Spi::run(&format!(
+                "SET max_parallel_maintenance_workers = {workers};
+                 SET parallel_leader_participation = {leader};"
+            ))
+            .unwrap();
+            let partition_by = if partitioned {
+                ", partition_by = 'tenant_id'"
+            } else {
+                ""
+            };
+            Spi::run(&format!(
+                "CREATE INDEX vector_build_idx ON vector_build USING paradedb
+                 (id, tenant_id, name, empty_emb vector_l2_ops, emb vector_l2_ops)
+                 WITH (target_segment_count = {target}{partition_by});"
+            ))
+            .unwrap();
+            assert_eq!(
+                Spi::get_one::<i64>("SELECT count(*) FROM paradedb.index_info('vector_build_idx')")
+                    .unwrap(),
+                Some(target),
+                "partitioned={partitioned}, workers={workers}, leader={leader}"
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('vector_build_idx')"
+                )
+                .unwrap(),
+                Some(20000)
+            );
+            for (field, vectors) in [("empty_emb", 0), ("emb", 20000)] {
+                assert_eq!(
+                    Spi::get_one::<bool>(&format!(
+                        "SELECT count(*) = {target} AND bool_and(vector_format = 'ivf')
+                         AND sum(vector_num_vectors) = {vectors}
+                         FROM paradedb.vector_info('vector_build_idx', '{field}')"
+                    ))
+                    .unwrap(),
+                    Some(true),
+                    "field={field}, partitioned={partitioned}, workers={workers}, leader={leader}"
+                );
+            }
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(id)::bigint FROM vector_build WHERE name ||| 'even'"
+                )
+                .unwrap(),
+                Some(100010000)
+            );
+            Spi::run("DROP INDEX vector_build_idx").unwrap();
+        }
+    }
+
+    #[pg_test]
+    fn test_vector_build_preserves_clustering_threshold() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = 500;
+            CREATE TABLE small_vector_build (id BIGINT, emb vector(3));
+            INSERT INTO small_vector_build
+            SELECT i, ARRAY[i::real, 1.0, 1.0]::vector FROM generate_series(1, 100) i;
+            CREATE INDEX small_vector_build_idx ON small_vector_build USING paradedb
+                (id, emb vector_l2_ops) WITH (target_segment_count = 1);
+            "#,
         )
-        .unwrap()
         .unwrap();
-        assert_eq!(count, 1, "expected a single segment, got {count}");
+        assert_eq!(
+            Spi::get_one::<String>(
+                "SELECT vector_format FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
+            )
+            .unwrap()
+            .as_deref(),
+            Some("flat")
+        );
+        Spi::run(
+            "SET paradedb.vector_clustering_threshold = 1; REINDEX INDEX small_vector_build_idx;",
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<String>(
+                "SELECT vector_format FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
+            )
+            .unwrap()
+            .as_deref(),
+            Some("ivf")
+        );
     }
 
     /// An index with `partition_by` routes each row to a kd-tree partition and builds one segment
@@ -2393,27 +2517,22 @@ mod tests {
         Spi::run("DROP TABLE partitioned_parity;").unwrap();
     }
 
-    /// A partition holding a few dozen segments must merge down to one. A vector schema gets there
-    /// cheaply: its writer caps every segment at `DEFAULT_MAX_DOCS_PER_SEGMENT` docs whatever
-    /// the memory budget, and a single-partition tree puts all of them in one partition. The vectors are
-    /// seeded: the clusterer's behavior depends on the data, and a merge test must not change
-    /// its input from run to run.
     #[pg_test]
-    fn test_partitioned_build_merges_many_capped_segments() {
-        let nrows = crate::index::writer::index::DEFAULT_MAX_DOCS_PER_SEGMENT as usize * 33;
+    fn test_vector_build_merges_memory_limited_segments() {
+        let nrows = 12000;
         Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
         Spi::run(&format!(
             r#"
-            CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb vector(8));
-            SELECT setseed(0.42);
+            CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb vector(512));
             INSERT INTO partitioned_passes (tenant_id, emb)
             SELECT i % 4,
-                   ('[' || array_to_string(array(SELECT random() FROM generate_series(1, 8)), ',') || ']')::vector
+                   ARRAY(SELECT ((i + j) % 17 + 1)::real FROM generate_series(1, 512) j)::vector
             FROM generate_series(1, {nrows}) i;
             "#
         ))
         .unwrap();
-        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0; SET maintenance_work_mem = '16MB';")
+            .unwrap();
         Spi::run(
             "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (partition_by = 'tenant_id', target_segment_count = 1);",
         )
@@ -2434,6 +2553,13 @@ mod tests {
         assert_eq!(
             num_docs, nrows as i64,
             "the merged partition must keep every row"
+        );
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT bool_and(vector_format = 'ivf') FROM paradedb.vector_info('partitioned_passes_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
         );
     }
 }

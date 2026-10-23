@@ -1,0 +1,563 @@
+-- Regression coverage for issue #6576.
+--
+-- A Join Scan must accept a target list expression whose inputs are not
+-- columnar, as long as the expression only shapes the output. Its inputs come
+-- from the heap fetch like a bare column, and Postgres evaluates it after that.
+-- An expression the scan itself needs (a DISTINCT or ORDER BY key) still has
+-- to be columnar.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.enable_join_custom_scan = on;
+-- `path` is deliberately not in the index. `tags` is indexed for the LATERAL
+-- unnest cases.
+CREATE TABLE issue_6576_s (id int PRIMARY KEY, title text, rating float8, path text, tags text[]);
+INSERT INTO issue_6576_s
+SELECT g,
+       CASE WHEN g % 3 = 0 THEN 'dragon ' || g ELSE 'other ' || g END,
+       g % 100,
+       'p/' || g,
+       ARRAY['t' || (g % 3), 'u' || (g % 5)]
+FROM generate_series(1, 5000) g;
+CREATE INDEX issue_6576_s_idx ON issue_6576_s
+USING bm25 (id, title, rating, (tags::pdb.literal));
+-- `note` is deliberately not in the index, and is NULL for some rows.
+CREATE TABLE issue_6576_e (id int PRIMARY KEY, u text, s_id int, note text);
+INSERT INTO issue_6576_e
+SELECT g, 'u1', g * 2, CASE WHEN g % 4 = 0 THEN NULL ELSE 'n' || g END
+FROM generate_series(1, 1000) g;
+CREATE INDEX issue_6576_e_idx ON issue_6576_e
+USING bm25 (id, u, s_id)
+WITH (text_fields = '{"u": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+ANALYZE issue_6576_s;
+ANALYZE issue_6576_e;
+-- 1) Control: a bare non-columnar column in an anti join takes the Join Scan.
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.path FROM issue_6576_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (
+    SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s ANTI e
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: pdb.score(s) desc, s.rating desc, s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(s)@0 as col_3, rating@3 as col_4, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[pdb.score(s)@0 DESC, rating@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(s_id@0, id@2)]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, s.path FROM issue_6576_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (
+    SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
+  id  |  path  
+------+--------
+   99 | p/99
+  399 | p/399
+  699 | p/699
+  999 | p/999
+ 1299 | p/1299
+(5 rows)
+
+-- 2) The reported shape: the same anti join, projecting an expression over the
+--    non-columnar column. It must take the Join Scan.
+EXPLAIN (COSTS OFF)
+SELECT s.id, 'x/' || s.path AS url FROM issue_6576_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (
+    SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s ANTI e
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: pdb.score(s) desc, s.rating desc, s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(s)@0 as col_3, rating@3 as col_4, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[pdb.score(s)@0 DESC, rating@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(s_id@0, id@2)]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, 'x/' || s.path AS url FROM issue_6576_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (
+    SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
+  id  |   url    
+------+----------
+   99 | x/p/99
+  399 | x/p/399
+  699 | x/p/699
+  999 | x/p/999
+ 1299 | x/p/1299
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, 'x/' || s.path AS url FROM issue_6576_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (
+    SELECT 1 FROM issue_6576_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 5;
+  id  |   url    
+------+----------
+   99 | x/p/99
+  399 | x/p/399
+  699 | x/p/699
+  999 | x/p/999
+ 1299 | x/p/1299
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 3) An inner join projecting an expression over non-columnar columns of both
+--    sides. It must take the Join Scan.
+EXPLAIN (COSTS OFF)
+SELECT s.id, 'x/' || s.path AS url, s.path || ':' || e.note AS tag
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 5;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: s.rating desc, e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, rating@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[rating@2 DESC, s_id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@1, id@1)], projection=[ctid_0@2, id@3, rating@4, ctid_1@0, s_id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, 'x/' || s.path AS url, s.path || ':' || e.note AS tag
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 5;
+  id  |   url    |     tag     
+------+----------+-------------
+  198 | x/p/198  | p/198:n99
+  498 | x/p/498  | p/498:n249
+  798 | x/p/798  | p/798:n399
+ 1098 | x/p/1098 | p/1098:n549
+ 1398 | x/p/1398 | p/1398:n699
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, 'x/' || s.path AS url, s.path || ':' || e.note AS tag
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 5;
+  id  |   url    |     tag     
+------+----------+-------------
+  198 | x/p/198  | p/198:n99
+  498 | x/p/498  | p/498:n249
+  798 | x/p/798  | p/798:n399
+ 1098 | x/p/1098 | p/1098:n549
+ 1398 | x/p/1398 | p/1398:n699
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 4) A left join whose expression reads a non-columnar column of the
+--    null-extended side. Unmatched rows evaluate the expression over NULL
+--    inputs, and rows whose `note` is NULL do the same.
+--
+--    Control: the bare column takes the Join Scan.
+EXPLAIN (COSTS OFF)
+SELECT s.id, e.note
+FROM issue_6576_s s LEFT JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s LEFT e
+   Join Cond: e.s_id = s.id
+   Limit: 10
+   Order By: s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(s_id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT s.id, coalesce('n/' || e.note, 'none') AS note_url
+FROM issue_6576_s s LEFT JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s LEFT e
+   Join Cond: e.s_id = s.id
+   Limit: 10
+   Order By: s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(s_id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, coalesce('n/' || e.note, 'none') AS note_url
+FROM issue_6576_s s LEFT JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 10;
+ id | note_url 
+----+----------
+  3 | none
+  6 | n/n3
+  9 | none
+ 12 | n/n6
+ 15 | none
+ 18 | n/n9
+ 21 | none
+ 24 | none
+ 27 | none
+ 30 | n/n15
+(10 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, coalesce('n/' || e.note, 'none') AS note_url
+FROM issue_6576_s s LEFT JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 10;
+ id | note_url 
+----+----------
+  3 | none
+  6 | n/n3
+  9 | none
+ 12 | n/n6
+ 15 | none
+ 18 | n/n9
+ 21 | none
+ 24 | none
+ 27 | none
+ 30 | n/n15
+(10 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 5) An expression over a non-columnar column used as an ORDER BY key: the
+--    scan sorts on it, so it should still decline, but without a message.
+--    Any SRF in the target list sets hasTargetSRFs, which will cause the query
+--    to be declined earlier by the LIMIT pushdown check.
+EXPLAIN (COSTS OFF)
+SELECT s.id, 'x/' || s.path AS url
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY 'x/' || s.path, s.id LIMIT 5;
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: e, s)
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (('x/'::text || s.path)), s.id
+         ->  Hash Join
+               Hash Cond: (s.id = e.s_id)
+               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                     Table: issue_6576_s
+                     Index: issue_6576_s_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on issue_6576_e e
+                           Table: issue_6576_e
+                           Index: issue_6576_e_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+(18 rows)
+
+-- 6) An expression over a non-columnar column used as a DISTINCT key: the scan
+--    deduplicates on it, so it still declines.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT 'x/' || s.path AS url
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+LIMIT 5;
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: e, s)
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  HashAggregate
+         Group Key: ('x/'::text || s.path)
+         ->  Hash Join
+               Hash Cond: (s.id = e.s_id)
+               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                     Table: issue_6576_s
+                     Index: issue_6576_s_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on issue_6576_e e
+                           Table: issue_6576_e
+                           Index: issue_6576_e_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+(18 rows)
+
+-- 7) An expression over a non-columnar column and a LATERAL unnest column.
+--    The unnest column is an output of the scan, so Postgres can evaluate the
+--    expression after it. It must take the Join Scan.
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.path || ':' || t AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (s INNER e) CROSS JOIN LATERAL UNNEST (tags)
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: e.s_id asc, tags asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, s_0_tags@1 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[s_id@3 ASC NULLS LAST, s_0_tags@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :       UnnestExec
+     :         ProjectionExec: expr=[ctid_0@2 as ctid_0, tags@3 as s_0_tags, id@4 as id, s_id@0 as s_id, ctid_1@1 as ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@0, id@2)]
+     :             CooperativeExec
+     :               PgSearchScan: table=e, segments=1, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT s.id, s.path || ':' || t AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+ id |    x    
+----+---------
+  6 | p/6:t0
+  6 | p/6:u1
+ 12 | p/12:t0
+ 12 | p/12:u2
+ 18 | p/18:t0
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.path || ':' || t AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+ id |    x    
+----+---------
+  6 | p/6:t0
+  6 | p/6:u1
+ 12 | p/12:t0
+ 12 | p/12:u2
+ 18 | p/18:t0
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+--    The same, over the unnest column alone, with a result type that isn't
+--    Arrow-convertible.
+EXPLAIN (COSTS OFF)
+SELECT s.id, point(length(t), 1) AS p
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (s INNER e) CROSS JOIN LATERAL UNNEST (tags)
+   Join Cond: e.s_id = s.id
+   Limit: 5
+   Order By: e.s_id asc, tags asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, s_0_tags@1 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[s_id@3 ASC NULLS LAST, s_0_tags@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :       UnnestExec
+     :         ProjectionExec: expr=[ctid_0@2 as ctid_0, tags@3 as s_0_tags, id@4 as id, s_id@0 as s_id, ctid_1@1 as ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@0, id@2)]
+     :             CooperativeExec
+     :               PgSearchScan: table=e, segments=1, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT s.id, point(length(t), 1) AS p
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+ id |   p   
+----+-------
+  6 | (2,1)
+  6 | (2,1)
+ 12 | (2,1)
+ 12 | (2,1)
+ 18 | (2,1)
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, point(length(t), 1) AS p
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+CROSS JOIN LATERAL unnest(s.tags) AS t
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id, t LIMIT 5;
+ id |   p   
+----+-------
+  6 | (2,1)
+  6 | (2,1)
+ 12 | (2,1)
+ 12 | (2,1)
+ 18 | (2,1)
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 8) A set-returning function in the SELECT list. Postgres can't evaluate it
+--    as a per-row projection after the scan, so it still declines.
+EXPLAIN (COSTS OFF)
+SELECT s.id, unnest(s.tags) AS tag
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.id LIMIT 5;
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  ProjectSet
+         ->  Result
+               ->  Sort
+                     Sort Key: s.id
+                     ->  Hash Join
+                           Hash Cond: (s.id = e.s_id)
+                           ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                                 Table: issue_6576_s
+                                 Index: issue_6576_s_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+                           ->  Hash
+                                 ->  Custom Scan (ParadeDB Base Scan) on issue_6576_e e
+                                       Table: issue_6576_e
+                                       Index: issue_6576_e_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+(20 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT s.id, regexp_split_to_table(s.path, '/') AS part
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.id LIMIT 5;
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  ProjectSet
+         ->  Result
+               ->  Sort
+                     Sort Key: s.id
+                     ->  Hash Join
+                           Hash Cond: (s.id = e.s_id)
+                           ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                                 Table: issue_6576_s
+                                 Index: issue_6576_s_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+                           ->  Hash
+                                 ->  Custom Scan (ParadeDB Base Scan) on issue_6576_e e
+                                       Table: issue_6576_e
+                                       Index: issue_6576_e_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+(20 rows)
+
+-- 9) An expression over a whole-row reference or a non-columnar system
+--    column (xmin). It declines, and the warning names the column (issue #6908).
+--    ctid and tableoid are columnar, so they don't take this path.
+EXPLAIN (COSTS OFF)
+SELECT s.id, s::text || s.path AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 5;
+WARNING:  JoinScan not used: target list expression depends on 's.*' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: s.id
+         ->  Hash Join
+               Hash Cond: (s.id = e.s_id)
+               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                     Table: issue_6576_s
+                     Index: issue_6576_s_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Seq Scan on issue_6576_e e
+(13 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.xmin::text || s.path AS x
+FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.id LIMIT 5;
+WARNING:  JoinScan not used: target list expression depends on 's.xmin' which is not columnar, and Postgres can't compute it after the scan because it depends on a system column or whole-row reference (tables: e, s)
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: s.id
+         ->  Hash Join
+               Hash Cond: (s.id = e.s_id)
+               ->  Custom Scan (ParadeDB Base Scan) on issue_6576_s s
+                     Table: issue_6576_s
+                     Index: issue_6576_s_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Seq Scan on issue_6576_e e
+(13 rows)
+
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE issue_6576_s, issue_6576_e CASCADE;

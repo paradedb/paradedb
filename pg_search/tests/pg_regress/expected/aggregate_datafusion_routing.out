@@ -118,48 +118,45 @@ FROM (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
 GROUP BY cat ORDER BY cat LIMIT 8 OFFSET 5;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: cat
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: routing_test_idx (routing_test)
-               Group By: cat
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=13), expr=[cat@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Final, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
-                 :     TantivyDecodeExec: decode=[cat]
-                 :       AggregateExec: mode=Partial, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
-                 :         TantivyFetchExec: fetch=[cat]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=routing_test, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(16 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: routing_test_idx (routing_test)
+         Group By: cat
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=13), expr=[cat@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Final, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+           :     TantivyDecodeExec: decode=[cat]
+           :       AggregateExec: mode=Partial, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+           :         TantivyFetchExec: fetch=[cat]
+           :           CooperativeExec
+           :             PgSearchScan: table=routing_test, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
 
 -- Multiple grouping columns cannot use the bounded pushdown safely: DataFusion.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT cat, sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
 GROUP BY cat, sub ORDER BY cat, sub LIMIT 5;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: cat, sub
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: routing_test_idx (routing_test)
-               Group By: cat, sub
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : AggregateExec: mode=Final, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
-                 :   TantivyDecodeExec: decode=[cat, sub]
-                 :     AggregateExec: mode=Partial, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
-                 :       TantivyFetchExec: fetch=[cat, sub]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=routing_test, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(15 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: routing_test_idx (routing_test)
+         Group By: cat, sub
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=5), expr=[cat@0 ASC NULLS LAST, sub@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Final, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
+           :     TantivyDecodeExec: decode=[cat, sub]
+           :       AggregateExec: mode=Partial, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
+           :         TantivyFetchExec: fetch=[cat, sub]
+           :           CooperativeExec
+           :             PgSearchScan: table=routing_test, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
 
 -- Selective filter: only a few rows match, so few groups are possible even
 -- though cat has 50 distinct values overall — stays on the fast Tantivy path.
@@ -187,6 +184,37 @@ SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY sub;
      Group By: sub
      Aggregate Definition: {"grouped":{"terms":{"field":"sub","segment_size":10,"size":10}}}
 (6 rows)
+
+-- An aggregate among several ORDER BY keys, with a LIMIT: DataFusion, whose
+-- TopK takes the whole key list. Both groups count the same, so the second
+-- key picks the row.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY sub ORDER BY COUNT(*) DESC, sub LIMIT 1;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: routing_test_idx (routing_test)
+         Group By: sub
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC, sub@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Final, gby=[sub@0 as sub], aggr=[count(1) as agg_0]
+           :     TantivyDecodeExec: decode=[sub]
+           :       AggregateExec: mode=Partial, gby=[sub@0 as sub], aggr=[count(1) as agg_0]
+           :         TantivyFetchExec: fetch=[sub]
+           :           CooperativeExec
+           :             PgSearchScan: table=routing_test, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
+
+SELECT sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY sub ORDER BY COUNT(*) DESC, sub LIMIT 1;
+  sub  | count 
+-------+-------
+ sub_0 | 50000
+(1 row)
 
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE routing_test;

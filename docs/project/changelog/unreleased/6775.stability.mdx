@@ -1,5 +1,0 @@
----
-header: stability
----
-
-A range filter now adds its constant 1.0 to the score on every segment, so rows that match a text clause and the range equally rank the same regardless of segment layout (#6674). Before, a segment the range fully covered scored 1.0 lower than a segment it only partly covered, and Top K on the fully covered segment could not use Block-WAND.

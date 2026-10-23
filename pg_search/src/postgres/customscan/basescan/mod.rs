@@ -37,7 +37,6 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
@@ -89,6 +88,7 @@ use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
+use crate::postgres::pgstat::{count_heap_fetch, count_index_scan, count_index_tuples};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
@@ -112,6 +112,16 @@ use tantivy::snippet::SnippetGenerator;
 pub struct BaseScan;
 
 impl BaseScan {
+    /// Solve the query for the coming execution: a fresh copy of the base query with its
+    /// Postgres expressions and parameters evaluated in the runtime context.
+    fn prepare_query(state: &mut CustomScanStateWrapper<Self>) {
+        let planstate = state.planstate();
+        let runtime_context = state.custom_state().runtime_context;
+        state
+            .custom_state_mut()
+            .prepare_query_for_execution(planstate, runtime_context);
+    }
+
     /// (Re-)initializes the search reader for the current execution context.
     ///
     /// This function handles two distinct execution scenarios:
@@ -138,11 +148,8 @@ impl BaseScan {
             (*state.csstate.ss.ps.state).es_snapshot
         });
 
+        Self::prepare_query(state);
         let planstate = state.planstate();
-        let runtime_context = state.custom_state().runtime_context;
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, runtime_context);
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
@@ -151,6 +158,14 @@ impl BaseScan {
             .indexrel
             .as_ref()
             .expect("custom_state.indexrel should already be open");
+        let shares_leaders_scan = state
+            .custom_state()
+            .parallel
+            .as_ref()
+            .is_some_and(|parallel| !parallel.is_leader());
+        if !shares_leaders_scan {
+            count_index_scan(indexrel);
+        }
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
@@ -342,7 +357,7 @@ impl BaseScan {
         if quals.is_some()
             && !state.uses_our_operator
             && !allow_without_operator
-            && search_operator_relations::applies_to(root, rti)
+            && search_operator_relations::applies_to_scan(root, rti)
         {
             state.uses_our_operator = true;
             if !join_clauses_contain_search_predicate(builder.args().rel) {
@@ -879,7 +894,10 @@ impl CustomScan for BaseScan {
             // every row as it does for `pdb.all()`.
             let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
-                && search_operator_relations::applies_to(builder.args().root, builder.args().rti);
+                && search_operator_relations::applies_to_scan(
+                    builder.args().root,
+                    builder.args().rti,
+                );
 
             if matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
@@ -997,15 +1015,6 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-            // execution may skip some of these segments.
-            let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                crate::index::open_index(directory)
-                    .expect("custom_scan: should be able to open index");
-                segment_count.load(Ordering::Relaxed)
-            };
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
@@ -1097,9 +1106,10 @@ impl CustomScan for BaseScan {
             };
 
             // Seeded only by the final `else` branch's selectivity open (every other branch leaves
-            // it `None`). It feeds the TopK cost memo so the worker decision reuses that open
-            // instead of opening the index a second time.
+            // them `None`). They feed the TopK cost memo and segment count so the worker decision
+            // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
+            let mut precomputed_segment_count: Option<usize> = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
@@ -1110,15 +1120,25 @@ impl CustomScan for BaseScan {
                 match estimation_query.resolve(&query) {
                     Ok(indexable) => {
                         // Ask the index. This is the one branch that opens, so reuse that same
-                        // open's cost for the TopK worker decision instead of opening twice.
-                        let (sel, cost) =
+                        // open's cost and segment count for the worker decision instead of opening
+                        // twice.
+                        let estimated =
                             estimate_selectivity_and_cost(&bm25_index, indexable.clone(), None);
-                        precomputed_query_cost = cost;
-                        sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                        precomputed_query_cost = estimated.query_cost;
+                        precomputed_segment_count = estimated.segment_count;
+                        estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
                     }
                     Err(guess) => guess,
                 }
             };
+
+            let segment_count = precomputed_segment_count.unwrap_or_else(|| {
+                SearchIndexReader::estimate_segment_count(
+                    &bm25_index,
+                    &schema,
+                    estimation_query.resolve(&query).ok(),
+                )
+            });
 
             // Use planning_estimate for costing so parameterized limits still
             // contribute a non-zero row estimate (otherwise the parallel-worker
@@ -1194,22 +1214,6 @@ impl CustomScan for BaseScan {
             // any), so the cost computation opens the index at most once per query.
             let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
 
-            // Cost the query once (memoized) for costable scans; `None` marks the scan uncostable, so
-            // pg_search forces the worker decision (and an effective-LIMIT scan uses the magnitude in
-            // `cost_test_limited`). Skip the open entirely for un-ANALYZEd tables -- the row heuristic
-            // decides those without a cost.
-            let drive_cost = match row_estimate {
-                RowEstimate::Known(_) => costable_drive_cost(
-                    &query,
-                    &estimation_query,
-                    &bm25_index,
-                    &quals,
-                    builder.args().root,
-                    &mut cost_memo,
-                ),
-                RowEstimate::Unknown => None,
-            };
-
             // For each execution method variant, decide a `WorkerPathPolicy` and emit the path(s) it
             // calls for: one serial path, one partial (parallel) path, or -- for a costable no-LIMIT
             // scan -- both, so PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
@@ -1219,6 +1223,32 @@ impl CustomScan for BaseScan {
                     ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
                     // requires heap access to return fields
                     _ => pg_sys::cpu_tuple_cost,
+                };
+
+                let drive_cost = match (&method, row_estimate) {
+                    // Posting costs omit vector work; preserve the fallback for runtime filters.
+                    (
+                        ExecMethodType::TopK {
+                            orderby_info: Some(orderby),
+                            ..
+                        },
+                        _,
+                    ) if matches!(estimation_query, EstimationQuery::Folded(_))
+                        && orderby
+                            .first()
+                            .is_some_and(|order| order.is_vector_distance()) =>
+                    {
+                        None
+                    }
+                    (_, RowEstimate::Known(_)) => costable_drive_cost(
+                        &query,
+                        &estimation_query,
+                        &bm25_index,
+                        &quals,
+                        builder.args().root,
+                        &mut cost_memo,
+                    ),
+                    (_, RowEstimate::Unknown) => None,
                 };
 
                 let is_sorted = method.declares_sorted_output();
@@ -1738,6 +1768,13 @@ impl CustomScan for BaseScan {
         }
 
         if explainer.is_analyze() {
+            state
+                .custom_state()
+                .search_reader
+                .as_ref()
+                .map(SearchIndexReader::segment_pruning_estimate)
+                .unwrap_or_default()
+                .explain(explainer);
             explainer.add_unsigned_integer(
                 "Heap Fetches",
                 state
@@ -1846,7 +1883,7 @@ impl CustomScan for BaseScan {
                 // Get or create a search reader for estimates.
                 // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
                 // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
-                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                //   reader using SearchIndexReader::mvcc_for_estimation for estimation purposes only
                 let query_tree =
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
@@ -1861,20 +1898,23 @@ impl CustomScan for BaseScan {
                             .as_ref()
                             .expect("indexrel should be open");
 
+                        let query_for_estimates = base_query.without_heap_filters();
+                        let mvcc_style =
+                            SearchIndexReader::mvcc_for_estimation(indexrel, &query_for_estimates);
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.without_heap_filters(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
+                            query_for_estimates.clone(),
+                            false,      // don't need scores for estimates
+                            mvcc_style, // Use snapshot when prunable, largest segment otherwise
+                            None,       // No expr_context needed for estimates
+                            None,       // No planstate needed for estimates
                             base_query.needs_tokenizer(),
                             None,
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 
                         temp_reader
-                            .build_query_tree_with_estimates(base_query.without_heap_filters())
+                            .build_query_tree_with_estimates(query_for_estimates)
                             .expect("building query tree with estimates should not fail")
                     };
 
@@ -1979,11 +2019,8 @@ impl CustomScan for BaseScan {
         // Drop the previous execution's scorers (whose cursors point into the
         // bitmap) and the stale source cell before the bitmap is freed; only then
         // rebuild for the new params. The exec method itself is preserved and
-        // re-bound by `reset()` below. No reader means the scan never executed:
-        // there are no scorers, and the exec method may not even be bound yet.
-        if state.custom_state().search_reader.is_some() {
-            state.custom_state_mut().reset_exec_results();
-        }
+        // re-bound by `reset()` below.
+        state.custom_state_mut().reset_exec_results();
         // A merge can retire a segment the shared work queue still hands out, and a retired
         // segment stays readable only while something pins it. `TopKScanExecState` happens to
         // keep a reader clone through `reset_exec_results`, but the normal and columnar methods
@@ -1995,9 +2032,14 @@ impl CustomScan for BaseScan {
             .as_ref()
             .map(SearchIndexReader::segment_pins);
         drop(state.custom_state_mut().search_reader.take());
-        state.custom_state_mut().bitmap_cell = None;
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            unsafe { bitmap_exec.rescan() };
+        // A parallel scan's bitmap is shared state: the DSM callbacks build it and fill
+        // the cell before the workers launch, and this ReScan runs after, while they
+        // read it. Only a serial scan rebuilds here.
+        if state.custom_state().parallel.is_none() {
+            state.custom_state_mut().bitmap_cell = None;
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                unsafe { bitmap_exec.rescan() };
+            }
         }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();
@@ -2023,6 +2065,11 @@ impl CustomScan for BaseScan {
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
             let next = exec_method.next(state.custom_state_mut());
+            // A `Virtual` row comes out of the index like an index-only scan's, so it counts as
+            // read too. Only a row fetched from the heap below counts as fetched.
+            if !matches!(next, ExecState::Eof) {
+                count_index_tuples(state.custom_state().indexrel(), 1);
+            }
 
             // get the next matching document from our search results and look for it in the heap
             match next {
@@ -2043,6 +2090,7 @@ impl CustomScan for BaseScan {
                             // the ctid is visible
                             Some(slot) => {
                                 exec_method.increment_visible();
+                                count_heap_fetch(state.custom_state().indexrel());
                                 slot
                             }
 
@@ -3066,6 +3114,7 @@ fn base_query_has_search_predicates(
 
         // These are NOT search predicates (they're range/exists/other predicates)
         SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::StoredRange { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeIntersects { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeTerm { .. }, .. }

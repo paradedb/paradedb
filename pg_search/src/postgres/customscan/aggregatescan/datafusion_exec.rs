@@ -15,10 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! DataFusion plan builder for aggregate-on-join queries.
+//! DataFusion plan builder for aggregate-on-join (and single-table DataFusion
+//! aggregate) queries.
 //!
 //! Builds a DataFusion logical plan from a [`RelNode`] join tree and a
-//! [`JoinAggregateTargetList`], producing: scan(s) → join → aggregate.
+//! [`JoinAggregateTargetList`], producing:
+//! - Without window aggregates: `scan(s) → [join] → aggregate [→ filter (HAVING)] [→ sort → limit]`.
+//! - With `OVER ()` window aggregates (`pdb.combine_agg(pdb.agg(...)) OVER ()` and/or
+//!   standard SQL `OVER ()` window aggregates):
+//!   1. Stage 1 grouped `Aggregate` computing the SQL group keys, per-group aggregates,
+//!      and `pdb_precombine_agg` for each `pdb.combine_agg`.
+//!   2. Stage 2 ungrouped `Aggregate` combining `topk_as_agg` (over the Stage 1 payload
+//!      columns, bounded by `OFFSET + LIMIT`), `pdb_combine_agg`, and any SQL `OVER ()`
+//!      window aggregates (`COUNT(*)`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`), followed by
+//!      `unnest_columns` + projection + optional `OFFSET`/`LIMIT`.
 //!
 //! Key difference from JoinScan's plan builder: no CTID columns, no late
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
@@ -32,16 +42,20 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, JoinAggregateEntry, JoinAggregateTargetList,
+    AggKind, JoinAggregateEntry, JoinAggregateTargetList, WindowAggInput, WindowAggKind,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{
-    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+    ColumnRef, CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
 };
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
+use crate::postgres::customscan::datafusion::pdb_agg_udaf::{pdb_combine_agg, pdb_precombine_agg};
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
+use crate::postgres::customscan::datafusion::topk_agg::{
+    TOPK_AGG_ROWS_COL_NAME, topk_as_agg, topk_as_agg_static,
+};
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
@@ -53,11 +67,15 @@ use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
 use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
+use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::scan::PgSearchTableProvider;
+use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
+use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
-use datafusion::functions::core::expr_fn::coalesce;
+use datafusion::functions::core::expr_fn::{coalesce, get_field};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
@@ -315,6 +333,14 @@ pub async fn build_join_aggregate_plan(
         group_df_indices[gc_idx] = num_group_exprs + agg_exprs.len();
         agg_exprs.push(expr);
     }
+    let num_stage1_payload_cols = num_group_exprs + agg_exprs.len();
+    for (win_idx, win) in targetlist.window_aggregates.iter().enumerate() {
+        if let WindowAggKind::CombinePdbAgg(request) = &win.kind {
+            agg_exprs.push(
+                pdb_precombine_agg(request, plan)?.alias(targetlist.precombine_name(win_idx)),
+            );
+        }
+    }
 
     let having_expr = having_filter
         .map(|having| {
@@ -378,17 +404,136 @@ pub async fn build_join_aggregate_plan(
         }
     };
 
-    // Step 5: If TopK is requested, add sort + limit so DataFusion handles
-    // it internally. DataFusion's built-in TopKAggregation optimizer rule
-    // can then push the limit into AggregateExec for group-key and MIN/MAX
-    // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
-    // bounded TopK heap.
-    if let Some(topk) = topk {
-        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
-        let sort_expr = Expr::Column(sort_column)
-            .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
-        df = df.sort(vec![sort_expr])?;
-        df = df.limit(0, Some(topk.k))?;
+    // Step 5: Apply TopK and/or Stage 2 window aggregates (`OVER ()`).
+    let sort_exprs: Vec<Sort> = topk
+        .map(|t| {
+            t.sorts
+                .iter()
+                .map(|(target, dir)| {
+                    let sort_column = target.resolve_sort_column(targetlist, plan);
+                    Expr::Column(sort_column).sort(dir.is_asc(), dir.is_nulls_first())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if targetlist.window_aggregates.is_empty() {
+        // Without window aggregates, add sort + limit so DataFusion's built-in
+        // TopKAggregation optimizer rule can push the limit into AggregateExec
+        // for group-key and MIN/MAX ordering, or use SortExec(fetch=K) for
+        // COUNT/SUM/AVG ordering.
+        if let Some(topk) = topk {
+            if !sort_exprs.is_empty() {
+                df = df.sort(sort_exprs)?;
+            }
+            let limit = topk
+                .limit
+                .as_ref()
+                .and_then(|l| l.static_value())
+                .map(|&v| v as usize);
+            let offset = topk
+                .offset
+                .as_ref()
+                .and_then(|o| o.static_value())
+                .map_or(0, |&v| v as usize);
+            if offset > 0 || limit.is_some() {
+                df = df.limit(offset, limit)?;
+            }
+        }
+    } else {
+        // Stage 2: Ungrouped Aggregate combining `topk_as_agg` over the Stage 1
+        // group/aggregate columns with `pdb_combine_agg` and any SQL `OVER ()`
+        // window aggregates, followed by `unnest_columns` to fan out the window
+        // results across the surviving group rows.
+        let stage1_cols = df.schema().columns();
+        let payload_cols = &stage1_cols[..num_stage1_payload_cols];
+        let payload_exprs: Vec<Expr> = payload_cols.iter().cloned().map(Expr::Column).collect();
+        let estate = planstate
+            .map(|ps| unsafe { (*ps).state })
+            .filter(|s| !s.is_null());
+        let has_unbound_param = estate.is_none()
+            && topk.is_some_and(|t| {
+                t.limit.as_ref().is_some_and(|l| l.is_param())
+                    || t.offset.as_ref().is_some_and(|o| o.is_param())
+            });
+        let (topk_expr, post_select_limit) = if has_unbound_param {
+            let topk = topk.expect("checked above");
+            let expr = match &topk.limit {
+                Some(limit) => {
+                    let lo = LimitOffset {
+                        limit: limit.clone(),
+                        offset: topk.offset.clone(),
+                    };
+                    topk_as_agg(&payload_exprs, sort_exprs, &lo, &[], false)
+                }
+                None => topk_as_agg_static(&payload_exprs, sort_exprs, usize::MAX, &[], false),
+            };
+            (expr.alias(TOPK_AGG_ROWS_COL_NAME), None)
+        } else {
+            let estate_ptr = estate.unwrap_or(std::ptr::null_mut());
+            let limit = LimitOffset::resolve_bound(
+                topk.and_then(|t| t.limit.as_ref()),
+                estate_ptr,
+                LimitClauseKind::Limit,
+            )
+            .map_err(DataFusionError::Execution)?;
+            let offset = LimitOffset::resolve_bound(
+                topk.and_then(|t| t.offset.as_ref()),
+                estate_ptr,
+                LimitClauseKind::Offset,
+            )
+            .map_err(DataFusionError::Execution)?
+            .unwrap_or(0);
+            let fetch = limit
+                .map(|l| offset.saturating_add(l))
+                .unwrap_or(usize::MAX);
+            let expr = topk_as_agg_static(&payload_exprs, sort_exprs, fetch, &[], false)
+                .alias(TOPK_AGG_ROWS_COL_NAME);
+            let post_limit = (offset > 0).then_some((offset, limit));
+            (expr, post_limit)
+        };
+
+        let mut stage2_aggs = Vec::with_capacity(1 + targetlist.window_aggregates.len());
+        stage2_aggs.push(topk_expr);
+        for (win_idx, win) in targetlist.window_aggregates.iter().enumerate() {
+            let win_expr = match &win.kind {
+                WindowAggKind::CombinePdbAgg(request) => {
+                    pdb_combine_agg(request, col(targetlist.precombine_name(win_idx)))?
+                }
+                WindowAggKind::SqlAgg { op, input, numeric } => {
+                    let input_expr = input.as_ref().map(|inp| match inp {
+                        WindowAggInput::GroupColumn(gc_idx) => {
+                            Expr::Column(payload_cols[group_df_indices[*gc_idx]].clone())
+                        }
+                        WindowAggInput::Aggregate(agg_idx) => {
+                            col(targetlist.aggregate_name(*agg_idx))
+                        }
+                    });
+                    let (udaf, args) = op.udaf_with_args(input_expr, numeric.as_ref())?;
+                    udaf.call(args)
+                }
+            };
+            stage2_aggs.push(win_expr.alias(targetlist.window_aggregate_name(win_idx)));
+        }
+
+        df = df.aggregate(vec![], stage2_aggs)?;
+        df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+
+        let mut select_exprs =
+            Vec::with_capacity(num_stage1_payload_cols + targetlist.window_aggregates.len());
+        for (i, c) in payload_cols.iter().enumerate() {
+            select_exprs.push(
+                get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                    .alias_qualified(c.relation.clone(), &c.name),
+            );
+        }
+        for win_idx in 0..targetlist.window_aggregates.len() {
+            select_exprs.push(col(targetlist.window_aggregate_name(win_idx)));
+        }
+        df = df.select(select_exprs)?;
+        if let Some((offset, limit)) = post_select_limit {
+            df = df.limit(offset, limit)?;
+        }
     }
 
     Ok(JoinAggregatePlan {
@@ -479,8 +624,18 @@ fn build_pdb_aggregate_plan(
 
     let mut level_plans = Vec::with_capacity(groups.len());
 
-    for (needed_keys, levels_in_group) in groups {
-        let mut level_plan = input.clone();
+    // Cloned union groups must not share a provider's runtime state: each group needs its own
+    // `ExprContext` (solving parameters resets per-tuple memory), and under MPP each scan claims
+    // segments from the pool its `source_idx` names (clones sharing the original's indexes would
+    // split every pool between them, so groups past the first get pools one source list apart,
+    // matching the launch's `i % sources` manifest replay).
+    let pool_stride = plan.sources().len();
+    for (group_idx, (needed_keys, levels_in_group)) in groups.into_iter().enumerate() {
+        let mut level_plan = if group_idx == 0 {
+            input.clone()
+        } else {
+            isolate_cloned_sources(input.clone(), group_idx * pool_stride)?
+        };
         for ak in &array_keys {
             if needed_keys.contains(&ak.key_idx) {
                 level_plan = unnest_plan_column(
@@ -602,6 +757,27 @@ fn build_pdb_aggregate_plan(
         }
         Ok(combined)
     }
+}
+
+/// Give every `PgSearchTableProvider` in a cloned union group its own runtime `ExprContext`
+/// and, under MPP, move its segment claims to the pool `offset` past its own.
+fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPlan> {
+    plan.transform(|node| {
+        let LogicalPlan::TableScan(mut scan) = node else {
+            return Ok(Transformed::no(node));
+        };
+        let Some(provider) = pg_search_provider_from_scan(&scan) else {
+            return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+        };
+        let mut provider = provider.clone();
+        if let Some(idx) = provider.source_idx() {
+            provider.set_source_idx(idx + offset);
+        }
+        provider.ensure_own_expr_context();
+        scan.source = Arc::new(DefaultTableSource::new(Arc::new(provider)));
+        Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
+    })
+    .map(|t| t.data)
 }
 
 /// Aggregate with every `pdb.agg()` level folded in as grouping sets, then
@@ -738,10 +914,12 @@ pub(crate) fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     }
 }
 
-/// A metric as an aggregate call: the function and its arguments.
+/// A metric as an aggregate call: the function, its arguments, and the Arrow
+/// `DataType` of its column argument (`None` for `DocCount`).
 pub(crate) struct PdbMetricCall {
     pub udaf: Arc<AggregateUDF>,
     pub args: Vec<Expr>,
+    pub arg0_type: Option<DataType>,
 }
 
 /// The aggregate call a metric runs as. `column` supplies the metric's field as
@@ -762,6 +940,7 @@ pub(crate) fn pdb_metric_call(
         return PdbMetricCall {
             udaf: count_udaf(),
             args: vec![lit(1)],
+            arg0_type: None,
         };
     };
     let mut column = column(field);
@@ -778,16 +957,18 @@ pub(crate) fn pdb_metric_call(
         };
         Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
     };
-    let (udaf, args) = match stat {
-        PdbStat::Count => (count_udaf(), vec![column]),
+    let raw_type = field.field_type.arrow_data_type();
+    let (udaf, args, arg0_type) = match stat {
+        PdbStat::Count => (count_udaf(), vec![column], raw_type),
         // NUMERIC takes the decimal accumulator the SQL aggregates use; the
         // assembler decodes its blob.
         PdbStat::Sum if field.field_type.is_numeric() => {
-            numeric_sum_func_with_args(column, &field.field_type)
+            let (udaf, args) = numeric_sum_func_with_args(column, &field.field_type);
+            (udaf, args, raw_type)
         }
-        PdbStat::Sum => (sum_udaf(), vec![as_f64(column)]),
-        PdbStat::Min => (min_udaf(), vec![column]),
-        PdbStat::Max => (max_udaf(), vec![column]),
+        PdbStat::Sum => (sum_udaf(), vec![as_f64(column)], DataType::Float64),
+        PdbStat::Min => (min_udaf(), vec![column], raw_type),
+        PdbStat::Max => (max_udaf(), vec![column], raw_type),
         // Tantivy's own sketch, salted by the column type the way a
         // segment collection is.
         PdbStat::Cardinality => (
@@ -796,9 +977,14 @@ pub(crate) fn pdb_metric_call(
                 column,
                 lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
             ],
+            raw_type,
         ),
     };
-    PdbMetricCall { udaf, args }
+    PdbMetricCall {
+        udaf,
+        args,
+        arg0_type: Some(arg0_type),
+    }
 }
 
 fn pdb_metric_expr(
@@ -1064,16 +1250,16 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
 /// which carries raw planner `JoinAggSource`s instead of a `RelNode` tree.
-struct FilterExprExecContext<'a> {
-    targetlist: Option<&'a JoinAggregateTargetList>,
-    plan: Option<&'a RelNode>,
+pub struct FilterExprExecContext<'a> {
+    pub targetlist: Option<&'a JoinAggregateTargetList>,
+    pub plan: Option<&'a RelNode>,
 }
 
 impl FilterExpr {
     /// Translate this expression to a DataFusion `Expr`.
     ///
     /// Used for both HAVING (pass `targetlist`) and per-aggregate FILTER (pass `plan`).
-    fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
+    pub fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
         use datafusion::logical_expr::Operator;
 
         match self {
@@ -1094,13 +1280,29 @@ impl FilterExpr {
                     Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
                 })
             }
-            FilterExpr::ColumnRef {
+            FilterExpr::ColumnRef(ColumnRef {
                 plan_position,
                 field_name,
                 ..
-            } => {
+            }) => {
                 let plan = ctx.plan?;
                 Some(make_plan_position_col(plan, *plan_position, field_name))
+            }
+            FilterExpr::SearchTag {
+                plan_position,
+                predicate,
+            } => {
+                // Same lookup as `translate_join_level_expr`: the scan emits one
+                // boolean column per tagged query, matched by query equality.
+                let source = ctx.plan?.source_at_plan_position(*plan_position)?;
+                let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode
+                else {
+                    return None;
+                };
+                let tagged = local_queries
+                    .iter()
+                    .find(|tq| (*tq.query) == predicate.query)?;
+                Some(col(&tagged.tag_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
@@ -1176,32 +1378,6 @@ async fn build_source_df(
         .map(|f| f.field.clone())
         .collect();
 
-    // Each source that solves runtime PostgreSQL expressions needs its own
-    // per-tuple memory context. SearchQueryInput::solve_postgres_expressions()
-    // resets that context before replacing Param/PostgresExpression nodes. If
-    // two providers share one context, solving the second source invalidates
-    // the Const/expression nodes retained by the first source. Generic plans
-    // that parameterize predicates on both join inputs then dereference stale
-    // nodes during reader construction and abort the backend.
-    let source_query = scan_info.mode.query().clone();
-    let needs_runtime_context =
-        source_query.has_postgres_expressions() || source_query.has_parameters();
-    // Only the EXPLAIN-only rebuild has no planstate. It preserves runtime
-    // expressions without solving them, so the fallback context is never reset.
-    let source_expr_context = if needs_runtime_context {
-        planstate
-            .and_then(|planstate| {
-                if planstate.is_null() || unsafe { (*planstate).state.is_null() } {
-                    None
-                } else {
-                    Some(unsafe { pg_sys::CreateExprContext((*planstate).state) })
-                }
-            })
-            .or(expr_context)
-    } else {
-        expr_context
-    };
-
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
@@ -1233,8 +1409,9 @@ async fn build_source_df(
     // `init_postgres_expressions` / `solve_postgres_expressions` only
     // when needed, so threading them through here is what makes the
     // agg-on-join path match JoinScan and Base Scan.
-    provider.set_expr_context(source_expr_context);
+    provider.set_expr_context(expr_context);
     provider.set_planstate(planstate);
+    provider.ensure_own_expr_context();
     provider.set_explain_only(planstate.is_none());
 
     // Strings leave the scan deferred, so the placement rule can put each half of their
@@ -1291,7 +1468,7 @@ async fn build_source_df(
     }
 }
 
-fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
+pub(super) fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
     let Some(source) = plan.source_at_plan_position(plan_position) else {
         return false;
     };

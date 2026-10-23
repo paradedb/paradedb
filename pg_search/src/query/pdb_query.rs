@@ -19,11 +19,12 @@ use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::is_pgoid_datetime_type;
+use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
-    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
-    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
+    is_outside_int_domain, map_bound, numeric_bound_to_bytes, string_to_f64, string_to_i64,
+    string_to_json_numeric,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -273,6 +274,20 @@ pub mod pdb {
             slop: Option<u32>,
         },
         Range {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<PdbOwnedValue>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<PdbOwnedValue>,
+        },
+        /// Internal range form used for partition bounds. Unlike `Range`, its bounds are already
+        /// in stored form, so `into_tantivy_query` skips value conversion.
+        StoredRange {
             #[serde(
                 serialize_with = "serialize_bound",
                 deserialize_with = "deserialize_bound"
@@ -651,6 +666,16 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?),
+            pdb::Query::StoredRange {
+                lower_bound,
+                upper_bound,
+            } => Box::new(stored_range(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?),
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
@@ -671,12 +696,9 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?,
-            pdb::Query::RangeTerm { value } => Box::new(range_term(
-                &field,
-                schema,
-                index_created_by_version,
-                &value,
-            )?),
+            pdb::Query::RangeTerm { value } => {
+                range_term(&field, schema, index_created_by_version, &value)?
+            }
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
@@ -693,9 +715,7 @@ impl pdb::Query {
                 slop,
                 max_expansions,
             } => Box::new(regex_phrase(&field, schema, regexes, slop, max_expansions)?),
-            pdb::Query::Term { value } => {
-                Box::new(term(field, schema, index_created_by_version, &value)?)
-            }
+            pdb::Query::Term { value } => term(field, schema, index_created_by_version, &value)?,
             pdb::Query::TermSet { terms } => {
                 Box::new(term_set(field, schema, index_created_by_version, terms)?)
             }
@@ -721,6 +741,7 @@ impl pdb::Query {
             | pdb::Query::TermSet { .. }
             | pdb::Query::FuzzyTerm { .. }
             | pdb::Query::Range { .. }
+            | pdb::Query::StoredRange { .. }
             | pdb::Query::RangeContains { .. }
             | pdb::Query::RangeIntersects { .. }
             | pdb::Query::RangeTerm { .. }
@@ -864,6 +885,8 @@ fn term_set(
     // Convert terms based on field type (uses same logic as term())
     let converted_terms = terms
         .into_iter()
+        // A number that no integer of the field equals matches nothing, so it is left out.
+        .filter(|term| !is_outside_int_domain(term, &search_field_type))
         .map(|term| convert_value_for_field(term, &search_field_type, index_created_by_version))
         .collect::<anyhow::Result<Vec<PdbOwnedValue>>>()?;
 
@@ -884,13 +907,18 @@ fn term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<TermQuery> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqs;
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let search_field_type = search_field.field_type();
+
+    // A number that no integer of the field equals matches nothing.
+    if is_outside_int_domain(value, &search_field_type) {
+        return Ok(Box::new(EmptyQuery));
+    }
 
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
     let value =
@@ -904,7 +932,7 @@ fn term(
         index_created_by_version,
     )?;
 
-    Ok(TermQuery::new(term, record_option.into()))
+    Ok(Box::new(TermQuery::new(term, record_option.into())))
 }
 
 fn regex_phrase(
@@ -1117,10 +1145,15 @@ fn range_term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<BooleanQuery> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // A number that no integer equals lies in no range of an integer range field.
+    if is_outside_int_domain(value, &search_field.field_type()) {
+        return Ok(Box::new(EmptyQuery));
+    }
 
     // Convert numeric values to appropriate types based on range field type.
     // Range fields are indexed as JSON with specific element types:
@@ -1227,10 +1260,10 @@ fn range_term(
         ),
     ]);
 
-    Ok(BooleanQuery::new(vec![
+    Ok(Box::new(BooleanQuery::new(vec![
         (Occur::Must, Box::new(satisfies_lower_bound)),
         (Occur::Must, Box::new(satisfies_upper_bound)),
-    ]))
+    ])))
 }
 
 fn range_intersects(
@@ -1574,12 +1607,6 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     // Handle NUMERIC field types with special storage strategies
     // Also handle string-encoded numeric values for JSON and other numeric fields
     let bounds = match search_field_type {
-        SearchFieldType::Numeric64(_, scale) => {
-            // Scale bounds for I64 fixed-point storage
-            let lower = scale_numeric_bound(lower_bound, scale)?;
-            let upper = scale_numeric_bound(upper_bound, scale)?;
-            (lower, upper)
-        }
         SearchFieldType::NumericBytes(..) => {
             // Convert bounds to lexicographically sortable bytes
             let lower = numeric_bound_to_bytes(lower_bound, index_created_by_version)?;
@@ -1592,14 +1619,14 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             let upper = map_bound(upper_bound, string_to_json_numeric);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::I64(_) => {
+        // Dates and times are stored in I64 fields, but they are not numbers
+        SearchFieldType::I64(oid) if is_datetime_type(oid) => {
             let lower = map_bound(lower_bound, string_to_i64);
             let upper = map_bound(upper_bound, string_to_i64);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        SearchFieldType::U64(_) => {
-            let lower = map_bound(lower_bound, string_to_u64);
-            let upper = map_bound(upper_bound, string_to_u64);
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::Numeric64(..) => {
+            let (lower, upper) = clamp_int_bounds(&search_field_type, lower_bound, upper_bound)?;
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         SearchFieldType::F64(_) => {
@@ -1617,40 +1644,15 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     Ok(bounds)
 }
 
-/// Creates a range query for the given field and bounds.
-///
-/// # JSON Numeric Range Queries and Fast Fields
-///
-/// For JSON fields, Tantivy requires fast fields for range queries (returns error otherwise).
-/// Fast field storage has important limitations for JSON numeric values:
-///
-/// - Each JSON path gets ONE fast field column with ONE numeric type (I64, U64, or F64)
-/// - Column type is determined at index time based on values stored:
-///   - All integers that fit in i64 → I64 column
-///   - All non-negative integers, some exceeding i64::MAX → U64 column
-///   - Any float value OR mix of negative + large positive (≥ 2^63) → F64 column
-/// - When column is F64, integers > 2^53 lose precision (e.g. 9007199254740993 → 9007199254740992.0)
-///
-/// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
-/// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
-fn range(
+/// The bounds must already be in the field's stored form.
+fn range_query_from_bounds(
+    search_field: &SearchField,
     field: &FieldName,
-    schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<RangeQuery> {
-    let search_field = schema
-        .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
-    let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
-        &search_field,
-        index_created_by_version,
-        lower_bound,
-        upper_bound,
-    )?;
-
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
             search_field.field(),
@@ -1688,6 +1690,71 @@ fn range(
     };
 
     Ok(RangeQuery::new(lower_bound, upper_bound))
+}
+
+/// Creates a range query for the given field and bounds.
+///
+/// # JSON Numeric Range Queries and Fast Fields
+///
+/// For JSON fields, Tantivy requires fast fields for range queries (returns error otherwise).
+/// Fast field storage has important limitations for JSON numeric values:
+///
+/// - Each JSON path gets ONE fast field column with ONE numeric type (I64, U64, or F64)
+/// - Column type is determined at index time based on values stored:
+///   - All integers that fit in i64 → I64 column
+///   - All non-negative integers, some exceeding i64::MAX → U64 column
+///   - Any float value OR mix of negative + large positive (≥ 2^63) → F64 column
+/// - When column is F64, integers > 2^53 lose precision (e.g. 9007199254740993 → 9007199254740992.0)
+///
+/// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
+/// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
+fn range(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> anyhow::Result<RangeQuery> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
+        &search_field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )?;
+
+    range_query_from_bounds(
+        &search_field,
+        field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )
+}
+
+/// Builds the Tantivy query for the internal [`pdb::Query::StoredRange`] representation.
+/// Its bounds must already match the field's stored type, so this skips the user-input conversion
+/// performed by [`range`].
+fn stored_range(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> anyhow::Result<RangeQuery> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    range_query_from_bounds(
+        &search_field,
+        field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )
 }
 
 fn resolve_search_tokenizer(
@@ -1938,6 +2005,10 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     ) {
         // Convert the query string to the appropriate numeric format
         let value = PdbOwnedValue::Str(query_string.trim().to_string());
+        // An impossible numeric term must not fall back to parsing the physical I64 value.
+        if is_outside_int_domain(&value, &field_type) {
+            return Ok(Box::new(EmptyQuery));
+        }
         if let Ok(converted) = convert_value_for_field(value, &field_type, index_created_by_version)
         {
             let tantivy_field_type = search_field.field_entry().field_type();

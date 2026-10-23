@@ -28,8 +28,8 @@ CREATE TABLE remerge (
 -- (foreground merges only fire on an insert-cleanup that created a segment);
 -- target_segment_count = 1 keeps the merge policy engaged (merging is
 -- disabled while segment_count <= target); background_layer_sizes = '0'
--- keeps every merge in the foreground, deterministic. Inserts flush ~1000-doc
--- segments of ~70kb, and a 600kb layer closes its first candidate at
+-- keeps every merge in the foreground, deterministic. Explicit 1000-row batches
+-- create segments of ~70kb, and a 600kb layer closes its first candidate at
 -- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
 -- merge target is written IVF (clustered) under the default centroid router.
 CREATE INDEX remerge_idx ON remerge
@@ -42,9 +42,15 @@ CREATE INDEX remerge_idx ON remerge
     );
 -- Wave 1: deterministic vectors (no random()), enough segments that the
 -- 600kb candidate comfortably overfills even if per-segment bytes drift.
-INSERT INTO remerge
-SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
-FROM generate_series(1, 15000) g;
+DO $$
+BEGIN
+    FOR batch_start IN 1..15000 BY 1000 LOOP
+        INSERT INTO remerge
+        SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+        FROM generate_series(batch_start, batch_start + 999) g;
+    END LOOP;
+END
+$$;
 -- The merge produced a clustered segment...
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
 FROM paradedb.vector_info('remerge_idx', 'vec');
@@ -78,9 +84,15 @@ WHERE vector_format = 'ivf';
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus
 -- must overfill the extended layer, which the extra 35000 rows guarantee.
 ALTER INDEX remerge_idx SET (layer_sizes = '3500kb');
-INSERT INTO remerge
-SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
-FROM generate_series(15001, 50000) g;
+DO $$
+BEGIN
+    FOR batch_start IN 15001..50000 BY 1000 LOOP
+        INSERT INTO remerge
+        SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+        FROM generate_series(batch_start, batch_start + 999) g;
+    END LOOP;
+END
+$$;
 SELECT bool_or(vector_format = 'ivf') AS still_has_ivf
 FROM paradedb.vector_info('remerge_idx', 'vec');
  still_has_ivf 
@@ -97,12 +109,19 @@ WHERE v.vector_format = 'ivf';
  t
 (1 row)
 
--- Exhaustive probing: the ceiling clamps to each segment's cluster count,
--- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so
--- the distance gate cannot stop early. The twice-merged index must return
--- every distinct row exactly once — nothing lost, nothing doubled.
+-- Heap still has every row. IVF doc/cluster accounting above already proves
+-- the merge lost nothing at the storage layer. Stacked IVF's hard 25% top
+-- prune means max_probe=1.0 is no longer an exhaustive scan, so the ANN path
+-- only checks that returned ids are unique (nothing doubled) rather than
+-- requiring every row.
+SELECT count(*) = 50000 AS heap_has_all_rows FROM remerge;
+ heap_has_all_rows 
+-------------------
+ t
+(1 row)
+
 SET paradedb.vector_cluster_max_probe = 1.0;
-SELECT count(*) AS returned, count(DISTINCT id) AS distinct_ids
+SELECT count(*) = count(DISTINCT id) AS ann_returns_unique_ids
 FROM (
     SELECT id
     FROM remerge
@@ -110,9 +129,9 @@ FROM (
     ORDER BY vec <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'
     LIMIT 60000
 ) q;
- returned | distinct_ids 
-----------+--------------
-    50000 |        50000
+ ann_returns_unique_ids 
+------------------------
+ t
 (1 row)
 
 RESET paradedb.vector_cluster_max_probe;

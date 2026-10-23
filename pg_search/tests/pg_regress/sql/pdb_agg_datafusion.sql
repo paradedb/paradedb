@@ -699,7 +699,55 @@ GROUP BY category;
 
 RESET paradedb.max_term_agg_buckets;
 
--- Test 6.11: plain GROUP BY on array field over join runs on DataFusion
+-- Test 6.11: the join shapes above under MPP, where array `terms` lowers to a
+-- union of one pipeline per unnest level. Results must equal the serial runs.
+SET paradedb.mpp_min_rows TO 0;
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET statement_timeout TO '20s';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}, "aggs": {"avg_views": {"avg": {"field": "p.views"}}, "total_views": {"sum": {"field": "p.views"}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post';
+
+SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}, "aggs": {"by_author": {"terms": {"field": "a.name", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "size": 2, "min_doc_count": 2, "order": {"_count": "desc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post';
+
+SELECT a.name, COUNT(*), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}') AS tags
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post'
+GROUP BY a.name
+ORDER BY a.name;
+
+SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title ||| 'post';
+
+RESET statement_timeout;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET max_parallel_workers;
+SET max_parallel_workers_per_gather = 0;
+RESET paradedb.mpp_min_rows;
+
+-- Test 6.12: plain GROUP BY on array field over join runs on DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -713,7 +761,7 @@ WHERE p.title ||| 'post'
 GROUP BY p.tags
 ORDER BY p.tags;
 
--- Test 6.12: pdb.agg terms on a key that is also LATERAL unnested in FROM
+-- Test 6.13: pdb.agg terms on a key that is also LATERAL unnested in FROM
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -725,7 +773,7 @@ FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
 WHERE p.title ||| 'post';
 
--- Test 6.13: wrapped aggregate and JSON operator on pdb.agg over join
+-- Test 6.14: wrapped aggregate and JSON operator on pdb.agg over join
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id

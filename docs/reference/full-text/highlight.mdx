@@ -525,9 +525,11 @@ await dbContext
 
 `pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns a two-dimensional integer array where each nested pair is `[start, end)`: the first value is the byte index of the first highlighted byte, and the second value is the byte index immediately after the last highlighted byte.
 
+Use `limit` and `offset` to select snippet positions within each document. These options do not change the number of rows returned. This example returns the first position from each document.
+
 <CodeGroup>
 ```sql SQL
-SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
+SELECT id, pdb.snippet(description), pdb.snippet_positions(description, "limit" => 1, "offset" => 0)
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
@@ -540,7 +542,10 @@ await db
   .select({
     id: mockItems.id,
     snippet: search.snippet(mockItems.description),
-    snippetPositions: search.snippetPositions(mockItems.description),
+    snippetPositions: search.snippetPositions(mockItems.description, {
+      limit: 1,
+      offset: 0,
+    }),
   })
   .from(mockItems)
   .where(search.matchAny(mockItems.description, "shoes"))
@@ -554,7 +559,7 @@ MockItem.objects.filter(
     description=ParadeDB(MatchAny('shoes'))
 ).annotate(
     snippet=Snippet('description'),
-    snippet_positions=SnippetPositions('description')
+    snippet_positions=SnippetPositions('description', limit=1, offset=0)
 ).values('id', 'snippet', 'snippet_positions')[:5]
 ```
 
@@ -567,7 +572,7 @@ stmt = (
     select(
         MockItem.id,
         pdb.snippet(MockItem.description).label("snippet"),
-        pdb.snippet_positions(MockItem.description).label("snippet_positions"),
+        pdb.snippet_positions(MockItem.description, limit=1, offset=0).label("snippet_positions"),
     )
     .where(search.match_any(MockItem.description, "shoes"))
     .limit(5)
@@ -581,7 +586,7 @@ with Session(engine) as session:
 MockItem.search(:description)
         .match_any("shoes")
         .with_snippet(:description)
-        .with_snippet_positions(:description)
+        .with_snippet_positions(:description, limit: 1, offset: 0)
         .select(:id)
         .limit(5)
 ```
@@ -593,7 +598,7 @@ await dbContext
     {
         item.Id,
         Snippet = EF.Functions.Snippet(item.Description),
-        SnippetPositions = EF.Functions.SnippetPositions(item.Description)
+        SnippetPositions = EF.Functions.SnippetPositions(item.Description, new SnippetPositionsOptions { Limit = 1, Offset = 0 })
     })
     .Take(5)
     .ToListAsync();

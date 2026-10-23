@@ -334,14 +334,8 @@ impl JoinKeyPair {
 }
 
 /// A join-level search predicate - a search query that applies to a specific relation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JoinLevelSearchPredicate {
-    /// The RTI of the relation this predicate applies to (used for column resolution).
-    pub rti: pg_sys::Index,
-    /// The OID of the ParadeDB index to use.
-    pub indexrelid: pg_sys::Oid,
-    /// The OID of the heap relation for visibility checks.
-    pub heaprelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
 }
@@ -474,7 +468,9 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
+    /// Uses [`SearchIndexReader::mvcc_for_estimation`] (`MvccSatisfies::Snapshot` when the
+    /// query has predicates that can prune segments via `.stats`, or
+    /// `MvccSatisfies::LargestSegment` otherwise) for cheap estimation. When the
     /// query has heap filters or `PostgresExpression`s (which need executor
     /// state we don't have at planning time), falls back to `total_docs` as
     /// an upper bound - looser estimate but avoids evaluating Param-bearing
@@ -505,11 +501,12 @@ impl JoinSourceCandidate {
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let needs_tokenizer_manager = query.needs_tokenizer();
+        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
             false,
-            MvccSatisfies::LargestSegment,
+            mvcc_style,
             NonNull::new(expr_context.as_ptr()),
             None,
             needs_tokenizer_manager,
@@ -517,11 +514,8 @@ impl JoinSourceCandidate {
         )
         .expect("Failed to open index reader for estimation");
 
-        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-        // execution may skip some of these segments.
-        self.segment_count = Some(reader.total_segment_count());
-
         let estimate = reader.estimate_docs(row_estimate);
+        self.segment_count = Some(reader.estimated_segment_count());
         self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }
@@ -1089,8 +1083,8 @@ impl RelNode {
         .unwrap_or(false)
     }
 
-    /// Recursively collects all search predicates in this tree.
-    pub fn search_predicates(&self) -> Vec<JoinLevelSearchPredicate> {
+    /// Recursively collects all `(plan_position, predicate)` pairs in this tree.
+    pub fn search_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
         let mut predicates = Vec::new();
         let _ = self.apply(|node| {
             if let Self::Filter(f) = node {
@@ -1103,7 +1097,10 @@ impl RelNode {
             }
             Ok(TreeNodeRecursion::Continue)
         });
-        predicates.into_iter().map(|(_, p)| p.clone()).collect()
+        predicates
+            .into_iter()
+            .map(|(pos, p)| (pos, p.clone()))
+            .collect()
     }
 
     /// Recursively collects all multi-table predicates in this tree.
@@ -1536,14 +1533,12 @@ impl RelNode {
     /// left subtree and the other is in the right. This prevents
     /// `resolve_against` failures caused by both RTIs being in the same subtree.
     ///
-    /// **Why AggregateScan needs this but JoinScan does not:**
-    /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
-    /// for each join pair - so equi-keys arrive pre-distributed across join
-    /// levels by the planner itself. AggregateScan hooks into
-    /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
-    /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
-    /// all equi-keys land in a flat WHERE clause, not distributed across join
-    /// nodes, so this method is needed to place each key at the correct level.
+    /// **Why both scans need this:** JoinScan and AggregateScan reconstruct
+    /// the join tree from the parse tree. For implicit joins
+    /// (`FROM a, b, c WHERE ...`) all equi-keys land in a flat WHERE clause,
+    /// not distributed across join nodes, and a chain rebuilt in the
+    /// planner's estimated order starts with no keys at all, so this method
+    /// places each key at the correct level.
     pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
         for key in keys {
             self.inject_single_equi_key(key);
@@ -1921,6 +1916,8 @@ pub struct JoinCSClause {
     pub has_distinct: bool,
     /// List of window aggregates taken by the scan
     pub window_aggs: WindowAggList,
+    /// The positions of projections Postgres will evaluate after datafusion
+    pub pg_projected_resnos: Vec<pg_sys::AttrNumber>,
 }
 
 impl JoinCSClause {
@@ -1932,6 +1929,7 @@ impl JoinCSClause {
             output_projection: None,
             has_distinct: false,
             window_aggs: WindowAggList::new(Vec::new()),
+            pg_projected_resnos: Vec::new(),
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1976,6 +1974,14 @@ impl JoinCSClause {
 
     pub fn with_window_aggs(mut self, window_aggs: Vec<WindowAgg>) -> Self {
         self.window_aggs = WindowAggList::new(window_aggs);
+        self
+    }
+
+    pub fn with_pg_projected_resnos(
+        mut self,
+        pg_projected_resnos: Vec<pg_sys::AttrNumber>,
+    ) -> Self {
+        self.pg_projected_resnos = pg_projected_resnos;
         self
     }
 
@@ -2026,9 +2032,17 @@ impl JoinCSClause {
             None
         }
     }
-    /// Visit every `SearchQueryInput` in this clause via `plan`.
+    /// Visit every `SearchQueryInput` in this clause: those in `plan`, and the
+    /// copies in window aggregate FILTER clauses. A FILTER's search predicate
+    /// finds its tag column by comparing its query with the scan's tagged copy,
+    /// so both copies must be solved alike.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         self.plan.visit_queries_mut(f);
+        for window_agg in self.window_aggs.iter_mut() {
+            if let Some(filter) = window_agg.filter.as_mut() {
+                filter.visit_queries_mut(f);
+            }
+        }
     }
 
     /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
@@ -2036,6 +2050,11 @@ impl JoinCSClause {
     /// to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         self.plan.visit_queries(f);
+        for window_agg in self.window_aggs.iter() {
+            if let Some(filter) = window_agg.filter.as_ref() {
+                filter.visit_queries(f);
+            }
+        }
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
@@ -2083,10 +2102,17 @@ impl JoinCSClause {
         });
     }
 
-    /// Configures `ScanMode::Tagged` on each join source that participates in search predicates.
-    pub fn assign_tagged_queries(&mut self) {
-        let predicates = self.plan.search_predicates();
-        assign_tagged_queries(self.plan.sources_mut(), &predicates);
+    pub fn window_agg_filter_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
+        let mut predicates = Vec::new();
+        for w in self.window_aggs.iter() {
+            if let Some(filter) = w.filter.as_ref() {
+                filter.collect_search_predicates(&mut predicates);
+            }
+        }
+        predicates
+            .into_iter()
+            .map(|(i, p)| (i, p.clone()))
+            .collect()
     }
 }
 
@@ -2097,7 +2123,7 @@ impl JoinCSClause {
 /// Configures `ScanMode::Tagged` on each join source that participates in `predicates`.
 pub fn assign_tagged_queries<'a>(
     sources: impl IntoIterator<Item = &'a mut JoinSource>,
-    predicates: &[JoinLevelSearchPredicate],
+    predicates: &[(usize, JoinLevelSearchPredicate)],
 ) {
     if predicates.is_empty() {
         return;
@@ -2108,15 +2134,20 @@ pub fn assign_tagged_queries<'a>(
         let local_queries: Vec<crate::scan::TaggedQuery> = predicates
             .iter()
             .enumerate()
-            .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
+            .filter(|(_, (plan_pos, _))| *plan_pos == source.plan_position)
             .enumerate()
-            .map(|(local_idx, (global_idx, p))| crate::scan::TaggedQuery {
-                tag_name: format!("__{alias}_tag_{local_idx}"),
-                tag_idx: crate::scan::TagIndex(local_idx),
-                predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
-                query: Box::new(p.query.clone()),
-            })
+            .map(
+                |(local_idx, (global_idx, (_, p)))| crate::scan::TaggedQuery {
+                    tag_name: format!("__{alias}_tag_{local_idx}"),
+                    tag_idx: crate::scan::TagIndex(local_idx),
+                    predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
+                    query: Box::new(p.query.clone()),
+                },
+            )
             .collect();
+        if !local_queries.is_empty() {
+            source.scan_info.has_search_predicate = true;
+        }
         let base_query = source.scan_info.mode.query().clone();
         source.scan_info.mode = crate::scan::ScanMode::tagged(base_query, local_queries);
     }

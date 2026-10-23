@@ -90,6 +90,7 @@ pub fn aggregation_results_iter(
             .is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
 
     let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
+    let mut segment_pruning = std::mem::take(&mut state.custom_state_mut().segment_pruning);
     let mut visibility_stats = std::mem::take(&mut state.custom_state_mut().visibility_stats);
     let mut parallelism = AggregateParallelism::default();
     let collect_visibility_stats =
@@ -104,12 +105,14 @@ pub fn aggregation_results_iter(
         expr_context,
         planstate,
         bitmap_exec.as_mut(),
+        collect_visibility_stats.then_some(&mut segment_pruning),
         collect_visibility_stats.then_some(&mut visibility_stats),
         collect_visibility_stats.then_some(&mut parallelism),
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
     state.custom_state_mut().bitmap_exec = bitmap_exec;
+    state.custom_state_mut().segment_pruning = segment_pruning;
     state.custom_state_mut().visibility_stats = visibility_stats;
     state.custom_state_mut().parallelism = collect_visibility_stats.then_some(parallelism);
 

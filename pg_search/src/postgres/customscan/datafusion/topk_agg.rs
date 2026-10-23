@@ -809,18 +809,38 @@ pub fn topk_as_agg(
     ctid_positions: &[usize],
     distinct: bool,
 ) -> Expr {
-    ctid_positions
-        .iter()
-        .for_each(|p| assert!(*p < payload.len(), "ctid_positions must be valid"));
-
-    let mut args = payload.to_vec();
-
     // pass either the int literal, or if not present, the parameterized string placeholder
     let k_arg = limit_offset
         .static_fetch()
         .map(|k| lit(k as u64))
         .unwrap_or_else(|| lit(limit_offset.fetch_display()));
 
+    topk_as_agg_with_k_arg(payload, sort_exprs, k_arg, ctid_positions, distinct)
+}
+
+/// Like [`topk_as_agg`], but with a statically resolved `k` (`usize::MAX` when unbounded).
+pub fn topk_as_agg_static(
+    payload: &[Expr],
+    sort_exprs: Vec<SortExpr>,
+    k: usize,
+    ctid_positions: &[usize],
+    distinct: bool,
+) -> Expr {
+    topk_as_agg_with_k_arg(payload, sort_exprs, lit(k as u64), ctid_positions, distinct)
+}
+
+fn topk_as_agg_with_k_arg(
+    payload: &[Expr],
+    sort_exprs: Vec<SortExpr>,
+    k_arg: Expr,
+    ctid_positions: &[usize],
+    distinct: bool,
+) -> Expr {
+    ctid_positions
+        .iter()
+        .for_each(|p| assert!(*p < payload.len(), "ctid_positions must be valid"));
+
+    let mut args = payload.to_vec();
     args.push(k_arg);
     args.push(positions_lit(ctid_positions));
 

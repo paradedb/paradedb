@@ -36,6 +36,7 @@ use crate::schema::SearchIndexSchema;
 use std::sync::Arc;
 
 use anyhow::Result;
+use pgrx::pg_sys;
 use tantivy::columnar::CodecType;
 use tantivy::schema::FieldType;
 use tantivy::vector::VectorQuantizationConfig;
@@ -50,12 +51,17 @@ pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
     Ok(index)
 }
 
-/// Installs tantivy's SuperKMeans clusterer with the index's leaf size and training sample ratio.
+/// Installs tantivy's SuperKMeans clusterer from the index options and the session's
+/// `maintenance_work_mem` (CREATE INDEX / VACUUM merge budget).
+///
 /// Tantivy doesn't persist the clusterer, so every open sets it.
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
-    let clusterer = SuperKMeansClusterer::default()
+    // `maintenance_work_mem` is in kB; train/assign batch sizing wants bytes.
+    let memory_limit = (unsafe { pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+    let clusterer = SuperKMeansClusterer::new()
         .with_max_leaf_size(options.max_leaf_size())
-        .with_training_sample_ratio(options.training_sample_ratio());
+        .with_training_sample_ratio(options.training_sample_ratio())
+        .with_memory_limit(memory_limit.max(1));
     index.set_ivf_clusterer(Arc::new(clusterer));
 }
 

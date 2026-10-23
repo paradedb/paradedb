@@ -298,6 +298,32 @@ impl PgSearchTableProvider {
         self.source_idx
     }
 
+    /// Move this provider's segment claims to another `ParallelScanState` pool.
+    pub(crate) fn set_source_idx(&mut self, source_idx: usize) {
+        self.source_idx = Some(source_idx);
+    }
+
+    /// Give this provider its own `ExprContext` when it solves runtime expressions.
+    /// `solve_postgres_expressions` resets its context before replacing Param/PostgresExpression
+    /// nodes, so two providers sharing one context invalidate the Const nodes the other retained,
+    /// and a generic plan parameterizing both join inputs then dereferences stale nodes during
+    /// reader construction. A provider without a planstate (plain EXPLAIN) never solves, so it
+    /// keeps whatever shared context it was given.
+    pub(crate) fn ensure_own_expr_context(&mut self) {
+        let needs_runtime_context =
+            self.scan_info.mode.has_postgres_expressions() || self.scan_info.mode.has_parameters();
+        if !needs_runtime_context {
+            return;
+        }
+        let Some(planstate) = self.planstate else {
+            return;
+        };
+        if planstate.is_null() || unsafe { (*planstate).state.is_null() } {
+            return;
+        }
+        self.expr_context = Some(unsafe { pg_sys::CreateExprContext((*planstate).state) });
+    }
+
     pub(crate) fn set_manifest(&mut self, manifest: SearchIndexManifest) {
         self.manifest = Some(manifest);
     }
@@ -619,7 +645,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        resolved_query: SearchQueryInput,
+        resolved_mode: crate::scan::ScanMode,
         planner_estimated_rows: u64,
         source_idx: Option<usize>,
         partition_count: usize,
@@ -636,16 +662,13 @@ impl PgSearchTableProvider {
                 .collect()
         };
 
+        let resolved_query = resolved_mode.query().clone();
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
             which_fast_fields,
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
-            scan_mode: self
-                .scan_info
-                .mode
-                .clone()
-                .with_base_query(resolved_query.clone()),
+            scan_mode: resolved_mode,
         };
         let state = ScanState {
             source_idx,
@@ -754,9 +777,14 @@ impl PgSearchTableProvider {
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
         let base_query = self.scan_info.mode.query().clone();
-        let needs_tokenizer = self.scan_info.mode.needs_tokenizer();
-        let mut query = self.combine_query_with_filters(base_query, filters);
-        let has_runtime_expressions = query.has_postgres_expressions() || query.has_parameters();
+        let combined_base_query = self.combine_query_with_filters(base_query, filters);
+        let mut scan_mode = self
+            .scan_info
+            .mode
+            .clone()
+            .with_base_query(combined_base_query);
+        let has_runtime_expressions =
+            scan_mode.has_postgres_expressions() || scan_mode.has_parameters();
         if has_runtime_expressions && !self.explain_only {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
@@ -768,8 +796,8 @@ impl PgSearchTableProvider {
                     "postgres expressions have not been solved: missing expr_context".to_string(),
                 ));
             };
-            query.init_postgres_expressions(planstate);
-            query.solve_postgres_expressions(expr_context);
+            scan_mode.init_postgres_expressions(planstate);
+            scan_mode.solve_postgres_expressions(expr_context);
         }
         // An MPP source builds its reader from the manifest the codec injected: no second
         // open, and it replays exactly the view the DSM was populated from.
@@ -778,17 +806,19 @@ impl PgSearchTableProvider {
         // plans build address-free, so `parallel_state` is still null here and arrives on the
         // physical scan later through `stamp_parallel_state`.
         let expr_ctx = expr_context.and_then(std::ptr::NonNull::new);
-        let needs_tokenizer = query.needs_tokenizer() || needs_tokenizer;
+        let needs_tokenizer = scan_mode.needs_tokenizer();
+        let query = scan_mode.query();
         // A plain EXPLAIN needs index metadata to build the physical shape, but
         // has no executor state with which to solve STABLE functions or Params.
         // Open an unfiltered reader for metadata only and retain the original
         // expression-bearing query on the display plan. Execution still solves
         // the query above and opens its reader with the actual runtime value.
-        let reader_query = if self.explain_only && has_runtime_expressions {
-            SearchQueryInput::All
-        } else {
-            query.clone()
-        };
+        let reader_query =
+            if self.explain_only && (query.has_postgres_expressions() || query.has_parameters()) {
+                SearchQueryInput::All
+            } else {
+                query.clone()
+            };
         let reader = match self.manifest.as_ref() {
             Some(manifest) => {
                 assert_eq!(
@@ -866,7 +896,7 @@ impl PgSearchTableProvider {
             visibility,
             heap_relid,
             projected_schema,
-            query,
+            scan_mode,
             total_estimated_rows,
             self.source_idx,
             partition_count,

@@ -33,6 +33,7 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  pull-requests: read
 
 jobs:
   publish-github-release:
@@ -232,6 +233,30 @@ jobs:
           git verify-tag "$TAG"
           git push origin "refs/tags/$TAG"
 
+      - name: Generate Release Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ github.event.inputs.version }}
+        run: |
+          python3 .github/scripts/generate_release_notes.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --output "$RUNNER_TEMP/release-notes.md"
+
+      # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
+      # and no suffix and marked as a full release for prod releases. The tag has already been
+      # created in the step above, so this step just attaches the release to it.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
+          prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
+          make_latest: ${{ steps.release_latest.outputs.is_latest }}
+          body_path: ${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Stage Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         env:
@@ -243,7 +268,6 @@ jobs:
 
           # Record newly created release files and consumed fragment paths from the release commit
           NEW_SQL="pg_search/sql/pg_search--*--${CLEAN_VERSION}.sql"
-          DOCS_SNIPPET="docs/snippets/version.mdx"
 
           # Determine changelog location on the release branch
           # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
@@ -261,11 +285,7 @@ jobs:
           git checkout main
 
           echo "Checking out assembled release files from the release commit..."
-          CHECKOUT_FILES="${NEW_SQL} ${BRANCH_CHANGELOG}"
-          if [[ "$IS_LATEST" == "true" ]]; then
-            CHECKOUT_FILES="${CHECKOUT_FILES} ${DOCS_SNIPPET}"
-          fi
-          git checkout "$RELEASE_REF" -- ${CHECKOUT_FILES}
+          git checkout "$RELEASE_REF" -- ${NEW_SQL} "${BRANCH_CHANGELOG}"
 
           # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
           # Move changelog to docs/project/changelog/ if it was checked out from docs/changelog/
@@ -317,7 +337,6 @@ jobs:
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         env:
           COMMIT_CREATED: ${{ steps.sync-commit.outputs.created }}
-          RELEASE_REF: ${{ github.ref_name }}
         run: |
           if [[ "$COMMIT_CREATED" == "true" ]]; then
             git push origin main
@@ -325,9 +344,6 @@ jobs:
           else
             echo "No changes needed on main."
           fi
-
-          # Switch back to the release branch for release creation
-          git checkout "$RELEASE_REF"
 
       - name: Create Stable Branch
         if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
@@ -350,20 +366,6 @@ jobs:
           else
             echo "ℹ️ Stable branch ${STABLE_BRANCH} already exists."
           fi
-
-      # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
-      # and no suffix and marked as a full release for prod releases. The tag has already been
-      # created in the step above, so this step just attaches the release to it.
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ github.event.inputs.version }}
-          target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
-          prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
-          make_latest: ${{ steps.release_latest.outputs.is_latest }}
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Remove Bot Signing Key
         if: always()

@@ -34,7 +34,7 @@ use crate::index::reader::index::needs_rebuild;
 use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
+use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent};
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
@@ -109,8 +109,6 @@ pub struct IndexWriterConfig {
     pub memory_budget: NonZeroUsize,
     pub max_docs_per_segment: Option<u32>,
 }
-
-pub const DEFAULT_MAX_DOCS_PER_SEGMENT: u32 = 1000;
 
 impl IndexWriterConfig {
     pub fn new(memory_budget: NonZeroUsize) -> Self {
@@ -271,26 +269,6 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let has_vector_field = schema.has_vector_field();
-        // The IVF backend needs a doc-count ceiling, so vector indexes cap at
-        // `DEFAULT_MAX_DOCS_PER_SEGMENT`. Non-vector indexes honor the caller's
-        // value verbatim (the parallel-build planner sets it to hit
-        // `target_segment_count`).
-        let max_docs_per_segment = if has_vector_field {
-            Some(
-                config
-                    .max_docs_per_segment
-                    .map_or(DEFAULT_MAX_DOCS_PER_SEGMENT, |n| {
-                        n.min(DEFAULT_MAX_DOCS_PER_SEGMENT)
-                    }),
-            )
-        } else {
-            config.max_docs_per_segment
-        };
-        let config = IndexWriterConfig {
-            max_docs_per_segment,
-            ..config
-        };
 
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!(
@@ -342,7 +320,13 @@ impl SerialIndexWriter {
             max_docs_per_segment: None,
         };
 
-        let pending_segment = Some(PendingSegment::with_id(&index, memory_budget, segment_id)?);
+        // Size the initial term table independently of the unlimited flush threshold.
+        let initial_memory_budget = NonZeroUsize::new(1024 * 1024).unwrap();
+        let pending_segment = Some(PendingSegment::with_id(
+            &index,
+            initial_memory_budget,
+            segment_id,
+        )?);
 
         Ok(Self {
             id: worker_number,
@@ -567,6 +551,27 @@ impl SearchIndexMerger {
         self.directory.all_entries()
     }
 
+    pub fn flat_vector_segments(&self, segment_ids: &HashSet<SegmentId>) -> Vec<SegmentId> {
+        let threshold = self.index.settings().vector_clustering_threshold();
+        self.directory
+            .all_entries()
+            .into_iter()
+            .filter_map(|(id, entry)| {
+                if !segment_ids.contains(&id) || entry.num_docs() < threshold {
+                    return None;
+                }
+                match entry.content {
+                    SegmentMetaEntryContent::Immutable(content)
+                        if content.vec.is_some() && content.centroids.is_none() =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
     pub fn searchable_segment_ids(&self) -> tantivy::Result<HashSet<SegmentId>> {
         Ok(self.index.searchable_segment_ids()?.into_iter().collect())
     }
@@ -623,30 +628,21 @@ impl Mergeable for SearchIndexMerger {
                 .num_worker_threads(0)
                 .build(),
         )?;
+        // `writer.merge_foreground` polls `MVCCDirectory::wants_cancel()` and returns
+        // `Err(TantivyError::Cancelled)` on interrupt rather than calling `check_for_interrupts!()`.
+        // We cannot call `check_for_interrupts!()` here because `merge_index` in
+        // `postgres/merge.rs` relies on `merge_segments` returning `Err` so it can remove its
+        // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
         let new_segment = writer.merge_foreground(segment_ids, true)?;
 
         if let Some(new_segment) = new_segment.as_ref() {
-            // Merge doc-count conservation: the merged output segment's live doc count must equal
-            // the sum of the input segments' live doc counts (live = max_doc - num_deleted).
-            //
-            // This is an exact equality, not a bound: tantivy's `merge()` sets the merged segment's
-            // `max_doc` to `sum(input.num_docs())` computed from the SAME frozen `all_entries`
-            // snapshot that this merger loaded (`load_metas` populates it once, under a OnceLock),
-            // and the merged segment carries no deletes of its own (`num_deleted == 0`, so its
-            // `max_doc == num_docs`). Concurrent deletes append to a NEW metas list and cannot
-            // mutate this already-loaded directory's snapshot, so there is no accounting slack here.
-            // A violation would mean the merge silently lost or duplicated rows — top-tier data loss.
-            //
-            // We read each input's live count from the same frozen snapshot via
-            // `segment_meta_entry` (a single-entry lock+read, no whole-map clone, no I/O). Every
-            // input id is present because `merge_foreground` succeeded (it resolved their files
-            // from this snapshot); `all_found` guards against a spurious fire if that ever weren't so.
+            // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.
             dst::observe!(|| {
                 let mut sum_input_live: u64 = 0;
                 let mut all_found = true;
                 for segment_id in segment_ids {
-                    match self.directory.segment_meta_entry(segment_id) {
-                        Some(entry) => sum_input_live += entry.num_docs() as u64,
+                    match self.directory.segment_num_docs(segment_id) {
+                        Some(num_docs) => sum_input_live += num_docs as u64,
                         None => {
                             all_found = false;
                             break;
@@ -726,12 +722,16 @@ mod tests {
         let schema = writer.schema();
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
+        let vector_field = schema.search_field("embedding").map(|field| field.field());
         let mut segment_ids = HashSet::default();
 
         for i in 0..num_docs {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
             document.add_u64(ctid_field, i as u64);
+            if let Some(field) = vector_field {
+                document.add_vector(field, &[1.0, 0.0, 0.0]);
+            }
             if let Some(meta) = writer.insert(document, i as u64, || {}).unwrap() {
                 segment_ids.insert(meta.id());
             }
@@ -762,14 +762,17 @@ mod tests {
     #[pg_test]
     fn test_index_writer_max_docs_per_segment() {
         let relation_oid = get_relation_oid(true);
-        let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: Some(5000),
+        };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 25);
+        assert_eq!(segment_ids.len(), 5);
     }
 
     #[pg_test]
-    fn test_index_writer_max_docs_per_segment_requires_vector_field() {
-        let relation_oid = get_relation_oid(false);
+    fn test_index_writer_vectors_use_memory_budget() {
+        let relation_oid = get_relation_oid(true);
         let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 2);

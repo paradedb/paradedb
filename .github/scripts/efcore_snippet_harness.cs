@@ -29,8 +29,13 @@ var operations = dbContext.GetService<IMigrationsModelDiffer>()
     .ToList();
 if (Environment.GetEnvironmentVariable("DOCS_EXPECT_INDEX") == "true" && operations.Count == 0)
     throw new InvalidOperationException("No ParadeDB index DDL generated for the documented model");
+await dbContext.Database.OpenConnectionAsync();
 foreach (var docsMigrationCommand in dbContext.GetService<IMigrationsSqlGenerator>().Generate(operations.Cast<MigrationOperation>().ToList(), designModel))
-    await dbContext.Database.ExecuteSqlRawAsync(docsMigrationCommand.CommandText);
+{
+    await using var docsCommand = dbContext.Database.GetDbConnection().CreateCommand();
+    docsCommand.CommandText = docsMigrationCommand.CommandText;
+    await docsCommand.ExecuteNonQueryAsync();
+}
 foreach (var operation in operations)
 {
     var count = await dbContext.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_index WHERE indexrelid = to_regclass({operation.Name}) AND indisvalid AND indisready").SingleAsync();

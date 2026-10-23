@@ -1,0 +1,791 @@
+-- pdb.agg `terms` over an array column, on a join, under MPP.
+--
+-- An array facet needs the array unnested while a scalar facet in the same
+-- query must not see the unnested rows, so the aggregate plan is a union of one
+-- pipeline per unnest level, each over its own clone of the join. Under MPP the
+-- union's children run on disjoint tasks of the top stage, each with a
+-- child-local task numbering that restarts at zero. Two invariants make it run:
+--
+-- 1. Output partition routing is demand-driven: each `ExecuteTaskFrame` names
+--    the requesting `sender_proc` and partition range, so producer fragments
+--    stream directly back to whichever worker runs that union child task,
+--    independent of the child's local task numbering.
+-- 2. Each clone of the join claims from its own segment pool. Shared pools made
+--    every clone see part of the table: silently wrong counts.
+--
+-- Every MPP case is compared against the serial run of the same query.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS mpp_arr_posts CASCADE;
+DROP TABLE IF EXISTS mpp_arr_authors CASCADE;
+CREATE TABLE mpp_arr_authors (
+    id INT PRIMARY KEY,
+    name TEXT,
+    country TEXT,
+    tags TEXT[]
+);
+CREATE TABLE mpp_arr_posts (
+    id INT PRIMARY KEY,
+    author_id INT,
+    title TEXT,
+    category TEXT,
+    keywords TEXT[],
+    views INT
+);
+CREATE INDEX mpp_arr_authors_idx ON mpp_arr_authors
+    USING paradedb (id, name, (country::pdb.literal), (tags::pdb.literal));
+CREATE INDEX mpp_arr_posts_idx ON mpp_arr_posts
+    USING paradedb (id, author_id, title, (category::pdb.literal), (keywords::pdb.literal), views);
+-- Two insert batches with `global_mutable_segment_rows = 0` so each index has 2
+-- segments and passes the MPP launch gate (>= 2 producer tasks).
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_arr_authors VALUES
+    (1, 'Alice', 'US', ARRAY['ml', 'systems']),
+    (2, 'Bob',   'UK', ARRAY['web', 'db']),
+    (3, 'Carol', 'US', ARRAY['ml', 'search']);
+INSERT INTO mpp_arr_authors VALUES
+    (4, 'Dave',  'CA', ARRAY['systems', 'search']),
+    (5, 'Erin',  'DE', ARRAY[]::TEXT[]),
+    (6, 'Faye',  'FR', NULL);
+INSERT INTO mpp_arr_posts VALUES
+    (10, 1, 'rust search engine',  'tech',    ARRAY['perf', 'index'], 100),
+    (20, 2, 'rust web framework',  'web',     ARRAY['http'],          50),
+    (30, 1, 'rust query compiler', 'tech',    ARRAY['perf'],          80),
+    (40, 3, 'rust vector index',   'science', ARRAY['index', 'ann'],  70);
+INSERT INTO mpp_arr_posts VALUES
+    (50, 4, 'rust storage engine', 'tech',    ARRAY['disk'],          60),
+    (60, 3, 'rust hybrid search',  'science', ARRAY['index'],         90),
+    (70, 5, 'rust docs site',      'docs',    ARRAY[]::TEXT[],        10),
+    (80, 6, 'rust blog post',      'docs',    NULL,                   20);
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE mpp_arr_authors;
+ANALYZE mpp_arr_posts;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+-- ============================================================================
+-- Serial reference values. Each case's MPP run below compares against these.
+-- ============================================================================
+SET max_parallel_workers_per_gather = 0;
+-- C1: scalar + array facet
+EXPLAIN (COSTS OFF)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
+   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"tags"}})
+   DataFusion Physical Plan: 
+     : CoalescePartitionsExec
+     :   ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0]
+     :     UnionExec
+     :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 3 WHEN 0 THEN 1 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
+     :         AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :           AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :             TantivyDecodeExec: decode=[category]
+     :               TantivyFetchExec: fetch=[category]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
+     :                   CooperativeExec
+     :                     PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :                   CooperativeExec
+     :                     PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, 2 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :         AggregateExec: mode=Single, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :           UnnestExec
+     :             ProjectionExec: expr=[tags@0 as a_1_tags]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(27 rows)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                   categories                                                                                                    |                                                                                                                                  author_tags                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "tech", "doc_count": 3}, {"key": "docs", "doc_count": 2}, {"key": "science", "doc_count": 2}, {"key": "web", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "ml", "doc_count": 4}, {"key": "search", "doc_count": 3}, {"key": "systems", "doc_count": 3}, {"key": null, "doc_count": 2}, {"key": "db", "doc_count": 1}, {"key": "web", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c1_
+-- C3: three facets, two of them arrays (three union children)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text AS author_tags,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}')::text AS keywords
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c3_
+-- C6: array facet with a metric sub-aggregation
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}, "aggs": {"views": {"sum": {"field": "views"}}}}')::text AS tag_views
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c6_
+-- C7: scalar outer, array inner
+SELECT
+    pdb.agg('{"terms": {"field": "country", "size": 10}, "aggs": {"by_tag": {"terms": {"field": "tags", "size": 10}}}}')::text AS country_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c7_
+-- C8: array outer, scalar inner
+SELECT
+    pdb.agg('{"terms": {"field": "tags", "size": 10}, "aggs": {"by_category": {"terms": {"field": "category", "size": 10}}}}')::text AS tag_categories
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c8_
+-- C9: array outer, array inner (two unnest levels)
+SELECT
+    pdb.agg('{"terms": {"field": "tags", "size": 10}, "aggs": {"by_keyword": {"terms": {"field": "keywords", "size": 10}}}}')::text AS tag_keywords
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c9_
+-- C10: SQL GROUP BY alongside scalar + array facets
+SELECT string_agg(format('%s|%s|%s|%s', country, n, categories, author_tags), ';' ORDER BY country) AS rows
+FROM (
+    SELECT
+        a.country,
+        count(*) AS n,
+        pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+        pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags
+    FROM mpp_arr_posts p
+    JOIN mpp_arr_authors a ON p.author_id = a.id
+    WHERE p.title ||| 'rust'
+      AND a.id @@@ pdb.all()
+    GROUP BY a.country
+) g \gset c10_
+-- C11: size and min_doc_count trimming happens after the union merge
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 2}}')::text AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 2, "min_doc_count": 3}}')::text AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all() \gset c11_
+-- C12: a heap-filter predicate on a pdb.literal column compiles to a runtime
+-- expression each union branch's scan solves in its own ExprContext.
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all()
+  AND a.country = 'US' \gset c12_
+-- C13: the same shape with a parameter, forced to a generic plan so the
+-- predicate stays a Param until execution.
+SET plan_cache_mode TO force_generic_plan;
+PREPARE mpp_arr_c13(text) AS
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| $1
+  AND a.id @@@ pdb.all();
+EXECUTE mpp_arr_c13('rust') \gset c13_
+-- ============================================================================
+-- MPP runs
+-- ============================================================================
+SET paradedb.mpp_min_rows TO 0;
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+SET parallel_tuple_cost = 0;
+SET parallel_setup_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+-- A misroute used to surface as a detach error or a hang; keep a hang from
+-- stalling the suite.
+SET statement_timeout TO '20s';
+-- C0: scalar-only facets take the single grouping-sets aggregate, no union.
+EXPLAIN (COSTS OFF)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "country", "size": 10}}') AS countries
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
+   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"country"}})
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 3 ── tasks=2, partitions=3
+     :   │ ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0]
+     :   │   AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=2, partitions=6
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __pdb_k1@1, __grouping_id@2], 6), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, NULL as __pdb_k1), (NULL as __pdb_k0, country@1 as __pdb_k1)], aggr=[count(1) as __pdb_m0]
+     :     │     TantivyDecodeExec: decode=[category]
+     :     │       TantivyFetchExec: fetch=[category]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@3, country@1]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[country], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[country], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+(32 rows)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "country", "size": 10}}') AS countries
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                   categories                                                                                                    |                                                                                                              countries                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "tech", "doc_count": 3}, {"key": "docs", "doc_count": 2}, {"key": "science", "doc_count": 2}, {"key": "web", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "US", "doc_count": 4}, {"key": "CA", "doc_count": 1}, {"key": "DE", "doc_count": 1}, {"key": "FR", "doc_count": 1}, {"key": "UK", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- C1: scalar + array facet. The top stage is a DistributedUnionExec whose
+-- second child runs as outer task 2 while calling itself task 0.
+EXPLAIN (COSTS OFF)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
+   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"tags"}})
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
+     : │   [Stage 5] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 5 ── tasks=3, partitions=9
+     :   │ ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0]
+     :   │   DistributedUnionExec: t0:[c0(0/2)] t1:[c0(1/2)] t2:[c1]
+     :   │     ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 3 WHEN 0 THEN 1 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, 2 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k1@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=2, partitions=6
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 6), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :     │     TantivyDecodeExec: decode=[category]
+     :     │       TantivyFetchExec: fetch=[category]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 4 ── tasks=2, partitions=3
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 3), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[tags@0 as a_1_tags]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 3] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 3 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+(55 rows)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                   categories                                                                                                    |                                                                                                                                  author_tags                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "tech", "doc_count": 3}, {"key": "docs", "doc_count": 2}, {"key": "science", "doc_count": 2}, {"key": "web", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "ml", "doc_count": 4}, {"key": "search", "doc_count": 3}, {"key": "systems", "doc_count": 3}, {"key": null, "doc_count": 2}, {"key": "db", "doc_count": 1}, {"key": "web", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c1_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c1_author_tags' AS author_tags_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | author_tags_match 
+------------------+-------------------
+ t                | t
+(1 row)
+
+-- C2: the same facets listed the other way round, so the scalar child is the
+-- one whose child-local numbering differs from the outer one.
+SELECT
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c1_author_tags' AS author_tags_match,
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c1_categories' AS categories_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ author_tags_match | categories_match 
+-------------------+------------------
+ t                 | t
+(1 row)
+
+-- C3: three union children.
+EXPLAIN (COSTS OFF)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}') AS keywords
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
+   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"tags"}}), pdb.agg({"terms":{"size":10,"field":"keywords"}})
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
+     : │   [Stage 7] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 7 ── tasks=3, partitions=9
+     :   │ ProjectionExec: expr=[__grouping_id@3 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_k2@2 as __pdb_k2, __pdb_m0@4 as __pdb_m0]
+     :   │   DistributedUnionExec: t0:[c0] t1:[c1] t2:[c2]
+     :   │     ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, NULL as __pdb_k2, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 7 WHEN 0 THEN 3 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, NULL as __pdb_k2, 5 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k1@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, NULL as __pdb_k1, __pdb_k2@0 as __pdb_k2, 6 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k2@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 6] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=2, partitions=3
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 3), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :     │     TantivyDecodeExec: decode=[category]
+     :     │       TantivyFetchExec: fetch=[category]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 4 ── tasks=2, partitions=3
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 3), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[tags@0 as a_1_tags]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 3] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 3 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 6 ── tasks=2, partitions=3
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 3), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 5 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+(76 rows)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c3_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c3_author_tags' AS author_tags_match,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}')::text = :'c3_keywords' AS keywords_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | author_tags_match | keywords_match 
+------------------+-------------------+----------------
+ t                | t                 | t
+(1 row)
+
+-- C4: three union children on two tasks: a child with no task share of its
+-- own is packed into another child's slot.
+SET max_parallel_workers_per_gather TO 2;
+EXPLAIN (COSTS OFF)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}') AS keywords
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
+   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"tags"}}), pdb.agg({"terms":{"size":10,"field":"keywords"}})
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
+     : │   [Stage 7] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 7 ── tasks=2, partitions=8
+     :   │ ProjectionExec: expr=[__grouping_id@3 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_k2@2 as __pdb_k2, __pdb_m0@4 as __pdb_m0]
+     :   │   DistributedUnionExec: t0:[c0, c2] t1:[c1]
+     :   │     ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, NULL as __pdb_k2, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 7 WHEN 0 THEN 3 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, NULL as __pdb_k2, 5 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k1@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, NULL as __pdb_k1, __pdb_k2@0 as __pdb_k2, 6 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k2@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 6] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=2, partitions=2
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 2), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :     │     TantivyDecodeExec: decode=[category]
+     :     │       TantivyFetchExec: fetch=[category]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 4 ── tasks=2, partitions=2
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 2), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[tags@0 as a_1_tags]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 3] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 3 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 6 ── tasks=2, partitions=2
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 2), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 5 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+(76 rows)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c3_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c3_author_tags' AS author_tags_match,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}')::text = :'c3_keywords' AS keywords_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | author_tags_match | keywords_match 
+------------------+-------------------+----------------
+ t                | t                 | t
+(1 row)
+
+SET max_parallel_workers_per_gather TO 3;
+-- C5: leader does not participate.
+SET parallel_leader_participation TO off;
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c1_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c1_author_tags' AS author_tags_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | author_tags_match 
+------------------+-------------------
+ t                | t
+(1 row)
+
+RESET parallel_leader_participation;
+-- C6: array facet with a metric sub-aggregation.
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c6_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}, "aggs": {"views": {"sum": {"field": "views"}}}}')::text = :'c6_tag_views' AS tag_views_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | tag_views_match 
+------------------+-----------------
+ t                | t
+(1 row)
+
+-- C7: scalar outer, array inner.
+SELECT
+    pdb.agg('{"terms": {"field": "country", "size": 10}, "aggs": {"by_tag": {"terms": {"field": "tags", "size": 10}}}}')::text = :'c7_country_tags' AS country_tags_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ country_tags_match 
+--------------------
+ t
+(1 row)
+
+-- C8: array outer, scalar inner.
+SELECT
+    pdb.agg('{"terms": {"field": "tags", "size": 10}, "aggs": {"by_category": {"terms": {"field": "category", "size": 10}}}}')::text = :'c8_tag_categories' AS tag_categories_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ tag_categories_match 
+----------------------
+ t
+(1 row)
+
+-- C9: array outer, array inner.
+SELECT
+    pdb.agg('{"terms": {"field": "tags", "size": 10}, "aggs": {"by_keyword": {"terms": {"field": "keywords", "size": 10}}}}')::text = :'c9_tag_keywords' AS tag_keywords_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ tag_keywords_match 
+--------------------
+ t
+(1 row)
+
+-- C10: SQL GROUP BY alongside the facets.
+SELECT string_agg(format('%s|%s|%s|%s', country, n, categories, author_tags), ';' ORDER BY country) = :'c10_rows' AS rows_match
+FROM (
+    SELECT
+        a.country,
+        count(*) AS n,
+        pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+        pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags
+    FROM mpp_arr_posts p
+    JOIN mpp_arr_authors a ON p.author_id = a.id
+    WHERE p.title ||| 'rust'
+      AND a.id @@@ pdb.all()
+    GROUP BY a.country
+) g;
+ rows_match 
+------------
+ t
+(1 row)
+
+-- C11: size and min_doc_count.
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 2}}')::text = :'c11_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 2, "min_doc_count": 3}}')::text = :'c11_author_tags' AS author_tags_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | author_tags_match 
+------------------+-------------------
+ t                | t
+(1 row)
+
+-- C12: heap-filter predicate; each branch's scan solves it in its own context.
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c12_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c12_author_tags' AS author_tags_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all()
+  AND a.country = 'US';
+ categories_match | author_tags_match 
+------------------+-------------------
+ t                | t
+(1 row)
+
+-- C13: parameterized generic plan.
+EXECUTE mpp_arr_c13('rust') \gset m13_
+SELECT :'m13_categories' = :'c13_categories' AS categories_match,
+       :'m13_author_tags' = :'c13_author_tags' AS author_tags_match;
+ categories_match | author_tags_match 
+------------------+-------------------
+ t                | t
+(1 row)
+
+-- The match rows above would also be true if a case had silently run serially.
+-- EXPLAIN (ANALYZE, VERBOSE) prints an "MPP Launch" line only when workers were
+-- launched; record it for the shapes that matter: two children on three tasks, three
+-- children on two tasks, the leader sitting out, and runtime expressions.
+CREATE TEMP TABLE mpp_arr_outcome (line text);
+DO $$
+DECLARE
+    c record;
+    r record;
+    plan text;
+BEGIN
+    FOR c IN
+        SELECT * FROM (VALUES
+            ('C1 two children, three tasks', '3', 'on', $q$
+                SELECT pdb.agg('{"terms": {"field": "category", "size": 10}}'),
+                       pdb.agg('{"terms": {"field": "tags", "size": 10}}')
+                FROM mpp_arr_posts p JOIN mpp_arr_authors a ON p.author_id = a.id
+                WHERE p.title ||| 'rust' AND a.id @@@ pdb.all()$q$),
+            ('C4 three children, two tasks', '2', 'on', $q$
+                SELECT pdb.agg('{"terms": {"field": "category", "size": 10}}'),
+                       pdb.agg('{"terms": {"field": "tags", "size": 10}}'),
+                       pdb.agg('{"terms": {"field": "keywords", "size": 10}}')
+                FROM mpp_arr_posts p JOIN mpp_arr_authors a ON p.author_id = a.id
+                WHERE p.title ||| 'rust' AND a.id @@@ pdb.all()$q$),
+            ('C5 leader not participating', '3', 'off', $q$
+                SELECT pdb.agg('{"terms": {"field": "category", "size": 10}}'),
+                       pdb.agg('{"terms": {"field": "tags", "size": 10}}')
+                FROM mpp_arr_posts p JOIN mpp_arr_authors a ON p.author_id = a.id
+                WHERE p.title ||| 'rust' AND a.id @@@ pdb.all()$q$),
+            ('C12 heap-filter predicate', '3', 'on', $q$
+                SELECT pdb.agg('{"terms": {"field": "category", "size": 10}}'),
+                       pdb.agg('{"terms": {"field": "tags", "size": 10}}')
+                FROM mpp_arr_posts p JOIN mpp_arr_authors a ON p.author_id = a.id
+                WHERE p.title ||| 'rust' AND a.id @@@ pdb.all() AND a.country = 'US'$q$),
+            ('C13 parameterized generic plan', '3', 'on', $q$EXECUTE mpp_arr_c13('rust')$q$)
+        ) AS cases(label, workers, leader, sql)
+    LOOP
+        PERFORM set_config('max_parallel_workers_per_gather', c.workers, true);
+        PERFORM set_config('parallel_leader_participation', c.leader, true);
+        plan := '';
+        FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) ' || c.sql LOOP
+            plan := plan || r."QUERY PLAN" || E'\n';
+        END LOOP;
+        IF plan LIKE '%MPP Launch:%' THEN
+            INSERT INTO mpp_arr_outcome VALUES (c.label || ': MPP launched');
+        ELSE
+            INSERT INTO mpp_arr_outcome VALUES (c.label || ': UNEXPECTED serial run');
+        END IF;
+    END LOOP;
+END$$;
+SELECT line FROM mpp_arr_outcome ORDER BY line;
+                     line                     
+----------------------------------------------
+ C1 two children, three tasks: MPP launched
+ C12 heap-filter predicate: MPP launched
+ C13 parameterized generic plan: MPP launched
+ C4 three children, two tasks: MPP launched
+ C5 leader not participating: MPP launched
+(5 rows)
+
+DROP TABLE mpp_arr_outcome;
+RESET parallel_leader_participation;
+SET max_parallel_workers_per_gather TO 3;
+RESET statement_timeout;
+DEALLOCATE mpp_arr_c13;
+RESET plan_cache_mode;
+-- Teardown
+RESET paradedb.mpp_min_rows;
+RESET max_parallel_workers_per_gather;
+RESET max_parallel_workers;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET min_parallel_index_scan_size;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE mpp_arr_posts CASCADE;
+DROP TABLE mpp_arr_authors CASCADE;

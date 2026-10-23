@@ -102,7 +102,7 @@ jobs:
         if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'queries'
         uses: ./.github/actions/publish-queries-results
         with:
-          results_file: ${{ fromJSON(steps.metadata.outputs.json).source_directory || '.' }}/benchmarks/results_${{ fromJSON(steps.metadata.outputs.json).dataset }}_${{ fromJSON(steps.metadata.outputs.json).index }}_${{ fromJSON(steps.metadata.outputs.json).size }}.json
+          source_directory: ${{ fromJSON(steps.metadata.outputs.json).source_directory || '.' }}
           dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
           index: ${{ fromJSON(steps.metadata.outputs.json).index }}
           size: ${{ fromJSON(steps.metadata.outputs.json).size }}

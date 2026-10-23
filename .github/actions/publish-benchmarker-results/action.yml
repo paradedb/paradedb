@@ -8,18 +8,6 @@ inputs:
   ref:
     description: "Full SHA of the commit benchmarked"
     required: true
-  results_dir:
-    description: "Directory containing results json and html files"
-    required: false
-    default: "benchmarker/results"
-  metrics_file:
-    description: "Path to write extracted latency metrics json"
-    required: false
-    default: "benchmarker/benchmarker_metrics.json"
-  throughput_metrics_file:
-    description: "Path to write extracted QPS metrics json"
-    required: false
-    default: "benchmarker/benchmarker_throughput_metrics.json"
   github_token:
     description: "GitHub token for publishing and comments"
     required: true
@@ -42,16 +30,16 @@ runs:
         retention-days: 30
         name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.ref }}
         path: |
-          ${{ inputs.results_dir }}/*.json
-          ${{ inputs.results_dir }}/*.html
+          benchmarker/results/*.json
+          benchmarker/results/*.html
         if-no-files-found: warn
 
     - name: Extract Tracked Metrics
       shell: bash
       env:
-        RESULTS_DIR: ${{ inputs.results_dir }}
-        METRICS_FILE: ${{ inputs.metrics_file }}
-        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
+        RESULTS_DIR: benchmarker/results
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
+        THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -117,13 +105,13 @@ runs:
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
-      if: hashFiles(inputs.metrics_file) != ''
+      if: hashFiles('benchmarker/benchmarker_metrics.json') != ''
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
-        output-file-path: ${{ inputs.metrics_file }}
+        output-file-path: benchmarker/benchmarker_metrics.json
         github-token: ${{ inputs.github_token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
@@ -149,13 +137,13 @@ runs:
 
     - name: Publish QPS Metrics
       id: publish_throughput
-      if: hashFiles(inputs.throughput_metrics_file) != ''
+      if: hashFiles('benchmarker/benchmarker_throughput_metrics.json') != ''
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "benchmarker ${{ inputs.dataset }} (throughput)"
         ref: ${{ inputs.ref }}
         tool: customBiggerIsBetter
-        output-file-path: ${{ inputs.throughput_metrics_file }}
+        output-file-path: benchmarker/benchmarker_throughput_metrics.json
         github-token: ${{ inputs.github_token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
@@ -178,7 +166,7 @@ runs:
     - name: Stage Dashboards (HTML Only) for gh-pages
       shell: bash
       env:
-        RESULTS_DIR: ${{ inputs.results_dir }}
+        RESULTS_DIR: benchmarker/results
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -210,8 +198,8 @@ runs:
         COMMIT_SHA: ${{ inputs.ref }}
         PR_NUMBER: ${{ inputs.pr_number }}
         DATASET: ${{ inputs.dataset }}
-        METRICS_FILE: ${{ inputs.metrics_file }}
-        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
+        THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -262,7 +250,7 @@ runs:
     - name: Fail if No Metrics Were Extracted
       shell: bash
       env:
-        METRICS_FILE: ${{ inputs.metrics_file }}
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
       run: |
         [ -f "${METRICS_FILE}" ] || { echo "No metrics file because an earlier step failed. Skipping the check."; exit 0; }
         n=$(jq 'length' "${METRICS_FILE}")

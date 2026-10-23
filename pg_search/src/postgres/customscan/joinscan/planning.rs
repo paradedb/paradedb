@@ -784,6 +784,17 @@ unsafe fn collect_join_sources_join_rel(
                         );
                         return None;
                     }
+                    // A DATE key is stored as days in a new index and as a midnight
+                    // timestamp in an old one. The join hashes the raw representations,
+                    // so the two cannot match.
+                    if date_storage_layouts_differ(&outer_ff, &inner_ff) {
+                        crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                            "join key DATE columns are stored in different representations; \
+                             reindex the older index",
+                            (),
+                        );
+                        return None;
+                    }
                 }
                 _ => return None,
             }
@@ -1368,6 +1379,24 @@ pub(super) fn numeric_bytes_layouts_differ(
             != inner_ir
                 .created_by_version()
                 .stores_sortable_negative_numeric_bytes()
+}
+
+/// Whether two DATE join keys encode the same value differently: PostgreSQL `DateADT`
+/// days in a new index, or a midnight timestamp in an older one.
+pub(super) fn date_storage_layouts_differ(
+    outer_ff: &WhichFastField,
+    inner_ff: &WhichFastField,
+) -> bool {
+    let date_storage = |ff: &WhichFastField| match ff.field_type()? {
+        SearchFieldType::DateDays(_) => Some(true),
+        SearchFieldType::Date(_) => Some(false),
+        SearchFieldType::I64(oid) if *oid == pg_sys::DATEOID => Some(false),
+        _ => None,
+    };
+    matches!(
+        (date_storage(outer_ff), date_storage(inner_ff)),
+        (Some(outer), Some(inner)) if outer != inner
+    )
 }
 
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.

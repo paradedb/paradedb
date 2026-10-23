@@ -17,12 +17,12 @@
 
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
-    clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
+    clamp_int_bounds, convert_bound, convert_value_for_field, convert_value_for_range_field,
     is_outside_int_domain, map_bound, numeric_bound_to_bytes, string_to_f64, string_to_i64,
     string_to_json_numeric,
 };
@@ -1604,6 +1604,24 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     let typeoid = search_field.field_type().typeoid();
     let search_field_type = search_field.field_type();
 
+    // DATE strings may include a timestamp. Normalize them before check_range_bounds,
+    // which parses pure ISO dates and is also called by backend-free unit tests.
+    if matches!(
+        typeoid,
+        PgOid::BuiltIn(BuiltinOid::DATEOID | BuiltinOid::DATERANGEOID)
+    ) {
+        let parse_date = |value| match value {
+            PdbOwnedValue::Str(s) => PostgresDate::try_from_query_str(&s)
+                .map(PdbOwnedValue::Date)
+                .map_err(|e| anyhow::anyhow!("{e:?}")),
+            other => Ok(other),
+        };
+        let lower = convert_bound(lower_bound, parse_date)?;
+        let upper = convert_bound(upper_bound, parse_date)?;
+        return check_range_bounds(typeoid, lower, upper, index_created_by_version)
+            .map_err(Into::into);
+    }
+
     // Handle NUMERIC field types with special storage strategies
     // Also handle string-encoded numeric values for JSON and other numeric fields
     let bounds = match search_field_type {
@@ -1618,6 +1636,10 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             let lower = map_bound(lower_bound, string_to_json_numeric);
             let upper = map_bound(upper_bound, string_to_json_numeric);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
+        }
+        // Dates are stored as day counts in I64 fields, but they are not numbers.
+        SearchFieldType::DateDays(_) => {
+            check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?
         }
         // Dates and times are stored in I64 fields, but they are not numbers
         SearchFieldType::I64(oid) if is_datetime_type(oid) => {
@@ -2315,8 +2337,8 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
     match leaf {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name
-                && let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name)
-                && let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid)
+                && let Some(field_type) = field_type_requiring_literal_rewrite(schema, field_name)
+                && let Some(replacement) = phrase_to_stored_numeric_string(&lit.phrase, field_type)
             {
                 lit.phrase = replacement;
             }
@@ -2326,18 +2348,19 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
             lower,
             upper,
         } => {
-            if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
-                rewrite_bound(lower, oid);
-                rewrite_bound(upper, oid);
+            if let Some(field_type) = field_type_requiring_literal_rewrite(schema, name) {
+                rewrite_bound(lower, field_type);
+                rewrite_bound(upper, field_type);
             }
         }
         UserInputLeaf::Set {
             field: Some(name),
             elements,
         } => {
-            if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
+            if let Some(field_type) = field_type_requiring_literal_rewrite(schema, name) {
                 for element in elements.iter_mut() {
-                    if let Some(replacement) = phrase_to_pg_micros_string(element, oid) {
+                    if let Some(replacement) = phrase_to_stored_numeric_string(element, field_type)
+                    {
                         *element = replacement;
                     }
                 }
@@ -2349,10 +2372,10 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
     }
 }
 
-fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) {
+fn rewrite_bound(bound: &mut UserInputBound, field_type: SearchFieldType) {
     match bound {
         UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
-            if let Some(replacement) = phrase_to_pg_micros_string(phrase, oid) {
+            if let Some(replacement) = phrase_to_stored_numeric_string(phrase, field_type) {
                 *phrase = replacement;
             }
         }
@@ -2360,65 +2383,72 @@ fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) {
     }
 }
 
-fn oid_might_require_timestamp_rewriting(
+fn field_type_requiring_literal_rewrite(
     schema: &SearchIndexSchema,
     field_name: &str,
-) -> Option<PgOid> {
-    let oid = schema.search_field(field_name)?.field_type().typeoid();
-    if let PgOid::BuiltIn(built_in) = oid {
-        match built_in {
-            BuiltinOid::JSONOID | BuiltinOid::JSONBOID => Some(oid),
-            _ if is_pgoid_datetime_type(oid) => Some(oid),
-            _ => None,
-        }
-    } else {
-        None
+) -> Option<SearchFieldType> {
+    let field_type = schema.search_field(field_name)?.field_type();
+    match field_type.typeoid() {
+        PgOid::BuiltIn(BuiltinOid::JSONOID | BuiltinOid::JSONBOID) => Some(field_type),
+        oid if is_pgoid_datetime_type(oid) => Some(field_type),
+        _ => None,
     }
 }
 
-/// Parse `phrase` as a postgres date string and return the corresponding
-/// PG-epoch microseconds formatted as a decimal i64 string. Returns `None`
-/// if the phrase can't be parsed — caller leaves the phrase untouched.
-fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
-    match oid {
-        PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
-            let micros = PostgresDateTime::try_from_timestamp_str(phrase)
-                .ok()?
-                .into_inner();
-            Some(micros.to_string())
+/// Parse `phrase` as a date/time string and return the representation the field stores:
+/// `DateADT` days for a new DATE field, PG-epoch microseconds for an I64 datetime field, and
+/// Unix-epoch nanoseconds for a legacy tantivy `Date` field. Returns `None` when the phrase
+/// cannot be parsed, leaving it untouched for the caller's normal error path.
+fn phrase_to_stored_numeric_string(phrase: &str, field_type: SearchFieldType) -> Option<String> {
+    match field_type {
+        // A new DATE field is an I64 of `DateADT` days, so the parser needs a number. Accept
+        // both PostgreSQL's ISO date form and its looser date input, which also takes a
+        // timestamp and ignores its time part, matching what legacy DATE indexes accepted.
+        // The ISO form is tried first because it covers years outside the timestamp range.
+        SearchFieldType::DateDays(_) => {
+            let date = PostgresDate::try_from_query_str(phrase).ok()?;
+            Some(date.into_inner().to_string())
         }
-        PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
-            let micros = PostgresDateTime::try_from_timestamptz_str(phrase)
-                .ok()?
-                .into_inner();
-            Some(micros.to_string())
-        }
-        PgOid::BuiltIn(BuiltinOid::DATEOID) => {
-            let micros = PostgresDateTime::try_from_date_str(phrase)
-                .ok()?
-                .into_inner();
-            Some(micros.to_string())
-        }
-        PgOid::BuiltIn(BuiltinOid::TIMEOID) => {
-            let micros = PostgresDateTime::try_from_time_str(phrase)
-                .ok()?
-                .into_inner();
-            Some(micros.to_string())
-        }
-        PgOid::BuiltIn(BuiltinOid::TIMETZOID) => {
-            let micros = PostgresDateTime::try_from_timetz_str(phrase)
-                .ok()?
-                .into_inner();
-            Some(micros.to_string())
-        }
-        PgOid::BuiltIn(BuiltinOid::JSONOID) | PgOid::BuiltIn(BuiltinOid::JSONBOID) => {
-            // Best-effort: if the phrase parses as a timestamp, rewrite to i64 micros.
-            // Otherwise leave alone — could be any non-datetime JSON value.
-            PostgresDateTime::try_from(phrase)
-                .ok()
-                .map(|dt| dt.into_inner().to_string())
-        }
-        _ => None,
+        _ => match field_type.typeoid() {
+            PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
+                let micros = PostgresTimestamp::try_from_timestamp_str(phrase)
+                    .ok()?
+                    .into_inner();
+                Some(micros.to_string())
+            }
+            PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
+                let micros = PostgresTimestamp::try_from_timestamptz_str(phrase)
+                    .ok()?
+                    .into_inner();
+                Some(micros.to_string())
+            }
+            PgOid::BuiltIn(BuiltinOid::DATEOID) => {
+                let micros = PostgresTimestamp::try_from_date_str(phrase)
+                    .ok()?
+                    .into_inner();
+                Some(micros.to_string())
+            }
+            PgOid::BuiltIn(BuiltinOid::TIMEOID) => {
+                let micros = PostgresTimestamp::try_from_time_str(phrase)
+                    .ok()?
+                    .into_inner();
+                Some(micros.to_string())
+            }
+            PgOid::BuiltIn(BuiltinOid::TIMETZOID) => {
+                let micros = PostgresTimestamp::try_from_timetz_str(phrase)
+                    .ok()?
+                    .into_inner();
+                Some(micros.to_string())
+            }
+            PgOid::BuiltIn(BuiltinOid::JSONOID | BuiltinOid::JSONBOID) => {
+                // Best-effort: if the phrase parses as a timestamp, rewrite to i64 micros.
+                // Otherwise leave alone — could be any non-datetime JSON value.
+                PostgresTimestamp::try_from(phrase)
+                    .ok()
+                    .map(|dt| dt.into_inner().to_string())
+            }
+            _ => None,
+        },
     }
 }
 

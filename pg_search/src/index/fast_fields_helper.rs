@@ -21,7 +21,7 @@ use std::sync::{Arc, OnceLock};
 use crate::api::CTID_FIELD_NAME;
 use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
@@ -30,7 +30,8 @@ use crate::schema::{SearchFieldType, is_columnar_json_path};
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
-    BooleanBuilder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder, UInt64Builder,
+    BooleanBuilder, Date32Builder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder,
+    UInt64Builder,
 };
 use arrow_array::{ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
@@ -250,6 +251,17 @@ macro_rules! fetch_term_ords {
     }};
 }
 
+/// A new date fast field stores PostgreSQL's `DateADT` as an `i64`, but only the low 32 bits
+/// are meaningful (`DateADT` is an `i32`).
+fn pg_date_days(days: i64) -> PostgresDate {
+    let days = i32::try_from(days).expect("a DATE day count must fit in an i32");
+    PostgresDate::try_from_raw(days).expect("the index must only contain valid DATE day counts")
+}
+
+fn pg_date_days_to_date32(days: i64) -> i32 {
+    pg_date_days(days).to_date32()
+}
+
 /// Helper for working with different "fast field" types as if they're all one type.
 ///
 /// This enum is used *after* a column is open to provide a typed wrapper around the underlying
@@ -334,16 +346,23 @@ impl FFType {
                 TantivyValue(PdbOwnedValue::Bytes(bytes))
             }
             FFType::I64(ff) => {
-                // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
-                if let Some(sft) = search_field_type
-                    && is_pgoid_datetime_type(sft.typeoid())
-                {
-                    let value = ff.first(doc).map(|first| {
-                        let pgdt = PostgresDateTime::try_from_raw(first)
-                            .expect("This should always be a valid datetime value");
-                        PdbOwnedValue::Date(pgdt)
-                    });
-                    return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                if let Some(sft) = search_field_type {
+                    // versions >= DATE_DAYS_STORAGE_VERSION store DATE as DateADT days
+                    if matches!(sft, SearchFieldType::DateDays(_)) {
+                        let value = ff
+                            .first(doc)
+                            .map(|days| PdbOwnedValue::Date(pg_date_days(days)));
+                        return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                    }
+                    // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
+                    if is_pgoid_datetime_type(sft.typeoid()) {
+                        let value = ff.first(doc).map(|first| {
+                            let pgdt = PostgresTimestamp::try_from_raw(first)
+                                .expect("This should always be a valid datetime value");
+                            PdbOwnedValue::Timestamp(pgdt)
+                        });
+                        return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                    }
                 }
                 let value = ff.first(doc).map(|first| first.into());
                 TantivyValue(value.unwrap_or(PdbOwnedValue::Null))
@@ -408,6 +427,9 @@ impl FFType {
                 &arrow_schema::DataType::Null,
                 ids.len(),
             )),
+            FFType::I64(_) if matches!(search_field_type, SearchFieldType::DateDays(_)) => {
+                fetch_ff_column!(self, ids, I64 => pg_date_days_to_date32 => Date32Builder)
+            }
             FFType::I64(_) if is_pgoid_datetime_type(search_field_type.typeoid()) => {
                 fetch_ff_column!(self, ids, I64 => identity => TimestampMicrosecondBuilder)
             }
@@ -462,6 +484,14 @@ impl FFType {
                 |doc| col.term_ords(doc),
                 |b, v| b.append_value(v),
             ),
+            FFType::I64(col) if matches!(search_field_type, SearchFieldType::DateDays(_)) => {
+                fetch_list_array(
+                    ids,
+                    arrow_array::builder::ListBuilder::new(Date32Builder::new()),
+                    |doc| col.values_for_doc(doc),
+                    |b, v| b.append_value(pg_date_days_to_date32(v)),
+                )
+            }
             FFType::I64(col) if matches!(search_field_type, SearchFieldType::I64(oid) if crate::postgres::types::is_datetime_type(oid)) => {
                 fetch_list_array(
                     ids,

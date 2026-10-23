@@ -22,7 +22,7 @@ mod pdb {
     use std::collections::Bound;
 
     use crate::api::HashSet;
-    use crate::postgres::datetime::PostgresDateTime;
+    use crate::postgres::datetime::PostgresTimestamp;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
     use crate::query::pdb_query::pdb;
@@ -590,17 +590,17 @@ mod pdb {
     range_term_range_fn!(
         range_term_range_daterange,
         pgrx::Range<pgrx::datum::Date>,
-        PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
+        PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap())
     );
     range_term_range_fn!(
         range_term_range_tsrange,
         pgrx::Range<pgrx::datum::Timestamp>,
-        PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
+        PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap())
     );
     range_term_range_fn!(
         range_term_range_tstzrange,
         pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
-        PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
+        PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap())
     );
 
     // TODO: Remove deprecated `pdb.term_set` aggregate in a future release.

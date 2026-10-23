@@ -27,8 +27,10 @@ use crate::postgres::composite::{
     CompositeSlotValues, get_composite_fields_for_index, is_composite_type,
 };
 use crate::postgres::customscan::orderby::text_lower_funcoid;
+use crate::postgres::datetime::PostgresDate;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
 
@@ -44,7 +46,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 use tokenizers::SearchNormalizer;
 
-use super::datetime::PostgresDateTime;
+use super::datetime::PostgresTimestamp;
 
 unsafe extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
@@ -345,11 +347,12 @@ mod tests {
 
     #[pg_test]
     fn convert_pg_date_string_test() {
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::postgres::utils::convert_pg_date_string;
         use pgrx::PgBuiltInOids;
 
         let dt = convert_pg_date_string(PgBuiltInOids::DATEOID.into(), "2024-01-01");
-        assert!(!dt.is_infinity());
+        assert!(matches!(dt, PdbOwnedValue::Date(date) if date.is_finite()));
     }
 }
 
@@ -1093,34 +1096,34 @@ pub unsafe fn unwrap_alias_datum(datum: pg_sys::Datum, pg_type: PgOid) -> pg_sys
     }
 }
 
-pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDateTime {
+pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PdbOwnedValue {
     match typeoid {
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
                 .expect("must be valid postgres date format");
-            PostgresDateTime::try_from(d).expect("date out of range")
+            PdbOwnedValue::Date(PostgresDate::try_from(d).expect("date out of range"))
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
             let t = pgrx::datum::Timestamp::from_str(date_string)
                 .expect("must be a valid postgres timestamp");
-            PostgresDateTime::from(t)
+            PdbOwnedValue::Timestamp(PostgresTimestamp::from(t))
         }
         // For TIMESTAMPTZOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID | pg_sys::BuiltinOid::TSTZRANGEOID) => {
             let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
                 .expect("must be a valid postgres timestamp with time zone");
-            PostgresDateTime::from(twtz)
+            PdbOwnedValue::Timestamp(PostgresTimestamp::from(twtz))
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
             let t =
                 pgrx::datum::Time::from_str(date_string).expect("must be a valid postgres time");
-            PostgresDateTime::from(t)
+            PdbOwnedValue::Timestamp(PostgresTimestamp::from(t))
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
             let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string)
                 .expect("must be a valid postgres time with time zone");
-            PostgresDateTime::from(twtz)
+            PdbOwnedValue::Timestamp(PostgresTimestamp::from(twtz))
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }

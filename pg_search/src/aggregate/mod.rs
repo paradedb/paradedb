@@ -41,7 +41,8 @@ use crate::postgres::customscan::aggregatescan::build::{
 };
 use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
-    rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
+    datetime_kind_for_field, rewrite_date_histogram_to_histogram_with,
+    rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::parallel::{WorkerDecisionReason, aggregate_nworkers};
@@ -645,17 +646,19 @@ pub fn execute_aggregate(
         // no longer storing dates in tantivy's DateTime.
         // We rewrite these here instead of at AggregateRequest construction time because we need
         // the unmodified json later to decide how to rewrite the results.
+        let schema = index.schema()?;
+        let datetime_kind = |field: &str| datetime_kind_for_field(&schema, field);
         match &mut agg_req {
             AggregateRequest::Json(aggregations) => {
                 for agg in aggregations.values_mut() {
-                    rewrite_date_histogram_to_histogram(agg)
+                    rewrite_date_histogram_to_histogram_with(agg, &datetime_kind)
                         .expect("a valid date_histogram should always be a valid histogram");
                 }
             }
             AggregateRequest::Sql(clause) => {
                 for agg in clause.aggregates_mut() {
                     if let AggregateType::Custom { agg_json, .. } = agg {
-                        rewrite_json_date_histogram_to_histogram(agg_json);
+                        rewrite_json_date_histogram_to_histogram(agg_json, &datetime_kind);
                     }
                 }
             }
@@ -950,7 +953,7 @@ fn set_missing_on_terms(
             // theoretically collide with valid data values, though this is unlikely in practice.
             // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
             let sentinel = match schema.get_field_type(&terms.field) {
-                Some(SearchFieldType::I64(_)) => {
+                Some(SearchFieldType::I64(_) | SearchFieldType::DateDays(_)) => {
                     if use_min {
                         Key::I64(i64::MIN)
                     } else {
@@ -965,9 +968,9 @@ fn set_missing_on_terms(
                     // This matches standard SQL behavior where NULLs are typically excluded
                     // from aggregations unless explicitly handled.
                     //
-                    // As of v0.24.1 (DATETIME_I64_STORAGE_VERSION), this is a legacy-only
-                    // codepath: new indexes store datetime values as i64 and so use the
-                    // I64 sentinel arm above.
+                    // As of v0.24.1 (DATETIME_I64_STORAGE_VERSION), `Date` is legacy-only:
+                    // new indexes store DATE values in an i64 column, whose sentinel arm
+                    // above covers them.
                     continue;
                 }
                 Some(SearchFieldType::U64(_)) => {

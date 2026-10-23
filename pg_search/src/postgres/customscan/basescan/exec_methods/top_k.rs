@@ -243,6 +243,18 @@ impl TopKScanExecState {
         let mvcc_enabled = AggregateType::resolve_visibility(combined_agg_types.iter())
             .resolve_filtering(state.indexrel(), state.search_query_input(), None);
 
+        // The schema is only needed to tell day-count DATE columns from timestamp columns
+        // when rewriting date histograms.
+        let schema = state
+            .indexrel()
+            .created_by_version()
+            .stores_datetimes_in_i64()
+            .then(|| {
+                state
+                    .indexrel()
+                    .schema()
+                    .expect("index schema should be readable while preparing aggregations")
+            });
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();
         for (idx, agg_type) in combined_agg_types.iter().enumerate() {
@@ -258,17 +270,20 @@ impl TopKScanExecState {
                     sub_aggregation: Default::default(),
                 }
             };
-            if state
-                .indexrel()
-                .created_by_version()
-                .stores_datetimes_in_i64()
-            {
+            if let Some(schema) = &schema {
                 // We need to rewrite date_histogram requests to regular histogram requests because
                 // we are no longer storing dates in tantivy's DateTime.
                 // We rewrite these here instead of at AggregateRequest construction time because we
                 // need the unmodified json later to decide how to rewrite the results.
-                crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_date_histogram_to_histogram(&mut agg)
-                    .expect("a valid date_histogram should always be a valid histogram");
+                crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_date_histogram_to_histogram_with(
+                    &mut agg,
+                    &|field| {
+                        crate::postgres::customscan::aggregatescan::json_rewrite::datetime_kind_for_field(
+                            schema, field,
+                        )
+                    },
+                )
+                .expect("a valid date_histogram should always be a valid histogram");
             }
             aggregations.insert(idx.to_string(), agg);
         }

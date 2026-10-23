@@ -27,15 +27,19 @@ use serde::ser::SerializeMap;
 use tantivy::schema::{Facet, OwnedValue};
 
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::types::TantivyValueError;
 use crate::schema::SearchFieldType;
 
+/// Serde tag for the legacy timestamp representation (PG-epoch microseconds).
 pub const PDB_DATE_TAG: &str = "$__pdb_date__";
+/// Serde tag for the day-count representation of `DATE` (PG-epoch days).
+pub const PDB_DATE_DAYS_TAG: &str = "$__pdb_date_days__";
 
-/// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent dates
-/// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
-/// Other than the Date variant, this is equivalent to Tantivy's OwnedValue
+/// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent
+/// datetimes separately: timestamps as microseconds from the PG epoch, and `DATE` as whole days
+/// from it, whereas tantivy uses nanoseconds from the Unix epoch. Other than those variants, this
+/// is equivalent to Tantivy's OwnedValue.
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum PdbOwnedValue {
     Null,
@@ -45,7 +49,8 @@ pub enum PdbOwnedValue {
     I64(i64),
     F64(f64),
     Bool(bool),
-    Date(PostgresDateTime),
+    Date(PostgresDate),
+    Timestamp(PostgresTimestamp),
     Facet(Facet),
     Bytes(Vec<u8>),
     Array(Vec<Self>),
@@ -70,6 +75,7 @@ impl Hash for PdbOwnedValue {
             PdbOwnedValue::F64(v) => (if *v == 0.0 { 0.0f64 } else { *v }).to_bits().hash(state),
             PdbOwnedValue::Bool(v) => v.hash(state),
             PdbOwnedValue::Date(v) => v.hash(state),
+            PdbOwnedValue::Timestamp(v) => v.hash(state),
             PdbOwnedValue::Facet(v) => v.hash(state),
             PdbOwnedValue::Bytes(v) => v.hash(state),
             PdbOwnedValue::Array(v) => v.hash(state),
@@ -82,7 +88,7 @@ impl Hash for PdbOwnedValue {
 impl PdbOwnedValue {
     /// The value of an Arrow cell, for a column whose field type is not at hand:
     /// integers widen to `I64` or `U64`, floats to `F64`, a microsecond timestamp
-    /// becomes a `Date`, and a `Date32` day count stays an `I64`. `None` for an
+    /// becomes a `Timestamp`, and a `Date32` day count becomes a `Date`. `None` for an
     /// Arrow type with no variant here.
     pub fn from_arrow(array: &dyn Array, row: usize) -> Option<Self> {
         if array.is_null(row) {
@@ -104,10 +110,12 @@ impl PdbOwnedValue {
             ScalarValue::Float64(Some(v)) => Self::F64(v),
             ScalarValue::Boolean(Some(v)) => Self::Bool(v),
             // A value outside the timestamp range keeps its raw microseconds.
-            ScalarValue::TimestampMicrosecond(Some(v), _) => PostgresDateTime::try_from_raw(v)
-                .map(Self::Date)
+            ScalarValue::TimestampMicrosecond(Some(v), _) => PostgresTimestamp::try_from_raw(v)
+                .map(Self::Timestamp)
                 .unwrap_or(Self::I64(v)),
-            ScalarValue::Date32(Some(v)) => Self::I64(v as i64),
+            ScalarValue::Date32(Some(v)) => PostgresDate::try_from_date32(v)
+                .map(Self::Date)
+                .unwrap_or(Self::I64(v as i64)),
             ScalarValue::Binary(Some(v))
             | ScalarValue::LargeBinary(Some(v))
             | ScalarValue::BinaryView(Some(v)) => Self::Bytes(v),
@@ -147,6 +155,23 @@ impl PdbOwnedValue {
     pub fn into_tantivy_value(self, index_created_by_version: Option<Version>) -> OwnedValue {
         match self {
             PdbOwnedValue::Date(date) => {
+                if index_created_by_version.stores_dates_as_days() {
+                    OwnedValue::I64(i64::from(date.into_inner()))
+                } else {
+                    // Legacy indexes stored DATE values as a midnight timestamp.
+                    let timestamp: PostgresTimestamp = date
+                        .try_into()
+                        .expect("legacy date indexes only contain dates that fit in a timestamp");
+                    if index_created_by_version.stores_datetimes_in_i64() {
+                        OwnedValue::I64(timestamp.into_inner())
+                    } else {
+                        OwnedValue::Date(timestamp.try_into().expect(
+                            "legacy date indexes only contain dates that fit in tantivy's DateTime",
+                        ))
+                    }
+                }
+            }
+            PdbOwnedValue::Timestamp(date) => {
                 if index_created_by_version.stores_datetimes_in_i64() {
                     OwnedValue::I64(date.into_inner())
                 } else {
@@ -186,7 +211,10 @@ impl PdbOwnedValue {
             PdbOwnedValue::Facet(val) => OwnedValue::Facet(val),
             PdbOwnedValue::Bytes(val) => OwnedValue::Bytes(val),
             PdbOwnedValue::IpAddr(val) => OwnedValue::IpAddr(val),
-            PdbOwnedValue::Date(_) | PdbOwnedValue::Array(_) | PdbOwnedValue::Object(_) => {
+            PdbOwnedValue::Date(_)
+            | PdbOwnedValue::Timestamp(_)
+            | PdbOwnedValue::Array(_)
+            | PdbOwnedValue::Object(_) => {
                 unreachable!(
                     "This should be handled by PdbOwnedValue::into_tantivy_value or elsewhere"
                 )
@@ -198,7 +226,7 @@ impl PdbOwnedValue {
     fn from_deserialized_tantivy_value(tv: OwnedValue) -> Self {
         match tv {
             OwnedValue::Date(_) => unreachable!(
-                "We serialize PdbOwnedValue::Date as a string, so this should never happen"
+                "We serialize datetimes as tagged objects, so this should never happen"
             ),
             OwnedValue::Array(array) => PdbOwnedValue::Array(
                 array
@@ -207,13 +235,30 @@ impl PdbOwnedValue {
                     .collect(),
             ),
             OwnedValue::Object(object) => {
-                // serialized Date's end up as objects, so we'll need to look for their shape here.
-                if object.len() == 1
-                    && let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
-                {
-                    // Strings that parse as a datetime must be assumed to be datetimes
-                    if let Ok(pgdt) = PostgresDateTime::try_from_serialized(s.as_str()) {
-                        return PdbOwnedValue::Date(pgdt);
+                // Serialized datetimes end up as tagged objects, so look for their shape here.
+                if object.len() == 1 {
+                    match (object[0].0.as_str(), &object[0].1) {
+                        (PDB_DATE_TAG, OwnedValue::Str(s)) => {
+                            // Legacy indexes and pre-date-days serialized values store timestamps.
+                            if let Ok(pgdt) = PostgresTimestamp::try_from_serialized(s.as_str()) {
+                                return PdbOwnedValue::Timestamp(pgdt);
+                            }
+                        }
+                        (PDB_DATE_DAYS_TAG, OwnedValue::I64(days)) => {
+                            if let Ok(days) = i32::try_from(*days)
+                                && let Ok(date) = PostgresDate::try_from_raw(days)
+                            {
+                                return PdbOwnedValue::Date(date);
+                            }
+                        }
+                        (PDB_DATE_DAYS_TAG, OwnedValue::U64(days)) => {
+                            if let Ok(days) = i32::try_from(*days)
+                                && let Ok(date) = PostgresDate::try_from_raw(days)
+                            {
+                                return PdbOwnedValue::Date(date);
+                            }
+                        }
+                        _ => {}
                     }
                 }
 
@@ -228,8 +273,8 @@ impl PdbOwnedValue {
             OwnedValue::I64(val) => PdbOwnedValue::I64(val),
             OwnedValue::U64(val) => PdbOwnedValue::U64(val),
             OwnedValue::F64(val) => PdbOwnedValue::F64(val),
-            // User-supplied json can have timestamps as strings. We need to attempt to parse them
-            // here so we can correctly convert them to PdbOwnedValue::Date
+            // User-supplied json can have datetimes as strings; they stay strings until the field
+            // type tells a caller how to parse them.
             OwnedValue::Str(s) => PdbOwnedValue::Str(s),
             OwnedValue::Bool(val) => PdbOwnedValue::Bool(val),
             OwnedValue::Facet(val) => PdbOwnedValue::Facet(val),
@@ -257,6 +302,20 @@ impl PdbOwnedValue {
                 Some(PdbOwnedValue::I64(*v as i64))
             }
             (ScalarValue::Int64(Some(v)), SearchFieldType::I64(_)) => Some(PdbOwnedValue::I64(*v)),
+
+            // Arrow's representation of a `DATE` field (new indexes) and of a timestamp
+            // column. Date32 carries Unix-epoch days; timestamps carry PG-epoch micros.
+            (ScalarValue::Date32(Some(v)), SearchFieldType::DateDays(_)) => {
+                PostgresDate::try_from_date32(*v)
+                    .ok()
+                    .map(PdbOwnedValue::Date)
+            }
+            (
+                ScalarValue::TimestampMicrosecond(Some(v), _),
+                SearchFieldType::I64(_) | SearchFieldType::Date(_),
+            ) => PostgresTimestamp::try_from_raw(*v)
+                .ok()
+                .map(PdbOwnedValue::Timestamp),
 
             // Unsigned integer types (U64)
             (ScalarValue::UInt8(Some(v)), SearchFieldType::U64(_)) => {
@@ -418,7 +477,16 @@ impl PdbOwnedValue {
                 Some(ScalarValue::Utf8View(Some(v.clone())))
             }
             (DataType::Utf8, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8(Some(v.clone()))),
-            // Fast fields store Timestamp/Date values as i64 microseconds.
+            (DataType::Date32, PdbOwnedValue::Date(v)) => {
+                Some(ScalarValue::Date32(Some(v.to_date32())))
+            }
+            // Legacy date fast fields and timestamps both use i64 microseconds.
+            (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::Timestamp(v)) => {
+                Some(ScalarValue::TimestampMicrosecond(
+                    Some(v.into_inner()),
+                    None,
+                ))
+            }
             (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::I64(v)) => {
                 Some(ScalarValue::TimestampMicrosecond(Some(*v), None))
             }
@@ -435,8 +503,13 @@ impl serde::Serialize for PdbOwnedValue {
         S: serde::Serializer,
     {
         match *self {
-            // tag dates so that we can identify them when deserializing
+            // Tag datetimes so that we can identify their representation when deserializing.
             PdbOwnedValue::Date(date) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(PDB_DATE_DAYS_TAG, &date.into_inner())?;
+                map.end()
+            }
+            PdbOwnedValue::Timestamp(date) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry(PDB_DATE_TAG, &date)?;
                 map.end()
@@ -476,15 +549,15 @@ impl<'de> serde::Deserialize<'de> for PdbOwnedValue {
 ///
 /// Scalar values only. It errors on `Null` and the composite variants (`Array`, `Object`,
 /// `Facet`, `PreTokStr`), which never appear as partition split values. `F64` travels as its
-/// bits and dates as their raw microseconds, so both survive any codec without calling into
-/// Postgres. Use through `#[serde(with = "...")]` on a `PdbOwnedValue` field.
+/// bits and datetimes as their raw day/microsecond counts, so both survive any codec without
+/// calling into Postgres. Use through `#[serde(with = "...")]` on a `PdbOwnedValue` field.
 pub(crate) mod exact_scalar_wire {
     use std::net::Ipv6Addr;
 
     use serde::{Deserialize, Deserializer, Serialize, Serializer, de, ser};
 
     use super::PdbOwnedValue;
-    use crate::postgres::datetime::PostgresDateTime;
+    use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 
     #[derive(Serialize, Deserialize)]
     enum WireValue {
@@ -492,12 +565,15 @@ pub(crate) mod exact_scalar_wire {
         U64(u64),
         I64(i64),
         Bool(bool),
+        /// Legacy timestamps, as PG-epoch microseconds.
         Date(i64),
         // The wire needs the exact value back, not an order, so it carries `f64::to_bits`
         // (not the ordering `u64` mapping `total_cmp` uses). `NaN` and the infinities survive.
         F64Bits(u64),
         Bytes(Vec<u8>),
         IpAddr(Ipv6Addr),
+        /// `DATE` values as PG-epoch days. Keep new variants after the persisted wire tags.
+        DateDays(i32),
     }
 
     pub(crate) fn serialize<S: Serializer>(value: &PdbOwnedValue, s: S) -> Result<S::Ok, S::Error> {
@@ -507,7 +583,8 @@ pub(crate) mod exact_scalar_wire {
             PdbOwnedValue::I64(v) => WireValue::I64(*v),
             PdbOwnedValue::F64(v) => WireValue::F64Bits(v.to_bits()),
             PdbOwnedValue::Bool(v) => WireValue::Bool(*v),
-            PdbOwnedValue::Date(v) => WireValue::Date(v.into_inner()),
+            PdbOwnedValue::Date(v) => WireValue::DateDays(v.into_inner()),
+            PdbOwnedValue::Timestamp(v) => WireValue::Date(v.into_inner()),
             PdbOwnedValue::Bytes(v) => WireValue::Bytes(v.clone()),
             PdbOwnedValue::IpAddr(v) => WireValue::IpAddr(*v),
             other => {
@@ -526,8 +603,12 @@ pub(crate) mod exact_scalar_wire {
             WireValue::I64(v) => PdbOwnedValue::I64(v),
             WireValue::F64Bits(v) => PdbOwnedValue::F64(f64::from_bits(v)),
             WireValue::Bool(v) => PdbOwnedValue::Bool(v),
-            WireValue::Date(v) => PdbOwnedValue::Date(
-                PostgresDateTime::try_from_raw(v)
+            WireValue::Date(v) => PdbOwnedValue::Timestamp(
+                PostgresTimestamp::try_from_raw(v)
+                    .map_err(|e| de::Error::custom(format!("invalid split timestamp: {e:?}")))?,
+            ),
+            WireValue::DateDays(v) => PdbOwnedValue::Date(
+                PostgresDate::try_from_raw(v)
                     .map_err(|e| de::Error::custom(format!("invalid split date: {e:?}")))?,
             ),
             WireValue::Bytes(v) => PdbOwnedValue::Bytes(v),
@@ -539,7 +620,7 @@ pub(crate) mod exact_scalar_wire {
 impl PdbOwnedValue {
     /// A `Display` that renders this value for logs without calling into Postgres, so it works
     /// outside a backend. The complementary `TantivyValue` `Display` routes dates through
-    /// Postgres output functions; this one renders dates as UTC RFC 3339 via `chrono` instead.
+    /// Postgres output functions; this one renders dates in ISO form without the backend.
     /// Strings are quoted so a value reads unambiguously in a log line, and the composite and
     /// unsupported variants fall back to `Debug`.
     pub(crate) fn plain_display(&self) -> impl std::fmt::Display + '_ {
@@ -558,7 +639,8 @@ impl std::fmt::Display for PlainDisplay<'_> {
             PdbOwnedValue::F64(v) => write!(f, "{v}"),
             PdbOwnedValue::Bool(v) => write!(f, "{v}"),
             PdbOwnedValue::IpAddr(v) => write!(f, "{v}"),
-            PdbOwnedValue::Date(v) => match v.to_rfc3339() {
+            PdbOwnedValue::Date(v) => write!(f, "{v}"),
+            PdbOwnedValue::Timestamp(v) => match v.to_rfc3339() {
                 Some(s) => write!(f, "{s}"),
                 None => write!(f, "{v:?}"),
             },
@@ -594,9 +676,9 @@ impl From<bool> for PdbOwnedValue {
 }
 impl From<tantivy::DateTime> for PdbOwnedValue {
     fn from(value: tantivy::DateTime) -> Self {
-        let pg_dt = PostgresDateTime::try_from(value)
+        let pg_dt = PostgresTimestamp::try_from(value)
             .expect("We should never see a timestamp that postgres can't represent");
-        Self::Date(pg_dt)
+        Self::Timestamp(pg_dt)
     }
 }
 
@@ -612,6 +694,7 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow_schema::TimeUnit;
     use pgrx::pg_sys;
     use std::cmp::Ordering;
     use std::net::Ipv6Addr;
@@ -680,7 +763,9 @@ mod tests {
             PdbOwnedValue::Bool(true),
             PdbOwnedValue::Bytes(vec![0, 1, 255]),
             PdbOwnedValue::IpAddr(Ipv6Addr::LOCALHOST),
-            PdbOwnedValue::Date(PostgresDateTime::try_from_raw(123_456).unwrap()),
+            PdbOwnedValue::Date(PostgresDate::try_from_raw(0).unwrap()),
+            PdbOwnedValue::Date(PostgresDate::try_from_raw(i32::MAX).unwrap()),
+            PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(123_456).unwrap()),
         ];
         for value in &cases {
             assert_eq!(&round_trip(value), value, "did not round-trip: {value:?}");
@@ -690,6 +775,63 @@ mod tests {
             round_trip(&PdbOwnedValue::F64(f64::NAN)),
             PdbOwnedValue::F64(f) if f.is_nan()
         ));
+    }
+
+    #[test]
+    fn exact_scalar_wire_keeps_persisted_variant_tags() {
+        let cases = [
+            (PdbOwnedValue::Str("x".into()), 0),
+            (PdbOwnedValue::U64(1), 1),
+            (PdbOwnedValue::I64(-1), 2),
+            (PdbOwnedValue::Bool(true), 3),
+            (
+                PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap()),
+                4,
+            ),
+            (PdbOwnedValue::F64(0.0), 5),
+            (PdbOwnedValue::Bytes(vec![1]), 6),
+            (PdbOwnedValue::IpAddr(Ipv6Addr::LOCALHOST), 7),
+            (
+                PdbOwnedValue::Date(PostgresDate::try_from_raw(0).unwrap()),
+                8,
+            ),
+        ];
+        for (value, tag) in cases {
+            let bytes = postcard::to_allocvec(&Wire(value.clone())).unwrap();
+            assert_eq!(bytes[0], tag, "wire tag changed for {value:?}");
+            assert_eq!(postcard::from_bytes::<Wire>(&bytes).unwrap().0, value);
+        }
+    }
+
+    #[test]
+    fn date_and_timestamp_scalars_keep_their_storage_units() {
+        let date = PostgresDate::try_from_raw(0).unwrap();
+        let date_value = PdbOwnedValue::Date(date);
+        let date_scalar = ScalarValue::Date32(Some(date.to_date32()));
+        assert_eq!(
+            PdbOwnedValue::from_scalar(
+                &date_scalar,
+                &SearchFieldType::DateDays(pgrx::pg_sys::DATEOID),
+            ),
+            Some(date_value.clone())
+        );
+        assert_eq!(date_value.to_scalar(&DataType::Date32), Some(date_scalar));
+        assert_eq!(date_value.plain_display().to_string(), "2000-01-01");
+
+        let timestamp = PostgresTimestamp::try_from_raw(0).unwrap();
+        let timestamp_value = PdbOwnedValue::Timestamp(timestamp);
+        let timestamp_scalar = ScalarValue::TimestampMicrosecond(Some(0), None);
+        assert_eq!(
+            PdbOwnedValue::from_scalar(
+                &timestamp_scalar,
+                &SearchFieldType::I64(pgrx::pg_sys::TIMESTAMPOID),
+            ),
+            Some(timestamp_value.clone())
+        );
+        assert_eq!(
+            timestamp_value.to_scalar(&DataType::Timestamp(TimeUnit::Microsecond, None)),
+            Some(timestamp_scalar)
+        );
     }
 
     #[test]
@@ -723,9 +865,9 @@ mod tests {
             "::1"
         );
         // A date at the Postgres epoch renders as RFC 3339 UTC.
-        let epoch = PostgresDateTime::try_from_raw(0).unwrap();
+        let epoch = PostgresTimestamp::try_from_raw(0).unwrap();
         assert_eq!(
-            PdbOwnedValue::Date(epoch).plain_display().to_string(),
+            PdbOwnedValue::Timestamp(epoch).plain_display().to_string(),
             "2000-01-01T00:00:00+00:00"
         );
         // NULL and composites fall back to `Debug` rather than panic.

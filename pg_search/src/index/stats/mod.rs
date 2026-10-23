@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::ops::Bound;
 
+use pgrx::pg_sys;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tantivy::directory::error::OpenReadError;
@@ -36,7 +37,7 @@ use tantivy::directory::{CompositeFile, FileSlice};
 use tantivy::index::{Segment, SegmentReader};
 use tantivy::schema::{Field, FieldType};
 
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::storage::block::STATS_EXT;
 use crate::postgres::types::is_datetime_type;
@@ -273,6 +274,7 @@ pub(crate) fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
             | (Bytes(_), Bytes(_))
             | (Bool(_), Bool(_))
             | (Date(_), Date(_))
+            | (Timestamp(_), Timestamp(_))
             | (IpAddr(_), IpAddr(_))
     )
 }
@@ -375,15 +377,20 @@ impl EmpiricalStats {
     }
 
     pub(crate) fn into_field_representation(self, field: &SearchField) -> io::Result<Option<Self>> {
-        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+        let field_type = field.field_type();
+        let date_days = matches!(field_type, SearchFieldType::DateDays(_));
+        let is_date = field_type.typeoid().value() == pg_sys::DATEOID;
+        if !date_days && !matches!(field_type, SearchFieldType::I64(oid) if is_datetime_type(oid)) {
             return Ok(Some(self));
         }
-        self.into_dates().map(Some).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "datetime statistics do not decode as timestamps",
-            )
-        })
+        self.into_datetimes(date_days, is_date)
+            .map(Some)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "datetime statistics do not decode as their semantic type",
+                )
+            })
     }
 
     /// Whether a value in `[min, max]` can fall in `[lower, upper)`. Bounds of a kind these
@@ -422,10 +429,27 @@ impl EmpiricalStats {
     }
 
     /// Datetimes of a recent index sit in an `I64` column; a query bound on that field is a
-    /// `Date`, so lift the statistics the way `FFType` lifts the column's values.
-    fn into_dates(self) -> Option<Self> {
+    /// semantic date or timestamp, so lift the statistics the way `FFType` lifts the column's
+    /// values.
+    fn into_datetimes(self, date_days: bool, is_date: bool) -> Option<Self> {
         let lift = |v: PdbOwnedValue| match v {
-            PdbOwnedValue::I64(raw) => PostgresDateTime::try_from_raw(raw)
+            PdbOwnedValue::I64(raw) if date_days => {
+                let days = i32::try_from(raw).ok()?;
+                PostgresDate::try_from_raw(days)
+                    .ok()
+                    .map(PdbOwnedValue::Date)
+            }
+            PdbOwnedValue::I64(raw) if is_date => {
+                let timestamp = PostgresTimestamp::try_from_raw(raw).ok()?;
+                PostgresDate::try_from(timestamp)
+                    .ok()
+                    .map(PdbOwnedValue::Date)
+            }
+            PdbOwnedValue::I64(raw) => PostgresTimestamp::try_from_raw(raw)
+                .ok()
+                .map(PdbOwnedValue::Timestamp),
+            // A legacy DATE field's `.stats` were written as the midnight timestamp it stored.
+            PdbOwnedValue::Timestamp(timestamp) if is_date => PostgresDate::try_from(timestamp)
                 .ok()
                 .map(PdbOwnedValue::Date),
             other => Some(other),
@@ -487,10 +511,10 @@ impl SegmentStats {
 
     /// Read a field's empirical statistics in the representation used by its query bounds.
     ///
-    /// Datetime fields stored as `I64` microseconds are converted to `Date` bounds, matching
-    /// fast-field value conversion during execution. Other field types retain their stored
-    /// representation. Returns `None` for a missing entry and an error for a read, decode, or
-    /// datetime conversion failure.
+    /// Datetime fields stored as `I64` microseconds or `DateADT` days are converted to their
+    /// semantic `Date`/`Timestamp` bounds, matching fast-field value conversion during execution.
+    /// Other field types retain their stored representation. Returns `None` for a missing entry
+    /// and an error for a read, decode, or datetime conversion failure.
     pub(crate) fn empirical_for(&self, field: &SearchField) -> io::Result<Option<EmpiricalStats>> {
         let Some(stats) = self.empirical(field.field())? else {
             return Ok(None);

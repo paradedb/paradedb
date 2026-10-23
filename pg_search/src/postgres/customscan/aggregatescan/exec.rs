@@ -29,9 +29,10 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
+use crate::schema::SearchFieldType;
 use pgrx::{IntoDatum, JsonB, check_for_interrupts, pg_sys};
 
 use tantivy::aggregation::Key;
@@ -292,14 +293,31 @@ pub fn aggregate_result_to_datum(
                 }
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
-                if index_info.created_by_version.stores_datetimes_in_i64() {
+                let date_days = agg_type
+                    .field_name()
+                    .and_then(|field| index_info.schema.search_field(&field))
+                    .is_some_and(|field| {
+                        matches!(field.field_type(), SearchFieldType::DateDays(_))
+                    });
+                if date_days {
+                    metric.value.and_then(|value| unsafe {
+                        let days = i32::try_from(value as i64)
+                            .expect("a DATE day count read back from tantivy must fit in an i32");
+                        let date = PostgresDate::try_from_raw(days).expect(
+                            "We should never see an invalid date converting back from tantivy",
+                        );
+                        TantivyValue(PdbOwnedValue::Date(date))
+                            .try_into_datum(expected_typoid.into())
+                            .unwrap()
+                    })
+                } else if index_info.created_by_version.stores_datetimes_in_i64() {
                     // v2 (>= DATETIME_I64_STORAGE_VERSION): datetimes are stored as i64
                     // microseconds from the postgres epoch.
                     metric.value.and_then(|value| unsafe {
-                        let pgdt = PostgresDateTime::try_from_raw(value as i64).expect(
+                        let pgdt = PostgresTimestamp::try_from_raw(value as i64).expect(
                             "We should never see an invalid timestamp converting back from tantivy",
                         );
-                        TantivyValue(PdbOwnedValue::Date(pgdt))
+                        TantivyValue(PdbOwnedValue::Timestamp(pgdt))
                             .try_into_datum(expected_typoid.into())
                             .unwrap()
                     })
@@ -308,10 +326,10 @@ pub fn aggregate_result_to_datum(
                     // since UNIX epoch. The f64 from MIN/MAX represents that nanosecond timestamp.
                     metric.value.and_then(|value| unsafe {
                         let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
-                        let pgdt = PostgresDateTime::try_from(datetime).expect(
+                        let pgdt = PostgresTimestamp::try_from(datetime).expect(
                             "We should never see an invalid timestamp coming back from tantivy",
                         );
-                        TantivyValue(PdbOwnedValue::Date(pgdt))
+                        TantivyValue(PdbOwnedValue::Timestamp(pgdt))
                             .try_into_datum(expected_typoid.into())
                             .unwrap()
                     })

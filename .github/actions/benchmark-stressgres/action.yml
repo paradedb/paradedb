@@ -2,6 +2,10 @@ name: Benchmark - Stressgres
 description: Run a given Stressgres job file against pg_search and stage results for publication
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   test_file:
     description: "The .toml Stressgres scenario to run (e.g. single-node-planner-paths.toml)"
     required: true
@@ -32,6 +36,7 @@ runs:
 
     - name: Resolving ${{ inputs.ref }} into SHA
       id: resolve_ref
+      working-directory: ${{ inputs.source_directory }}
       shell: bash
       env:
         REF: ${{ inputs.ref }}
@@ -50,12 +55,13 @@ runs:
       env:
         DURATION: ${{ inputs.duration }}
         TEST_FILE: ${{ inputs.test_file }}
+        SOURCE_DIRECTORY: ${{ inputs.source_directory }}
         STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
         STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
-          "stressgres/suites/${TEST_FILE}" \
+          "${SOURCE_DIRECTORY}/stressgres/suites/${TEST_FILE}" \
           --log-file "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-""${STEP_RESOLVE_REF_SHA}".log \
           --pgversion pg18 \
           --runtime "${DURATION}"
@@ -98,6 +104,7 @@ runs:
     - name: Stage results for publication
       uses: ./.github/actions/stage-benchmark-results
       with:
+        source_directory: ${{ inputs.source_directory }}
         kind: stressgres
         key: ${{ steps.sanitize-inputs.outputs.jobname }}
         metadata: ${{ toJSON(inputs) }}

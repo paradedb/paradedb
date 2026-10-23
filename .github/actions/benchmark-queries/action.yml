@@ -2,6 +2,10 @@ name: Benchmark - Queries
 description: Run a given benchmark dataset against pg_search and stage results for publication
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   dataset:
     description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
     required: true
@@ -54,7 +58,7 @@ runs:
           -c "CREATE EXTENSION pg_search;"
 
     - name: Run Benchmarks
-      working-directory: benchmarks/
+      working-directory: ${{ inputs.source_directory }}/benchmarks/
       shell: bash
       env:
         DATASET: ${{ inputs.dataset }}
@@ -80,7 +84,7 @@ runs:
       uses: actions/upload-artifact@v7
       with:
         name: query-benchmark-${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}-${{ github.run_attempt }}
-        path: benchmarks/results.json
+        path: ${{ inputs.source_directory }}/benchmarks/results.json
         retention-days: 1 # Fallback if publishing fails
         if-no-files-found: warn
 
@@ -99,7 +103,8 @@ runs:
     - name: Stage results for publication
       uses: ./.github/actions/stage-benchmark-results
       with:
+        source_directory: ${{ inputs.source_directory }}
         kind: queries
         key: ${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}
         metadata: ${{ toJSON(inputs) }}
-        path: benchmarks/results.json
+        path: ${{ inputs.source_directory }}/benchmarks/results.json

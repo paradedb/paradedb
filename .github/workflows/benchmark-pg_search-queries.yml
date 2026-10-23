@@ -513,7 +513,7 @@ jobs:
           fi
 
   publish-results:
-    name: Publish benchmark results
+    name: Publish Benchmark Results
     needs: [benchmark-pg_search-queries]
     if: always() && !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure'))
     uses: ./.github/workflows/publish-benchmark-results.yml

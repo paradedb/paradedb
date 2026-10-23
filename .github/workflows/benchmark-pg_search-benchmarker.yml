@@ -15,7 +15,8 @@ on:
     paths:
       - ".github/actions/build-paradedb-image/**"
       - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/publish-benchmark-results/**"
+      - ".github/actions/stage-benchmark-results/**"
+      - ".github/workflows/publish-benchmark-results.yml"
       - ".github/actions/setup-benchmarker/**"
       - ".github/workflows/benchmark-pg_search-benchmarker.yml"
       - "docker/Dockerfile.source"
@@ -53,10 +54,11 @@ on:
         default: "paradedb/paradedb:latest-pg18"
 
 permissions:
+  actions: read # discover result artifacts for the queued publisher
   contents: write # github-action-benchmark pushes to the gh-pages branch
   pull-requests: write # comment benchmark alerts on PRs
 
-# No concurrency group: let every run complete and append to gh-pages history.
+# Benchmark jobs run in parallel; publication uses the shared gh-pages queue.
 
 jobs:
   benchmark-hackernews:
@@ -193,17 +195,17 @@ jobs:
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
-      - name: Publish Benchmarker Results
+      - name: Stage Benchmarker Results
         if: success()
-        uses: ./.github/actions/publish-benchmarker-results
+        uses: ./.github/actions/stage-benchmark-results
         with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          pr_number: ${{ github.event.pull_request.number }}
-          publish_baseline: ${{ github.ref == 'refs/heads/main' }}
+          kind: benchmarker
+          key: ${{ env.DATASET }}
+          path: benchmarker/results/
+          metadata: >-
+            {"dataset":"${{ env.DATASET }}","short_commit":"${{ steps.build_image.outputs.short_commit }}",
+             "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
 
   benchmark-datasets:
     name: Benchmarker (${{ matrix.dataset }})
@@ -394,22 +396,29 @@ jobs:
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
-      - name: Publish Benchmarker Results
+      - name: Stage Benchmarker Results
         if: success()
-        uses: ./.github/actions/publish-benchmarker-results
+        uses: ./.github/actions/stage-benchmark-results
         with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          pr_number: ${{ github.event.pull_request.number }}
-          publish_baseline: ${{ github.ref == 'refs/heads/main' }}
+          kind: benchmarker
+          key: ${{ env.DATASET }}
+          path: benchmarker/results/
+          metadata: >-
+            {"dataset":"${{ env.DATASET }}","short_commit":"${{ steps.build_image.outputs.short_commit }}",
+             "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
+
+  publish-results:
+    name: Publish benchmark results
+    needs: [benchmark-hackernews, benchmark-datasets]
+    if: always() && !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure'))
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit
 
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-hackernews, benchmark-datasets]
-    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure') && github.event_name == 'push'
+    needs: [benchmark-hackernews, benchmark-datasets, publish-results]
+    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       actions: read

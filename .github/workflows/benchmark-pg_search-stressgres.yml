@@ -19,7 +19,7 @@ on:
         required: false
         default: ""
       use_benchmarks_from_ref:
-        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used."
+        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used. Publication orchestration always comes from this workflow."
         required: false
         type: boolean
         default: false
@@ -30,7 +30,7 @@ permissions:
   deployments: write
   pull-requests: write
 
-# We don't specify a concurrency group here, as we want all jobs to complete.
+# Benchmark jobs run in parallel; publication uses the shared gh-pages queue.
 
 jobs:
   benchmark-pg_search-stressgres:
@@ -259,14 +259,28 @@ jobs:
         working-directory: stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
+      # Historical benchmark refs must not restore an older, unqueued publisher.
+      - name: Checkout publication orchestration
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: publication-actions
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/benchmark-stressgres
+            .github/actions/stage-benchmark-results
+
+      - name: Install publication orchestration
+        run: |
+          cp -R publication-actions/.github/actions/. .github/actions/
+          rm -rf publication-actions
+
       # Each suite is its own matrix job, so a failure never skips later topologies.
       - name: Benchmark ${{ matrix.suite }}
         uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: ${{ matrix.suite }}
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Print Crashdump Stacktrace
         if: always()
@@ -274,10 +288,17 @@ jobs:
           PG_VERSION: ${{ env.pg_version }}
         run: ./.github/scripts/render_crashdump.sh
 
+  publish-results:
+    name: Publish benchmark results
+    needs: [benchmark-pg_search-stressgres]
+    if: always() && !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure'))
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit
+
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-pg_search-stressgres]
-    if: always() && needs.benchmark-pg_search-stressgres.result == 'failure' && github.event_name == 'schedule'
+    needs: [benchmark-pg_search-stressgres, publish-results]
+    if: always() && (needs.benchmark-pg_search-stressgres.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read

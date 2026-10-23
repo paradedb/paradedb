@@ -1,5 +1,5 @@
 name: Benchmark - Stressgres
-description: Run a given Stressgres job file against pg_search and publish metrics
+description: Run a given Stressgres job file against pg_search and stage results for publication
 
 inputs:
   test_file:
@@ -11,12 +11,6 @@ inputs:
     default: "600000" # 10 minutes in milliseconds
   ref:
     description: "Git ref or short SHA to report in benchmarks"
-    required: true
-  github_app_client_id:
-    description: "GitHub App client ID to authenticate with"
-    required: true
-  github_app_private_key:
-    description: "GitHub App private key to authenticate with"
     required: true
 
 runs:
@@ -101,54 +95,13 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
-    - name: Generate GitHub App Token
-      id: app-token
-      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+    - name: Stage results for publication
+      uses: ./.github/actions/stage-benchmark-results
       with:
-        client-id: ${{ inputs.github_app_client_id }}
-        private-key: ${{ inputs.github_app_private_key }}
-
-    - name: Wait for App Token to Become Usable
-      shell: bash
-      env:
-        APP_TOKEN: ${{ steps.app-token.outputs.token }}
-      run: |
-        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
-        for attempt in $(seq 1 10); do
-          if git -c http.extraheader="$auth" ls-remote \
-              "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
-            echo "App token usable after ${attempt} attempt(s)"
-            exit 0
-          fi
-          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
-          sleep 5
-        done
-        echo "App token never became usable after 10 attempts" >&2
-        exit 1
-
-    - name: Publish TPS Metrics
-      uses: ./.github/actions/publish-benchmark-results
-      with:
-        name: "pg_search ${{ inputs.test_file }} Performance - TPS"
-        ref: ${{ inputs.ref }}
-        direction: bigger
-        metrics_file: pg_search_tps.json
-        github_token: ${{ steps.app-token.outputs.token }}
-        publish_baseline: ${{ github.event_name != 'pull_request' }}
-        pages_directory: stressgres
-        comment_summary: ${{ github.event_name == 'pull_request' }}
-
-    - name: Publish Other Metrics
-      uses: ./.github/actions/publish-benchmark-results
-      with:
-        name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
-        ref: ${{ inputs.ref }}
-        metrics_file: pg_search_other.json
-        github_token: ${{ steps.app-token.outputs.token }}
-        publish_baseline: ${{ github.event_name != 'pull_request' }}
-        pages_directory: stressgres
-        alert_threshold: "110%"
-        comment_summary: ${{ github.event_name == 'pull_request' }}
+        kind: stressgres
+        key: ${{ steps.sanitize-inputs.outputs.jobname }}
+        metadata: ${{ toJSON(inputs) }}
+        path: pg_search_*.json
 
     - name: Print Postgres Logs
       if: always()

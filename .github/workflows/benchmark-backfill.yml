@@ -26,10 +26,14 @@ permissions:
   actions: write
   contents: write
 
-# We don't specify a concurrency group here, as we want all jobs to complete.
+# Only the gh-pages reset joins the publication queue; dispatch stays parallel.
 
 jobs:
   reset:
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
     name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
     steps:

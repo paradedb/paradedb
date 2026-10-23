@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792743388871,
+  "lastUpdate": 1792743409177,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -468328,6 +468328,94 @@ window.BENCHMARK_DATA = {
             "value": 47.64453125,
             "unit": "median mem",
             "extra": "avg mem: 48.25178186242168, max mem: 55.796875, count: 58732"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792743397324,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 27.8125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 29.984059749204025, max partition_index_size:MB: 50.6328125, count: 58733"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.05318153040405, max cpu: 32.973503, count: 58733"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.61864656581479, max mem: 58.09765625, count: 58733"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.791698019291754, max cpu: 37.536655, count: 58733"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 52.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.4513306642986, max mem: 60.0078125, count: 58733"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.050357448699629, max cpu: 23.59882, count: 58733"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 42.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.486853509738985, max mem: 42.52734375, count: 58733"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.793146530696195, max cpu: 33.103447, count: 58733"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 52.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.35828485742683, max mem: 62.7890625, count: 58733"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.02398243624187, max cpu: 32.8125, count: 58733"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.95892348637052, max mem: 55.9296875, count: 58733"
           }
         ]
       }

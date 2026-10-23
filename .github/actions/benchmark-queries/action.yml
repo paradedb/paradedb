@@ -112,4 +112,3 @@ runs:
       with:
         benchmark_type: queries
         metadata: ${{ toJSON(inputs) }}
-        path: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json

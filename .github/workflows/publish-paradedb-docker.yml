@@ -4,9 +4,9 @@
 # Publish ParadeDB as Docker images to Docker Hub after the pg_search .deb packages have
 # been published to GitHub Releases. The selected branch or tag provides the Dockerfiles
 # and workflow code. The images use the release packages instead of building pg_search from source.
-# Stable releases default to all supported PostgreSQL versions, while versions containing
-# a dash build the beta target recorded in the release tag (default PostgreSQL 18). This workflow also publishes the mountable extension image
-# for PostgreSQL 18, except for beta (-rc.) releases.
+# Stable releases default to all supported PostgreSQL versions. Beta releases use the major
+# recorded in the release tag (default PostgreSQL 18). Stable releases also publish the
+# mountable extension image for PostgreSQL 18.
 #
 # Once the runnable Docker images are published, notify ORM wrapper repositories via
 # repository_dispatch so they can run compatibility checks against the new version.
@@ -56,7 +56,9 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         env:
@@ -65,7 +67,7 @@ jobs:
         run: |
           REF_NAME="${RELEASE_REF}"
           echo "Evaluating ref: $REF_NAME"
-          if [[ "$REF_NAME" == *"-"* ]]; then
+          if [[ "$REF_NAME" == *-rc.* ]]; then
             PG_VERSION=$(bash .github/scripts/beta-postgres-version.sh "v${REF_NAME#v}")
             echo "matrix=[$PG_VERSION]" >> "$GITHUB_OUTPUT"
           else
@@ -167,7 +169,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: rc-dockerfiles
-          path: docker/Dockerfile.*
+          path: docker/Dockerfile.*-${{ fromJSON(needs.set-matrix.outputs.matrix)[0] }}
           if-no-files-found: error
           retention-days: 1
 
@@ -223,6 +225,8 @@ jobs:
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
       dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
+      pg_version: ${{ contains(needs.generate-dockerfiles.outputs.version, '-rc.') && format('{0}', fromJSON(needs.set-matrix.outputs.matrix)[0]) || '18' }}
+      test_extension: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 

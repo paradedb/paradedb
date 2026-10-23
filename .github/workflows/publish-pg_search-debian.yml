@@ -32,7 +32,9 @@ jobs:
     outputs:
       pg_version: ${{ steps.target.outputs.pg_version }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
       - name: Read Beta Target from Release Tag
         id: target
         env:
@@ -41,7 +43,7 @@ jobs:
           PG_VERSION=$(bash .github/scripts/beta-postgres-version.sh "$RELEASE_TAG")
           echo "pg_version=$PG_VERSION" >> "$GITHUB_OUTPUT"
 
-  # Stable releases build every row; betas build the selected major on Debian 13, both arches.
+  # Stable releases build every row. Betas build the selected major on Debian 13 for both arches.
   publish-pg_search-debian:
     needs: resolve-beta-target
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
@@ -201,8 +203,10 @@ jobs:
       # selected major (both arches) that the Docker image installs.
       - name: Determine Whether to Build This Row
         id: guard
+        env:
+          RELEASE_TAG: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
         run: |
-          if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "${{ needs.resolve-beta-target.outputs.pg_version }}" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
+          if [[ "$RELEASE_TAG" != *-rc.* || ( "${{ matrix.pg_version }}" == "${{ needs.resolve-beta-target.outputs.pg_version }}" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
             echo "build=false" >> "$GITHUB_OUTPUT"

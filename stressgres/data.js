@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792743409177,
+  "lastUpdate": 1792743440141,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -380234,6 +380234,124 @@ window.BENCHMARK_DATA = {
             "value": 12.525797244761339,
             "unit": "median tps",
             "extra": "avg tps: 21.44900617645331, max tps: 1759.308943447014, count: 57389"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792743410095,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 510.3563002437175,
+            "unit": "median tps",
+            "extra": "avg tps: 510.71033726457256, max tps: 515.8032330607197, count: 57428"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 473.8064816489604,
+            "unit": "median tps",
+            "extra": "avg tps: 474.141881537542, max tps: 478.9417480942463, count: 57428"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3714.921570442986,
+            "unit": "median tps",
+            "extra": "avg tps: 3716.986196397996, max tps: 3986.532737071129, count: 57428"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 508.83450987733,
+            "unit": "median tps",
+            "extra": "avg tps: 508.9885156460646, max tps: 513.0476613973336, count: 57428"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3279.5391253866565,
+            "unit": "median tps",
+            "extra": "avg tps: 3284.8145637948705, max tps: 3395.3679246959946, count: 57428"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3294.1847946802836,
+            "unit": "median tps",
+            "extra": "avg tps: 3288.012440589421, max tps: 3308.1706757224642, count: 57428"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 202.96582150556958,
+            "unit": "median tps",
+            "extra": "avg tps: 203.04925428781632, max tps: 203.97116285670805, count: 57428"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 386.84991112962706,
+            "unit": "median tps",
+            "extra": "avg tps: 387.0001158936922, max tps: 388.93931055877846, count: 57428"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 608.4774497508265,
+            "unit": "median tps",
+            "extra": "avg tps: 606.843457179037, max tps: 612.2942313397346, count: 57428"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 709.7119548507114,
+            "unit": "median tps",
+            "extra": "avg tps: 709.0904747617558, max tps: 712.942008286486, count: 57428"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1421.9857128405401,
+            "unit": "median tps",
+            "extra": "avg tps: 1419.5841765299058, max tps: 1425.4980771443581, count: 57428"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 526.1826905451835,
+            "unit": "median tps",
+            "extra": "avg tps: 526.615080934745, max tps: 532.2813709304988, count: 57428"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 642.9495599831597,
+            "unit": "median tps",
+            "extra": "avg tps: 642.5838875597618, max tps: 646.2084927802523, count: 57428"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2380.440650165455,
+            "unit": "median tps",
+            "extra": "avg tps: 2383.2059756472386, max tps: 2422.721849092849, count: 57428"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1867.1227176221041,
+            "unit": "median tps",
+            "extra": "avg tps: 1853.3765288768436, max tps: 1897.6240985707145, count: 57428"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 28.5844902673684,
+            "unit": "median tps",
+            "extra": "avg tps: 46.60295922993122, max tps: 1568.848935535997, count: 57428"
           }
         ]
       }

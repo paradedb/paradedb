@@ -259,6 +259,75 @@ WHERE id @@@ paradedb.all();
 RESET paradedb.enable_filter_pushdown;
 RESET paradedb.enable_aggregate_custom_scan;
 
+\echo '=== SECTION 8: collation-aware aggregate FILTER execution ==='
+
+-- Aggregate FILTER comparisons must honor an explicit input collation even
+-- when the column uses the default collation. The named ICU en-US collation
+-- avoids depending on an installed libc en_US locale.
+CREATE TABLE issue_5858_aggregate_filters (
+    id int PRIMARY KEY,
+    name text,
+    description text
+);
+
+INSERT INTO issue_5858_aggregate_filters VALUES
+    (1, 'Apple', 'sturdy laptop'),
+    (2, 'banana', 'sturdy laptop'),
+    (3, 'Cherry', 'flimsy laptop'),
+    (4, 'date', 'sturdy laptop');
+
+CREATE INDEX issue_5858_aggregate_filters_idx
+ON issue_5858_aggregate_filters
+USING paradedb (id, (name::pdb.literal), (description::pdb.unicode_words));
+
+ANALYZE issue_5858_aggregate_filters;
+
+SET paradedb.enable_aggregate_custom_scan = on;
+SET paradedb.enable_filter_pushdown = on;
+
+\echo 'Test 8.1: Aggregate Scan retains both comparisons as heap filters'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT count(*) FILTER (WHERE name < 'b' COLLATE issue_5858_icu) AS lt_b,
+       count(*) FILTER (WHERE name = 'apple' COLLATE issue_5858_ci) AS eq_apple
+FROM issue_5858_aggregate_filters
+WHERE description ||| 'laptop';
+
+SELECT count(*) FILTER (WHERE name < 'b' COLLATE issue_5858_icu) AS lt_b,
+       count(*) FILTER (WHERE name = 'apple' COLLATE issue_5858_ci) AS eq_apple
+FROM issue_5858_aggregate_filters
+WHERE description ||| 'laptop';
+
+\echo 'Test 8.2: native aggregation returns the same counts'
+SET paradedb.enable_aggregate_custom_scan = off;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT count(*) FILTER (WHERE name < 'b' COLLATE issue_5858_icu) AS lt_b,
+       count(*) FILTER (WHERE name = 'apple' COLLATE issue_5858_ci) AS eq_apple
+FROM issue_5858_aggregate_filters
+WHERE description ||| 'laptop';
+
+SELECT count(*) FILTER (WHERE name < 'b' COLLATE issue_5858_icu) AS lt_b,
+       count(*) FILTER (WHERE name = 'apple' COLLATE issue_5858_ci) AS eq_apple
+FROM issue_5858_aggregate_filters
+WHERE description ||| 'laptop';
+
+\echo '=== SECTION 9: a custom-only aggregate reports an unextractable FILTER ==='
+
+-- percentiles requires the Tantivy backend. Without heap filtering, this FILTER
+-- cannot be extracted and must raise the planning error rather than run the
+-- aggregate unfiltered or reach PostgreSQL's placeholder aggregate function.
+SET paradedb.enable_aggregate_custom_scan = on;
+SET paradedb.enable_filter_pushdown = off;
+
+SELECT pdb.agg('{"percentiles": {"field": "id", "percents": [50]}}'::jsonb)
+       FILTER (WHERE name = 'apple' COLLATE issue_5858_ci)
+FROM issue_5858_aggregate_filters
+WHERE description ||| 'laptop';
+
+RESET paradedb.enable_filter_pushdown;
+RESET paradedb.enable_aggregate_custom_scan;
+
+DROP TABLE issue_5858_aggregate_filters;
 DROP TABLE issue_5858_products;
 DROP COLLATION issue_5858_icu;
 DROP COLLATION issue_5858_ci;

@@ -1,5 +1,5 @@
 name: Stage Benchmark Results
-description: Save results and publication inputs for the queued publisher
+description: Upload results and publication inputs as GitHub Actions artifacts for the queued publisher
 
 inputs:
   kind:

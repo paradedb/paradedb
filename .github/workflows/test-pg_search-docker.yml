@@ -87,7 +87,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      # RunsOn versions before v3.4.0 need this setup before artifact downloads.
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
@@ -478,7 +478,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      # RunsOn versions before v3.4.0 need this setup before artifact downloads.
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 

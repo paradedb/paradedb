@@ -38,9 +38,11 @@
 //! sweep began. A stamp at or past that horizon belongs to a transaction that may publish the
 //! block before the sweep ends, so it waits for the next sweep. An older stamp belongs to a
 //! transaction that finished before the walk started: had it published, the walk would have
-//! found the block. So an older stamp that committed marks a block a caller abandoned by
-//! swallowing an ERROR, reported and freed; one that aborted or crashed is freed; a never
-//! written page is a crashed extension and is freed.
+//! found the block. An older stamp that aborted or crashed is freed, and a never written page
+//! is a crashed extension and is freed. An older stamp that committed is a block a write
+//! outside the merge path left behind, an INSERT flush that errored inside a subtransaction
+//! the application then committed; this module is about merges and leaves those blocks
+//! alone.
 //!
 //! A freed block is claimed under a conditional cleanup lock, its stamp re-read, and stamped
 //! `FrozenTransactionId` before it is returned. The process-local registry in
@@ -65,8 +67,7 @@ use crate::postgres::storage::fsm::v2::{FsmBlock, V2FSM};
 use crate::postgres::storage::merge::MergeEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::iter::TableIterator;
-use pgrx::{PgRelation, check_for_interrupts, name, pg_extern, pg_sys};
+use pgrx::{check_for_interrupts, pg_sys};
 
 /// What the allocation stamp says about an unreferenced block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,8 +77,9 @@ pub enum Verdict {
     Recent,
     /// The allocating transaction is still running.
     InProgress,
-    /// The allocating transaction committed before the sweep began without publishing: a
-    /// caller swallowed its ERROR. Freed, and reported so the caller can be fixed.
+    /// The allocating transaction committed before the sweep began without publishing. Only a
+    /// write outside the merge path does that, an INSERT flush that errored inside a
+    /// subtransaction the application committed. Kept and reported; not this module's leak.
     Committed,
     /// The allocating transaction aborted or crashed. Freed.
     Abandoned,
@@ -98,14 +100,11 @@ impl Verdict {
     fn frees(self) -> bool {
         matches!(
             self,
-            Verdict::Committed
-                | Verdict::Abandoned
-                | Verdict::Empty
-                | Verdict::Freed
-                | Verdict::BeyondClog
+            Verdict::Abandoned | Verdict::Empty | Verdict::Freed | Verdict::BeyondClog
         )
     }
 
+    #[cfg(feature = "pg_test")]
     fn as_str(self) -> &'static str {
         match self {
             Verdict::Recent => "recent",
@@ -130,12 +129,14 @@ pub struct Candidate {
 /// Relation size minus the blocks accounted for by structures and the FSM. Zero means there is
 /// nothing to sweep. Negative means something is counted twice, which the sweep tolerates by
 /// running anyway.
+#[cfg(any(test, feature = "pg_test"))]
 pub unsafe fn unaccounted_blocks(indexrel: &PgSearchRelation) -> i64 {
     let (accounted, nblocks) = accounted_blocks(indexrel, false);
     nblocks as i64 - accounted as i64
 }
 
 /// Every block that is neither referenced nor held by the FSM, with its verdict. Read-only.
+#[cfg(any(test, feature = "pg_test"))]
 pub unsafe fn candidates(indexrel: &PgSearchRelation) -> Vec<Candidate> {
     candidates_as_of(indexrel, sweep_horizon())
 }
@@ -148,6 +149,7 @@ pub unsafe fn reclaim(indexrel: &PgSearchRelation) -> usize {
 
 /// [`candidates`] judged against `horizon` instead of the oldest running transaction. A test
 /// runs inside one transaction and passes the next xid to stand for one that has finished.
+#[cfg(any(test, feature = "pg_test"))]
 pub(crate) unsafe fn candidates_as_of(
     indexrel: &PgSearchRelation,
     horizon: pg_sys::TransactionId,
@@ -155,7 +157,8 @@ pub(crate) unsafe fn candidates_as_of(
     candidates_in(indexrel, relation_blocks(indexrel), horizon)
 }
 
-/// [`reclaim`] judged against `horizon`; see [`candidates_as_of`].
+/// [`reclaim`] judged against `horizon` instead of the oldest running transaction. A test runs
+/// inside one transaction and passes the next xid to stand for one that has finished.
 pub(crate) unsafe fn reclaim_as_of(
     indexrel: &PgSearchRelation,
     horizon: pg_sys::TransactionId,
@@ -189,21 +192,11 @@ pub(crate) unsafe fn reclaim_as_of(
 
     let mut bman = BufferManager::new(indexrel);
     let mut claimed = Vec::new();
-    let mut committed = 0;
     for candidate in freeable {
         check_for_interrupts!();
-        if !claim(&mut bman, &candidate) {
-            continue;
+        if claim(&mut bman, &candidate) {
+            claimed.push(candidate.blockno);
         }
-        committed += (candidate.verdict == Verdict::Committed) as usize;
-        claimed.push(candidate.blockno);
-    }
-    if committed > 0 {
-        pgrx::log!(
-            "pg_search: index {} had {committed} blocks allocated by committed transactions that \
-             never published them; returned to the free space map",
-            indexrel.name()
-        );
     }
     // Stamped before extended. A crash between the two leaves a Frozen page outside the FSM,
     // which the next sweep returns; the other order could leave an aborted stamp on a page the
@@ -675,28 +668,30 @@ unsafe fn mark_segment_entries(
 }
 
 // ---------------------------------------------------------
-// SQL
+// SQL, for the multi-session tests only
 // ---------------------------------------------------------
 
-#[pg_extern(name = "unaccounted_blocks")]
-unsafe fn unaccounted_blocks_sql(index: PgRelation) -> i64 {
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_extern(name = "unaccounted_blocks")]
+unsafe fn unaccounted_blocks_sql(index: pgrx::PgRelation) -> i64 {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     unaccounted_blocks(&index)
 }
 
-#[pg_extern]
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_extern]
 unsafe fn unreferenced_blocks(
-    index: PgRelation,
-) -> TableIterator<
+    index: pgrx::PgRelation,
+) -> pgrx::iter::TableIterator<
     'static,
     (
-        name!(blockno, i64),
-        name!(alloc_xid, pg_sys::TransactionId),
-        name!(state, String),
+        pgrx::name!(blockno, i64),
+        pgrx::name!(alloc_xid, pg_sys::TransactionId),
+        pgrx::name!(state, String),
     ),
 > {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    TableIterator::new(candidates(&index).into_iter().map(|candidate| {
+    pgrx::iter::TableIterator::new(candidates(&index).into_iter().map(|candidate| {
         (
             candidate.blockno as i64,
             candidate.alloc_xid,
@@ -974,10 +969,10 @@ mod tests {
         assert_eq!(reclaim_as_of(&indexrel, next_xid()), 0);
     }
 
-    /// A transaction that committed before the sweep began and published nothing abandoned its
-    /// blocks: a swallowed ERROR. They are freed.
+    /// A transaction that committed before the sweep began and published nothing left blocks
+    /// behind outside the merge path. They are reported and kept.
     #[pg_test]
-    unsafe fn committed_unpublished_allocation_is_reclaimed() {
+    unsafe fn committed_unpublished_allocation_is_kept() {
         let indexrel = test_index("sweep_committed");
         let blocks = allocate_unpublished(&indexrel);
         let committed = Spi::get_one::<i64>(
@@ -993,8 +988,8 @@ mod tests {
 
         let found = candidates(&indexrel);
         assert_eq!(sorted_blocks(&found, Verdict::Committed), blocks);
-        assert_eq!(reclaim(&indexrel), blocks.len());
-        assert!(candidates(&indexrel).is_empty());
+        assert_eq!(reclaim(&indexrel), 0);
+        assert_eq!(unaccounted_blocks(&indexrel), blocks.len() as i64);
     }
 
     /// A relation extension whose writer is gone leaves never-written pages. They are freed.

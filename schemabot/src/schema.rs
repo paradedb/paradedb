@@ -444,7 +444,8 @@ mod tests {
     use super::*;
 
     fn suggest(before: &str, after: &str) -> Result<String, String> {
-        let diff = diff(&crate::sql::parse(before)?, &crate::sql::parse(after)?)?;
+        let before = crate::sql::parse(before)?;
+        let diff = diff(&before, &crate::sql::parse(after)?)?;
         if diff.manual.is_empty() {
             Ok(diff.sql)
         } else {

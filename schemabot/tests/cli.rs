@@ -84,6 +84,27 @@ fn manual_type_changes_require_a_fragment_targeting_the_same_object() {
         std::fs::write(dir.join("fragment.sql"), drop).unwrap();
         assert!(run(&check_args).status.success());
     }
+    // pgrx leaves these types unqualified while shipped fragments qualify them.
+    std::fs::write(
+        dir.join("base.sql"),
+        "CREATE TYPE TestTable AS ENUM ('Orders')",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("head.sql"),
+        "CREATE TYPE TestTable AS ENUM ('Orders', 'Parts')",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("fragment.sql"),
+        "ALTER TYPE paradedb.testtable ADD VALUE 'Parts'",
+    )
+    .unwrap();
+    assert!(
+        run(&["check", "base.sql", "head.sql", "fragment.sql"])
+            .status
+            .success()
+    );
     // Manual coverage must not bypass the automatically generated requirements.
     std::fs::write(dir.join("head.sql"), "CREATE TABLE required(x int)").unwrap();
     assert_eq!(

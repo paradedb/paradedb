@@ -7,13 +7,13 @@ inputs:
     required: false
     default: "."
   dataset:
-    description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
+    description: "Benchmark dataset (e.g. logs, docs, stackoverflow)"
     required: true
   size:
-    description: "Size label for pre-sampled dataset, e.g. '100k', '1m', '20m'"
+    description: "Pre-sampled dataset size (e.g. 100k, 1m, 20m)"
     required: true
   index:
-    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25, hnsw, ivfflat"
+    description: "Index variant (e.g. bm25, hnsw, ivfflat). Uses datasets/{dataset}/indexes/{index}.sql."
     required: true
   ref:
     description: "Full SHA of the commit benchmarked"
@@ -27,8 +27,8 @@ inputs:
     default: "false"
   alert_threshold:
     description: >-
-      Ratio of current to baseline value above which github-action-benchmark alerts,
-      e.g. "115%". Callers using the paired-bootstrap strategy should loosen this into a
+      Ratio of current to baseline value above which github-action-benchmark alerts
+      (e.g. 115%). Callers using the paired-bootstrap strategy should loosen this into a
       catastrophic-regression backstop, since the comparison script owns real alerting.
     required: false
     default: "115%"

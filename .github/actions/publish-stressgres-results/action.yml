@@ -3,7 +3,7 @@ description: Publish Stressgres benchmark results to gh-pages
 
 inputs:
   test_file:
-    description: "The .toml Stressgres scenario to run (e.g. single-node-planner-paths.toml)"
+    description: "Stressgres scenario file (e.g. single-node-planner-paths.toml)"
     required: true
   ref:
     description: "Full SHA of the commit benchmarked"

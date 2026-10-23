@@ -33,6 +33,7 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  pull-requests: read
 
 jobs:
   publish-github-release:
@@ -232,6 +233,16 @@ jobs:
           git verify-tag "$TAG"
           git push origin "refs/tags/$TAG"
 
+      - name: Generate Release Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ github.event.inputs.version }}
+        run: |
+          python3 .github/scripts/generate_release_notes.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --output "$RUNNER_TEMP/release-notes.md"
+
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases. The tag has already been
       # created in the step above, so this step just attaches the release to it.
@@ -242,7 +253,7 @@ jobs:
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
           prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
           make_latest: ${{ steps.release_latest.outputs.is_latest }}
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

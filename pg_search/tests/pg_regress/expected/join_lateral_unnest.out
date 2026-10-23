@@ -848,6 +848,120 @@ LIMIT 10;
 (3 rows)
 
 -- =====================================================================
+-- TEST 12: LATERAL jsonb_array_elements in JoinScan and AggregateScan (Issue #6694)
+-- =====================================================================
+SET paradedb.enable_custom_scan_without_operator = on;
+SET paradedb.planner_warnings = 'off';
+CREATE TABLE jlu_people (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    extra JSONB
+);
+CREATE TABLE jlu_mock_companies (
+    id SERIAL PRIMARY KEY,
+    domain TEXT,
+    company_name TEXT
+);
+INSERT INTO jlu_people (name, extra) VALUES
+    ('Alice', '{"current_employers": [{"title": "Software Engineer", "employer_company_website_domain": "google.com"}, {"title": "Consultant", "employer_company_website_domain": "acme.org"}]}'::jsonb),
+    ('Bob', '{"current_employers": [{"title": "Data Scientist", "employer_company_website_domain": "meta.com"}]}'::jsonb),
+    ('Charlie', '{"current_employers": [{"title": "Staff Engineer", "employer_company_website_domain": "google.com"}]}'::jsonb);
+INSERT INTO jlu_mock_companies (domain, company_name) VALUES
+    ('google.com', 'Google LLC'),
+    ('meta.com', 'Meta Platforms'),
+    ('acme.org', 'Acme Corporation');
+CREATE INDEX jlu_people_idx ON jlu_people USING paradedb (id, name, (extra::pdb.unicode_words('columnar=true')));
+CREATE INDEX jlu_mock_companies_idx ON jlu_mock_companies USING paradedb (id, (domain::pdb.literal), company_name);
+-- AggregateScan: GROUP BY unnested JSON field (Issue #6694)
+SELECT
+    cur_emp->>'title' AS title,
+    count(*) AS count
+FROM jlu_people p
+CROSS JOIN LATERAL jsonb_array_elements(p.extra->'current_employers') cur_emp
+GROUP BY 1
+ORDER BY count DESC, title;
+       title       | count 
+-------------------+-------
+ Consultant        |     1
+ Data Scientist    |     1
+ Software Engineer |     1
+ Staff Engineer    |     1
+(4 rows)
+
+-- JoinScan: 2-table join with LATERAL jsonb_array_elements_text
+SELECT
+    p.id,
+    c.company_name,
+    elem
+FROM jlu_people p
+JOIN jlu_mock_companies c ON p.id = c.id
+CROSS JOIN LATERAL jsonb_array_elements_text(p.extra->'current_employers') elem
+WHERE p.id = 2;
+ id |  company_name  |                                    elem                                    
+----+----------------+----------------------------------------------------------------------------
+  2 | Meta Platforms | {"title": "Data Scientist", "employer_company_website_domain": "meta.com"}
+(1 row)
+
+-- JoinScan: Filtering on unnested JSON field with LIKE
+SELECT
+    p.id,
+    p.name,
+    cur_emp->>'title' AS title
+FROM jlu_people p
+CROSS JOIN LATERAL jsonb_array_elements(p.extra->'current_employers') cur_emp
+WHERE cur_emp->>'title' LIKE '%Engineer%'
+ORDER BY p.id, title;
+ id |  name   |       title       
+----+---------+-------------------
+  1 | Alice   | Software Engineer
+  3 | Charlie | Staff Engineer
+(2 rows)
+
+-- AggregateScan: Filtering on unnested JSON field with lower()
+SELECT
+    cur_emp->>'title' AS title,
+    count(*) AS count
+FROM jlu_people p
+CROSS JOIN LATERAL jsonb_array_elements(p.extra->'current_employers') cur_emp
+WHERE lower(cur_emp->>'title') = 'software engineer'
+GROUP BY 1
+ORDER BY count DESC, title;
+       title       | count 
+-------------------+-------
+ Software Engineer |     1
+(1 row)
+
+-- Negative test: non-text array subscript (->0) declines gracefully to vanilla Postgres
+SELECT p.id, cur_emp->0->>'title' AS first_title
+FROM jlu_people p
+CROSS JOIN LATERAL jsonb_array_elements(p.extra->'current_employers') cur_emp
+ORDER BY p.id, first_title;
+ id | first_title 
+----+-------------
+  1 | 
+  1 | 
+  2 | 
+  3 | 
+(4 rows)
+
+-- Negative test: jsonb operator (->) declines gracefully to vanilla Postgres
+SELECT p.id, cur_emp->'title' AS json_title
+FROM jlu_people p
+CROSS JOIN LATERAL jsonb_array_elements(p.extra->'current_employers') cur_emp
+ORDER BY p.id, json_title;
+ id |     json_title      
+----+---------------------
+  1 | "Consultant"
+  1 | "Software Engineer"
+  2 | "Data Scientist"
+  3 | "Staff Engineer"
+(4 rows)
+
+DROP TABLE jlu_mock_companies CASCADE;
+DROP TABLE jlu_people CASCADE;
+RESET paradedb.planner_warnings;
+RESET paradedb.enable_custom_scan_without_operator;
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE jlu_stores CASCADE;

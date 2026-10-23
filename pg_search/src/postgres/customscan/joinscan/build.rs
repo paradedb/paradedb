@@ -34,7 +34,7 @@ use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use pgrx::{PgList, pg_sys};
+use pgrx::{FromDatum, PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
@@ -894,6 +894,20 @@ pub struct LateralUnnestInfo {
     pub source_attno: pg_sys::AttrNumber,
     pub field_name: String,
     pub is_left_join: bool,
+    #[serde(default)]
+    pub is_json: bool,
+}
+
+impl LateralUnnestInfo {
+    /// Checks whether this lateral unnest matches the given fast field name.
+    /// Matches exact name, or for JSON unnests, matches subfield paths starting with `{field_name}.`.
+    pub fn matches_field(&self, name: &str) -> bool {
+        self.field_name == name
+            || (self.is_json
+                && name
+                    .strip_prefix(&self.field_name)
+                    .is_some_and(|rest| rest.starts_with('.')))
+    }
 }
 
 /// An unnest operation applied to a relational node.
@@ -1677,6 +1691,28 @@ impl RelNode {
         }
     }
 
+    /// Recursively collects all absorbed restrict clauses from unnest nodes.
+    pub fn collect_unnest_clauses(&self, acc: &mut Vec<*mut pg_sys::Expr>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                j.left.collect_unnest_clauses(acc);
+                j.right.collect_unnest_clauses(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_unnest_clauses(acc),
+            RelNode::Unnest(u) => {
+                for &ri in &u.absorbed_clauses {
+                    unsafe {
+                        if !ri.is_null() && !(*ri).clause.is_null() {
+                            acc.push((*ri).clause);
+                        }
+                    }
+                }
+                u.input.collect_unnest_clauses(acc);
+            }
+        }
+    }
+
     /// Recursively collects all absorbed RTIs (base sources + lateral unnest function RTIs).
     pub fn absorbed_rtis(&self) -> Vec<pg_sys::Index> {
         let mut rtis: Vec<pg_sys::Index> = self
@@ -2402,47 +2438,308 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
         return None;
     }
 
+    // Try standard unnest(anyarray)
     let (stripped, found_unnest) = crate::postgres::utils::strip_unnest_and_relabel(funcexpr);
-    if !found_unnest || stripped.is_null() || (*stripped).type_ != pg_sys::NodeTag::T_Var {
-        return None;
+    if found_unnest && !stripped.is_null() && (*stripped).type_ == pg_sys::NodeTag::T_Var {
+        let var = stripped as *mut pg_sys::Var;
+        let source_rti = SourceRti((*var).varno as pg_sys::Index);
+        let source_attno = (*var).varattno;
+
+        if source_attno <= 0 {
+            return None;
+        }
+
+        let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
+        let bm25_index = bm25_index?;
+
+        let schema = crate::schema::SearchIndexSchema::open(&bm25_index).ok()?;
+        let hr = PgSearchRelation::open(source_relid);
+        let tupdesc = hr.tuple_desc();
+        let att = tupdesc.get((source_attno - 1) as usize)?;
+        let col_name = att.name();
+        let search_field = schema.search_field(col_name)?;
+        if !search_field.is_fast() {
+            return None;
+        }
+        let categorized = schema.categorized_fields();
+        let field_data = categorized
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .map(|(_, data)| data)?;
+        if !field_data.is_array {
+            return None;
+        }
+
+        return Some(LateralUnnestInfo {
+            function_rti: FunctionRti(candidate_rti),
+            source_rti,
+            source_attno,
+            field_name: col_name.to_string(),
+            is_left_join: false,
+            is_json: false,
+        });
     }
 
-    let var = stripped as *mut pg_sys::Var;
-    let source_rti = SourceRti((*var).varno as pg_sys::Index);
-    let source_attno = (*var).varattno;
+    // Try jsonb_array_elements(jsonb) or jsonb_array_elements_text(jsonb)
+    let stripped_func = crate::postgres::utils::strip_wrappers(funcexpr);
+    if !stripped_func.is_null() && (*stripped_func).type_ == pg_sys::NodeTag::T_FuncExpr {
+        let func = stripped_func as *mut pg_sys::FuncExpr;
+        if crate::postgres::utils::is_jsonb_array_elements_func((*func).funcid) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if args.len() == 1 {
+                let arg = args.get_ptr(0)?;
+                let (var, field_name) = crate::postgres::var::find_one_var_and_fieldname(
+                    crate::postgres::var::VarContext::from_planner(root),
+                    arg,
+                )?;
+                let source_rti = SourceRti((*var).varno as pg_sys::Index);
+                let source_attno = (*var).varattno;
 
-    if source_attno <= 0 {
-        return None;
+                if source_attno <= 0 {
+                    return None;
+                }
+
+                let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
+                let bm25_index = bm25_index?;
+
+                let schema = crate::schema::SearchIndexSchema::open(&bm25_index).ok()?;
+                let hr = PgSearchRelation::open(source_relid);
+                let tupdesc = hr.tuple_desc();
+                let att = tupdesc.get((source_attno - 1) as usize)?;
+                let col_name = att.name();
+                let search_field = schema.search_field(col_name)?;
+                if !search_field.is_fast() {
+                    return None;
+                }
+                let categorized = schema.categorized_fields();
+                let field_data = categorized
+                    .iter()
+                    .find(|(sf, _)| sf == &search_field)
+                    .map(|(_, data)| data)?;
+                if !field_data.is_json && !search_field.is_json() {
+                    return None;
+                }
+
+                return Some(LateralUnnestInfo {
+                    function_rti: FunctionRti(candidate_rti),
+                    source_rti,
+                    source_attno,
+                    field_name: field_name.into_inner(),
+                    is_left_join: false,
+                    is_json: true,
+                });
+            }
+        }
     }
 
-    let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
-    let bm25_index = bm25_index?;
+    None
+}
 
-    let schema = crate::schema::SearchIndexSchema::open(&bm25_index).ok()?;
-    let hr = PgSearchRelation::open(source_relid);
-    let tupdesc = hr.tuple_desc();
-    let att = tupdesc.get((source_attno - 1) as usize)?;
-    let col_name = att.name();
-    let search_field = schema.search_field(col_name)?;
-    if !search_field.is_fast() {
+/// Given an expression node, extract the root Var and the JSON path (as field name components)
+/// if it is an access into a JSON field (e.g. `cur_emp->>'employer_company_website_domain'`
+/// or `cur_emp['title']`).
+pub unsafe fn extract_root_var_and_subpath(
+    mut node: *mut pg_sys::Node,
+) -> Option<(*mut pg_sys::Var, Vec<String>)> {
+    if node.is_null() {
         return None;
     }
-    let categorized = schema.categorized_fields();
-    let field_data = categorized
-        .iter()
-        .find(|(sf, _)| sf == &search_field)
-        .map(|(_, data)| data)?;
-    if !field_data.is_array {
-        return None;
+    // Unwrap wrappers
+    node =
+        crate::postgres::var::strip_identity_wrappers(crate::postgres::utils::strip_wrappers(node));
+
+    if (*node).type_ == pg_sys::NodeTag::T_Var {
+        return Some((node as *mut pg_sys::Var, Vec::new()));
     }
 
-    Some(LateralUnnestInfo {
-        function_rti: FunctionRti(candidate_rti),
-        source_rti,
-        source_attno,
-        field_name: col_name.to_string(),
-        is_left_join: false,
-    })
+    if (*node).type_ == pg_sys::NodeTag::T_OpExpr {
+        let op = &*(node as *mut pg_sys::OpExpr);
+        let op_name = pg_sys::get_opname(op.opno);
+        if op_name.is_null() {
+            return None;
+        }
+        let op_str = std::ffi::CStr::from_ptr(op_name).to_bytes();
+        // Only accept ->> and #>> (text extraction operators).
+        // Non-text operators (-> and #>) yield JSONB objects/arrays which cannot be
+        // compared or operated on as plain text fast fields and must decline to Postgres.
+        if op_str != b"->>" && op_str != b"#>>" {
+            return None;
+        }
+        let args = PgList::<pg_sys::Node>::from_pg(op.args);
+        if args.len() != 2 {
+            return None;
+        }
+        let (var, mut path) = extract_root_var_and_subpath(args.get_ptr(0)?)?;
+        let rhs = args.get_ptr(1)?;
+        if (*rhs).type_ == pg_sys::NodeTag::T_Const {
+            let c = &*(rhs as *mut pg_sys::Const);
+            match pgrx::PgOid::from(c.consttype) {
+                pgrx::PgOid::BuiltIn(
+                    pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID,
+                ) => {
+                    let s = String::from_datum(c.constvalue, c.constisnull)?;
+                    path.push(s);
+                }
+                pgrx::PgOid::BuiltIn(
+                    pg_sys::BuiltinOid::TEXTARRAYOID | pg_sys::BuiltinOid::VARCHARARRAYOID,
+                ) => {
+                    let arr = pgrx::Array::<String>::from_datum(c.constvalue, c.constisnull)?;
+                    path.extend(arr.iter().flatten());
+                }
+                // Any other type (e.g. integer array index ->0) cannot be mapped to a dotted field
+                // name and must return None (decline to PostgreSQL) rather than truncating the path.
+                _ => return None,
+            }
+        } else {
+            // Non-constant key cannot be resolved at plan time; decline
+            return None;
+        }
+        return Some((var, path));
+    }
+
+    if (*node).type_ == pg_sys::NodeTag::T_SubscriptingRef {
+        let sub = &*(node as *mut pg_sys::SubscriptingRef);
+        let (var, mut path) = extract_root_var_and_subpath(sub.refexpr.cast())?;
+        let upper_exprs = PgList::<pg_sys::Node>::from_pg(sub.refupperindexpr);
+        for expr in upper_exprs.iter_ptr() {
+            if (*expr).type_ != pg_sys::NodeTag::T_Const {
+                return None;
+            }
+            let c = &*(expr as *mut pg_sys::Const);
+            if matches!(
+                pgrx::PgOid::from(c.consttype),
+                pgrx::PgOid::BuiltIn(pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID)
+            ) {
+                let s = String::from_datum(c.constvalue, c.constisnull)?;
+                path.push(s);
+            } else {
+                // Non-text subscript (e.g. integer index [0]): return None to decline gracefully
+                return None;
+            }
+        }
+        return Some((var, path));
+    }
+
+    None
+}
+
+/// Helper to match an expression node to an active lateral unnest, returning
+/// the unnest metadata and the full fast field name (e.g. "extra.current_employers.title").
+pub unsafe fn extract_unnest_field_access<'a, I>(
+    node: *mut pg_sys::Node,
+    lateral_unnests: I,
+) -> Option<(&'a LateralUnnestInfo, String)>
+where
+    I: IntoIterator<Item = &'a LateralUnnestInfo>,
+{
+    if node.is_null() {
+        return None;
+    }
+    let (var, subpath) = extract_root_var_and_subpath(node)?;
+    let varno = (*var).varno as pg_sys::Index;
+    let unnest = lateral_unnests
+        .into_iter()
+        .find(|u| u.function_rti.0 == varno)?;
+
+    let full_field_name = if subpath.is_empty() {
+        unnest.field_name.clone()
+    } else {
+        format!("{}.{}", unnest.field_name, subpath.join("."))
+    };
+
+    Some((unnest, full_field_name))
+}
+
+/// Recursively collect all unnested field accesses from an expression tree into `acc`.
+pub unsafe fn collect_unnest_field_accesses<'a>(
+    node: *mut pg_sys::Node,
+    lateral_unnests: &'a [LateralUnnestInfo],
+    acc: &mut Vec<(&'a LateralUnnestInfo, String)>,
+) {
+    if node.is_null() || lateral_unnests.is_empty() {
+        return;
+    }
+    if let Some((unnest, field_name)) = extract_unnest_field_access(node, lateral_unnests) {
+        if !acc
+            .iter()
+            .any(|(u, f)| u.function_rti == unnest.function_rti && f == &field_name)
+        {
+            acc.push((unnest, field_name));
+        }
+        return;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            for item in list.iter_ptr() {
+                collect_unnest_field_accesses(item, lateral_unnests, acc);
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = &*(node as *mut pg_sys::OpExpr);
+            let args = PgList::<pg_sys::Node>::from_pg(op.args);
+            for arg in args.iter_ptr() {
+                collect_unnest_field_accesses(arg, lateral_unnests, acc);
+            }
+        }
+        pg_sys::NodeTag::T_FuncExpr => {
+            let func = &*(node as *mut pg_sys::FuncExpr);
+            let args = PgList::<pg_sys::Node>::from_pg(func.args);
+            for arg in args.iter_ptr() {
+                collect_unnest_field_accesses(arg, lateral_unnests, acc);
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = &*(node as *mut pg_sys::BoolExpr);
+            let args = PgList::<pg_sys::Node>::from_pg(bexpr.args);
+            for arg in args.iter_ptr() {
+                collect_unnest_field_accesses(arg, lateral_unnests, acc);
+            }
+        }
+        pg_sys::NodeTag::T_ScalarArrayOpExpr => {
+            let saop = &*(node as *mut pg_sys::ScalarArrayOpExpr);
+            let args = PgList::<pg_sys::Node>::from_pg(saop.args);
+            for arg in args.iter_ptr() {
+                collect_unnest_field_accesses(arg, lateral_unnests, acc);
+            }
+        }
+        pg_sys::NodeTag::T_RelabelType => {
+            let relabel = &*(node as *mut pg_sys::RelabelType);
+            collect_unnest_field_accesses(relabel.arg as *mut pg_sys::Node, lateral_unnests, acc);
+        }
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            let coerce = &*(node as *mut pg_sys::CoerceViaIO);
+            collect_unnest_field_accesses(coerce.arg as *mut pg_sys::Node, lateral_unnests, acc);
+        }
+        pg_sys::NodeTag::T_NullTest => {
+            let nt = &*(node as *mut pg_sys::NullTest);
+            collect_unnest_field_accesses(nt.arg as *mut pg_sys::Node, lateral_unnests, acc);
+        }
+        pg_sys::NodeTag::T_BooleanTest => {
+            let bt = &*(node as *mut pg_sys::BooleanTest);
+            collect_unnest_field_accesses(bt.arg as *mut pg_sys::Node, lateral_unnests, acc);
+        }
+        pg_sys::NodeTag::T_CaseExpr => {
+            let ce = &*(node as *mut pg_sys::CaseExpr);
+            collect_unnest_field_accesses(ce.arg as *mut pg_sys::Node, lateral_unnests, acc);
+            let args = PgList::<pg_sys::CaseWhen>::from_pg(ce.args);
+            for cw in args.iter_ptr() {
+                collect_unnest_field_accesses(
+                    (*cw).expr as *mut pg_sys::Node,
+                    lateral_unnests,
+                    acc,
+                );
+                collect_unnest_field_accesses(
+                    (*cw).result as *mut pg_sys::Node,
+                    lateral_unnests,
+                    acc,
+                );
+            }
+            collect_unnest_field_accesses(ce.defresult as *mut pg_sys::Node, lateral_unnests, acc);
+        }
+        _ => {}
+    }
 }
 
 /// Convenience helper to extract lateral unnest info by RTI.

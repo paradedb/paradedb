@@ -158,6 +158,76 @@ pub fn resolve_fast_field_by_name(
     }
 }
 
+/// Resolve an unnested fast field by Tantivy field name (e.g. `categories` or `tags`).
+///
+/// An unnested field always delivers multi-valued (list) data from the scanner so DataFusion's
+/// `UnnestExec` can explode it. A JSON leaf is declared with the type its column actually holds,
+/// because the scan hands back that type: a leaf holding numbers arrives as `List<Int64>`, and
+/// declaring text there fails the DataFusion schema check. Segments type a path independently, so
+/// every segment is inspected and a disagreement declines the unnest rather than promising one
+/// type and delivering another.
+pub fn resolve_unnest_fast_field_by_name(
+    field_name: &str,
+    index: &PgSearchRelation,
+) -> Option<WhichFastField> {
+    let schema = index.schema().ok()?;
+    let search_field = schema.search_field(field_name)?;
+    if !search_field.is_fast() {
+        return None;
+    }
+    let is_json = search_field.is_json()
+        || schema
+            .categorized_fields()
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .is_some_and(|(_, data)| data.is_json);
+
+    let field_type = if is_json {
+        unnested_json_field_type(index, field_name)?
+    } else {
+        search_field.field_type()
+    };
+
+    Some(WhichFastField::named(
+        field_name,
+        field_type,
+        FieldCardinality::List,
+        FieldDelivery::Eager,
+    ))
+}
+
+/// The type a columnar scan hands back for a JSON leaf, as declared by the plan.
+///
+/// Returns `None` when the segments disagree about the path's type, store a representation
+/// this lowering cannot carry (`U64`, `Bytes`), or when no segment carries columnar fast field
+/// handles for this path (e.g. unindexed paths or non-scalar object arrays).
+fn unnested_json_field_type(index: &PgSearchRelation, field: &str) -> Option<SearchFieldType> {
+    let reader =
+        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
+            .ok()?;
+    let mut resolved: Option<SearchFieldType> = None;
+    for segment in reader.segment_readers() {
+        let Ok(handles) = segment.fast_fields().dynamic_column_handles(field) else {
+            continue;
+        };
+        for handle in handles {
+            let field_type = match handle.column_type() {
+                ColumnType::Str => SearchFieldType::Text(pg_sys::TEXTOID),
+                ColumnType::I64 => SearchFieldType::I64(pg_sys::INT8OID),
+                ColumnType::F64 => SearchFieldType::F64(pg_sys::FLOAT8OID),
+                ColumnType::Bool => SearchFieldType::Bool(pg_sys::BOOLOID),
+                ColumnType::DateTime => SearchFieldType::Date(pg_sys::TIMESTAMPOID),
+                ColumnType::U64 | ColumnType::Bytes | ColumnType::IpAddr => return None,
+            };
+            if resolved.is_some_and(|previous| previous != field_type) {
+                return None;
+            }
+            resolved = Some(field_type);
+        }
+    }
+    resolved
+}
+
 /// Resolved index field metadata returned by [`resolve_index_field_by_name`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedIndexField {

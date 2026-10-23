@@ -157,6 +157,10 @@ pub struct JoinGroupColumn {
     /// of the group, as in PostgreSQL's Agg node.
     #[serde(default)]
     pub row_value: bool,
+
+    /// Whether this group column originated from a LATERAL unnest expression.
+    #[serde(default)]
+    pub is_unnest: bool,
 }
 
 /// The NUMERIC field type an aggregate has to handle, or `None` when the
@@ -946,9 +950,45 @@ unsafe fn extract_raw_group_column(
         node = var.cast();
         transform = GroupingTransform::TimestampToDate;
     }
-    let (attno, field_name, plan_position, numeric_source) = if (*node).type_
-        == pg_sys::NodeTag::T_Var
-    {
+    let mut is_unnest = false;
+    let (attno, field_name, plan_position, numeric_source) = if let Some((
+        unnest,
+        full_field_name,
+    )) =
+        crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+            node,
+            context.plan.lateral_unnests(),
+        ) {
+        if unnest.is_json && full_field_name != unnest.field_name {
+            return Err(
+                "LATERAL unnesting for JSONB is only supported for scalar arrays; \
+                 accessing subfields on unnested JSON elements is not supported"
+                    .to_string(),
+            );
+        }
+        is_unnest = true;
+        let source = find_source_by_rti(context.sources, unnest.source_rti.0, &label)?;
+        let plan_position = context
+            .plan
+            .plan_position(
+                context.outer_root_id,
+                unnest.source_rti.0,
+                unnest.source_attno,
+            )
+            .ok_or_else(|| {
+                format!(
+                    "{label} (RTI={}, attno={}) does not resolve to a unique \
+                     output-visible source in the plan tree",
+                    unnest.source_rti.0, unnest.source_attno
+                )
+            })?;
+        (
+            unnest.source_attno,
+            full_field_name,
+            plan_position,
+            Some(source),
+        )
+    } else if (*node).type_ == pg_sys::NodeTag::T_Var {
         let var = node.cast::<pg_sys::Var>();
         let resolved = resolve_var_source(
             context,
@@ -1042,6 +1082,7 @@ unsafe fn extract_raw_group_column(
         numeric,
         transform,
         row_value,
+        is_unnest,
     })
 }
 

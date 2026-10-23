@@ -85,16 +85,25 @@ def get_existing_sql_targets(sql_dir):
     return targets
 
 
+def latest_released_sql_version(sql_dir):
+    """Return the newest released version present in this checkout's SQL chain."""
+    released_targets = set(get_git_tags()) & set(get_existing_sql_targets(sql_dir))
+    return max(released_targets, key=parse_semver, default=None)
+
+
 def resolve_prev_version(repo_root, sql_dir, target_version, explicit_prev):
     """Determine the predecessor version to upgrade from."""
     if explicit_prev:
         return clean_version(explicit_prev)
 
     target_tuple = parse_semver(target_version)
-    candidates = set(get_git_tags())
-    candidates.update(get_existing_sql_targets(sql_dir))
-
-    valid = [v for v in candidates if parse_semver(v) < target_tuple]
+    # Tags can advance while an older PR still lacks the corresponding migration.
+    # Extend the checked-out SQL chain before considering repository-wide tags.
+    valid = [
+        v for v in get_existing_sql_targets(sql_dir) if parse_semver(v) < target_tuple
+    ]
+    if not valid:
+        valid = [v for v in get_git_tags() if parse_semver(v) < target_tuple]
     if valid:
         valid.sort(key=parse_semver)
         return valid[-1]

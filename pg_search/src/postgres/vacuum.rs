@@ -17,8 +17,10 @@
 
 use pgrx::*;
 
+use crate::index::stats::index_wide;
 use crate::postgres::merge::{MergeStyle, do_merge, garbage_collect_index};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
@@ -31,5 +33,11 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
         garbage_collect_index(&index, next_xid, next_xid);
     }
     do_merge(&index, MergeStyle::Vacuum, None, None).expect("should be able to merge");
+    if !(*info).analyze_only && index.is_valid() {
+        if let Err(error) = index_wide::refresh(&index) {
+            MetaPage::clear_index_stats(&index);
+            pgrx::warning!("could not refresh index statistics: {error}");
+        }
+    }
     stats
 }

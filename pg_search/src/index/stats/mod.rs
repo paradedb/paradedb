@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Per-segment statistics: the `.stats` component.
+//! Per-segment and index-wide statistics.
 //!
 //! Every immutable segment carries two facts about each fast field: the empirical `min` and
 //! `max` of the values it holds, and, after a partitioned build, the box the build assigned it.
@@ -23,6 +23,8 @@
 //!
 //! `plugin` writes and merges the file, `pruning` reads it for range partitioning. The types
 //! and the reader here are shared by both.
+//! `index_wide` persists a VACUUM-time summary of the complete segment view for future
+//! cardinality estimation.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -42,6 +44,7 @@ use crate::postgres::storage::block::STATS_EXT;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::{SearchField, SearchFieldType};
 
+pub(crate) mod index_wide;
 mod plugin;
 mod pruning;
 #[cfg(any(test, feature = "pg_test"))]

@@ -969,7 +969,7 @@ impl SearchIndexReader {
             .unwrap_or_else(|| u64::from(reader.num_docs()))
     }
 
-    fn segment_num_docs(&self, reader: &SegmentReader) -> u64 {
+    pub(crate) fn segment_num_docs(&self, reader: &SegmentReader) -> u64 {
         Self::directory_segment_num_docs(&self.directory, reader)
     }
 

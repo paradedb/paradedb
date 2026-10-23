@@ -75,7 +75,7 @@ jobs:
             --remove-label benchmarks \
             --remove-label benchmark-stressgres || true
 
-      - name: Determine Ref to Benchmark
+      - name: Determine Ref To Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -97,13 +97,13 @@ jobs:
 
       # Keep workflow actions separate from the source commit being benchmarked
       # so we can benchmark older commits with newer actions.
-      - name: Checkout workflow actions
+      - name: Checkout Workflow Actions
         uses: actions/checkout@v7
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
-      - name: Checkout source to benchmark
+      - name: Checkout Source To Benchmark
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
@@ -111,7 +111,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Resolve benchmark commit
+      - name: Resolve Benchmark Commit
         id: commit_info
         working-directory: source
         run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -120,14 +120,14 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
-      - name: Fetch latest benchmark code, suites
+      - name: Fetch Latest Benchmark Code, Suites
         if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           source_directory: source
 
-      - name: Resolve git ref to PR
+      - name: Resolve Git Ref To PR
         id: pr_label
         uses: actions/github-script@v9
         env:
@@ -183,7 +183,7 @@ jobs:
               ? `PR #${pr.number}: ${pr.title}`
               : ref;
 
-      - name: Running for ${{ steps.pr_label.outputs.result }}
+      - name: Running For ${{ steps.pr_label.outputs.result }}
         env:
           STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
         run: echo "${STEP_PR_LABEL_RESULT}"
@@ -202,7 +202,7 @@ jobs:
       - name: Enable Crash Dumps
         run: ./.github/scripts/setup_crashdumps.sh
 
-      - name: Compile and Install pg_search
+      - name: Compile And Install pg_search
         working-directory: source
         run: >-
           cargo pgrx install -p pg_search --sudo --release
@@ -213,7 +213,7 @@ jobs:
         working-directory: source/pg_search/
         run: cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Configure PostgreSQL settings and machine settings
+      - name: Configure PostgreSQL Settings And Machine Settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
         run: |
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM RESET ALL;"
@@ -247,7 +247,7 @@ jobs:
           cargo pgrx stop pg${{ env.pg_version }}
           cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Install the Stressgres CLI tool
+      - name: Install The Stressgres CLI Tool
         working-directory: source/stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
@@ -281,7 +281,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack on Failure
+      - name: Notify Slack On Failure
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

@@ -143,7 +143,7 @@ jobs:
             --remove-label benchmark-cohere-pg_search \
             --remove-label benchmark-cohere-pgvectorscale || true
 
-      - name: Determine Ref to Benchmark
+      - name: Determine Ref To Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -165,13 +165,13 @@ jobs:
 
       # Keep workflow actions separate from the source commit being benchmarked
       # so we can benchmark older commits with newer actions.
-      - name: Checkout workflow actions
+      - name: Checkout Workflow Actions
         uses: actions/checkout@v7
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
-      - name: Checkout source to benchmark
+      - name: Checkout Source To Benchmark
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
@@ -179,7 +179,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Resolve benchmark commit
+      - name: Resolve Benchmark Commit
         id: commit_info
         working-directory: source
         run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -195,7 +195,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Fetch latest benchmark code, suites
+      - name: Fetch Latest Benchmark Code, Suites
         if: >-
           !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
@@ -203,7 +203,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           source_directory: source
 
-      - name: Resolve git ref to PR
+      - name: Resolve Git Ref To PR
         id: pr_label
         uses: actions/github-script@v9
         env:
@@ -259,7 +259,7 @@ jobs:
               ? `PR #${pr.number}: ${pr.title}`
               : ref;
 
-      - name: Running for ${{ steps.pr_label.outputs.result }}
+      - name: Running For ${{ steps.pr_label.outputs.result }}
         env:
           STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
         run: echo "${STEP_PR_LABEL_RESULT}"
@@ -381,7 +381,7 @@ jobs:
       # postgresql.auto.conf with the snapshot's config (snapshots are captured without vchord
       # preloaded, so they stay shared with the hnsw/ivfflat runs). Re-apply the preload and restart
       # before the vchordrq index is built.
-      - name: Preload vchord after restore (cohere/vchord, 1M)
+      - name: Preload vchord After Restore (Cohere/vchord, 1M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
         run: |
           set -euo pipefail
@@ -394,7 +394,7 @@ jobs:
 
       # pgvectorscale needs no shared_preload_libraries, so unlike vchord this only creates the
       # extension the restored snapshot does not carry -- no restart required.
-      - name: Create vectorscale extension after restore (cohere/pgvectorscale, 1M)
+      - name: Create vectorscale Extension After Restore (Cohere/Pgvectorscale, 1M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
         run: |
           set -euo pipefail
@@ -434,7 +434,7 @@ jobs:
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
-      - name: Preload vchord after restore (cohere/vchord, 10M)
+      - name: Preload vchord After Restore (Cohere/vchord, 10M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
         run: |
           set -euo pipefail
@@ -445,7 +445,7 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
-      - name: Create vectorscale extension after restore (cohere/pgvectorscale, 10M)
+      - name: Create vectorscale Extension After Restore (Cohere/Pgvectorscale, 10M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
         run: |
           set -euo pipefail
@@ -472,7 +472,7 @@ jobs:
       # across each query's swept values and keeps the cheapest one reaching each target, writing
       # sweep_summary_{size}.tsv (query, target, param, value, recall, reached, p50, p95, p99).
       # Latency for those same points is published as `{query}@r90|r95|r99 - p50|p95|p99` series.
-      - name: Comment cohere recall
+      - name: Comment Cohere Recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
         working-directory: source/benchmarks/
         env:
@@ -529,7 +529,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack on Failure (push only)
+      - name: Notify Slack On Failure (Push Only)
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

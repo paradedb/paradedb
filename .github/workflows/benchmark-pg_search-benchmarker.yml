@@ -93,7 +93,7 @@ jobs:
             --remove-label benchmark-benchmarker \
             --remove-label benchmark-benchmarker-hackernews || true
 
-      - name: Determine Ref to Benchmark
+      - name: Determine Ref To Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -128,22 +128,22 @@ jobs:
         with:
           ref: ${{ inputs.benchmarker_hackernews_ref || 'main' }}
 
-      - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
+      - name: Pull ${{ env.DATASET }} Dataset (Public S3, Anonymous)
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
-      - name: Start database
+      - name: Start Database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
           COMPOSE_PROFILES: paradedb
         run: docker compose up -d --wait
 
-      - name: Load data (paradedb)
+      - name: Load Data (paradedb)
         working-directory: benchmarker
         run: ./bin/loader load --backend paradedb "./datasets/${DATASET}"
 
-      - name: Restart database for a clean start
+      - name: Restart Database For A Clean Start
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
@@ -152,7 +152,7 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait
 
-      - name: Run k6 scripts
+      - name: Run k6 Scripts
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
@@ -185,7 +185,7 @@ jobs:
             mv "${dashboard_html[0]}" "$root/results/${name}.html"
           done
 
-      - name: Dump database logs on failure
+      - name: Dump Database Logs On Failure
         if: failure() || cancelled()
         run: |
           echo "== Docker containers =="
@@ -253,7 +253,7 @@ jobs:
             --remove-label benchmark-benchmarker \
             --remove-label "benchmark-benchmarker-${DATASET}" || true
 
-      - name: Determine Ref to Benchmark
+      - name: Determine Ref To Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -288,7 +288,7 @@ jobs:
         with:
           ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
 
-      - name: Pull ${{ env.DATASET }} benchmark config (public S3, anonymous)
+      - name: Pull ${{ env.DATASET }} Benchmark Config (Public S3, Anonymous)
         working-directory: benchmarker
         run: |
           set -euo pipefail
@@ -323,7 +323,7 @@ jobs:
           sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${target_dir}"
           rm -f "${RUNNER_TEMP}/heap.tar.zst"
 
-      - name: Build ${{ env.DATASET }} index with ${{ env.IMAGE_TAG }}
+      - name: Build ${{ env.DATASET }} Index With ${{ env.IMAGE_TAG }}
         working-directory: benchmarker/datasets/_ci_config
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
@@ -344,7 +344,7 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait --wait-timeout 300 paradedb
 
-      - name: Run ${{ env.DATASET }} benchmark
+      - name: Run ${{ env.DATASET }} Benchmark
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
@@ -386,7 +386,7 @@ jobs:
           done
           run_benchmark count mixed
 
-      - name: Dump database logs on failure
+      - name: Dump Database Logs On Failure
         if: failure() || cancelled()
         run: |
           echo "== Docker containers =="
@@ -424,7 +424,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack on Failure (push only)
+      - name: Notify Slack On Failure (Push Only)
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

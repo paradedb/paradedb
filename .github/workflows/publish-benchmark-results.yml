@@ -10,12 +10,14 @@ permissions:
 
 jobs:
   find-results:
+    name: Find Benchmark Results
     runs-on: ubuntu-latest
     outputs:
       artifacts: ${{ steps.results.outputs.artifacts }}
       count: ${{ steps.results.outputs.count }}
     steps:
-      - uses: actions/github-script@v9
+      - name: Find Pending Benchmark Results
+        uses: actions/github-script@v9
         id: results
         with:
           script: |
@@ -36,6 +38,7 @@ jobs:
             core.setOutput('count', results.length);
 
   publish:
+    name: Publish Benchmark Results
     needs: find-results
     if: needs.find-results.outputs.count != '0'
     runs-on: ubuntu-latest
@@ -49,12 +52,14 @@ jobs:
       cancel-in-progress: false
       queue: max
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout Workflow Actions
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v8
+      - name: Download Benchmark Results
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ matrix.artifact }}
           merge-multiple: true

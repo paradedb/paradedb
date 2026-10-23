@@ -7,7 +7,7 @@ inputs:
     required: false
     default: "."
   test_file:
-    description: "The .toml Stressgres scenario to run (e.g. single-node-planner-paths.toml)"
+    description: "Stressgres scenario file (e.g. single-node-planner-paths.toml)"
     required: true
   duration:
     description: "Duration of the Stressgres run, in milliseconds"

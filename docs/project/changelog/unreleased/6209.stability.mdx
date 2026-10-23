@@ -2,4 +2,4 @@
 header: stability
 ---
 
-- Fixed `NUMERIC` literals, ranges, and sets in `pdb.parse()` and `pdb.parse_with_field()`. Queries use exact comparisons and reject malformed NUMERIC values instead of rounding them or failing to parse (#6105).
+- Fixed `pdb.parse()` queries on `NUMERIC` fields that returned wrong rows, no rows, or parse errors. Literals, ranges, and sets use exact comparisons, and invalid input follows strict or lenient parsing rules (#6105).

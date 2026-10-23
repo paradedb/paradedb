@@ -201,6 +201,61 @@ WHERE id @@@ pdb.parse('arbitrary_precision: IN [1.001 2.504]') ORDER BY id;
 SELECT id FROM numeric_literals
 WHERE id @@@ pdb.parse('fixed_precision: IN [1.001 2.504]') ORDER BY id;
 
+-- Invalid NUMERIC input can be valid Base64. Lenient parsing must not use it as bytes.
+INSERT INTO numeric_literals VALUES (5, 0, 0), (6, -1, -1);
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:[null TO 1.23]', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:[null TO 1.23]', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:[0 TO abcd]', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:[0 TO abcd]', lenient => true) ORDER BY id;
+
+-- Invalid literals must not become byte terms inside compound queries.
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:null AND id:1', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:null AND id:1', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('(arbitrary_precision:"gA==")^2 AND id:5', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('(fixed_precision:"gA==")^2 AND id:5', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('id:5 AND NOT arbitrary_precision:"gA=="', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE arbitrary_precision @@@ pdb.parse_with_field('"gA=="', lenient => true) ORDER BY id;
+
+-- gA== encodes zero, but it is not a NUMERIC literal. Only valid set elements remain.
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision: IN ["gA==" 1.23]', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision: IN ["gA==" 1.23]', lenient => true) ORDER BY id;
+
+-- An empty set and a valid off-grid literal must still match nothing in an AND.
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision: IN ["gA=="] AND id:5', lenient => true) ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:1.001 AND id:1', lenient => true) ORDER BY id;
+
+-- Strict parsing still rejects the same Base64-compatible inputs.
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:[null TO 1.23]') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision: IN ["gA=="]') ORDER BY id;
+
 DROP TABLE numeric_literals;
 
 -- Negative scales and large literals must not match physical integers or the NaN sentinel.

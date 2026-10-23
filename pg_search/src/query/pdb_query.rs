@@ -2317,17 +2317,23 @@ fn rewrite_field_literals(
         UserInputAst::Boost(inner, _) => {
             rewrite_field_literals(inner, schema, index_created_by_version, lenient)?;
         }
-        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema, index_created_by_version, lenient)?,
+        UserInputAst::Leaf(leaf) => {
+            if !rewrite_leaf(leaf, schema, index_created_by_version, lenient)? {
+                // Tantivy trims empty clauses for invalid literals in lenient mode.
+                *ast = UserInputAst::Clause(Vec::new());
+            }
+        }
     }
     Ok(())
 }
 
+/// Returns false when lenient parsing must discard the leaf.
 fn rewrite_leaf(
     leaf: &mut UserInputLeaf,
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     lenient: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     match leaf {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name
@@ -2349,6 +2355,7 @@ fn rewrite_leaf(
                         };
                     }
                     PhraseRewrite::Keep => (),
+                    PhraseRewrite::Discard => return Ok(false),
                 }
             }
         }
@@ -2391,8 +2398,8 @@ fn rewrite_leaf(
                         lenient,
                     )? {
                         PhraseRewrite::Replace(replacement) => rewritten.push(replacement),
-                        // No value the field can hold equals the element, so it adds nothing.
-                        PhraseRewrite::NoMatch => (),
+                        // Invalid or impossible elements add nothing, but an empty set stays false.
+                        PhraseRewrite::NoMatch | PhraseRewrite::Discard => (),
                         PhraseRewrite::Keep => rewritten.push(element),
                     }
                 }
@@ -2403,7 +2410,7 @@ fn rewrite_leaf(
         // Range/Set without an explicit field can't be resolved here; leave them alone.
         _ => (),
     }
-    Ok(())
+    Ok(true)
 }
 
 /// How [`rewrite_leaf`] changes one phrase of the user's query.
@@ -2413,6 +2420,8 @@ enum PhraseRewrite {
     Replace(String),
     /// No value the field can hold equals the phrase.
     NoMatch,
+    /// Discard invalid NUMERIC input in lenient mode.
+    Discard,
     /// Leave the phrase to Tantivy.
     Keep,
 }
@@ -2432,12 +2441,10 @@ fn rewrite_phrase(
                 &field_type,
                 index_created_by_version,
             ) {
-                Ok(Some(value)) => Ok(numeric_value_to_phrase(value)
-                    .map_or(PhraseRewrite::Keep, PhraseRewrite::Replace)),
+                Ok(Some(value)) => Ok(PhraseRewrite::Replace(numeric_value_to_phrase(value))),
                 Ok(None) => Ok(PhraseRewrite::NoMatch),
-                // Lenient parsing has to keep the other clauses, so an invalid phrase stays for
-                // Tantivy to drop.
-                Err(_) if lenient => Ok(PhraseRewrite::Keep),
+                // Invalid NUMERIC input can be valid Base64, so Tantivy cannot reject it for us.
+                Err(_) if lenient => Ok(PhraseRewrite::Discard),
                 Err(err) => Err(err),
             }
         }
@@ -2472,10 +2479,9 @@ fn rewrite_bound(
                 search_field,
                 index_created_by_version,
             ) {
-                Ok(Some(replacement)) => *bound = replacement,
-                Ok(None) => (),
-                // As for a phrase, lenient parsing leaves an invalid bound for Tantivy to drop.
-                Err(_) if lenient => (),
+                Ok(replacement) => *bound = replacement,
+                // Match Tantivy's lenient handling without interpreting invalid input as Base64.
+                Err(_) if lenient => *bound = UserInputBound::Unbounded,
                 Err(err) => return Err(err),
             }
         }
@@ -2518,7 +2524,7 @@ fn numeric_bound_to_physical(
     field_name: &str,
     search_field: &SearchField,
     index_created_by_version: Option<Version>,
-) -> anyhow::Result<Option<UserInputBound>> {
+) -> anyhow::Result<UserInputBound> {
     let value =
         parse_numeric_phrase(phrase).with_context(|| invalid_numeric_value(phrase, field_name))?;
     let bound = if inclusive {
@@ -2546,9 +2552,9 @@ fn numeric_bound_to_physical(
     .with_context(|| invalid_numeric_value(phrase, field_name))?;
 
     Ok(match converted {
-        Bound::Included(value) => numeric_value_to_phrase(value).map(UserInputBound::Inclusive),
-        Bound::Excluded(value) => numeric_value_to_phrase(value).map(UserInputBound::Exclusive),
-        Bound::Unbounded => None,
+        Bound::Included(value) => UserInputBound::Inclusive(numeric_value_to_phrase(value)),
+        Bound::Excluded(value) => UserInputBound::Exclusive(numeric_value_to_phrase(value)),
+        Bound::Unbounded => UserInputBound::Unbounded,
     })
 }
 
@@ -2564,12 +2570,12 @@ fn invalid_numeric_value(phrase: &str, field_name: &str) -> String {
 }
 
 /// Formats a stored NUMERIC value as the phrase that Tantivy's query parser reads for its field.
-fn numeric_value_to_phrase(value: PdbOwnedValue) -> Option<String> {
+fn numeric_value_to_phrase(value: PdbOwnedValue) -> String {
     match value {
-        PdbOwnedValue::I64(value) => Some(value.to_string()),
+        PdbOwnedValue::I64(value) => value.to_string(),
         // Tantivy's QueryParser decodes Bytes terms and boundaries as standard Base64.
-        PdbOwnedValue::Bytes(value) => Some(STANDARD.encode(value)),
-        _ => None,
+        PdbOwnedValue::Bytes(value) => STANDARD.encode(value),
+        _ => unreachable!("NUMERIC fields store only I64 or Bytes values"),
     }
 }
 
@@ -2686,11 +2692,15 @@ mod tests {
             .unwrap(),
             PhraseRewrite::Replace("AL/8if8=".to_string())
         );
-        // Lenient parsing leaves an invalid phrase for Tantivy to drop.
-        assert_eq!(
-            rewrite_phrase("not-a-number", "price", numeric_bytes, None, true).unwrap(),
-            PhraseRewrite::Keep
-        );
+        // Even Base64-compatible input must be discarded when it is not a NUMERIC literal.
+        for field_type in [numeric64, numeric_bytes] {
+            for phrase in ["not-a-number", "null", "abcd", "gA=="] {
+                assert_eq!(
+                    rewrite_phrase(phrase, "price", field_type, None, true).unwrap(),
+                    PhraseRewrite::Discard
+                );
+            }
+        }
     }
 
     #[pg_test]

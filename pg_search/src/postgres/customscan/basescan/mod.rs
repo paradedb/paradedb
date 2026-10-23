@@ -3063,6 +3063,7 @@ fn base_query_has_search_predicates(
         SearchQueryInput::All => false,
         SearchQueryInput::Uninitialized => false,
         SearchQueryInput::Empty => false,
+        SearchQueryInput::Null => false,
 
         SearchQueryInput::WithIndex { oid, query } => {
             // Only consider search predicates for the current table's index

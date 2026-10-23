@@ -40,7 +40,16 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
         run: |
-          PG_VERSION=$(bash .github/scripts/beta-postgres-version.sh "$RELEASE_TAG")
+          PG_VERSION=18
+          if [[ "$RELEASE_TAG" == *-rc.* ]]; then
+            git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            PG_VERSION=$(git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" | sed -n 's/^Beta-Postgres-Version: //p')
+            PG_VERSION=${PG_VERSION:-18}
+            case "$PG_VERSION" in
+              15 | 16 | 17 | 18) ;;
+              *) echo "Invalid beta PostgreSQL major in $RELEASE_TAG: $PG_VERSION" >&2; exit 1 ;;
+            esac
+          fi
           echo "pg_version=$PG_VERSION" >> "$GITHUB_OUTPUT"
 
   # Stable releases build every row. Betas build the selected major on Debian 13 for both arches.

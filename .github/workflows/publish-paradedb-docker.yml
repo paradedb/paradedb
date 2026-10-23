@@ -68,7 +68,14 @@ jobs:
           REF_NAME="${RELEASE_REF}"
           echo "Evaluating ref: $REF_NAME"
           if [[ "$REF_NAME" == *-rc.* ]]; then
-            PG_VERSION=$(bash .github/scripts/beta-postgres-version.sh "v${REF_NAME#v}")
+            RELEASE_TAG="v${REF_NAME#v}"
+            git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            PG_VERSION=$(git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" | sed -n 's/^Beta-Postgres-Version: //p')
+            PG_VERSION=${PG_VERSION:-18}
+            case "$PG_VERSION" in
+              15 | 16 | 17 | 18) ;;
+              *) echo "Invalid beta PostgreSQL major in $RELEASE_TAG: $PG_VERSION" >&2; exit 1 ;;
+            esac
             echo "matrix=[$PG_VERSION]" >> "$GITHUB_OUTPUT"
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."

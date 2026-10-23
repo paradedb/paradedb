@@ -6,7 +6,7 @@ inputs:
     description: "Benchmark type: benchmarker, queries, or stressgres"
     required: true
   key:
-    description: "Unique dataset or suite key"
+    description: "Benchmark configuration identifier used in artifact names and to match retries (dataset for Benchmarker, dataset-index-size for Queries, suite for Stressgres)"
     required: true
   metadata:
     description: "Publication inputs as JSON; credentials are removed before upload"

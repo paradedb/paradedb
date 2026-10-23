@@ -1836,6 +1836,36 @@ impl FilterExpr {
             return unsafe { Self::search_tag(*root, plan, node) };
         }
 
+        let lateral_unnests = match ctx {
+            FilterExprBuildContext::Filter { plan, .. } => plan.lateral_unnests(),
+            FilterExprBuildContext::Having { plan, .. } => plan.lateral_unnests(),
+        };
+        if let Some((unnest, full_field_name)) = unsafe {
+            crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                node,
+                lateral_unnests,
+            )
+        } {
+            let pp = ctx.resolve_var(unnest.source_rti.0, unnest.source_attno)?;
+            return match ctx {
+                FilterExprBuildContext::Filter { .. } => Some(Self::ColumnRef(ColumnRef {
+                    plan_position: pp,
+                    rti: unnest.source_rti.0,
+                    attno: unnest.source_attno,
+                    field_name: full_field_name,
+                    is_unnest: true,
+                })),
+                FilterExprBuildContext::Having {
+                    extracted_target, ..
+                } => extracted_target
+                    .targetlist()
+                    .group_columns
+                    .iter()
+                    .position(|gc| gc.plan_position == pp && gc.field_name == full_field_name)
+                    .map(Self::GroupRef),
+            };
+        }
+
         let tag = unsafe { (*node).type_ };
 
         match tag {
@@ -1895,6 +1925,7 @@ impl FilterExpr {
                             rti,
                             attno,
                             field_name,
+                            is_unnest: false,
                         }))
                     }
                     FilterExprBuildContext::Having {
@@ -2023,6 +2054,23 @@ impl FilterExpr {
                 let relabel = unsafe { &*(node as *mut pg_sys::RelabelType) };
                 Self::from_pg_node(relabel.arg as *mut pg_sys::Node, ctx)
             }
+            pg_sys::NodeTag::T_CoerceViaIO => {
+                let coerce = unsafe { &*(node as *mut pg_sys::CoerceViaIO) };
+                let arg_node = coerce.arg as *mut pg_sys::Node;
+                if arg_node.is_null() {
+                    return None;
+                }
+                let source = unsafe { pg_sys::exprType(arg_node) };
+                let target = coerce.resulttype;
+                const TEXT_FAMILY: &[pg_sys::Oid] =
+                    &[pg_sys::TEXTOID, pg_sys::VARCHAROID, pg_sys::NAMEOID];
+                let in_text = |oid: pg_sys::Oid| TEXT_FAMILY.contains(&oid);
+                if in_text(source) && in_text(target) {
+                    Self::from_pg_node(arg_node, ctx)
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -2137,6 +2185,95 @@ pub unsafe fn populate_required_fields(
     // the outer scan, so an `(rti, attno)` lookup matches the wrong
     // source. plan_position is unique per `RelNode::Scan` in the tree.
     let join_key_projections = plan.join_key_projections();
+    let lateral_unnests: Vec<crate::postgres::customscan::joinscan::build::LateralUnnestInfo> =
+        plan.lateral_unnests().into_iter().cloned().collect();
+
+    let mut unnest_multi_table_accesses = Vec::new();
+    for &clause in multi_table_clauses {
+        crate::postgres::customscan::joinscan::build::collect_unnest_field_accesses(
+            clause.cast(),
+            &lateral_unnests,
+            &mut unnest_multi_table_accesses,
+        );
+    }
+    let mut unnest_clauses = Vec::new();
+    plan.collect_unnest_clauses(&mut unnest_clauses);
+    for &clause in &unnest_clauses {
+        crate::postgres::customscan::joinscan::build::collect_unnest_field_accesses(
+            clause.cast(),
+            &lateral_unnests,
+            &mut unnest_multi_table_accesses,
+        );
+    }
+
+    // LATERAL unnesting for JSONB only supports scalar arrays. Tantivy flattens JSON
+    // into leaf fast fields without element boundaries or ordinals, so accessing subfields
+    // on unnested JSON elements or unnesting object arrays cannot be reconstructed and
+    // must decline to Postgres at plan time.
+    let mut unnest_leaves: Vec<(
+        &crate::postgres::customscan::joinscan::build::LateralUnnestInfo,
+        String,
+    )> = unnest_multi_table_accesses
+        .iter()
+        .map(|(unnest, field_name)| (*unnest, field_name.clone()))
+        .collect();
+    for group_column in &targetlist.group_columns {
+        if group_column.is_unnest
+            && let Some(unnest) = lateral_unnests
+                .iter()
+                .find(|unnest| unnest.matches_field(&group_column.field_name))
+        {
+            unnest_leaves.push((unnest, group_column.field_name.clone()));
+        }
+    }
+    for agg in &targetlist.aggregates {
+        let Some(ref filter) = agg.filter else {
+            continue;
+        };
+        for col_ref in filter.collect_column_refs() {
+            if col_ref.is_unnest
+                && let Some(unnest) = lateral_unnests
+                    .iter()
+                    .find(|unnest| unnest.matches_field(&col_ref.field_name))
+            {
+                unnest_leaves.push((unnest, col_ref.field_name));
+            }
+        }
+    }
+    for (unnest, field_name) in &unnest_leaves {
+        if unnest.is_json && field_name != &unnest.field_name {
+            return Err(
+                "LATERAL unnesting for JSONB is only supported for scalar arrays; \
+                 accessing subfields on unnested JSON elements is not supported"
+                    .to_string(),
+            );
+        }
+    }
+
+    for unnest in &lateral_unnests {
+        if unnest.is_json {
+            let is_scalar_fast_field = plan
+                .output_sources()
+                .into_iter()
+                .find(|s| s.contains_rti(unnest.source_rti.0))
+                .and_then(|s| {
+                    let indexrel = PgSearchRelation::open(s.scan_info.indexrelid);
+                    crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                        &unnest.field_name,
+                        &indexrel,
+                    )
+                })
+                .is_some();
+
+            if !is_scalar_fast_field {
+                return Err(format!(
+                    "LATERAL unnesting for JSONB is only supported for scalar arrays; \
+                     field '{}' is not a scalar array fast field",
+                    unnest.field_name
+                ));
+            }
+        }
+    }
 
     // Collect Var references from multi-table predicate clauses so their
     // columns are registered in the PgSearchTableProvider schema.
@@ -2189,6 +2326,18 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
+            if gc.is_unnest
+                && let Some(field) =
+                    crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                        &gc.field_name,
+                        indexrel,
+                    )
+            {
+                source
+                    .scan_info
+                    .add_field_by_name(pg_sys::InvalidAttrNumber as pg_sys::AttrNumber, field);
+                continue;
+            }
             require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
                 format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
             })?;
@@ -2228,10 +2377,23 @@ pub unsafe fn populate_required_fields(
             for ColumnRef {
                 plan_position,
                 field_name,
+                is_unnest,
                 ..
             } in filter.collect_column_refs()
             {
                 if source.plan_position != plan_position {
+                    continue;
+                }
+                if is_unnest
+                    && let Some(field) =
+                        crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                            &field_name,
+                            indexrel,
+                        )
+                {
+                    source
+                        .scan_info
+                        .add_field_by_name(pg_sys::InvalidAttrNumber as pg_sys::AttrNumber, field);
                     continue;
                 }
                 if let Some(attno) = get_attno_by_name(&field_name, &tupdesc) {
@@ -2259,6 +2421,19 @@ pub unsafe fn populate_required_fields(
                 require_fast_field(source, &tupdesc, indexrel, attno, || {
                     format!("multi-table predicate column (attno={attno})")
                 })?;
+            }
+        }
+
+        for (unnest, field_name) in &unnest_multi_table_accesses {
+            if source.contains_rti(unnest.source_rti.0)
+                && let Some(field) =
+                    crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                        field_name, indexrel,
+                    )
+            {
+                source
+                    .scan_info
+                    .add_field_by_name(unnest.source_attno, field);
             }
         }
 

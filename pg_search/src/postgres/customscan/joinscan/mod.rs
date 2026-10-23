@@ -533,11 +533,16 @@ pub unsafe fn try_create_subplan_join_paths(
 
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
-    let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, plan.clone(), &join_keys, has_distinct) {
-            Ok(res) => res,
-            Err(reason) => return decline(reason),
-        };
+    let (join_clause, limit_offset) = match JoinScan::validate_and_build_clause(
+        root,
+        plan.clone(),
+        &join_keys,
+        has_distinct,
+        &[],
+    ) {
+        Ok(res) => res,
+        Err(reason) => return decline(reason),
+    };
 
     // No join-level predicate extraction needed for SubPlan-based paths.
 
@@ -617,6 +622,7 @@ impl JoinScan {
         plan: RelNode,
         join_keys: &[build::JoinKeyPair],
         has_distinct: bool,
+        multi_table_clauses: &[*mut pg_sys::Expr],
     ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
         let all_sources = plan.sources();
 
@@ -691,6 +697,73 @@ impl JoinScan {
         // At UPPERREL_FINAL, no upper projection node exists to compute unhandled expressions.
         let parse = &*(*root).parse;
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+
+        // LATERAL unnesting for JSONB only supports scalar arrays. Tantivy flattens JSON
+        // into leaf fast fields without element boundaries or ordinals, so accessing subfields
+        // on unnested JSON elements or unnesting object arrays cannot be reconstructed and
+        // must decline to Postgres at plan time.
+        let lateral_unnests: Vec<build::LateralUnnestInfo> =
+            plan.lateral_unnests().into_iter().cloned().collect();
+        if !lateral_unnests.is_empty() {
+            let mut unnest_accesses = Vec::new();
+            for &clause in multi_table_clauses {
+                build::collect_unnest_field_accesses(
+                    clause.cast(),
+                    &lateral_unnests,
+                    &mut unnest_accesses,
+                );
+            }
+            let mut unnest_clauses = Vec::new();
+            plan.collect_unnest_clauses(&mut unnest_clauses);
+            for &clause in &unnest_clauses {
+                build::collect_unnest_field_accesses(
+                    clause.cast(),
+                    &lateral_unnests,
+                    &mut unnest_accesses,
+                );
+            }
+            for te in target_list.iter_ptr() {
+                let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+                build::collect_unnest_field_accesses(
+                    check_expr,
+                    &lateral_unnests,
+                    &mut unnest_accesses,
+                );
+            }
+
+            for (unnest, field_name) in &unnest_accesses {
+                if unnest.is_json && field_name != &unnest.field_name {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: LATERAL unnesting for JSONB is only supported for scalar arrays; accessing subfields on unnested JSON elements is not supported",
+                    ));
+                }
+            }
+
+            for unnest in &lateral_unnests {
+                if unnest.is_json {
+                    let is_scalar_fast_field = plan
+                        .output_sources()
+                        .into_iter()
+                        .find(|s| s.contains_rti(unnest.source_rti.0))
+                        .and_then(|s| {
+                            let indexrel = PgSearchRelation::open(s.scan_info.indexrelid);
+                            crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                                &unnest.field_name,
+                                &indexrel,
+                            )
+                        })
+                        .is_some();
+
+                    if !is_scalar_fast_field {
+                        return Err(JoinDeclineReason::new(format!(
+                            "JoinScan not used: LATERAL unnesting for JSONB is only supported for scalar arrays; field '{}' is not a scalar array fast field",
+                            unnest.field_name
+                        )));
+                    }
+                }
+            }
+        }
+
         let mut window_aggs = Vec::new();
         let mut pg_projected_resnos = Vec::new();
         for te in target_list.iter_ptr() {
@@ -2083,6 +2156,13 @@ unsafe fn compute_output_columns(
 ) -> Vec<privdat::OutputColumnInfo> {
     let mut output_columns = Vec::new();
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
+    let lateral_unnests: Vec<crate::postgres::customscan::joinscan::build::LateralUnnestInfo> =
+        join_clause
+            .plan
+            .lateral_unnests()
+            .into_iter()
+            .cloned()
+            .collect();
 
     for te in original_entries.iter_ptr() {
         let te = &(*te);
@@ -2092,7 +2172,18 @@ unsafe fn compute_output_columns(
         }
 
         let check_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
-        if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
+        if let Some((unnest_info, full_field_name)) =
+            crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                check_expr,
+                &lateral_unnests,
+            )
+        {
+            output_columns.push(privdat::OutputColumnInfo::Unnested {
+                function_rti: unnest_info.function_rti,
+                source_rti: unnest_info.source_rti,
+                field_name: full_field_name,
+            });
+        } else if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
@@ -2567,8 +2658,14 @@ impl JoinScan {
         let has_distinct = !(*parse).distinctClause.is_null();
         let join_keys = plan.join_keys();
 
-        let (join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, plan, &join_keys, has_distinct).map_err(warn)?;
+        let (join_clause, limit_offset) = Self::validate_and_build_clause(
+            root,
+            plan,
+            &join_keys,
+            has_distinct,
+            &multi_table_clauses,
+        )
+        .map_err(warn)?;
 
         let path = Self::finalize_clause_into_path(
             root,

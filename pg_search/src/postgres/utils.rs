@@ -689,6 +689,15 @@ pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
     funcid.to_u32() == pg_sys::F_UNNEST_ANYARRAY
 }
 
+/// Identifies if the function identified by `funcid` is `pg_catalog.jsonb_array_elements(jsonb)`
+/// or `pg_catalog.jsonb_array_elements_text(jsonb)`.
+pub fn is_jsonb_array_elements_func(funcid: pg_sys::Oid) -> bool {
+    matches!(
+        funcid.to_u32(),
+        pg_sys::F_JSONB_ARRAY_ELEMENTS | pg_sys::F_JSONB_ARRAY_ELEMENTS_TEXT
+    )
+}
+
 /// Create a text Const node from a string
 ///
 /// # Safety

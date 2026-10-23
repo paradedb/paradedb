@@ -17,7 +17,6 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::postgres::customscan::aggregatescan::datafusion_exec::is_lateral_unnest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     GroupingTransform, JoinAggregateTargetList,
 };
@@ -38,6 +37,8 @@ pub struct ColumnRef {
     pub rti: pgrx::pg_sys::Index,
     pub attno: pgrx::pg_sys::AttrNumber,
     pub field_name: String,
+    #[serde(default)]
+    pub is_unnest: bool,
 }
 
 /// Serializable boolean expression IR used for both HAVING clauses and
@@ -186,7 +187,7 @@ impl FilterExpr {
             }
             FilterExpr::AggRef(_)
             | FilterExpr::GroupRef(_)
-            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::ColumnRef(_)
             | FilterExpr::LitInt(_)
             | FilterExpr::LitFloat(_)
             | FilterExpr::LitBool(_)
@@ -271,7 +272,7 @@ impl TopKSortTarget {
                     GroupingTransform::Identity => {
                         // A LATERAL unnest column reaches the aggregate under its
                         // projected name, with no source qualifier to bind to.
-                        if is_lateral_unnest(plan, gc.plan_position, &gc.field_name) {
+                        if gc.is_unnest {
                             Column::new_unqualified(format!("{alias}_{}", gc.field_name))
                         } else {
                             Column::new(Some(alias), &gc.field_name)

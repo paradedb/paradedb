@@ -1605,6 +1605,31 @@ pub(super) unsafe fn collect_required_fields(
         }
     }
 
+    for out_col in output_columns {
+        if let OutputColumnInfo::Unnested {
+            source_rti,
+            field_name,
+            ..
+        } = out_col
+        {
+            for source in &mut plan_sources {
+                if source.contains_rti(source_rti.0) {
+                    let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                    if let Some(field) =
+                        crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                            field_name, &indexrel,
+                        )
+                    {
+                        source.scan_info.add_field_by_name(
+                            pg_sys::InvalidAttrNumber as pg_sys::AttrNumber,
+                            field,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     if plan_sources.len() >= 2 {
         for (plan_position, attno) in &join_key_projections {
             if let Some(source) = plan_sources
@@ -1633,6 +1658,32 @@ pub(super) unsafe fn collect_required_fields(
                 }
             } else {
                 ensure_column_in_all_sources(&mut plan_sources, var.rti, var.attno);
+            }
+        }
+    }
+
+    let mut unnest_accesses = Vec::new();
+    for expr_node in expr_list.iter_ptr() {
+        crate::postgres::customscan::joinscan::build::collect_unnest_field_accesses(
+            expr_node,
+            &lateral_unnests,
+            &mut unnest_accesses,
+        );
+    }
+    for (unnest, field_name) in unnest_accesses {
+        for source in &mut plan_sources {
+            if source.contains_rti(unnest.source_rti.0) {
+                let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                if let Some(field) =
+                    crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+                        &field_name,
+                        &indexrel,
+                    )
+                {
+                    source
+                        .scan_info
+                        .add_field_by_name(pg_sys::InvalidAttrNumber as pg_sys::AttrNumber, field);
+                }
             }
         }
     }
@@ -1889,14 +1940,20 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
     Some(())
 }
 
-/// Ensures that an array fast field for a lateral unnest is projected from a `JoinSource`.
 unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, field_name: &str) {
-    if side.scan_info.fields.iter().any(|f| f.attno == attno) {
-        return;
-    }
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Some(field) = resolve_fast_field_by_name(field_name, &indexrel) {
-        side.scan_info.add_field(attno, field);
+    if let Some(field) = crate::postgres::customscan::pullup::resolve_unnest_fast_field_by_name(
+        field_name, &indexrel,
+    ) {
+        if side
+            .scan_info
+            .fields
+            .iter()
+            .any(|f| f.field.name() == field.name())
+        {
+            return;
+        }
+        side.scan_info.add_field_by_name(attno, field);
     }
 }
 

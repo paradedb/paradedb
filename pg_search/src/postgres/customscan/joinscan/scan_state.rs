@@ -44,7 +44,7 @@ use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{
     AggregateUDF, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder,
-    LogicalPlanBuilderOptions, SortExpr, WindowFunctionDefinition, col,
+    LogicalPlanBuilderOptions, SortExpr, WindowFunctionDefinition, col, lit,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -81,7 +81,7 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
     apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, make_source_unnested_col, translate_pg_node_string,
+    make_source_score_col, make_source_unnested_col, make_unnested_col, translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::heap::VisibilityChecker;
@@ -249,6 +249,34 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
                 field_type: Some(field_type),
             },
         ))
+    }
+
+    fn map_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        let (unnest_info, full_field_name) = unsafe {
+            crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                node,
+                self.join_clause.plan.lateral_unnests(),
+            )?
+        };
+        if !self
+            .join_clause
+            .plan
+            .contains_output_rti(unnest_info.source_rti.0)
+        {
+            return Some(lit(datafusion::scalar::ScalarValue::Null));
+        }
+        let source = self
+            .join_clause
+            .plan
+            .sources()
+            .into_iter()
+            .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+        Some(
+            crate::postgres::customscan::datafusion::translator::make_source_unnested_col(
+                source,
+                &full_field_name,
+            ),
+        )
     }
 }
 
@@ -2065,7 +2093,7 @@ fn build_projection_expr(
             {
                 let alias = RelationAlias::new(source.scan_info.alias.as_deref())
                     .execution(source.plan_position);
-                return datafusion::logical_expr::col(format!("{}_{}", alias, field_name));
+                return make_unnested_col(&alias, field_name);
             }
         }
         ChildProjection::Expression { .. } => {

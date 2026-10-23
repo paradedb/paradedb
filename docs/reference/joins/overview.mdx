@@ -367,6 +367,18 @@ To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Joi
 (18 rows)
 ```
 
+### Lateral Unnest
+
+ParadeDB supports join pushdown for lateral unnesting over array columns using `CROSS JOIN LATERAL unnest(...)` and `LEFT JOIN LATERAL unnest(...) ON true`.
+
+Lateral unnesting is also supported for JSONB arrays via `CROSS JOIN LATERAL jsonb_array_elements(...)` and `CROSS JOIN LATERAL jsonb_array_elements_text(...)`.
+
+<Note>
+  LATERAL unnesting for JSONB is only supported for scalar arrays (strings,
+  numbers, booleans, and timestamps). Unnesting arrays of objects or accessing
+  nested fields falls back to native Postgres execution.
+</Note>
+
 ## Partitioned Joins (Beta)
 
 <Warning>

@@ -52,6 +52,12 @@ pub trait ColumnMapper {
     ) -> Option<(Expr, crate::postgres::customscan::pg_expr_udf::InputDecode)> {
         None
     }
+
+    /// Map a compound PostgreSQL expression node (e.g., an unnested field access or JSON path)
+    /// to a DataFusion Column expression directly, bypassing Var mapping.
+    fn map_expr(&self, _node: *mut pg_sys::Node) -> Option<Expr> {
+        None
+    }
 }
 
 /// Human-readable PG type name (e.g. `"integer"`, `"jsonb"`) for debug
@@ -265,6 +271,24 @@ impl<'a> PredicateTranslator<'a> {
                 }
                 None
             }
+
+            fn map_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+                let plan = self.plan?;
+                let (unnest_info, _full_field_name) = unsafe {
+                    crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                        node,
+                        plan.lateral_unnests(),
+                    )?
+                };
+                if self
+                    .sources
+                    .iter()
+                    .any(|s| s.contains_rti(unnest_info.source_rti.0))
+                {
+                    return Some(col("placeholder"));
+                }
+                None
+            }
         }
 
         let mapper = ValidationMapper { sources, plan };
@@ -314,6 +338,10 @@ impl<'a> PredicateTranslator<'a> {
                 }
             }
             return None;
+        }
+
+        if let Some(expr) = self.mapper.as_ref().and_then(|m| m.map_expr(node)) {
+            return Some(expr);
         }
 
         let native = match unsafe { (*node).type_ } {
@@ -645,22 +673,57 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
     Ok(DataFrame::new(session_state, plan))
 }
 
-/// Unnest a single array column from `plan`, aliasing `{source_alias}.{field_name}` to `{source_alias}_{field_name}`
-/// before unnesting with the specified `null_handling`.
+/// Unnest the column a lateral unnest should explode: the JSON leaf the query reads
+/// (`{field_name}.<sub-field>`) when one is projected, otherwise the array column
+/// `field_name` itself. The column is aliased to `{source_alias}_{col}` before unnesting
+/// with the specified `null_handling`.
+///
+/// A JSON unnest commonly has *both* the array column and its leaf in the plan, because
+/// planning projects the array to establish the row set and the leaf to answer the query.
+/// That is one unnest, not two: exploding both would zip them together. Only more than one
+/// distinct leaf is refused, and planning declines that shape before reaching here.
 pub fn unnest_plan_column(
     plan: LogicalPlan,
     source_alias: &str,
     field_name: &str,
     null_handling: NullHandling,
 ) -> Result<LogicalPlan> {
-    let unnested_col_name = format!("{source_alias}_{field_name}");
+    let prefix = format!("{field_name}.");
+    let mut path_column: Option<String> = None;
+    let mut leaf_columns: Vec<String> = Vec::new();
+    for (qualifier, field) in plan.schema().iter() {
+        if qualifier.as_ref().map(|q| q.to_string()).as_deref() != Some(source_alias) {
+            continue;
+        }
+        if field.name().starts_with(&prefix) {
+            leaf_columns.push(field.name().to_string());
+        } else if field.name() == field_name {
+            path_column = Some(field.name().to_string());
+        }
+    }
+
+    if leaf_columns.len() > 1 {
+        return Err(DataFusionError::Plan(format!(
+            "Unnesting {len} JSON leaves of field '{field_name}' is not supported; a query must \
+             read a single unnested JSON field, or unnest it through separate lateral joins",
+            len = leaf_columns.len(),
+        )));
+    }
+
+    let Some(target) = leaf_columns.pop().or(path_column) else {
+        return Err(DataFusionError::Plan(format!(
+            "Failed to find column to unnest for field '{field_name}' in source '{source_alias}'"
+        )));
+    };
+
+    let unnested_col_name = format!("{source_alias}_{target}");
     let pre_project_exprs: Vec<Expr> = plan
         .schema()
         .iter()
         .map(|(qualifier, field)| {
             let col = Expr::Column(Column::new(qualifier.cloned(), field.name()));
-            if qualifier.as_ref().map(|q| q.to_string()).as_deref() == Some(source_alias)
-                && field.name() == field_name
+            if field.name().as_str() == target.as_str()
+                && qualifier.as_ref().map(|q| q.to_string()).as_deref() == Some(source_alias)
             {
                 col.alias(&unnested_col_name)
             } else {
@@ -674,9 +737,8 @@ pub fn unnest_plan_column(
         .build()?;
 
     let unnest_options = UnnestOptions::new().with_null_handling(null_handling);
-    let unnest_col = Column::from_name(&unnested_col_name);
     LogicalPlanBuilder::from(pre_unnest)
-        .unnest_columns_with_options(vec![unnest_col], unnest_options)?
+        .unnest_columns_with_options(vec![Column::from_name(&unnested_col_name)], unnest_options)?
         .build()
 }
 
@@ -775,13 +837,25 @@ pub fn make_source_score_col(source: &JoinSource) -> Expr {
     make_source_col(source, &score_name)
 }
 
+/// Build a reference to the `{alias}_{field_name}` column that
+/// [`unnest_plan_column`] projects for an unnested field.
+///
+/// The name must be built with [`Column::new_unqualified`] rather than
+/// [`datafusion::logical_expr::col`]: `col()` parses its argument as a
+/// qualified identifier, while a JSON field name is a single column name that
+/// contains dots (`p_0_extra.current_employers.title`). Parsed, it becomes
+/// "column `title` of relation `current_employers`" and fails to resolve.
+pub fn make_unnested_col(alias: &str, field_name: &str) -> Expr {
+    Expr::Column(Column::new_unqualified(format!("{alias}_{field_name}")))
+}
+
 /// Build a DataFusion column expression for an unnested field on the given
 /// source, matching the `{alias}_{field_name}` naming convention established
 /// by `apply_relnode_unnest`.
 pub fn make_source_unnested_col(source: &JoinSource, field_name: &str) -> Expr {
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-    col(format!("{}_{}", alias, field_name))
+    make_unnested_col(&alias, field_name)
 }
 
 pub struct CombinedMapper<'a> {
@@ -897,6 +971,20 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                 .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
             Some(make_source_unnested_col(s, &unnest_info.field_name))
         }
+    }
+
+    fn map_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        let (unnest_info, full_field_name) = unsafe {
+            crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                node,
+                self.lateral_unnests,
+            )?
+        };
+        let source = self
+            .sources
+            .iter()
+            .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+        Some(make_source_unnested_col(source, &full_field_name))
     }
 }
 

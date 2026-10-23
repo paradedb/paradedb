@@ -58,7 +58,7 @@ use crate::postgres::customscan::datafusion::topk_agg::{
 };
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
-    build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
+    build_join_df_with_filter, make_col, make_source_col, make_unnested_col, unnest_plan_column,
 };
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
@@ -169,7 +169,8 @@ pub async fn build_join_aggregate_plan(
     for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
         if gc.row_value {
             // PostgreSQL's Agg node reads such a column from one row of the group.
-            let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+            let column =
+                make_plan_position_col_with(plan, gc.plan_position, &gc.field_name, gc.is_unnest);
             row_values.push((
                 gc_idx,
                 first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
@@ -187,7 +188,12 @@ pub async fn build_join_aggregate_plan(
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
                 v.insert(df_idx);
-                let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+                let column = make_plan_position_col_with(
+                    plan,
+                    gc.plan_position,
+                    &gc.field_name,
+                    gc.is_unnest,
+                );
 
                 let group_expr = match gc.transform {
                     GroupingTransform::Identity => column,
@@ -1198,6 +1204,20 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
                 unsafe { pgrx::PgList::<pg_sys::TargetEntry>::from_pg(self.custom_scan_tlist) };
             let idx = (varattno - 1) as usize;
             let te = unsafe { &*tlist.get_ptr(idx)? };
+            if let Some((unnest_info, full_field_name)) = unsafe {
+                crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                    te.expr.cast(),
+                    self.lateral_unnests.iter().copied(),
+                )
+            } {
+                let source = self
+                    .sources
+                    .iter()
+                    .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                    .execution(source.plan_position);
+                return Some(make_unnested_col(&alias, &full_field_name));
+            }
             if unsafe { (*te.expr).type_ } != pg_sys::NodeTag::T_Var {
                 return None;
             }
@@ -1218,27 +1238,28 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
                 .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
             let alias = RelationAlias::new(source.scan_info.alias.as_deref())
                 .execution(source.plan_position);
-            return Some(datafusion::logical_expr::col(format!(
-                "{}_{}",
-                alias, unnest_info.field_name
-            )));
+            return Some(make_unnested_col(&alias, &unnest_info.field_name));
         }
 
         let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
         let field_name = source.column_name(attno)?;
-        if self
-            .lateral_unnests
+        Some(make_source_col(source, &field_name))
+    }
+
+    fn map_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        let (unnest_info, full_field_name) = unsafe {
+            crate::postgres::customscan::joinscan::build::extract_unnest_field_access(
+                node,
+                self.lateral_unnests.iter().copied(),
+            )?
+        };
+        let source = self
+            .sources
             .iter()
-            .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
-        {
-            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
-                .execution(source.plan_position);
-            Some(datafusion::logical_expr::col(format!(
-                "{alias}_{field_name}"
-            )))
-        } else {
-            Some(make_source_col(source, &field_name))
-        }
+            .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+        let alias =
+            RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+        Some(make_unnested_col(&alias, &full_field_name))
     }
 }
 
@@ -1283,10 +1304,16 @@ impl FilterExpr {
             FilterExpr::ColumnRef(ColumnRef {
                 plan_position,
                 field_name,
+                is_unnest,
                 ..
             }) => {
                 let plan = ctx.plan?;
-                Some(make_plan_position_col(plan, *plan_position, field_name))
+                Some(make_plan_position_col_with(
+                    plan,
+                    *plan_position,
+                    field_name,
+                    *is_unnest,
+                ))
             }
             FilterExpr::SearchTag {
                 plan_position,
@@ -1474,7 +1501,7 @@ pub(super) fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name
     };
     plan.lateral_unnests()
         .iter()
-        .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
+        .any(|u| source.contains_rti(u.source_rti.0) && u.matches_field(field_name))
 }
 
 /// Build a DataFusion column expression for a targetlist ref by its
@@ -1491,7 +1518,7 @@ fn make_plan_position_col_with(
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
     if is_unnested {
-        col(format!("{alias}_{field_name}"))
+        make_unnested_col(&alias, field_name)
     } else {
         make_col(&alias, field_name)
     }

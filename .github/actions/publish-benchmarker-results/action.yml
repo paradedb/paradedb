@@ -1,5 +1,5 @@
 name: Publish Benchmarker Results
-description: Extract latency and QPS metrics, upload dashboards, publish to gh-pages, and comment on PRs
+description: Publish Benchmarker benchmark results to gh-pages
 
 inputs:
   dataset:

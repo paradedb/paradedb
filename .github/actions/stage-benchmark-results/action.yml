@@ -5,9 +5,6 @@ inputs:
   benchmark_type:
     description: "Benchmark type: benchmarker, queries, or stressgres"
     required: true
-  key:
-    description: "Benchmark configuration identifier used in artifact names and to match retries (dataset for Benchmarker, dataset-index-size for Queries, suite for Stressgres)"
-    required: true
   metadata:
     description: "Publication inputs as JSON; credentials are removed before upload"
     required: true
@@ -19,11 +16,21 @@ runs:
   using: composite
   steps:
     - name: Save Publication Inputs
+      id: publication-inputs
       shell: bash
       env:
         METADATA: ${{ inputs.metadata }}
         BENCHMARK_TYPE: ${{ inputs.benchmark_type }}
       run: |
+        artifact_key=$(jq -er --arg benchmark_type "$BENCHMARK_TYPE" '
+          if $benchmark_type == "benchmarker" then .dataset
+          elif $benchmark_type == "queries" then [.dataset, .index, .size] | join("-")
+          elif $benchmark_type == "stressgres" then .test_file | split("/")[-1] | rtrimstr(".toml")
+          else error("Unknown benchmark type: " + $benchmark_type)
+          end
+        ' <<< "$METADATA")
+        echo "artifact_key=$artifact_key" >> "$GITHUB_OUTPUT"
+
         mkdir -p _benchmark_publish
         jq --arg benchmark_type "$BENCHMARK_TYPE" \
           'del(.github_token, .github_app_client_id, .github_app_private_key) + {benchmark_type: $benchmark_type}' \
@@ -32,7 +39,7 @@ runs:
     - name: Upload Benchmark Results
       uses: actions/upload-artifact@v7
       with:
-        name: gh-pages-${{ inputs.benchmark_type }}-${{ inputs.key }}-${{ github.run_attempt }}
+        name: gh-pages-${{ inputs.benchmark_type }}-${{ steps.publication-inputs.outputs.artifact_key }}-${{ github.run_attempt }}
         path: |
           _benchmark_publish/metadata.json
           ${{ inputs.path }}

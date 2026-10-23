@@ -82,7 +82,6 @@ runs:
       uses: ./.github/actions/stage-benchmark-results
       with:
         benchmark_type: stressgres
-        key: ${{ steps.job-name.outputs.jobname }}
         metadata: ${{ toJSON(inputs) }}
         path: pg_search_*.json
 

@@ -200,7 +200,6 @@ jobs:
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
-          key: ${{ env.DATASET }}
           path: benchmarker/results/
           metadata: >-
             {"dataset":"${{ env.DATASET }}",
@@ -401,7 +400,6 @@ jobs:
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
-          key: ${{ env.DATASET }}
           path: benchmarker/results/
           metadata: >-
             {"dataset":"${{ env.DATASET }}",

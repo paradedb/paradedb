@@ -67,6 +67,8 @@ runs:
         SIZE: ${{ inputs.size }}
       run: |
         POSTGRES_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
+        results_file="results_${DATASET}_${INDEX}_${SIZE}.json"
+        rm -f results.json "$results_file"
 
         # The heap is assumed to already be restored from a snapshot; the benchmark builds the
         # index and runs queries against it.
@@ -79,12 +81,17 @@ runs:
           --output json \
           --fail-on-error "${FAIL_ON_ERROR}"
 
+        # Historical benchmark code writes to a shared results.json file.
+        if [ -f results.json ]; then
+          mv results.json "$results_file"
+        fi
+
     - name: Upload Query Benchmark Results
       if: always()
       uses: actions/upload-artifact@v7
       with:
         name: query-benchmark-${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}-${{ github.run_attempt }}
-        path: ${{ inputs.source_directory }}/benchmarks/results.json
+        path: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
         retention-days: 1 # Fallback if publishing fails
         if-no-files-found: warn
 
@@ -106,4 +113,4 @@ runs:
         benchmark_type: queries
         key: ${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}
         metadata: ${{ toJSON(inputs) }}
-        path: ${{ inputs.source_directory }}/benchmarks/results.json
+        path: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json

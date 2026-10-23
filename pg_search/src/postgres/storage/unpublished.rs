@@ -19,18 +19,20 @@
 //!
 //! Track all private component allocations, including unconsumed buffers and unattached mapping
 //! pages. Publication transfers ownership at the atomic segment-list switch. Abandoned blocks
-//! return to the FSM in a clean transaction after a cooperative stop, at the backend's next
-//! merge after ERROR, or during `before_shmem_exit` after cancellation/shutdown.
+//! return to the FSM in a clean transaction after a cooperative stop, from the parent transaction
+//! when the merge payload fails inside [`reclaiming_on_error`], or during `before_shmem_exit`
+//! after cancellation/shutdown.
 //!
-//! This process-local registry does not survive crashes. Exit reclamation also skips an index
-//! locked by DDL rather than delaying shutdown.
+//! This process-local registry does not survive crashes; `storage::sweep` finds what it missed.
+//! Exit reclamation also skips an index locked by DDL rather than delaying shutdown.
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::utils::ExitWorkScope;
 use parking_lot::Mutex;
-use pgrx::{pg_guard, pg_sys};
+use pgrx::{PgTryBuilder, pg_guard, pg_sys};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -143,7 +145,75 @@ fn pending(index_oid: pg_sys::Oid) -> usize {
         .count()
 }
 
-/// Return this process's private output allocations for `rel` to its FSM.
+/// Runs `f` in a subtransaction and returns `rel`'s unpublished blocks to the FSM if it fails.
+///
+/// On success the subtransaction is released and its locks pass to the parent. On an ERROR or
+/// an `Err`, the subtransaction is rolled back, which releases the pins and locks the failed code
+/// still held, the blocks recorded for `rel` are returned from the now healthy parent, and the
+/// error continues to the caller. This is plpgsql's EXCEPTION block.
+///
+/// A subtransaction's resource owner tracks only what was acquired under it, so every buffer
+/// pin, relation reference and snapshot `f` takes must be released before it returns, and `f`
+/// must not release one taken before the scope: either is an ERROR. In parallel mode, where
+/// subtransactions are not allowed, `f` runs directly and a failure leaves its blocks to the exit
+/// callback or `storage::sweep`.
+pub(crate) unsafe fn reclaiming_on_error<T>(
+    rel: &PgSearchRelation,
+    f: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    if pg_sys::IsInParallelMode() || !pg_sys::IsTransactionState() {
+        return f();
+    }
+
+    let outer = OuterState {
+        interrupt_holdoff: pg_sys::InterruptHoldoffCount,
+        memory_context: pg_sys::CurrentMemoryContext,
+        resource_owner: pg_sys::CurrentResourceOwner,
+    };
+    pg_sys::BeginInternalSubTransaction(std::ptr::null());
+    pg_sys::MemoryContextSwitchTo(outer.memory_context);
+
+    // A caught ERROR is handled inside the handler, as a PG_CATCH block would: `PgTryBuilder`
+    // flushes the error state when a handler returns, and the rethrow needs it intact.
+    let rel = AssertUnwindSafe(rel);
+    let result = PgTryBuilder::new(AssertUnwindSafe(f))
+        .catch_others(|caught| {
+            outer.leave_subtransaction(true);
+            reclaim(*rel);
+            caught.rethrow()
+        })
+        .execute();
+
+    outer.leave_subtransaction(result.is_err());
+    if result.is_err() {
+        reclaim(*rel);
+    }
+    result
+}
+
+/// What the subtransaction replaces and `leave_subtransaction` puts back.
+#[derive(Clone, Copy)]
+struct OuterState {
+    interrupt_holdoff: u32,
+    memory_context: pg_sys::MemoryContext,
+    resource_owner: pg_sys::ResourceOwner,
+}
+
+impl OuterState {
+    unsafe fn leave_subtransaction(&self, rollback: bool) {
+        pg_sys::MemoryContextSwitchTo(self.memory_context);
+        if rollback {
+            pg_sys::RollbackAndReleaseCurrentSubTransaction();
+        } else {
+            pg_sys::ReleaseCurrentSubTransaction();
+        }
+        pg_sys::MemoryContextSwitchTo(self.memory_context);
+        pg_sys::CurrentResourceOwner = self.resource_owner;
+        pg_sys::InterruptHoldoffCount = self.interrupt_holdoff;
+    }
+}
+
+/// Return this process's private output allocations for `rel` to its FSM, in one batch.
 /// Returns the number of files reclaimed.
 ///
 /// Must be called in a transaction with no ERROR in flight: an ERROR leaves buffer locks and
@@ -155,38 +225,35 @@ fn pending(index_oid: pg_sys::Oid) -> usize {
 /// the ownership transfer at the atomic metadata switch.
 pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
     let index_oid = rel.oid();
+    let current = relfilenumber(rel);
+
+    // Out of the registry before the FSM is touched: an ERROR in the FSM must not let a later
+    // reclaim or the exit callback return the same block twice. Blocks a failed extend leaves
+    // outside the FSM are found by `storage::sweep`.
     let mine = {
-        UNPUBLISHED
-            .lock()
-            .iter()
-            .filter(|file| file.0.index_oid == index_oid)
-            .cloned()
-            .collect::<Vec<_>>()
+        let mut registry = UNPUBLISHED.lock();
+        let (mine, others) = registry
+            .drain(..)
+            .partition::<Vec<_>, _>(|file| file.0.index_oid == index_oid);
+        *registry = others;
+        mine
     };
 
-    let current = relfilenumber(rel);
+    let mut blocks = Vec::new();
     let mut freed = 0;
     for file in mine {
         // The storage this chain lived in is gone, and so is the chain.
-        if file.0.relfilenumber == current {
-            let mut bman = BufferManager::new(rel);
-            let mut fsm = bman.fsm();
-            loop {
-                let blockno = file.0.blocks.lock().last().copied();
-                let Some(blockno) = blockno else { break };
-                fsm.extend(&mut bman, std::iter::once(blockno));
-                file.0.blocks.lock().pop();
-                #[cfg(feature = "pg_test")]
-                crate::postgres::storage::coordination_test::failpoint(
-                    c"pg_search.test_reclaim_fail",
-                );
-            }
-            file.0.blocks.lock().shrink_to_fit();
-            freed += 1;
+        if file.0.relfilenumber != current {
+            continue;
         }
-        UNPUBLISHED
-            .lock()
-            .retain(|pending| !Arc::ptr_eq(&pending.0, &file.0));
+        blocks.append(&mut file.0.blocks.lock());
+        freed += 1;
+    }
+    if !blocks.is_empty() {
+        #[cfg(feature = "pg_test")]
+        crate::postgres::storage::coordination_test::failpoint(c"pg_search.test_reclaim_fail");
+        let mut bman = BufferManager::new(rel);
+        bman.fsm().extend(&mut bman, blocks.into_iter());
     }
     if freed > 0 {
         pgrx::debug1!(
@@ -261,6 +328,7 @@ mod tests {
     use super::*;
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+    use pgrx::pg_sys::panic::CaughtError;
     use pgrx::prelude::*;
     use std::io::Write;
     use tantivy::Directory;
@@ -341,26 +409,91 @@ mod tests {
     }
 
     #[pg_test]
-    unsafe fn test_reclamation_error_preserves_remaining_allocations() {
+    unsafe fn test_reclamation_error_leaves_blocks_to_the_sweep() {
+        use crate::postgres::storage::linked_bytes::LinkedBytesList;
+        use crate::postgres::storage::sweep;
         let rel = setup("unpublished_retry", "1gb");
         let free_before = free_blocks(&rel);
-        abandon_batch(&rel, 64);
+        abort_subtransaction(|| {
+            let mut writer = LinkedBytesList::create_tracked(&rel).writer();
+            writer.write_all(&vec![7; 64 * 8192]).unwrap();
+            writer.finalize_and_write().unwrap();
+            pgrx::error!("abandon allocated batch");
+        });
+        let allocated = allocated_blocks(rel.oid()) as i64;
+        assert!(allocated > 64);
         abort_subtransaction(|| {
             Spi::run("SET LOCAL pg_search.test_reclaim_fail = 'on'").unwrap();
             reclaim(&rel);
         });
-        assert_eq!(allocated_blocks(rel.oid()), 63);
-        assert_eq!(free_blocks(&rel) - free_before, 1);
-        assert_eq!(reclaim(&rel), 1);
+        // Taken out of the registry before the FSM was touched: nothing returns them twice.
         assert_eq!(allocated_blocks(rel.oid()), 0);
-        assert_eq!(free_blocks(&rel) - free_before, 64);
-        let unique: i64 = Spi::get_one(&format!(
-            "SELECT count(DISTINCT free_blockno) FROM paradedb.fsm_info({}::regclass)",
-            rel.oid().to_u32()
-        ))
-        .unwrap()
+        assert_eq!(reclaim(&rel), 0);
+        assert_eq!(free_blocks(&rel), free_before);
+        // Allocated by an aborted subtransaction and referenced by nothing: the sweep's case.
+        assert_eq!(sweep::unaccounted_blocks(&rel), allocated);
+        assert_eq!(sweep::reclaim(&rel) as i64, allocated);
+        assert_eq!(free_blocks(&rel) - free_before, allocated);
+        assert_eq!(sweep::unaccounted_blocks(&rel), 0);
+    }
+
+    #[pg_test]
+    unsafe fn test_failed_scope_returns_output_before_the_error_leaves() {
+        use crate::postgres::storage::linked_bytes::LinkedBytesList;
+        let rel = setup("unpublished_scope", "1gb");
+        let written = std::cell::Cell::new(0);
+        // The FSM count once the file is written: the write may have drained blocks a previous
+        // case returned, so the count before the write is not a baseline.
+        let free_after_write = std::cell::Cell::new(0);
+        let write = || {
+            let mut writer = LinkedBytesList::create_tracked(&rel).writer();
+            writer.write_all(&vec![7; 64 * 8192]).unwrap();
+            writer.finalize_and_write().unwrap();
+            written.set(allocated_blocks(rel.oid()) as i64);
+            free_after_write.set(free_blocks(&rel));
+        };
+
+        // A Rust error: the scope returns `Err` after returning the blocks.
+        let result = reclaiming_on_error(&rel, || -> anyhow::Result<()> {
+            write();
+            anyhow::bail!("merge failed")
+        });
+        assert_eq!(result.unwrap_err().to_string(), "merge failed");
+        assert_eq!(allocated_blocks(rel.oid()), 0);
+        assert_eq!(free_blocks(&rel), free_after_write.get() + written.get());
+
+        // A PostgreSQL ERROR: the scope rolls back, returns the blocks, and rethrows.
+        let message = PgTryBuilder::new(AssertUnwindSafe(|| {
+            reclaiming_on_error(&rel, || -> anyhow::Result<()> {
+                write();
+                pgrx::error!("abandon allocated batch");
+            })
+            .unwrap();
+            None
+        }))
+        .catch_others(|error| match error {
+            CaughtError::ErrorReport(report) | CaughtError::PostgresError(report) => {
+                Some(report.message().to_string())
+            }
+            other => other.rethrow(),
+        })
+        .execute();
+        assert_eq!(message.as_deref(), Some("abandon allocated batch"));
+        assert_eq!(allocated_blocks(rel.oid()), 0);
+        assert_eq!(free_blocks(&rel), free_after_write.get() + written.get());
+        assert!(pg_sys::IsTransactionState());
+        let interrupt_holdoff = pg_sys::InterruptHoldoffCount;
+        assert_eq!(interrupt_holdoff, 0);
+
+        // Success: the subtransaction is released and nothing is returned.
+        reclaiming_on_error(&rel, || -> anyhow::Result<()> {
+            write();
+            Ok(())
+        })
         .unwrap();
-        assert_eq!(unique, free_blocks(&rel));
+        assert_eq!(free_blocks(&rel), free_after_write.get());
+        assert_eq!(allocated_blocks(rel.oid()) as i64, written.get());
+        assert_eq!(reclaim(&rel), 1);
     }
 
     #[pg_test]

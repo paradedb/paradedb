@@ -90,6 +90,10 @@ impl MergeLock {
             self.bman.buffer_access().rel(),
         )
     }
+
+    pub(crate) fn merge_list_header_blockno(&self) -> pg_sys::BlockNumber {
+        self.data.merge_list
+    }
 }
 
 pub type SegmentIdBytes = [u8; 16];

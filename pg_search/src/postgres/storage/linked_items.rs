@@ -235,6 +235,19 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         })
     }
 
+    /// Every block the list occupies, including the header block. Read under the header lock so
+    /// a concurrent `atomically().commit()` cannot swap the list out and recycle its pages
+    /// mid-walk.
+    pub(crate) unsafe fn pages(&self) -> Vec<pg_sys::BlockNumber> {
+        let (_header_lock, mut blockno) = self.get_header_and_start_blockno();
+        let mut pages = vec![self.header_blockno];
+        while blockno != pg_sys::InvalidBlockNumber {
+            pages.push(blockno);
+            blockno = self.bman().get_buffer(blockno).page().next_blockno();
+        }
+        pages
+    }
+
     /// Return the freeable blocks of this list, including the header block.
     pub fn freeable_blocks(self) -> impl Iterator<Item = pg_sys::BlockNumber> {
         unsafe {

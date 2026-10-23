@@ -210,6 +210,7 @@ pub mod builder {
         chunks: Vec<ChunkStyle>,
         queue: Vec<pg_sys::BlockNumber>,
         last_chunked_blockno: Option<pg_sys::BlockNumber>,
+        len: usize,
     }
 
     impl Default for BlockList {
@@ -218,6 +219,7 @@ pub mod builder {
                 chunks: Default::default(),
                 queue: Vec::with_capacity(BitPacker8x::BLOCK_LEN),
                 last_chunked_blockno: None,
+                len: 0,
             }
         }
     }
@@ -253,6 +255,12 @@ pub mod builder {
             }
 
             self.queue.push(block_number);
+            self.len += 1;
+        }
+
+        /// Number of distinct blocks pushed so far.
+        pub fn len(&self) -> usize {
+            self.len
         }
 
         /// Finalizes bitpacked chunks and writes mapping pages, returning `(first_map_block, directory, overflow_block)`.

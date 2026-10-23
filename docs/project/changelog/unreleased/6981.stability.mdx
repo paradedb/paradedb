@@ -2,4 +2,4 @@
 header: stability
 ---
 
-- Reclaimed merge output that is never published: after a cooperative stop, a statement error, or an orderly backend shutdown, the blocks return to the index's free space map. Crash recovery is not covered.
+- Reclaimed merge output that is never published. A merge that stops on an error returns its output blocks to the index's free space map before the error reaches the caller; a cooperative stop and an orderly backend shutdown return them too. Blocks a crash leaves behind are returned by the next `VACUUM`, which skips the work when the index's own accounting shows nothing is missing. `paradedb.unaccounted_blocks(index)` and `paradedb.unreferenced_blocks(index)` report what a sweep would find.

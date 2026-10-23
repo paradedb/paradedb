@@ -19,6 +19,7 @@ use pgrx::*;
 
 use crate::postgres::merge::{MergeStyle, do_merge, garbage_collect_index};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::sweep;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
@@ -29,6 +30,14 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
     if !(*info).analyze_only {
         let next_xid = pg_sys::ReadNextFullTransactionId();
         garbage_collect_index(&index, next_xid, next_xid);
+        // After garbage collection so dead segments have already returned their blocks.
+        let reclaimed = sweep::reclaim(&index);
+        if reclaimed > 0 {
+            pgrx::debug1!(
+                "pg_search: returned {reclaimed} abandoned blocks of index {} to the free space map",
+                index.name()
+            );
+        }
     }
     do_merge(&index, MergeStyle::Vacuum, None, None).expect("should be able to merge");
     stats

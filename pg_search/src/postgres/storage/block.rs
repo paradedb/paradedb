@@ -51,7 +51,13 @@ pub(crate) const CTID_MAP_EXT: &str = "ctid_map";
 #[derive(Clone, Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
-    pub xmax: pg_sys::TransactionId,
+    /// Transaction that allocated this page, written by `BufferMut::init_page`.
+    ///
+    /// `InvalidTransactionId` on pages written before stamping existed or by a parallel worker
+    /// without an xid, `FrozenTransactionId` once `storage::sweep` has returned the page to the
+    /// free space map. Nothing on the read path looks at it; see `storage::sweep` for the one
+    /// consumer.
+    pub alloc_xid: pg_sys::TransactionId,
 }
 
 // ---------------------------------------------------------
@@ -68,9 +74,13 @@ pub struct LinkedListData {
     /// Indicates the last BlockNumber of the linked list.
     pub last_blockno: pg_sys::BlockNumber,
 
-    /// This once tracked the number of blocks in the linked list, but now it's just dead space
-    #[doc(hidden)]
-    _dead_space: u32,
+    /// Blocks this list occupies: header, data, mapping and overflow pages. Written once by
+    /// `LinkedBytesListWriter::finalize_and_write`, so `storage::sweep` can total an index
+    /// from headers alone.
+    ///
+    /// Zero means unknown: a list written before the field was kept, or a [`LinkedItemList`],
+    /// whose appends hold only the tail page and so never update the header.
+    pub npages: u32,
 
     /// Indicates where the BlockList for this linked list starts;
     pub blocklist_start: pg_sys::BlockNumber,
@@ -81,6 +91,7 @@ impl Debug for LinkedListData {
         f.debug_struct("LinkedListData")
             .field("start_blockno", &{ self.start_blockno })
             .field("last_blockno", &{ self.last_blockno })
+            .field("npages", &{ self.npages })
             .field("blocklist_start", &{ self.blocklist_start })
             .finish()
     }

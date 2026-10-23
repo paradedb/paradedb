@@ -206,6 +206,8 @@ impl LinkedBytesListWriter {
         let mut header_page = header_buffer.page_mut();
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.last_blockno = self.last_blockno;
+        // The header plus the data pages; the start page exists even when nothing was written.
+        let mut npages = 1 + self.blocklist_builder.len().max(1) as u32;
 
         if let Some((blockno, directory, overflow)) =
             self.blocklist_builder.finish(&mut self.list.bman)
@@ -215,9 +217,21 @@ impl LinkedBytesListWriter {
             header_page
                 .special_mut::<BM25PageSpecialData>()
                 .next_blockno = overflow;
+            npages += chain_len(&self.list.bman, blockno) + chain_len(&self.list.bman, overflow);
         }
+        header_page.contents_mut::<LinkedListData>().npages = npages;
         Ok(self.list)
     }
+}
+
+fn chain_len(bman: &BufferManager, start: pg_sys::BlockNumber) -> u32 {
+    let mut len = 0;
+    let mut blockno = start;
+    while blockno != pg_sys::InvalidBlockNumber {
+        len += 1;
+        blockno = bman.get_buffer(blockno).page().next_blockno();
+    }
+    len
 }
 
 impl Write for LinkedBytesListWriter {
@@ -767,12 +781,12 @@ mod tests {
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
 
             // NB:  There was a time when the call to `linked_list.returm_to_fsm()` above would
-            // update every page in the list, setting the `xmax` in the special data to the transaction id
-            // of the transaction that deleted it.
+            // update every page in the list, setting the special data's transaction id to the
+            // transaction that deleted it.
             //
-            // Our custom FSM does not do this, and so now we assert that the xmax value is still invalid
-            // it's actually no longer used anywhere.
-            assert!((*special).xmax == pg_sys::InvalidTransactionId);
+            // Our custom FSM does not do this, so the page still carries the stamp of the
+            // transaction that allocated it: this one.
+            assert!((*special).alloc_xid == pg_sys::GetCurrentTransactionId());
             blockno = (*special).next_blockno;
             pg_sys::UnlockReleaseBuffer(buffer);
         }

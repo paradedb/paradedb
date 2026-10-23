@@ -740,6 +740,15 @@ pub mod v2 {
         start_blockno: pg_sys::BlockNumber,
     }
 
+    /// One item reported by [`V2FSM::visit`].
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum FsmBlock {
+        /// A page the FSM itself occupies.
+        Page(pg_sys::BlockNumber),
+        /// A block the FSM holds as free.
+        Free(pg_sys::BlockNumber),
+    }
+
     impl FreeSpaceManager for V2FSM {
         unsafe fn create(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
             let mut root = init_new_buffer(indexrel);
@@ -1169,6 +1178,36 @@ pub mod v2 {
             }
 
             buffer
+        }
+
+        /// Reports every page the FSM occupies and every block it holds as free.
+        ///
+        /// Each page is read under its own share lock. A concurrent drain can unlink a leaf page
+        /// and hand it to a writer before this walk reaches it, so what is read there may be
+        /// another structure's page: lengths are clamped and the caller returns `false` from a
+        /// `Page` it has already seen to stop a chain that no longer belongs to the FSM.
+        pub(crate) fn visit(&self, bman: &BufferManager, mut each: impl FnMut(FsmBlock) -> bool) {
+            let root = bman.get_buffer(self.start_blockno);
+            let page = root.page();
+            let tree = self.avl_ref(&page);
+            each(FsmBlock::Page(self.start_blockno));
+
+            for slot in tree.arena {
+                // Every slot owns a head page from creation on, used or not.
+                let mut blockno = slot.tag as pg_sys::BlockNumber;
+                while blockno != pg_sys::InvalidBlockNumber && each(FsmBlock::Page(blockno)) {
+                    let buffer = bman.get_buffer(blockno);
+                    let page = buffer.page();
+                    if slot.is_used() {
+                        let leaf = page.contents_ref::<AvlLeaf>();
+                        let len = (leaf.len as usize).min(MAX_ENTRIES);
+                        for entry in &leaf.entries[..len] {
+                            each(FsmBlock::Free(*entry));
+                        }
+                    }
+                    blockno = page.next_blockno();
+                }
+            }
         }
 
         pub(super) fn avl_ref<'p>(&self, page: &'p Page<'p>) -> Avl<'p> {

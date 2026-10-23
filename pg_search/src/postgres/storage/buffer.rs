@@ -353,7 +353,7 @@ impl BufferMut {
 
             let special = pg_sys::PageGetSpecialPointer(page.pg_page) as *mut BM25PageSpecialData;
             (*special).next_blockno = pg_sys::InvalidBlockNumber;
-            (*special).xmax = pg_sys::InvalidTransactionId;
+            (*special).alloc_xid = allocation_xid();
         }
         page
     }
@@ -1143,11 +1143,22 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
         dirty: false,
         inner: Buffer::new(pg_buffer),
     };
-    let mut page = buffer.init_page();
-    let special = page.special_mut::<BM25PageSpecialData>();
-    special.next_blockno = pg_sys::InvalidBlockNumber;
-    special.xmax = pg_sys::InvalidTransactionId;
+    buffer.init_page();
     buffer
+}
+
+/// The transaction id stamped on a page at allocation, read back by `storage::sweep`.
+///
+/// A parallel worker cannot assign an xid, so it stamps whatever the leader already assigned,
+/// possibly `InvalidTransactionId`; the sweep leaves such pages alone.
+pub fn allocation_xid() -> pg_sys::TransactionId {
+    unsafe {
+        if pg_sys::IsInParallelMode() {
+            pg_sys::GetCurrentTransactionIdIfAny()
+        } else {
+            pg_sys::GetCurrentTransactionId()
+        }
+    }
 }
 
 #[derive(Debug)]

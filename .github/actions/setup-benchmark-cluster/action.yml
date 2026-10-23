@@ -6,6 +6,10 @@ description: >-
   including installed extensions and GUCs).
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   pg_version:
     description: "PostgreSQL major version."
     required: false
@@ -25,6 +29,7 @@ runs:
     - name: Set Up pg_search Build Environment
       uses: ./.github/actions/setup-pg-search-build-environment
       with:
+        source_directory: ${{ inputs.source_directory }}
         pg_version: ${{ inputs.pg_version }}
         cache_prefix_key: "v2-benchmarks-rust-cache"
         cache_save: "true"
@@ -36,6 +41,7 @@ runs:
       run: ./.github/scripts/setup_crashdumps.sh
 
     - name: Compile and Install pg_search
+      working-directory: ${{ inputs.source_directory }}
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
@@ -46,7 +52,7 @@ runs:
 
     - name: Start PostgreSQL
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: cargo pgrx start "pg${INPUTS_PG_VERSION}"
@@ -76,7 +82,7 @@ runs:
 
     - name: Restart Postgres
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: |
@@ -95,7 +101,7 @@ runs:
 
     - name: Install pg_search
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
         INPUTS_GLOBAL_TARGET_SEGMENT_COUNT: ${{ inputs.global_target_segment_count }}
@@ -106,7 +112,7 @@ runs:
 
     - name: Restart Postgres
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: |

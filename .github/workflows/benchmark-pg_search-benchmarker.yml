@@ -159,7 +159,7 @@ jobs:
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
+            {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -206,7 +206,7 @@ jobs:
           key: ${{ env.DATASET }}
           path: benchmarker/results/
           metadata: >-
-            {"dataset":"${{ env.DATASET }}","short_commit":"${{ steps.build_image.outputs.short_commit }}",
+            {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
 
@@ -347,7 +347,7 @@ jobs:
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
+            {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -403,7 +403,7 @@ jobs:
           key: ${{ env.DATASET }}
           path: benchmarker/results/
           metadata: >-
-            {"dataset":"${{ env.DATASET }}","short_commit":"${{ steps.build_image.outputs.short_commit }}",
+            {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
 

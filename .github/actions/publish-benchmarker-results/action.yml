@@ -5,11 +5,8 @@ inputs:
   dataset:
     description: "Dataset name (e.g. hn-ci, stackexchange)"
     required: true
-  short_commit:
-    description: "Short commit SHA"
-    required: true
   ref:
-    description: "Git ref or commit benchmarked"
+    description: "Full SHA of the commit benchmarked"
     required: true
   image_tag:
     description: "Image tag tested"
@@ -47,7 +44,7 @@ runs:
       with:
         overwrite: true
         retention-days: 30
-        name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.short_commit }}
+        name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.ref }}
         path: |
           ${{ inputs.results_dir }}/*.json
           ${{ inputs.results_dir }}/*.html
@@ -202,11 +199,11 @@ runs:
       with:
         github_token: ${{ inputs.github_token }}
         publish_dir: ./_ghpages_html
-        destination_dir: benchmarker-runs/${{ inputs.short_commit }}/${{ inputs.dataset }}
+        destination_dir: benchmarker-runs/${{ inputs.ref }}/${{ inputs.dataset }}
         keep_files: true
         user_name: "github-actions[bot]"
         user_email: "github-actions[bot]@users.noreply.github.com"
-        commit_message: "benchmarker dashboards for ${{ inputs.short_commit }} (${{ inputs.dataset }})"
+        commit_message: "benchmarker dashboards for ${{ inputs.ref }} (${{ inputs.dataset }})"
 
     - name: Comment benchmark comparison and dashboard links
       if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
@@ -214,7 +211,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
         EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
-        STEP_COMMIT_INFO_SHORT_COMMIT: ${{ inputs.short_commit }}
+        COMMIT_SHA: ${{ inputs.ref }}
         PR_NUMBER: ${{ inputs.pr_number }}
         DATASET: ${{ inputs.dataset }}
         METRICS_FILE: ${{ inputs.metrics_file }}
@@ -222,7 +219,7 @@ runs:
       run: |
         set -euo pipefail
         shopt -s nullglob
-        BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${STEP_COMMIT_INFO_SHORT_COMMIT}/${DATASET}"
+        BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${COMMIT_SHA}/${DATASET}"
         OVERTIME="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker/"
         links=""
         for h in _ghpages_html/*.html; do
@@ -230,9 +227,9 @@ runs:
           links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
         done
         {
-          printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${STEP_COMMIT_INFO_SHORT_COMMIT}"
+          printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:0:7}"
           jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json '
-            "Baselines: latency `\($latency[0].commit.id // "—")`, QPS `\($throughput[0].commit.id // "—")`.\n"
+            "Baselines: latency `\(($latency[0].commit.id // "—") | .[0:7])`, QPS `\(($throughput[0].commit.id // "—") | .[0:7])`.\n"
           '
           printf '| Benchmark | Current | Previous | Ratio |\n|---|---:|---:|---:|\n'
           jq -nr \

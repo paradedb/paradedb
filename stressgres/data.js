@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792743462377,
+  "lastUpdate": 1792743601721,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111782,6 +111782,52 @@ window.BENCHMARK_DATA = {
             "value": 2864.4991257580295,
             "unit": "median tps",
             "extra": "avg tps: 2772.119383003032, max tps: 3229.150328926706, count: 59410"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792743589921,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 988.2775053500626,
+            "unit": "median tps",
+            "extra": "avg tps: 894.1413852213881, max tps: 1341.3428182042392, count: 59454"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.9300790284438167,
+            "unit": "median tps",
+            "extra": "avg tps: 3.2433092594000503, max tps: 5.0697676668952685, count: 59454"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1946.4376951781855,
+            "unit": "median tps",
+            "extra": "avg tps: 1940.248524406219, max tps: 1951.9084372091663, count: 59454"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2806.3114587487125,
+            "unit": "median tps",
+            "extra": "avg tps: 2772.6851290038644, max tps: 3192.930749916907, count: 59454"
           }
         ]
       }

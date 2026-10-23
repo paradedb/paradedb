@@ -63,13 +63,38 @@ jobs:
         id: metadata
         run: echo "json=$(jq -c . _benchmark_publish/metadata.json)" >> "$GITHUB_OUTPUT"
 
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Wait for App Token to Become Usable
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          for attempt in $(seq 1 10); do
+            if git -c http.extraheader="$auth" ls-remote \
+                "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
+              echo "App token usable after ${attempt} attempt(s)"
+              exit 0
+            fi
+            echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
+            sleep 5
+          done
+          echo "App token never became usable after 10 attempts" >&2
+          exit 1
+
       - name: Publish Benchmarker Results
         if: fromJSON(steps.metadata.outputs.json).kind == 'benchmarker'
         uses: ./.github/actions/publish-benchmarker-results
         with:
           dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
           pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}
           auto_push: ${{ fromJSON(steps.metadata.outputs.json).auto_push }}
 
@@ -82,7 +107,7 @@ jobs:
           index: ${{ fromJSON(steps.metadata.outputs.json).index }}
           size: ${{ fromJSON(steps.metadata.outputs.json).size }}
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
           publish: ${{ fromJSON(steps.metadata.outputs.json).publish }}
           alert_threshold: ${{ fromJSON(steps.metadata.outputs.json).alert_threshold }}
           alert_strategy: ${{ fromJSON(steps.metadata.outputs.json).alert_strategy }}
@@ -93,8 +118,7 @@ jobs:
         with:
           test_file: ${{ fromJSON(steps.metadata.outputs.json).test_file }}
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
 
       - name: Record Successful Publication
         uses: actions/upload-artifact@v7

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792742272516,
+  "lastUpdate": 1792742294222,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -417112,6 +417112,88 @@ window.BENCHMARK_DATA = {
             "value": 587.7571101742575,
             "unit": "median tps",
             "extra": "avg tps: 589.9156829836464, max tps: 647.9725992587142, count: 55255"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792742269904,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 603.2150692561172,
+            "unit": "median tps",
+            "extra": "avg tps: 598.8063954626781, max tps: 754.0783461701449, count: 55223"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 488.49702183788446,
+            "unit": "median tps",
+            "extra": "avg tps: 496.1033642290213, max tps: 695.4701434093852, count: 55223"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 209.598849369583,
+            "unit": "median tps",
+            "extra": "avg tps: 209.79962811537908, max tps: 234.83096700141658, count: 55223"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 560.5200545795996,
+            "unit": "median tps",
+            "extra": "avg tps: 566.1053802719072, max tps: 775.1374811124505, count: 55223"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 430.98189298422886,
+            "unit": "median tps",
+            "extra": "avg tps: 431.55362119234354, max tps: 498.57562423010467, count: 55223"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.737859549852477,
+            "unit": "median tps",
+            "extra": "avg tps: 14.748076917202487, max tps: 15.152463358597215, count: 55223"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 763.3518742265745,
+            "unit": "median tps",
+            "extra": "avg tps: 764.7167432412677, max tps: 915.0469413133088, count: 55223"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 775.0841023346027,
+            "unit": "median tps",
+            "extra": "avg tps: 776.2474144663806, max tps: 949.6009720303589, count: 55223"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 328.35297876159524,
+            "unit": "median tps",
+            "extra": "avg tps: 328.636259324693, max tps: 371.91941955798984, count: 55223"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 647.5354317747112,
+            "unit": "median tps",
+            "extra": "avg tps: 648.4896019810074, max tps: 790.2468125455295, count: 55223"
           }
         ]
       }

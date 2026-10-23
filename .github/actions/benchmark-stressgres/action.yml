@@ -81,7 +81,7 @@ runs:
     - name: Stage Results for Publication
       uses: ./.github/actions/stage-benchmark-results
       with:
-        kind: stressgres
+        benchmark_type: stressgres
         key: ${{ steps.job-name.outputs.jobname }}
         metadata: ${{ toJSON(inputs) }}
         path: pg_search_*.json

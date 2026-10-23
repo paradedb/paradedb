@@ -103,7 +103,7 @@ runs:
     - name: Stage Results for Publication
       uses: ./.github/actions/stage-benchmark-results
       with:
-        kind: queries
+        benchmark_type: queries
         key: ${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}
         metadata: ${{ toJSON(inputs) }}
         path: ${{ inputs.source_directory }}/benchmarks/results.json

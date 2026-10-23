@@ -2388,7 +2388,7 @@ fn validate_topk_expectation(
         ),
         PathKeyInfo::Unusable(UnusableReason::NotSortable) => (
             "ORDER BY columns cannot be pushed down to the index".to_string(),
-            "Ensure ORDER BY columns are included in the paradedb index. Numeric columns are fast by default. \
+            "Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. \
                  For string columns, use pdb.literal tokenizer"
                 .to_string(),
         ),

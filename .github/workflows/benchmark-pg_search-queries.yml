@@ -143,7 +143,7 @@ jobs:
             --remove-label benchmark-cohere-pg_search \
             --remove-label benchmark-cohere-pgvectorscale || true
 
-      - name: Determine Ref To Benchmark
+      - name: Determine Ref to Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -171,7 +171,7 @@ jobs:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
-      - name: Checkout Source To Benchmark
+      - name: Checkout Source to Benchmark
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
@@ -203,7 +203,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           source_directory: source
 
-      - name: Resolve Git Ref To PR
+      - name: Resolve Git Ref to PR
         id: pr_label
         uses: actions/github-script@v9
         env:
@@ -259,7 +259,7 @@ jobs:
               ? `PR #${pr.number}: ${pr.title}`
               : ref;
 
-      - name: Running For ${{ steps.pr_label.outputs.result }}
+      - name: Running for ${{ steps.pr_label.outputs.result }}
         env:
           STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
         run: echo "${STEP_PR_LABEL_RESULT}"
@@ -381,7 +381,7 @@ jobs:
       # postgresql.auto.conf with the snapshot's config (snapshots are captured without vchord
       # preloaded, so they stay shared with the hnsw/ivfflat runs). Re-apply the preload and restart
       # before the vchordrq index is built.
-      - name: Preload vchord After Restore (Cohere/vchord, 1M)
+      - name: Preload vchord after Restore (Cohere/vchord, 1M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
         run: |
           set -euo pipefail
@@ -394,7 +394,7 @@ jobs:
 
       # pgvectorscale needs no shared_preload_libraries, so unlike vchord this only creates the
       # extension the restored snapshot does not carry -- no restart required.
-      - name: Create vectorscale Extension After Restore (Cohere/Pgvectorscale, 1M)
+      - name: Create vectorscale Extension after Restore (Cohere/Pgvectorscale, 1M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
         run: |
           set -euo pipefail
@@ -434,7 +434,7 @@ jobs:
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
-      - name: Preload vchord After Restore (Cohere/vchord, 10M)
+      - name: Preload vchord after Restore (Cohere/vchord, 10M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
         run: |
           set -euo pipefail
@@ -445,7 +445,7 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
-      - name: Create vectorscale Extension After Restore (Cohere/Pgvectorscale, 10M)
+      - name: Create vectorscale Extension after Restore (Cohere/Pgvectorscale, 10M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
         run: |
           set -euo pipefail
@@ -529,7 +529,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack On Failure (Push Only)
+      - name: Notify Slack on Failure (Push only)
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

@@ -28,5 +28,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Compact And Squash gh-pages
+      - name: Compact and Squash gh-pages
         run: ./.github/scripts/squash-gh-pages.sh --push origin

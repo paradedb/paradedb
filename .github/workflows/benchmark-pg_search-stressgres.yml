@@ -75,7 +75,7 @@ jobs:
             --remove-label benchmarks \
             --remove-label benchmark-stressgres || true
 
-      - name: Determine Ref To Benchmark
+      - name: Determine Ref to Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -103,7 +103,7 @@ jobs:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
-      - name: Checkout Source To Benchmark
+      - name: Checkout Source to Benchmark
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
@@ -127,7 +127,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           source_directory: source
 
-      - name: Resolve Git Ref To PR
+      - name: Resolve Git Ref to PR
         id: pr_label
         uses: actions/github-script@v9
         env:
@@ -183,7 +183,7 @@ jobs:
               ? `PR #${pr.number}: ${pr.title}`
               : ref;
 
-      - name: Running For ${{ steps.pr_label.outputs.result }}
+      - name: Running for ${{ steps.pr_label.outputs.result }}
         env:
           STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
         run: echo "${STEP_PR_LABEL_RESULT}"
@@ -202,7 +202,7 @@ jobs:
       - name: Enable Crash Dumps
         run: ./.github/scripts/setup_crashdumps.sh
 
-      - name: Compile And Install pg_search
+      - name: Compile and Install pg_search
         working-directory: source
         run: >-
           cargo pgrx install -p pg_search --sudo --release
@@ -213,7 +213,7 @@ jobs:
         working-directory: source/pg_search/
         run: cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Configure PostgreSQL Settings And Machine Settings
+      - name: Configure PostgreSQL Settings and Machine Settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
         run: |
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM RESET ALL;"
@@ -247,7 +247,7 @@ jobs:
           cargo pgrx stop pg${{ env.pg_version }}
           cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Install The Stressgres CLI Tool
+      - name: Install the Stressgres CLI Tool
         working-directory: source/stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
@@ -281,7 +281,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack On Failure
+      - name: Notify Slack on Failure
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

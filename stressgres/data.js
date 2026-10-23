@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792742294222,
+  "lastUpdate": 1792742312586,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -177470,6 +177470,64 @@ window.BENCHMARK_DATA = {
             "value": 20.854471785601742,
             "unit": "median tps",
             "extra": "avg tps: 20.645367327820576, max tps: 33.978078702744135, count: 59308"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792742280618,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 164.73407540017536,
+            "unit": "median tps",
+            "extra": "avg tps: 163.04536564157974, max tps: 168.18792149214195, count: 59312"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 522.1185604906206,
+            "unit": "median tps",
+            "extra": "avg tps: 559.9884811281574, max tps: 5317.999347597944, count: 59312"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1042.7980897385246,
+            "unit": "median tps",
+            "extra": "avg tps: 1009.1972580107188, max tps: 1257.4181796815324, count: 59312"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 212.74411435854864,
+            "unit": "median tps",
+            "extra": "avg tps: 210.62435708120893, max tps: 221.90586833591854, count: 59312"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 257.2068997406546,
+            "unit": "median tps",
+            "extra": "avg tps: 329.2565235230758, max tps: 2109.168405128254, count: 118624"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 23.724351197632178,
+            "unit": "median tps",
+            "extra": "avg tps: 23.380482547911303, max tps: 34.947490347328426, count: 59312"
           }
         ]
       }

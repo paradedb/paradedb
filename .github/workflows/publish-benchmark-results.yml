@@ -68,7 +68,6 @@ jobs:
         uses: ./.github/actions/publish-benchmarker-results
         with:
           dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
-          short_commit: ${{ fromJSON(steps.metadata.outputs.json).short_commit }}
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}

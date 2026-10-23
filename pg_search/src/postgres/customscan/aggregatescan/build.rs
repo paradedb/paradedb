@@ -275,7 +275,7 @@ impl AggregateCSClause {
     }
 
     pub fn can_use_doc_count(&self, agg: &AggregateType) -> bool {
-        self.has_groupby() && !self.has_filter() && matches!(agg, AggregateType::CountAny { .. })
+        self.has_groupby() && !self.has_filter() && agg.can_use_doc_count()
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
@@ -634,7 +634,9 @@ unsafe fn detect_aggregate_orderby(
     // in a group are NULL. Tantivy treats NULL sums as 0 / omits them,
     // which differs from Postgres's NULL semantics. This causes groups
     // to be mis-ordered or pruned, so we bail out for non-COUNT targets.
-    if agg.can_use_doc_count() {
+    // `COUNT(group_key)` reads 0 on the NULL bucket, but Tantivy ranks
+    // that bucket by its `doc_count`.
+    if matches!(agg, AggregateType::CountAny { .. }) {
         return Some(AggregateOrderBy {
             target: AggregateMetricTarget::Count,
             direction,

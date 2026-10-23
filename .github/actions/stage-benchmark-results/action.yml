@@ -2,10 +2,6 @@ name: Stage Benchmark Results
 description: Save results and publication inputs for the queued publisher
 
 inputs:
-  source_directory:
-    description: "Directory containing the benchmarked Git commit"
-    required: false
-    default: "."
   kind:
     description: "Publisher kind"
     required: true
@@ -27,16 +23,10 @@ runs:
       env:
         METADATA: ${{ inputs.metadata }}
         KIND: ${{ inputs.kind }}
-        SOURCE_DIRECTORY: ${{ inputs.source_directory }}
       run: |
         mkdir -p _benchmark_publish
-        ref=$(jq -r .ref <<< "$METADATA")
-        # Resolve moving branch names before the publication job waits in the queue.
-        if [ "$KIND" != benchmarker ]; then
-          ref=$(git -C "$SOURCE_DIRECTORY" rev-parse --verify "${ref}^{commit}")
-        fi
-        jq --arg kind "$KIND" --arg ref "$ref" \
-          'del(.github_token, .github_app_client_id, .github_app_private_key) + {kind: $kind, ref: $ref}' \
+        jq --arg kind "$KIND" \
+          'del(.github_token, .github_app_client_id, .github_app_private_key) + {kind: $kind}' \
           <<< "$METADATA" > _benchmark_publish/metadata.json
 
     - name: Upload Benchmark Results

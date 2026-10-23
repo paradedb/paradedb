@@ -16,7 +16,7 @@ inputs:
     description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25, hnsw, ivfflat"
     required: true
   ref:
-    description: "Git ref or short SHA to report in benchmarks"
+    description: "Full SHA of the commit benchmarked"
     required: true
   fail_on_error:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
@@ -47,7 +47,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Refresh pg_search after snapshot restore
+    - name: Refresh pg_search after Snapshot Restore
       shell: bash
       run: |
         # Heap snapshots include an old extension catalog. Recreate it from the installed
@@ -100,10 +100,9 @@ runs:
         PG_VERSION: ${{ env.pg_version }}
       run: ./.github/scripts/render_crashdump.sh
 
-    - name: Stage results for publication
+    - name: Stage Results for Publication
       uses: ./.github/actions/stage-benchmark-results
       with:
-        source_directory: ${{ inputs.source_directory }}
         kind: queries
         key: ${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}
         metadata: ${{ toJSON(inputs) }}

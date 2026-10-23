@@ -25,7 +25,7 @@ runs:
         fetch-depth: 1
         ref: main
 
-    - name: Copy latest benchmarks into place
+    - name: Copy Latest Benchmarks into Place
       shell: bash
       env:
         SOURCE_DIRECTORY: ${{ inputs.source_directory }}
@@ -35,6 +35,6 @@ runs:
           cp -rv "bench-temp/${directory}" "${SOURCE_DIRECTORY}/"
         done
 
-    - name: Cleanup temporary checkout
+    - name: Cleanup Temporary Checkout
       shell: bash
       run: rm -rf bench-temp

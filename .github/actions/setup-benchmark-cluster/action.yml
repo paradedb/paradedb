@@ -57,7 +57,7 @@ runs:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
-    - name: Configure PostgreSQL settings and machine settings
+    - name: Configure PostgreSQL Settings and Machine Settings
       shell: bash
       working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
       env:

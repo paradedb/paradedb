@@ -16,7 +16,7 @@ inputs:
     description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25, hnsw, ivfflat"
     required: true
   ref:
-    description: "Git ref or short SHA to report in benchmarks"
+    description: "Full SHA of the commit benchmarked"
     required: true
   github_token:
     description: "GitHub token to authenticate with"
@@ -79,7 +79,7 @@ runs:
         INPUTS_INDEX: ${{ inputs.index }}
         RESULTS_FILE: ${{ inputs.results_file }}
       run: |
-        python3 "${GITHUB_WORKSPACE}/.github/actions/benchmark-queries/compare_baseline.py" \
+        python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
           --results "$RESULTS_FILE" \
           --data-js benchmark-data-repository/benchmarks/data.js \
           --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ inputs.size }} rows)" \

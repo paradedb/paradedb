@@ -54,7 +54,7 @@ runs:
         persist-credentials: false
         fetch-depth: 0
 
-    - name: Derive Short Commit
+    - name: Resolve Benchmark Commit
       id: commit_info
       shell: bash
       working-directory: pg_search_source
@@ -63,7 +63,7 @@ runs:
     - name: Set Up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
-    - name: Build ParadeDB Image
+    - name: Build ParadeDB Image from Source
       uses: docker/build-push-action@v7
       with:
         context: pg_search_source

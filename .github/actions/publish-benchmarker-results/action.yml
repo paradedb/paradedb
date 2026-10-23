@@ -8,11 +8,20 @@ inputs:
   ref:
     description: "Full SHA of the commit benchmarked"
     required: true
-  github_app_client_id:
-    description: "ParadeDB GitHub App client ID"
-    required: true
-  github_app_private_key:
-    description: "ParadeDB GitHub App private key"
+  results_dir:
+    description: "Directory containing results json and html files"
+    required: false
+    default: "benchmarker/results"
+  metrics_file:
+    description: "Path to write extracted latency metrics json"
+    required: false
+    default: "benchmarker/benchmarker_metrics.json"
+  throughput_metrics_file:
+    description: "Path to write extracted QPS metrics json"
+    required: false
+    default: "benchmarker/benchmarker_throughput_metrics.json"
+  github_token:
+    description: "GitHub token for publishing and comments"
     required: true
   pr_number:
     description: "PR number to comment on (empty if not a PR)"
@@ -26,32 +35,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Generate GitHub App Token
-      id: app-token
-      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
-      with:
-        client-id: ${{ inputs.github_app_client_id }}
-        private-key: ${{ inputs.github_app_private_key }}
-
-    - name: Wait for App Token to Become Usable
-      shell: bash
-      env:
-        APP_TOKEN: ${{ steps.app-token.outputs.token }}
-      run: |
-        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
-        for attempt in $(seq 1 10); do
-          if git -c http.extraheader="$auth" ls-remote \
-              "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
-            echo "App token usable after ${attempt} attempt(s)"
-            exit 0
-          fi
-          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
-          sleep 5
-        done
-        echo "App token never became usable after 10 attempts" >&2
-        exit 1
-
-    - name: Upload dashboards
+    - name: Upload Dashboards
       uses: actions/upload-artifact@v7
       with:
         overwrite: true
@@ -62,7 +46,7 @@ runs:
           benchmarker/results/*.html
         if-no-files-found: warn
 
-    - name: Extract tracked metrics
+    - name: Extract Tracked Metrics
       shell: bash
       env:
         RESULTS_DIR: benchmarker/results
@@ -140,7 +124,7 @@ runs:
         publish_baseline: ${{ inputs.publish_baseline }}
         comment_on_regression: ${{ inputs.pr_number == '' }}
 
-    - name: Read latency baseline
+    - name: Read Latency Baseline
       if: inputs.pr_number != '' && steps.publish_latency.outcome == 'success'
       shell: bash
       env:
@@ -163,7 +147,7 @@ runs:
         publish_baseline: ${{ inputs.publish_baseline }}
         comment_on_regression: ${{ inputs.pr_number == '' }}
 
-    - name: Read QPS baseline
+    - name: Read QPS Baseline
       if: inputs.pr_number != '' && steps.publish_throughput.outcome == 'success'
       shell: bash
       env:
@@ -172,7 +156,7 @@ runs:
         sed '1s/^window.BENCHMARK_DATA = //' benchmark-data-repository/benchmarker/data.js |
           jq --arg suite "benchmarker ${DATASET} (throughput)" '.entries[$suite][-2] // {}' > _throughput_baseline.json
 
-    - name: Stage dashboards (HTML only) for gh-pages
+    - name: Stage Dashboards (HTML Only) for gh-pages
       shell: bash
       env:
         RESULTS_DIR: benchmarker/results
@@ -186,7 +170,7 @@ runs:
         fi
         ls -la _ghpages_html
 
-    - name: Publish dashboards to gh-pages
+    - name: Publish Dashboards to gh-pages
       if: hashFiles('_ghpages_html/*.html') != ''
       uses: peaceiris/actions-gh-pages@v4
       with:
@@ -198,7 +182,7 @@ runs:
         user_email: "github-actions[bot]@users.noreply.github.com"
         commit_message: "benchmarker dashboards for ${{ inputs.ref }} (${{ inputs.dataset }})"
 
-    - name: Comment benchmark comparison and dashboard links
+    - name: Comment Benchmark Comparison and Dashboard Links
       if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
       shell: bash
       env:
@@ -256,7 +240,7 @@ runs:
         cat _comment.md >> "${GITHUB_STEP_SUMMARY}"
         gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
 
-    - name: Fail if no metrics were extracted
+    - name: Fail if No Metrics Were Extracted
       shell: bash
       env:
         METRICS_FILE: benchmarker/benchmarker_metrics.json

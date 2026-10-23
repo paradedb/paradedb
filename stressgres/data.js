@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792658513511,
+  "lastUpdate": 1792742272516,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -335272,6 +335272,52 @@ window.BENCHMARK_DATA = {
             "value": 27.022182225779694,
             "unit": "median tps",
             "extra": "avg tps: 41.514280601724096, max tps: 382.5185901359851, count: 59313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792742260355,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.155507802086284,
+            "unit": "median tps",
+            "extra": "avg tps: 56.85331830775116, max tps: 645.5176658940283, count: 59333"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.580536041335044,
+            "unit": "median tps",
+            "extra": "avg tps: 56.914464828432976, max tps: 704.8981952739526, count: 59333"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.43532883580073,
+            "unit": "median tps",
+            "extra": "avg tps: 59.29744451711876, max tps: 791.3824893084405, count: 59333"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.44102456487604,
+            "unit": "median tps",
+            "extra": "avg tps: 56.118812115840264, max tps: 701.0489857230081, count: 59333"
           }
         ]
       }

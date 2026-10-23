@@ -1,5 +1,5 @@
 name: Publish Queries Results
-description: Publish query metrics and compare them against the baseline
+description: Publish Queries benchmark results to gh-pages
 
 inputs:
   source_directory:

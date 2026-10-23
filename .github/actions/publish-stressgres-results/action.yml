@@ -1,5 +1,5 @@
 name: Publish Stressgres Results
-description: Publish prepared Stressgres metrics
+description: Publish Stressgres benchmark results to gh-pages
 
 inputs:
   test_file:

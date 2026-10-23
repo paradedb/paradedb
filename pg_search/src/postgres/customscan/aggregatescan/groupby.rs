@@ -33,8 +33,8 @@ pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
     pub original_type_oid: pg_sys::Oid,
-    /// True when the NULL bucket of this column is keyed by a string sentinel that no real
-    /// value can equal (text and bool fields), as opposed to a number such as `i64::MAX`.
+    /// True when the NULL bucket of this column is keyed by a string sentinel (text, bool and
+    /// JSON fields), as opposed to a number such as `i64::MAX`.
     #[serde(default)]
     pub string_null_sentinel: bool,
 }

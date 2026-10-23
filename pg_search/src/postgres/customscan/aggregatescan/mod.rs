@@ -2671,7 +2671,9 @@ unsafe fn aggregate_value_to_datum(
             AggregateType::Count {
                 group_key: Some(idx),
                 ..
-            } if is_null_group_key(&row.group_keys[*idx]) => TantivyValue(PdbOwnedValue::U64(0)),
+            } if is_string_null_sentinel(&row.group_keys[*idx]) => {
+                TantivyValue(PdbOwnedValue::U64(0))
+            }
             _ => row.doc_count(),
         };
         return count
@@ -2813,12 +2815,18 @@ fn decode_safe_cast(
 /// DateTime columns don't have a missing sentinel (NULLs are excluded).
 fn is_null_group_key(key: &TantivyValue) -> bool {
     match &key.0 {
-        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+        PdbOwnedValue::Str(_) => is_string_null_sentinel(key),
         PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
         PdbOwnedValue::U64(v) => *v == u64::MAX,
         PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
         _ => false,
     }
+}
+
+/// The NULL bucket of a key with a string sentinel. A real key of another type, such as a JSON
+/// number equal to `i64::MIN`, must not read as NULL here.
+fn is_string_null_sentinel(key: &TantivyValue) -> bool {
+    matches!(&key.0, PdbOwnedValue::Str(s) if s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX)
 }
 
 /// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels

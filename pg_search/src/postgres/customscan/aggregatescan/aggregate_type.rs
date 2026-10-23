@@ -329,9 +329,9 @@ impl AggregateType {
     }
 
     /// A non-NULL bucket of a `GROUP BY` key has a value in every row, so its `doc_count` is
-    /// `COUNT(field)`. A `FILTER` changes which rows count. Only text and bool keys qualify:
-    /// their NULL sentinel is a string no real value can match, whereas a numeric, timestamp
-    /// or JSON key can hold a real value equal to its sentinel (e.g. `'infinity'`, `i64::MAX`).
+    /// `COUNT(field)`. A `FILTER` changes which rows count. Only a key whose NULL bucket gets a
+    /// string sentinel qualifies: a numeric or timestamp key can hold a real value equal to its
+    /// sentinel, such as `'infinity'` or `i64::MAX`.
     pub fn mark_group_key(&mut self, grouping_columns: &[GroupingColumn]) {
         if let AggregateType::Count {
             field,

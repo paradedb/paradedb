@@ -47,7 +47,7 @@ mod ps_status;
 mod range;
 mod scan;
 pub mod shared_threshold;
-mod vacuum;
+pub(crate) mod vacuum;
 mod validate;
 
 pub mod buffile;

@@ -3,7 +3,7 @@ description: Upload results and publication inputs as GitHub Actions artifacts f
 
 inputs:
   kind:
-    description: "Publisher kind"
+    description: "Benchmark type: benchmarker, queries, or stressgres"
     required: true
   key:
     description: "Unique dataset or suite key"

@@ -90,14 +90,14 @@ pub struct MetaPageData {
 
     created_at: pg_sys::TimestampTz,
 
-    /// A separate lock keeps a statistics refresh from waiting for a long-running merge.
+    /// a separate lock keeps a statistics refresh from waiting for a long-running merge.
     index_stats_lock: pg_sys::BlockNumber,
-    /// Zero on indexes created before index-wide statistics were introduced.
+    /// zero on indexes created before index-wide statistics were introduced.
     index_stats_start: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
-/// Most metadata is stable after `open()`. The ambulkdelete epoch and statistics pointer can
+/// most metadata is stable after `open()`. the ambulkdelete epoch and statistics pointer can
 /// change, so callers requiring a current value must reread them under their respective locks.
 pub struct MetaPage {
     data: MetaPageData,
@@ -107,7 +107,7 @@ pub struct MetaPage {
 const METAPAGE: pg_sys::BlockNumber = 0;
 
 impl MetaPage {
-    /// Read the current immutable statistics file while holding its lock. The writer
+    /// read the current immutable statistics file while holding its lock. the writer
     /// takes that lock exclusively before replacing the pointer and recycling the old file.
     pub(crate) fn index_stats_bytes(indexrel: &PgSearchRelation) -> Option<Vec<u8>> {
         let metadata = Self::open(indexrel);
@@ -118,7 +118,7 @@ impl MetaPage {
             .then(|| unsafe { LinkedBytesList::open(indexrel, start).read_all() })
     }
 
-    /// Publish a complete replacement before recycling the previous file. Readers either see
+    /// publish a complete replacement before recycling the previous file. readers either see
     /// the old file or the new file, never a partially written one.
     pub(crate) fn replace_index_stats(indexrel: &PgSearchRelation, bytes: &[u8]) -> io::Result<()> {
         let mut writer = LinkedBytesList::create_with_fsm(indexrel).writer();
@@ -531,7 +531,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let indexrel = PgSearchRelation::open(oid);
-        // Older metapages have zeros past `created_at`. Recreate those bytes in place.
+        // older metapages have zeros past `created_at`. recreate those bytes in place.
         let mut bman = BufferManager::new(&indexrel);
         let mut buffer = bman.get_buffer_mut(METAPAGE);
         let mut page = buffer.page_mut();

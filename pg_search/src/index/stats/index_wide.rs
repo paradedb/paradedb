@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A VACUUM-time summary of one complete segment view. The segment stamp lets a planner
+//! a VACUUM-time summary of one complete segment view. the segment stamp lets a planner
 //! decline this summary after a write or background merge changes the view.
 
 use std::cmp::Ordering;
@@ -53,14 +53,14 @@ impl SegmentStamp {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct FieldSummary {
     pub(crate) name: String,
-    /// A type or field-options change invalidates the old summary even if the name is reused.
+    /// a type or field-options change invalidates the old summary even if the name is reused.
     pub(crate) field_type: String,
-    /// Unknown if any nonempty segment cannot provide bounds for this field.
+    /// unknown if any nonempty segment cannot provide bounds for this field.
     bounds: Option<EmpiricalWire>,
 }
 
 impl FieldSummary {
-    // The estimator starts consuming this in the follow-up PR.
+    // the estimator starts consuming this in the follow-up PR.
     #[allow(dead_code)]
     pub(crate) fn bounds(&self) -> Option<EmpiricalStats> {
         self.bounds.as_ref().map(|wire| EmpiricalStats {
@@ -106,7 +106,7 @@ impl IndexStats {
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
     }
 
-    /// The file belongs to a complete view, not a particular segment that happened to be large.
+    /// the file belongs to a complete view, not a particular segment that happened to be large.
     #[allow(dead_code)]
     pub(crate) fn covers(&self, reader: &SearchIndexReader) -> bool {
         let mut current: Vec<_> = reader
@@ -116,7 +116,7 @@ impl IndexStats {
             .collect();
         current.sort_by(|a, b| a.id.cmp(&b.id));
         self.segments == current
-            && self.total_docs == current.iter().map(|segment| segment.num_docs).sum()
+            && self.total_docs == current.iter().map(|segment| segment.num_docs).sum::<u64>()
             && self.fields.len() == reader.schema().fields().count()
             && self.fields.iter().all(|summary| {
                 reader
@@ -129,7 +129,7 @@ impl IndexStats {
     }
 }
 
-/// Build from the maintenance view after VACUUM has removed dead segment entries. A missing
+/// build from the maintenance view after VACUUM has removed dead segment entries. a missing
 /// per-segment component only loses bounds for that field; it does not lose the document count.
 pub(crate) fn refresh(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
     let reader = SearchIndexReader::empty(indexrel, MvccSatisfies::Vacuum)?;
@@ -217,7 +217,7 @@ pub(crate) fn refresh(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Older indexes have no file until their first VACUUM. A changed segment view is also a miss.
+/// older indexes have no file until their first VACUUM. a changed segment view is also a miss.
 #[allow(dead_code)]
 pub(crate) fn load_for(
     indexrel: &PgSearchRelation,
@@ -271,7 +271,7 @@ mod tests {
             .unwrap();
         let indexrel = PgSearchRelation::open(oid);
 
-        // The zero metapage field on a pre-summary index is a legitimate old format.
+        // the zero metapage field on a pre-summary index is a legitimate old format.
         assert!(MetaPage::index_stats_bytes(&indexrel).is_none());
         assert!(
             load_for(
@@ -320,5 +320,30 @@ mod tests {
             load_for(&indexrel, &updated).unwrap().unwrap().total_docs,
             4
         );
+    }
+
+    #[pg_test]
+    fn vacuum_refreshes_index_wide_summary() {
+        Spi::run("CREATE TABLE index_stats_vacuum_source (id BIGINT);").unwrap();
+        Spi::run("INSERT INTO index_stats_vacuum_source VALUES (1), (2), (3);").unwrap();
+        Spi::run(
+            "CREATE INDEX index_stats_vacuum_source_idx ON index_stats_vacuum_source USING paradedb (id);",
+        )
+        .unwrap();
+        let oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'index_stats_vacuum_source_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        assert!(MetaPage::index_stats_bytes(&indexrel).is_none());
+
+        let mut info: pg_sys::IndexVacuumInfo = unsafe { std::mem::zeroed() };
+        info.index = indexrel.as_ptr();
+        unsafe {
+            crate::postgres::vacuum::amvacuumcleanup(&mut info, std::ptr::null_mut());
+        }
+
+        let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+        assert_eq!(load_for(&indexrel, &reader).unwrap().unwrap().total_docs, 3);
     }
 }

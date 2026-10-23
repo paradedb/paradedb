@@ -55,6 +55,9 @@ pub struct PrivateData {
     ambulkdelete_epoch: u32,
     // Window aggregates to compute during Top K execution
     window_aggregates: Vec<WindowAggregateInfo>,
+    // For a partition's scan, the table whose partitions compute those aggregates together.
+    #[serde(default)]
+    window_agg_group: Option<u64>,
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
@@ -251,6 +254,10 @@ impl PrivateData {
         self.window_aggregates = window_aggregates;
     }
 
+    pub fn set_window_agg_group(&mut self, group: Option<u64>) {
+        self.window_agg_group = group;
+    }
+
     pub fn set_use_sorted_path(&mut self, use_sorted: bool) {
         self.use_sorted_path = use_sorted;
     }
@@ -339,6 +346,10 @@ impl PrivateData {
 
     pub fn window_aggregates(&self) -> &Vec<WindowAggregateInfo> {
         &self.window_aggregates
+    }
+
+    pub fn window_agg_group(&self) -> Option<u64> {
+        self.window_agg_group
     }
 
     pub fn use_sorted_path(&self) -> bool {

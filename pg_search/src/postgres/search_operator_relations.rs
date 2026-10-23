@@ -176,7 +176,7 @@ fn rte_alias_bytes(rte: &pg_sys::RangeTblEntry) -> &[u8] {
 }
 
 /// The entry `rti` scans, or the top parent it was expanded from, when that is a relation.
-unsafe fn top_parent(
+pub(crate) unsafe fn top_parent(
     root: *mut pg_sys::PlannerInfo,
     mut rti: pg_sys::Index,
 ) -> Option<(pg_sys::Index, *mut pg_sys::RangeTblEntry)> {

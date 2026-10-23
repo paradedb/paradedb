@@ -1,0 +1,187 @@
+-- pdb.agg() OVER () over a partitioned table (#6783). Each partition has its own Base Scan,
+-- and each scan used to answer with its own partition's aggregate: with a LIMIT the rows
+-- came from the first partition and carried its count, and with an ORDER BY the
+-- placeholder was computed above the Merge Append, where no scan replaces it. Every
+-- partition's scan now answers with the aggregate over all of them.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+DROP TABLE IF EXISTS docs CASCADE;
+DROP TABLE IF EXISTS docs_plain CASCADE;
+DROP TABLE IF EXISTS docs2 CASCADE;
+CREATE TABLE docs (id int, body text, region int) PARTITION BY LIST (region);
+CREATE TABLE docs_r0 PARTITION OF docs FOR VALUES IN (0);
+CREATE TABLE docs_r1 PARTITION OF docs FOR VALUES IN (1);
+INSERT INTO docs
+SELECT i, CASE WHEN i % 4 < 2 THEN 'hello world' ELSE 'hello there' END, i % 2
+FROM generate_series(1, 40) i;
+CREATE INDEX docs_idx ON docs USING paradedb (id, body);
+-- The same rows, unpartitioned.
+CREATE TABLE docs_plain AS SELECT * FROM docs;
+CREATE INDEX docs_plain_idx ON docs_plain USING paradedb (id, body);
+-- Two levels: one partition is itself partitioned.
+CREATE TABLE docs2 (id int, body text, region int, sub int) PARTITION BY LIST (region);
+CREATE TABLE docs2_r0 PARTITION OF docs2 FOR VALUES IN (0) PARTITION BY LIST (sub);
+CREATE TABLE docs2_r0_s0 PARTITION OF docs2_r0 FOR VALUES IN (0);
+CREATE TABLE docs2_r0_s1 PARTITION OF docs2_r0 FOR VALUES IN (1);
+CREATE TABLE docs2_r1 PARTITION OF docs2 FOR VALUES IN (1);
+INSERT INTO docs2 SELECT id, body, region, (id / 2) % 2 FROM docs;
+CREATE INDEX docs2_idx ON docs2 USING paradedb (id, body);
+-- The issue's query, which returned 20, against the unpartitioned copy.
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' LIMIT 3;
+ id |       agg       
+----+-----------------
+  2 | {"value": 40.0}
+  4 | {"value": 40.0}
+  6 | {"value": 40.0}
+(3 rows)
+
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs_plain WHERE body ||| 'hello' LIMIT 3;
+ id |       agg       
+----+-----------------
+  2 | {"value": 40.0}
+  4 | {"value": 40.0}
+  6 | {"value": 40.0}
+(3 rows)
+
+-- With an ORDER BY, which failed: each partition's scan computes the aggregate now,
+-- with no Result above the Merge Append.
+EXPLAIN (COSTS OFF)
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' ORDER BY id LIMIT 3;
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Merge Append
+         Sort Key: docs.id
+         ->  Custom Scan (ParadeDB Base Scan) on docs_r0 docs_1
+               Table: docs_r0
+               Index: docs_r0_id_body_idx
+               Exec Method: TopKScanExecState
+               Scores: false
+                  TopK Order By: id asc
+                  TopK Limit: 3
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         ->  Custom Scan (ParadeDB Base Scan) on docs_r1 docs_2
+               Table: docs_r1
+               Index: docs_r1_id_body_idx
+               Exec Method: TopKScanExecState
+               Scores: false
+                  TopK Order By: id asc
+                  TopK Limit: 3
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(19 rows)
+
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' ORDER BY id LIMIT 3;
+ id |       agg       
+----+-----------------
+  1 | {"value": 40.0}
+  2 | {"value": 40.0}
+  3 | {"value": 40.0}
+(3 rows)
+
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' ORDER BY id DESC LIMIT 3;
+ id |       agg       
+----+-----------------
+ 40 | {"value": 40.0}
+ 39 | {"value": 40.0}
+ 38 | {"value": 40.0}
+(3 rows)
+
+-- A sum and a min, which returned the first partition's 420 and 2.
+SELECT id, pdb.agg('{"sum":{"field":"id"}}') OVER (), pdb.agg('{"min":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' LIMIT 3;
+ id |       agg        |      agg       
+----+------------------+----------------
+  2 | {"value": 820.0} | {"value": 1.0}
+  4 | {"value": 820.0} | {"value": 1.0}
+  6 | {"value": 820.0} | {"value": 1.0}
+(3 rows)
+
+-- A SQL aggregate beside pdb.agg() is computed the same way, and Postgres agrees with
+-- the custom scan off.
+SELECT id, count(*) OVER (), pdb.agg('{"max":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'world' ORDER BY id LIMIT 3;
+ id | count |       agg       
+----+-------+-----------------
+  1 |    20 | {"value": 40.0}
+  4 |    20 | {"value": 40.0}
+  5 |    20 | {"value": 40.0}
+(3 rows)
+
+SET paradedb.enable_custom_scan = off;
+SELECT id, count(*) OVER (), max(id) OVER ()
+FROM docs WHERE body ||| 'world' ORDER BY id LIMIT 3;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | count | max 
+----+-------+-----
+  1 |    20 |  40
+  4 |    20 |  40
+  5 |    20 |  40
+(3 rows)
+
+RESET paradedb.enable_custom_scan;
+-- Two levels of partitions.
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs2 WHERE body ||| 'hello' ORDER BY id LIMIT 3;
+ id |       agg       
+----+-----------------
+  1 | {"value": 40.0}
+  2 | {"value": 40.0}
+  3 | {"value": 40.0}
+(3 rows)
+
+-- A filter each partition evaluates on the heap, and one that leaves a single partition.
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' AND region IN (0, 1) AND id > 10 ORDER BY id LIMIT 3;
+ id |       agg       
+----+-----------------
+ 11 | {"value": 30.0}
+ 12 | {"value": 30.0}
+ 13 | {"value": 30.0}
+(3 rows)
+
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' AND region = 1 ORDER BY id LIMIT 3;
+ id |       agg       
+----+-----------------
+  1 | {"value": 20.0}
+  3 | {"value": 20.0}
+  5 | {"value": 20.0}
+(3 rows)
+
+-- A generic plan prunes a partition when the executor starts: the aggregate covers the
+-- partition the parameter keeps.
+PREPARE by_region(int) AS
+SELECT id, pdb.agg('{"value_count":{"field":"id"}}') OVER ()
+FROM docs WHERE body ||| 'hello' AND region = $1 ORDER BY id LIMIT 3;
+SET plan_cache_mode = force_generic_plan;
+EXECUTE by_region(0);
+ id |       agg       
+----+-----------------
+  2 | {"value": 20.0}
+  4 | {"value": 20.0}
+  6 | {"value": 20.0}
+(3 rows)
+
+EXECUTE by_region(1);
+ id |       agg       
+----+-----------------
+  1 | {"value": 20.0}
+  3 | {"value": 20.0}
+  5 | {"value": 20.0}
+(3 rows)
+
+RESET plan_cache_mode;
+DEALLOCATE by_region;
+DROP TABLE docs2;
+DROP TABLE docs_plain;
+DROP TABLE docs;

@@ -203,7 +203,6 @@ jobs:
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
-          path: benchmarker/results/
           metadata: >-
             {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
@@ -399,7 +398,6 @@ jobs:
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
-          path: benchmarker/results/
           metadata: >-
             {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",

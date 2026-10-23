@@ -83,7 +83,6 @@ runs:
       with:
         benchmark_type: stressgres
         metadata: ${{ toJSON(inputs) }}
-        path: pg_search_*.json
 
     - name: Print Postgres Logs
       if: always()

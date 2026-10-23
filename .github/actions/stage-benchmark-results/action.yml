@@ -8,9 +8,6 @@ inputs:
   metadata:
     description: "Publication inputs as JSON. Credentials are removed before upload."
     required: true
-  path:
-    description: "Result files to upload"
-    required: true
 
 runs:
   using: composite
@@ -22,14 +19,19 @@ runs:
         METADATA: ${{ inputs.metadata }}
         BENCHMARK_TYPE: ${{ inputs.benchmark_type }}
       run: |
-        artifact_key=$(jq -er --arg benchmark_type "$BENCHMARK_TYPE" '
-          if $benchmark_type == "benchmarker" then .dataset
-          elif $benchmark_type == "queries" then [.dataset, .index, .size] | join("-")
-          elif $benchmark_type == "stressgres" then .test_file | split("/")[-1] | rtrimstr(".toml")
+        jq -er --arg benchmark_type "$BENCHMARK_TYPE" '
+          if $benchmark_type == "benchmarker" then
+            {artifact_key: .dataset, results_path: "benchmarker/results/"}
+          elif $benchmark_type == "queries" then
+            {artifact_key: ([.dataset, .index, .size] | join("-")),
+             results_path: "\(.source_directory // ".")/benchmarks/results_\(.dataset)_\(.index)_\(.size).json"}
+          elif $benchmark_type == "stressgres" then
+            {artifact_key: (.test_file | split("/")[-1] | rtrimstr(".toml")),
+             results_path: "pg_search_*.json"}
           else error("Unknown benchmark type: " + $benchmark_type)
           end
-        ' <<< "$METADATA")
-        echo "artifact_key=$artifact_key" >> "$GITHUB_OUTPUT"
+          | to_entries[] | "\(.key)=\(.value)"
+        ' <<< "$METADATA" >> "$GITHUB_OUTPUT"
 
         mkdir -p _benchmark_publish
         jq --arg benchmark_type "$BENCHMARK_TYPE" \
@@ -42,6 +44,6 @@ runs:
         name: gh-pages-${{ inputs.benchmark_type }}-${{ steps.publication-inputs.outputs.artifact_key }}-${{ github.run_attempt }}
         path: |
           _benchmark_publish/metadata.json
-          ${{ inputs.path }}
+          ${{ steps.publication-inputs.outputs.results_path }}
         retention-days: 30
         if-no-files-found: error

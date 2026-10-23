@@ -138,6 +138,27 @@ type TopKWithAggregate<T> = (
     Option<IntermediateAggregationResults>,
 );
 
+/// Maximum number of documents to return in a single Top-K window pull.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopKLimit(pub usize);
+
+/// Number of leading documents to skip in a Top-K window pull.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopKOffset(pub usize);
+
+/// Window bounds (`limit` and `offset`) for a Top-K search pull.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopKWindow {
+    pub limit: TopKLimit,
+    pub offset: TopKOffset,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SegmentQueryKind {
+    Unconstrained,
+    RangeConstrained,
+}
+
 /// Top-k results, aggregations, and per-segment metrics.
 pub struct TopKSearch {
     /// Search results.
@@ -321,6 +342,16 @@ impl MultiSegmentSearchResults {
         Self {
             searcher,
             iterators: vec![scorer_iter],
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
+        }
+    }
+
+    /// Creates an empty `MultiSegmentSearchResults` retaining `searcher` for segment reader access.
+    pub fn empty(searcher: Searcher) -> Self {
+        Self {
+            searcher,
+            iterators: Vec::new(),
             lazy_iterators: None,
             lazy_estimated_rows: None,
         }
@@ -1556,6 +1587,28 @@ impl SearchIndexReader {
         )
     }
 
+    /// Search specific range-partitioned segments for an unordered window of matching documents.
+    ///
+    /// Fully included segments evaluate against the unconstrained base query, while partially
+    /// included segments also evaluate `partition_bounds`.
+    ///
+    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
+    /// execution; this entry point is wired up for future range-partitioned rank joins.
+    pub(crate) fn search_top_k_unordered_segments_with_range_filter(
+        &self,
+        segments: &PartitionSegments,
+        partition_bounds: &SearchQueryInput,
+        window: TopKWindow,
+    ) -> TopKSearch {
+        TopKSearch::new(
+            self.search_segments_with_range_filter(segments, partition_bounds)
+                .skip(window.offset.0)
+                .take(window.limit.0)
+                .collect(),
+            None,
+        )
+    }
+
     /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
     pub(crate) fn orderby_uses_score_desc_topk_collector(orderby_info: &[OrderByInfo]) -> bool {
         matches!(
@@ -1590,6 +1643,66 @@ impl SearchIndexReader {
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
+        self.search_top_k_in_segments_internal(
+            segment_ids.map(|id| (id, SegmentQueryKind::Unconstrained)),
+            None,
+            orderby_info,
+            TopKWindow {
+                limit: TopKLimit(n),
+                offset: TopKOffset(offset),
+            },
+            aux_collector,
+            parallel_state_holding_shared_threshold,
+        )
+    }
+
+    /// Search specific range-partitioned segments for the Top-K matching documents.
+    ///
+    /// Fully included segments evaluate against the unconstrained base query, while partially
+    /// included segments also evaluate `partition_bounds`.
+    ///
+    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
+    /// execution; this entry point is wired up for future range-partitioned rank joins.
+    pub(crate) fn search_top_k_segments_with_range_filter(
+        &self,
+        segments: &PartitionSegments,
+        partition_bounds: &SearchQueryInput,
+        orderby_info: &[OrderByInfo],
+        window: TopKWindow,
+    ) -> TopKSearch {
+        let segment_iter = segments
+            .included
+            .iter()
+            .copied()
+            .map(|id| (id, SegmentQueryKind::Unconstrained))
+            .chain(
+                segments
+                    .partially_included
+                    .iter()
+                    .copied()
+                    .map(|id| (id, SegmentQueryKind::RangeConstrained)),
+            );
+        self.search_top_k_in_segments_internal(
+            segment_iter,
+            Some(partition_bounds),
+            orderby_info,
+            window,
+            None,
+            None,
+        )
+    }
+
+    fn search_top_k_in_segments_internal(
+        &self,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
+        orderby_info: &[OrderByInfo],
+        window: TopKWindow,
+        aux_collector: Option<TopKAuxiliaryCollector>,
+        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+    ) -> TopKSearch {
+        let n = window.limit.0;
+        let offset = window.offset.0;
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -1617,11 +1730,11 @@ impl SearchIndexReader {
                             )));
                         }
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
+                            segments,
+                            partition_bounds,
                             (computer, order),
                             erased_features,
-                            n,
-                            offset,
+                            window,
                             aux_collector,
                         ))
                     }};
@@ -1635,11 +1748,11 @@ impl SearchIndexReader {
                 // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
                     return TopKSearch::new_for_discarded_field(self.top_in_segments(
-                        segment_ids,
+                        segments,
+                        partition_bounds,
                         (SortByRange::for_field(sort_field), order),
                         erased_features,
-                        n,
-                        offset,
+                        window,
                         aux_collector,
                     ));
                 }
@@ -1647,11 +1760,11 @@ impl SearchIndexReader {
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
+                            segments,
+                            partition_bounds,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
-                            n,
-                            offset,
+                            window,
                             aux_collector,
                         ))
                     }
@@ -1662,11 +1775,11 @@ impl SearchIndexReader {
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
+                            segments,
+                            partition_bounds,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
-                            n,
-                            offset,
+                            window,
                             aux_collector,
                         ))
                     }
@@ -1698,11 +1811,11 @@ impl SearchIndexReader {
                         )));
                 }
                 let (top_docs, aggregation_results) = self.top_in_segments(
-                    segment_ids,
+                    segments,
+                    partition_bounds,
                     (computer, order),
                     erased_features,
-                    n,
-                    offset,
+                    window,
                     aux_collector,
                 );
                 TopKSearch::new_for_score(
@@ -1714,10 +1827,10 @@ impl SearchIndexReader {
                 feature: OrderByFeature::Score { .. },
                 direction,
             } => self.top_by_score_in_segments(
-                segment_ids,
+                segments,
+                partition_bounds,
                 *direction,
-                n,
-                offset,
+                window,
                 aux_collector,
                 parallel_state_holding_shared_threshold,
             ),
@@ -1782,8 +1895,8 @@ impl SearchIndexReader {
                 // Rejected segment IDs have no corresponding ProbeStats entry.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
                 let readers =
-                    self.segment_readers_in_segments(segment_ids)
-                        .inspect(|(_, reader)| {
+                    self.segment_readers_with_query_kind(segments)
+                        .inspect(|(_, reader, _)| {
                             collected_ids.borrow_mut().push(reader.segment_id());
                         });
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
@@ -1792,24 +1905,33 @@ impl SearchIndexReader {
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
                 let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(readers, collector, aux_collector),
+                    0 => self.collect_maybe_auxiliary(
+                        readers,
+                        partition_bounds,
+                        collector,
+                        aux_collector,
+                    ),
                     1 => self.collect_maybe_auxiliary(
                         readers,
+                        partition_bounds,
                         collector.with_tie_break(next()),
                         aux_collector,
                     ),
                     2 => self.collect_maybe_auxiliary(
                         readers,
+                        partition_bounds,
                         collector.with_tie_break((next(), next())),
                         aux_collector,
                     ),
                     3 => self.collect_maybe_auxiliary(
                         readers,
+                        partition_bounds,
                         collector.with_tie_break((next(), next(), next())),
                         aux_collector,
                     ),
                     4 => self.collect_maybe_auxiliary(
                         readers,
+                        partition_bounds,
                         collector.with_tie_break((next(), next(), next(), next())),
                         aux_collector,
                     ),
@@ -1864,17 +1986,19 @@ impl SearchIndexReader {
     #[allow(clippy::type_complexity)]
     fn top_in_segments<S>(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
         first_feature: S,
         mut erased_features: ErasedFeatures,
-        n: usize,
-        offset: usize,
+        window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> TopKWithAggregate<S::SortKey>
     where
         S: SortKeyComputer + Clone + Send + 'static,
     {
-        let readers = self.segment_readers_in_segments(segment_ids);
+        let n = window.limit.0;
+        let offset = window.offset.0;
+        let readers = self.segment_readers_with_query_kind(segments);
         // if last erased feature is score, then we need to return the score
         match erased_features.len() {
             0 => {
@@ -1882,8 +2006,12 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by::<S::SortKey>(first_feature);
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1899,8 +2027,12 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by((first_feature, erased_feature));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1922,8 +2054,12 @@ impl SearchIndexReader {
                     erased_feature2,
                 ));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1947,8 +2083,12 @@ impl SearchIndexReader {
                     erased_feature3,
                 ));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1975,8 +2115,12 @@ impl SearchIndexReader {
                     erased_feature4,
                 ));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -2019,19 +2163,21 @@ impl SearchIndexReader {
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     fn top_by_score_in_segments(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
         sortdir: SortDirection,
-        n: usize,
-        offset: usize,
+        window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
+        let n = window.limit.0;
+        let offset = window.offset.0;
         // NOTE: which `sortdir` arm uses the Block-WAND pruning collector below
         // (only Desc, via `order_by::<Score>`) defines
         // `orderby_uses_score_desc_topk_collector` -- the plan-time gate that costs
         // ordered TopK as serial-vs-parallel (#4664). If you change which direction
         // prunes here, update that predicate to match, or the planner will mis-cost.
-        let readers = self.segment_readers_in_segments(segment_ids);
+        let readers = self.segment_readers_with_query_kind(segments);
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
@@ -2043,8 +2189,12 @@ impl SearchIndexReader {
                     },
                 );
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 TopKSearch::new_for_score(
                     top_docs
@@ -2068,8 +2218,12 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by::<Score>(computer);
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 TopKSearch::new_for_score(top_docs, aggregation_results)
             }
@@ -2405,19 +2559,18 @@ impl SearchIndexReader {
     /// Collector(s).
     fn collect_maybe_auxiliary<'a, C: Collector>(
         &self,
-        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader)>,
+        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
         top_docs_collector: C,
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
-        let query = self.query();
-        let weight = query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
-            .expect("creating a Weight from a Query should not fail");
-
         let Some(aux_collector) = aux_collector else {
             // No auxiliary collector.
-            let fruits =
-                self.collect_segment_readers(readers, &top_docs_collector, weight.as_ref());
+            let fruits = self.collect_segment_readers_by_query_kind(
+                readers,
+                partition_bounds,
+                &top_docs_collector,
+            );
             let top_docs = top_docs_collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segments");
@@ -2430,14 +2583,18 @@ impl SearchIndexReader {
         // Optionally wrap in MVCC visibility filtering, if requested.
         if let Some(vischeck) = aux_collector.vischeck {
             let collector = MVCCFilterCollector::new(compound_collector, vischeck);
-            let fruits = self.collect_segment_readers(readers, &collector, weight.as_ref());
+            let fruits =
+                self.collect_segment_readers_by_query_kind(readers, partition_bounds, &collector);
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         } else {
-            let fruits =
-                self.collect_segment_readers(readers, &compound_collector, weight.as_ref());
+            let fruits = self.collect_segment_readers_by_query_kind(
+                readers,
+                partition_bounds,
+                &compound_collector,
+            );
             let (top_docs, aggregation_results) = compound_collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segment");
@@ -2551,6 +2708,24 @@ impl SearchIndexReader {
         }))
     }
 
+    /// NOTE: Like `segment_readers_in_segments`, this method must consume `segments` lazily.
+    fn segment_readers_with_query_kind(
+        &self,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+    ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader, SegmentQueryKind)> {
+        segments.filter_map(move |(segment_id, query_kind)| {
+            let ord = self.segment_ordinal_by_id(&segment_id).unwrap_or_else(|| {
+                panic!(
+                    "segment {segment_id} should exist in this {} reader's {} segments",
+                    self.directory.mvcc_style_name(),
+                    self.searcher.segment_readers().len()
+                )
+            });
+            self.is_candidate(ord)
+                .then(|| (ord, self.searcher.segment_reader(ord), query_kind))
+        })
+    }
+
     fn collect_segment_readers<'a, C: Collector>(
         &self,
         readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader)>,
@@ -2562,6 +2737,45 @@ impl SearchIndexReader {
         }
         readers
             .map(|(segment_ord, segment_reader)| {
+                let fruit = collector
+                    .collect_segment(weight, segment_ord, segment_reader)
+                    .expect("should be able to collect in segment");
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(segment_reader.segment_id());
+                }
+                fruit
+            })
+            .collect()
+    }
+
+    fn collect_segment_readers_by_query_kind<'a, C: Collector>(
+        &self,
+        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
+        collector: &C,
+    ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
+        let unconstrained_weight = Arc::new(LazyWeight::new(
+            self.query().box_clone(),
+            self.need_scores,
+            self.searcher.clone(),
+        ));
+        let _ = unconstrained_weight.get();
+        let constrained_weight = partition_bounds.map(|bounds| {
+            let range_query = Box::new(ConstScoreQuery::new(self.make_query(bounds, None), 0.0));
+            unconstrained_weight.and_query(range_query)
+        });
+        if let Some(stats) = &self.directory.io_stats {
+            stats.reset();
+        }
+        readers
+            .map(|(segment_ord, segment_reader, query_kind)| {
+                let weight = match query_kind {
+                    SegmentQueryKind::Unconstrained => unconstrained_weight.get(),
+                    SegmentQueryKind::RangeConstrained => constrained_weight
+                        .as_ref()
+                        .expect("RangeConstrained segment requires partition_bounds")
+                        .get(),
+                };
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .expect("should be able to collect in segment");

@@ -701,8 +701,8 @@ SELECT created, COUNT(*)
 FROM pinned_key_items
 WHERE created = '2024-01-02' AND id @@@ paradedb.all()
 GROUP BY created;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: created, (count(*))
    Backend: DataFusion
@@ -712,7 +712,7 @@ GROUP BY created;
      : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.created) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, created@1 as created]
      :     CooperativeExec
-     :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"created","value":{"$__pdb_date__":"2024-01-02T00:00:00Z"}}}]}}
+     :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"created","value":{"$__pdb_date_days__":8767}}}]}}
 (10 rows)
 
 SELECT created, COUNT(*)

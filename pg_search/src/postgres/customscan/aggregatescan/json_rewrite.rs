@@ -22,40 +22,62 @@ use tantivy::aggregation::bucket::{
 };
 
 use crate::postgres::datetime::{
-    PostgresDateTime, unix_micros_to_pg_micros, unix_millis_to_pg_micros,
+    PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS, PostgresDate, PostgresTimestamp, unix_micros_to_pg_micros,
+    unix_millis_to_pg_micros,
 };
 use crate::postgres::types::is_pgoid_datetime_type;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 
-fn is_a_datetime_field(key: &str, schema: &SearchIndexSchema) -> bool {
-    if let Some(field) = schema.search_field(key)
-        && is_pgoid_datetime_type(field.field_type().typeoid())
-    {
-        return true;
-    }
-    false
+/// The storage representation behind a PostgreSQL date/time column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DatetimeKind {
+    /// PG-epoch microseconds in an `I64` column, or Unix nanoseconds in a legacy
+    /// tantivy `Date` column (which the aggregations already render as dates).
+    TimestampMicros,
+    /// PostgreSQL `DateADT` days in an `I64` column.
+    DateDays,
 }
 
-fn i64_value_to_timestamp_string(v: &serde_json::Value) -> Option<String> {
-    // only rewrite numbers. If this is a string already, it doesn't need rewriting. Any other kind
-    // of value should be left untouched since it's not what we expected to find.
-    if let serde_json::Value::Number(num) = v {
-        let pg_micros = num
-            .as_i64()
-            // some responses return floats
-            .or_else(|| num.as_f64().map(|f| f as i64))
-            .expect("This should always be a valid i64 since it's a stored timestamp value");
-        // A value outside the timestamp range, which a `sum` over a datetime
-        // column reaches, is left as the number it is.
-        let string = PostgresDateTime::try_from_raw(pg_micros).ok()?.to_string();
-        Some(string)
+pub fn datetime_kind_for_field(schema: &SearchIndexSchema, key: &str) -> Option<DatetimeKind> {
+    let field_type = schema.search_field(key)?.field_type();
+    if matches!(field_type, SearchFieldType::DateDays(_)) {
+        Some(DatetimeKind::DateDays)
+    } else if is_pgoid_datetime_type(field_type.typeoid()) {
+        Some(DatetimeKind::TimestampMicros)
     } else {
         None
     }
 }
 
-fn rewrite_i64_value_to_timestamp_string(v: &mut serde_json::Value) {
-    if let Some(string) = i64_value_to_timestamp_string(v) {
+fn i64_value_to_datetime_string(v: &serde_json::Value, kind: DatetimeKind) -> Option<String> {
+    // only rewrite numbers. If this is a string already, it doesn't need rewriting. Any other kind
+    // of value should be left untouched since it's not what we expected to find.
+    if let serde_json::Value::Number(num) = v {
+        let raw = num
+            .as_i64()
+            // some responses return floats
+            .or_else(|| num.as_f64().map(|f| f as i64))
+            .expect("This should always be a valid integer since it's a stored datetime value");
+        match kind {
+            DatetimeKind::TimestampMicros => {
+                // A value outside the timestamp range, which a `sum` over a datetime
+                // column reaches, is left as the number it is.
+                PostgresTimestamp::try_from_raw(raw)
+                    .ok()
+                    .map(|v| v.to_string())
+            }
+            DatetimeKind::DateDays => {
+                let days = i32::try_from(raw).ok()?;
+                PostgresDate::try_from_raw(days).ok().map(|v| v.to_string())
+            }
+        }
+    } else {
+        None
+    }
+}
+
+fn rewrite_i64_value_to_datetime_string(v: &mut serde_json::Value, kind: DatetimeKind) {
+    if let Some(string) = i64_value_to_datetime_string(v, kind) {
         *v = serde_json::Value::String(string);
     }
 }
@@ -66,16 +88,16 @@ pub fn rewrite_aggregate_result_json_timestamps(
     schema: &SearchIndexSchema,
 ) {
     rewrite_aggregate_result_json_timestamps_with(output_json, agg_json, &|key| {
-        is_a_datetime_field(key, schema)
+        datetime_kind_for_field(schema, key)
     });
 }
 
-/// [`rewrite_aggregate_result_json_timestamps`] with the datetime test supplied
+/// [`rewrite_aggregate_result_json_timestamps`] with the datetime kind supplied
 /// by the caller, for a query whose fields span several indexes.
 pub fn rewrite_aggregate_result_json_timestamps_with(
     output_json: &mut serde_json::Value,
     agg_json: &serde_json::Value,
-    is_datetime_field: &dyn Fn(&str) -> bool,
+    datetime_kind: &dyn Fn(&str) -> Option<DatetimeKind>,
 ) {
     // METRICS
     // tophits
@@ -83,11 +105,10 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
         .pointer("/top_hits/docvalue_fields")
         .and_then(|v| v.as_array())
     {
-        let keys: Vec<String> = keys
+        let keys: Vec<(String, DatetimeKind)> = keys
             .iter()
             .filter_map(|k| k.as_str())
-            .filter(|k| is_datetime_field(k))
-            .map(|k| k.to_string())
+            .filter_map(|k| Some((k.to_string(), datetime_kind(k)?)))
             .collect();
         if !keys.is_empty() {
             // rewrite hits[].docvalue_fields.{key}
@@ -97,11 +118,11 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
                         .get_mut("docvalue_fields")
                         .and_then(|v| v.as_object_mut())
                     {
-                        for key in keys.iter() {
+                        for (key, kind) in keys.iter() {
                             if let Some(values) = fields.get_mut(key).and_then(|v| v.as_array_mut())
                             {
                                 for v in values {
-                                    rewrite_i64_value_to_timestamp_string(v);
+                                    rewrite_i64_value_to_datetime_string(v, *kind);
                                 }
                             }
                         }
@@ -119,11 +140,11 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
     let single_metric_field_paths = ["/min/field", "/max/field", "/sum/field", "/avg/field"];
     for path in single_metric_field_paths {
         if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str())
-            && is_datetime_field(field_name)
+            && let Some(kind) = datetime_kind(field_name)
         {
             if let Some(obj) = output_json.as_object_mut()
                 && let Some(v) = obj.get("value")
-                && let Some(key_as_str) = i64_value_to_timestamp_string(v)
+                && let Some(key_as_str) = i64_value_to_datetime_string(v, kind)
             {
                 obj.insert(
                     "key_as_string".to_string(),
@@ -142,19 +163,14 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
         ("/histogram/field", (false, true)),
         ("/date_histogram/field", (false, true)),
     ];
-    let (rewrite_key, add_key_as_string) = path_and_rewrite_rules
+    let datetime_bucket = path_and_rewrite_rules
         .into_iter()
         .find_map(|(path, rules)| {
-            if let Some(key) = agg_json.pointer(path).and_then(|v| v.as_str()) {
-                if is_datetime_field(key) {
-                    Some(rules)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
+            let key = agg_json.pointer(path).and_then(|v| v.as_str())?;
+            Some((rules, datetime_kind(key)?))
+        });
+    let (rewrite_key, add_key_as_string) = datetime_bucket
+        .map(|(rules, _)| rules)
         .unwrap_or((false, false));
 
     // process buckets
@@ -163,17 +179,19 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
         .and_then(|v| v.as_array_mut())
     {
         for bucket in buckets.iter_mut().filter_map(|v| v.as_object_mut()) {
-            if rewrite_key && let Some(v) = bucket.get_mut("key") {
-                rewrite_i64_value_to_timestamp_string(v);
-            }
-            if add_key_as_string
-                && let Some(v) = bucket.get("key")
-                && let Some(key_as_str) = i64_value_to_timestamp_string(v)
-            {
-                bucket.insert(
-                    "key_as_string".to_string(),
-                    serde_json::Value::String(key_as_str),
-                );
+            if let Some((_, kind)) = datetime_bucket {
+                if rewrite_key && let Some(v) = bucket.get_mut("key") {
+                    rewrite_i64_value_to_datetime_string(v, kind);
+                }
+                if add_key_as_string
+                    && let Some(v) = bucket.get("key")
+                    && let Some(key_as_str) = i64_value_to_datetime_string(v, kind)
+                {
+                    bucket.insert(
+                        "key_as_string".to_string(),
+                        serde_json::Value::String(key_as_str),
+                    );
+                }
             }
             // sub-aggs
             if let Some(subaggs) = agg_json.get("aggs").and_then(|v| v.as_object()) {
@@ -182,7 +200,7 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
                         rewrite_aggregate_result_json_timestamps_with(
                             suboutput_json,
                             subagg_json,
-                            is_datetime_field,
+                            datetime_kind,
                         );
                     }
                 }
@@ -198,55 +216,100 @@ fn unix_millis_bounds_to_pg_micros(bounds: HistogramBounds) -> HistogramBounds {
     }
 }
 
+const MILLIS_PER_DAY: f64 = 86_400_000.0;
+
+fn unix_millis_bounds_to_pg_days(bounds: HistogramBounds) -> HistogramBounds {
+    HistogramBounds {
+        min: bounds.min / MILLIS_PER_DAY - f64::from(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS),
+        max: bounds.max / MILLIS_PER_DAY - f64::from(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS),
+    }
+}
+
 fn date_histogram_req_to_histogram_agg(
     date_histogram: &DateHistogramAggregationReq,
+    kind: DatetimeKind,
 ) -> Result<HistogramAggregation, TantivyError> {
     let mut histogram = date_histogram.to_histogram_req()?;
-    // adjust offset so that histogram buckets are based on unix epoch instead of pg epoch
-    let offset = match histogram.offset {
-        Some(v) => Some(unix_micros_to_pg_micros((v * 1_000.0) as i64) as f64),
-        None => Some(unix_micros_to_pg_micros(0) as f64),
-    };
-    // tantivy converts the intervals to milliseconds, so we need to convert that to microseconds
-    histogram.interval *= 1_000.0;
-    histogram.offset = offset;
-    // the bounds are specified as unix milliseconds, so we need to convert that to pg microseconds
-    histogram.hard_bounds = histogram.hard_bounds.map(unix_millis_bounds_to_pg_micros);
-    histogram.extended_bounds = histogram
-        .extended_bounds
-        .map(unix_millis_bounds_to_pg_micros);
+    match kind {
+        DatetimeKind::TimestampMicros => {
+            // adjust offset so that histogram buckets are based on unix epoch instead of pg epoch
+            let offset = match histogram.offset {
+                Some(v) => Some(unix_micros_to_pg_micros((v * 1_000.0) as i64) as f64),
+                None => Some(unix_micros_to_pg_micros(0) as f64),
+            };
+            // tantivy converts the intervals to milliseconds, so we need to convert that to microseconds
+            histogram.interval *= 1_000.0;
+            histogram.offset = offset;
+            // the bounds are specified as unix milliseconds, so we need to convert that to pg microseconds
+            histogram.hard_bounds = histogram.hard_bounds.map(unix_millis_bounds_to_pg_micros);
+            histogram.extended_bounds = histogram
+                .extended_bounds
+                .map(unix_millis_bounds_to_pg_micros);
+        }
+        DatetimeKind::DateDays => {
+            // `to_histogram_req` reports the interval and offset in milliseconds. A DATE
+            // column stores whole days, so a sub-day interval cannot split a value; it
+            // still gets its own day.
+            histogram.interval = (histogram.interval / MILLIS_PER_DAY).max(1.0);
+            let user_offset_days = histogram.offset.unwrap_or(0.0) / MILLIS_PER_DAY;
+            histogram.offset =
+                Some(-f64::from(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS) + user_offset_days);
+            histogram.hard_bounds = histogram.hard_bounds.map(unix_millis_bounds_to_pg_days);
+            histogram.extended_bounds =
+                histogram.extended_bounds.map(unix_millis_bounds_to_pg_days);
+        }
+    }
 
     Ok(histogram)
 }
 
-/// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
-/// pg_micros I64 representation
-pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), TantivyError> {
+/// If this agg contains date_histograms, rewrite them as regular histograms against the
+/// underlying storage representation.
+pub fn rewrite_date_histogram_to_histogram_with(
+    agg: &mut Aggregation,
+    datetime_kind: &dyn Fn(&str) -> Option<DatetimeKind>,
+) -> Result<(), TantivyError> {
     if let AggregationVariants::DateHistogram(date_histogram) = &agg.agg {
-        agg.agg =
-            AggregationVariants::Histogram(date_histogram_req_to_histogram_agg(date_histogram)?);
+        let kind = datetime_kind(&date_histogram.field).unwrap_or(DatetimeKind::TimestampMicros);
+        agg.agg = AggregationVariants::Histogram(date_histogram_req_to_histogram_agg(
+            date_histogram,
+            kind,
+        )?);
     }
     for subagg in agg.sub_aggregation.values_mut() {
-        rewrite_date_histogram_to_histogram(subagg)?;
+        rewrite_date_histogram_to_histogram_with(subagg, datetime_kind)?;
     }
     Ok(())
 }
 
-fn json_date_histogram_to_histogram(value: serde_json::Value) -> Option<serde_json::Value> {
+fn json_date_histogram_to_histogram(
+    value: serde_json::Value,
+    kind: DatetimeKind,
+) -> Option<serde_json::Value> {
     let as_req: DateHistogramAggregationReq = serde_json::from_value(value).ok()?;
-    let histogram_obj = date_histogram_req_to_histogram_agg(&as_req).ok()?;
+    let histogram_obj = date_histogram_req_to_histogram_agg(&as_req, kind).ok()?;
     serde_json::to_value(histogram_obj).ok()
 }
 
-/// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
-/// pg_micros I64 representation
-pub fn rewrite_json_date_histogram_to_histogram(agg_json: &mut serde_json::Value) {
+/// If this agg contains date_histograms, rewrite them as regular histograms against the
+/// underlying storage representation.
+pub fn rewrite_json_date_histogram_to_histogram(
+    agg_json: &mut serde_json::Value,
+    datetime_kind: &dyn Fn(&str) -> Option<DatetimeKind>,
+) {
     if let Some(agg_obj) = agg_json.as_object_mut()
         && let Some(date_histogram_obj) = agg_obj.get("date_histogram")
     {
+        let kind = date_histogram_obj
+            .get("field")
+            .and_then(|v| v.as_str())
+            .and_then(datetime_kind)
+            .unwrap_or(DatetimeKind::TimestampMicros);
         // only modify the object if the rewrite is successful. Otherwise let the object
         // pass-through and allow tantivy to reject the bad structure
-        if let Some(histogram_obj) = json_date_histogram_to_histogram(date_histogram_obj.clone()) {
+        if let Some(histogram_obj) =
+            json_date_histogram_to_histogram(date_histogram_obj.clone(), kind)
+        {
             agg_obj.remove("date_histogram");
             agg_obj.insert("histogram".to_string(), histogram_obj);
         }
@@ -254,7 +317,7 @@ pub fn rewrite_json_date_histogram_to_histogram(agg_json: &mut serde_json::Value
     // recurse into subaggs
     if let Some(subaggs) = agg_json.get_mut("aggs").and_then(|v| v.as_object_mut()) {
         for v in subaggs.values_mut() {
-            rewrite_json_date_histogram_to_histogram(v);
+            rewrite_json_date_histogram_to_histogram(v, datetime_kind);
         }
     }
 }

@@ -60,6 +60,53 @@ mod tests {
     }
 
     #[pg_test]
+    fn empirical_datetime_stats_use_the_field_representation() {
+        let stats = |min, max| EmpiricalStats {
+            min,
+            max,
+            nullable: false,
+        };
+        let epoch = PostgresDate::try_from_raw(0).unwrap();
+        let next_day = PostgresDate::try_from_raw(1).unwrap();
+        assert_eq!(
+            stats(PdbOwnedValue::I64(0), PdbOwnedValue::I64(1))
+                .into_datetimes(true, true)
+                .unwrap(),
+            stats(PdbOwnedValue::Date(epoch), PdbOwnedValue::Date(next_day))
+        );
+        let timestamp = PostgresTimestamp::try_from_raw(0).unwrap();
+        assert_eq!(
+            stats(PdbOwnedValue::I64(0), PdbOwnedValue::I64(0))
+                .into_datetimes(false, true)
+                .unwrap(),
+            stats(PdbOwnedValue::Date(epoch), PdbOwnedValue::Date(epoch))
+        );
+        assert_eq!(
+            stats(
+                PdbOwnedValue::Timestamp(timestamp),
+                PdbOwnedValue::Timestamp(timestamp),
+            )
+            .into_datetimes(false, true)
+            .unwrap(),
+            stats(PdbOwnedValue::Date(epoch), PdbOwnedValue::Date(epoch))
+        );
+        assert_eq!(
+            stats(PdbOwnedValue::I64(0), PdbOwnedValue::I64(0))
+                .into_datetimes(false, false)
+                .unwrap(),
+            stats(
+                PdbOwnedValue::Timestamp(timestamp),
+                PdbOwnedValue::Timestamp(timestamp),
+            )
+        );
+        assert!(
+            stats(PdbOwnedValue::I64(i64::MAX), PdbOwnedValue::I64(0))
+                .into_datetimes(true, true)
+                .is_none()
+        );
+    }
+
+    #[pg_test]
     fn empirical_stats_match_the_table() {
         Spi::run(
             r#"
@@ -553,7 +600,8 @@ mod tests {
                     matches!(raw.min, PdbOwnedValue::I64(_)),
                     "stored as the column's raw micros"
                 );
-                raw.into_dates().unwrap()
+                // `false, false` means a timestamp column, which stores microseconds in I64.
+                raw.into_datetimes(false, false).unwrap()
             })
             .collect();
         let mut mins: Vec<PdbOwnedValue> = ranges.iter().map(|r| r.min.clone()).collect();

@@ -335,6 +335,7 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
             SearchFieldType::Json(_) => builder.add_json_field(name.as_ref(), config.clone()),
             SearchFieldType::Range(_) => builder.add_json_field(name.as_ref(), config.clone()),
             SearchFieldType::Date(_) => builder.add_date_field(name.as_ref(), config.clone()),
+            SearchFieldType::DateDays(_) => builder.add_i64_field(name.as_ref(), config.clone()),
             // NUMERIC with precision <= 18: stored as I64 with fixed-point scaling
             SearchFieldType::Numeric64(_, _) => {
                 builder.add_i64_field(name.as_ref(), config.clone())

@@ -419,7 +419,7 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::datetime::PostgresDateTime;
+    use crate::postgres::datetime::PostgresTimestamp;
 
     fn dims(names: &[&str]) -> Vec<FieldName> {
         names
@@ -687,8 +687,8 @@ mod tests {
                     PdbOwnedValue::Bool(i % 3 == 0),
                     PdbOwnedValue::I64(i),
                     // One day apart, starting at the Postgres epoch (2000-01-01).
-                    PdbOwnedValue::Date(
-                        PostgresDateTime::try_from_raw(i * 86_400_000_000).unwrap(),
+                    PdbOwnedValue::Timestamp(
+                        PostgresTimestamp::try_from_raw(i * 86_400_000_000).unwrap(),
                     ),
                 ]
             })
@@ -779,8 +779,8 @@ mod tests {
         let sample: Vec<Point> = (0..100)
             .map(|i| {
                 vec![
-                    PdbOwnedValue::Date(
-                        PostgresDateTime::try_from_raw(i * 86_400_000_000).unwrap(),
+                    PdbOwnedValue::Timestamp(
+                        PostgresTimestamp::try_from_raw(i * 86_400_000_000).unwrap(),
                     ),
                     PdbOwnedValue::Str(format!("k{:02}", i / 10)),
                 ]

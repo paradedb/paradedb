@@ -22,7 +22,6 @@ pub mod range;
 use crate::api::version::{Version, VersionInfo};
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
-use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
@@ -68,6 +67,7 @@ pub enum SearchFieldType {
     U64(pg_sys::Oid),
     Bool(pg_sys::Oid),
     Json(pg_sys::Oid),
+    /// Legacy DATE/timestamp storage: a tantivy `DateTime` (nanoseconds from the Unix epoch).
     Date(pg_sys::Oid),
     Range(pg_sys::Oid),
     /// NUMERIC with precision <= 18 and a scale in -18..=18: stored as I64 with fixed-point
@@ -80,6 +80,8 @@ pub enum SearchFieldType {
     /// Dense vector field (pgvector type). The usize is the number of dimensions,
     /// and `VectorMetric` is the distance metric (default L2).
     Vector(pg_sys::Oid, usize, VectorMetric),
+    /// New DATE storage: PostgreSQL's `DateADT` day count in an `I64` fast field.
+    DateDays(pg_sys::Oid),
 }
 
 impl SearchFieldType {
@@ -111,6 +113,7 @@ impl SearchFieldType {
             SearchFieldType::Bool(_) => SearchFieldConfig::default_boolean(),
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
+            SearchFieldType::DateDays(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::Range(_) => SearchFieldConfig::default_range(),
             SearchFieldType::Vector(_, dims, _) => SearchFieldConfig::default_vector(*dims),
         }
@@ -129,6 +132,7 @@ impl SearchFieldType {
             SearchFieldType::Bool(oid) => *oid,
             SearchFieldType::Json(oid) => *oid,
             SearchFieldType::Date(oid) => *oid,
+            SearchFieldType::DateDays(oid) => *oid,
             SearchFieldType::Range(oid) => *oid,
             SearchFieldType::Numeric64(oid, _) => *oid,
             SearchFieldType::NumericBytes(oid, _) => *oid,
@@ -168,7 +172,8 @@ impl SearchFieldType {
     /// empty accessor and every hit gets `"sort": [null]` with no ordering applied (see
     /// issue #5710). Sortable types must therefore lower to one of those Arrow storage
     /// types: `I64`, `U64`, `F64`, `Date`, and `Numeric64` (stored as scaled `Int64`) all
-    /// qualify. `NumericBytes` is excluded because it stores as `BinaryView`.
+    /// qualify. `DateDays` also stores as `Date32`/`Int64` and qualifies. `NumericBytes` is
+    /// excluded because it stores as `BinaryView`.
     pub fn supports_top_hits_sort(&self) -> bool {
         matches!(
             self,
@@ -176,6 +181,7 @@ impl SearchFieldType {
                 | SearchFieldType::U64(_)
                 | SearchFieldType::F64(_)
                 | SearchFieldType::Date(_)
+                | SearchFieldType::DateDays(_)
                 | SearchFieldType::Numeric64(..)
         )
     }
@@ -213,6 +219,8 @@ impl SearchFieldType {
             SearchFieldType::Date(_) => {
                 arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
             }
+            // Date stored as PostgreSQL's `DateADT` day count.
+            SearchFieldType::DateDays(_) => arrow_schema::DataType::Date32,
 
             // Numeric64 is stored as Int64 (scaled integer)
             SearchFieldType::Numeric64(..) => arrow_schema::DataType::Int64,
@@ -375,9 +383,17 @@ impl SearchFieldType {
                 | PgBuiltInOids::DATERANGEOID
                 | PgBuiltInOids::TSRANGEOID
                 | PgBuiltInOids::TSTZRANGEOID => Ok(SearchFieldType::Range((*builtin).into())),
+                PgBuiltInOids::DATEOID => {
+                    if index_created_by_version.stores_dates_as_days() {
+                        Ok(SearchFieldType::DateDays((*builtin).into()))
+                    } else if index_created_by_version.stores_datetimes_in_i64() {
+                        Ok(SearchFieldType::I64((*builtin).into()))
+                    } else {
+                        Ok(SearchFieldType::Date((*builtin).into()))
+                    }
+                }
                 PgBuiltInOids::TIMESTAMPOID
                 | PgBuiltInOids::TIMESTAMPTZOID
-                | PgBuiltInOids::DATEOID
                 | PgBuiltInOids::TIMEOID
                 | PgBuiltInOids::TIMETZOID => {
                     if index_created_by_version.stores_datetimes_in_i64() {
@@ -985,35 +1001,35 @@ impl SearchField {
             | (FieldType::I64(_), PdbOwnedValue::I64(_))
             | (FieldType::F64(_), PdbOwnedValue::F64(_))
             | (FieldType::Bool(_), PdbOwnedValue::Bool(_))
-            | (FieldType::Date(_), PdbOwnedValue::Date(_))
+            | (FieldType::Date(_), PdbOwnedValue::Timestamp(_))
             | (FieldType::Facet(_), PdbOwnedValue::Facet(_))
             | (FieldType::JsonObject(_), PdbOwnedValue::Object(_)) => Ok(()),
-            (FieldType::Date(_), PdbOwnedValue::Str(s)) => {
-                let typeoid = match self.field_type {
-                    SearchFieldType::Date(oid) => PgOid::from(oid),
-                    _ => bail!(
-                        "field type mismatch: expected Date but got {:?}",
-                        self.field_type
-                    ),
-                };
-                let datetime = convert_pg_date_string(typeoid, &s);
-                *value = PdbOwnedValue::Date(datetime);
+            (FieldType::Date(_), PdbOwnedValue::Date(_)) => Ok(()),
+            (FieldType::I64(_), PdbOwnedValue::Timestamp(timestamp))
+                if matches!(self.field_type, SearchFieldType::DateDays(_)) =>
+            {
+                *value = PdbOwnedValue::Date(
+                    crate::postgres::datetime::PostgresDate::try_from(timestamp)
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+                );
                 Ok(())
             }
-            (FieldType::I64(_), PdbOwnedValue::Str(s))
+            (FieldType::I64(_), PdbOwnedValue::Timestamp(_))
                 if is_pgoid_datetime_type(self.field_type.typeoid()) =>
             {
-                match self.field_type.typeoid() {
-                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPOID) => {
-                        let pg_dt = PostgresDateTime::try_from_timestamp_str(&s)?;
-                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
-                    }
-                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPTZOID) => {
-                        let pg_dt = PostgresDateTime::try_from_timestamptz_str(&s)?;
-                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
-                    }
-                    _ => unreachable!(),
-                }
+                Ok(())
+            }
+            // New DATE fields store days; legacy DATE fields still accept the semantic value and
+            // encode it according to the index version.
+            (FieldType::I64(_), PdbOwnedValue::Date(_))
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
+            {
+                Ok(())
+            }
+            (FieldType::Date(_) | FieldType::I64(_), PdbOwnedValue::Str(s))
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
+            {
+                *value = convert_pg_date_string(self.field_type.typeoid(), &s);
                 Ok(())
             }
             (FieldType::U64(_), PdbOwnedValue::I64(v)) => {

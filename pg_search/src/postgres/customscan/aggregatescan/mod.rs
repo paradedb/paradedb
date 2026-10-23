@@ -116,7 +116,7 @@ use crate::postgres::customscan::projections::{
 };
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel_get_bm25_index;
@@ -126,6 +126,7 @@ use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
 use crate::query::SearchQueryInput;
+use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
@@ -2717,6 +2718,8 @@ unsafe fn fill_slot_from_row(
                         row.group_keys[*gc_idx].clone(),
                         expected_typoid,
                         grouping_columns[*gc_idx].original_type_oid,
+                        &grouping_columns[*gc_idx].field_name,
+                        &index_info.schema,
                     )
                 }
             }
@@ -2811,6 +2814,8 @@ unsafe fn group_key_to_datum(
     key: TantivyValue,
     expected_typoid: pg_sys::Oid,
     original_typoid: pg_sys::Oid,
+    field_name: &str,
+    schema: &crate::schema::SearchIndexSchema,
 ) -> Option<pg_sys::Datum> {
     // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
     // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
@@ -2835,24 +2840,39 @@ unsafe fn group_key_to_datum(
             .expect("should be able to convert to datum");
     }
 
-    // For datetime types, Tantivy's terms aggregation returns the date as
-    // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
-    // this string and convert it to the appropriate PostgreSQL date type.
+    // For datetime types, Tantivy's terms aggregation returns either an ISO 8601
+    // string (legacy Date columns), PG-epoch microseconds (I64 timestamp columns), or
+    // PostgreSQL `DateADT` days (new DATE columns).
     match &key.0 {
         PdbOwnedValue::Str(date_str) => {
-            let pgdt = match PostgresDateTime::try_from(date_str.as_str()) {
+            let pgdt = match PostgresTimestamp::try_from(date_str.as_str()) {
                 Ok(ts) => ts,
                 Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
             };
-            TantivyValue(PdbOwnedValue::Date(pgdt))
+            TantivyValue(PdbOwnedValue::Timestamp(pgdt))
                 .try_into_datum(expected_typoid.into())
                 .expect("should be able to convert into datum")
         }
-        PdbOwnedValue::I64(pg_micros) => {
-            // (i64-storage) indexes: bucket key is already PG-epoch micros.
-            let pgdt = PostgresDateTime::try_from_raw(*pg_micros)
-                .expect("We should never see an invalid timestamp coming back from tantivy");
-            TantivyValue(PdbOwnedValue::Date(pgdt))
+        PdbOwnedValue::Date(_) => key
+            .try_into_datum(pgrx::PgOid::from(expected_typoid))
+            .expect("should be able to convert into datum"),
+        PdbOwnedValue::I64(raw) => {
+            let is_date_days = schema
+                .search_field(field_name)
+                .is_some_and(|field| matches!(field.field_type(), SearchFieldType::DateDays(_)));
+            let value = if is_date_days {
+                let days = i32::try_from(*raw)
+                    .expect("a DATE day count read back from tantivy must fit in an i32");
+                let date = PostgresDate::try_from_raw(days)
+                    .expect("We should never see an invalid date coming back from tantivy");
+                PdbOwnedValue::Date(date)
+            } else {
+                // (i64-storage) indexes: bucket key is already PG-epoch micros.
+                let pgdt = PostgresTimestamp::try_from_raw(*raw)
+                    .expect("We should never see an invalid timestamp coming back from tantivy");
+                PdbOwnedValue::Timestamp(pgdt)
+            };
+            TantivyValue(value)
                 .try_into_datum(expected_typoid.into())
                 .expect("should be able to convert into datum")
         }

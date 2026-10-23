@@ -23,12 +23,23 @@ pub struct Version {
     pub major: u16,
     pub minor: u16,
     pub patch: u16,
+    /// The DATE layout is independent of the package version until its first release.
+    #[serde(default)]
+    pub date_days_storage: bool,
 }
 
 /// The first pg_search version in which datetime fields are stored as i64 microseconds from the
 /// PG epoch (rather than tantivy `DateTime` nanoseconds from the Unix epoch). Used at read/write
 /// time to gate which storage representation an index uses.
 pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
+
+/// The first pg_search version whose `DATE` fields store PostgreSQL's `DateADT` day count in an
+/// `I64` fast field, rather than a midnight timestamp. Indexes created earlier keep the timestamp
+/// representation (and its narrower range) for new rows; a `REINDEX` moves such an index to day
+/// storage.
+///
+/// This is a placeholder for the next release; it must be corrected when the version is known.
+pub const DATE_DAYS_STORAGE_VERSION: Version = Version::new(0, 27, 0);
 
 /// The first pg_search version whose `NumericBytes` fast fields store negative values in a byte
 /// layout that sorts them correctly (`decimal-bytes` 0.5). Indexes created earlier keep receiving
@@ -47,7 +58,13 @@ impl Version {
             major,
             minor,
             patch,
+            date_days_storage: false,
         }
+    }
+
+    pub const fn with_date_days_storage(mut self) -> Self {
+        self.date_days_storage = true;
+        self
     }
 }
 
@@ -63,11 +80,15 @@ impl std::fmt::Display for Version {
 /// existed; for capability checks that gate new behavior, treat `None` as "does not have it".
 pub trait VersionInfo {
     fn stores_datetimes_in_i64(&self) -> bool;
+    fn stores_dates_as_days(&self) -> bool;
     fn stores_sortable_negative_numeric_bytes(&self) -> bool;
 }
 impl VersionInfo for Version {
     fn stores_datetimes_in_i64(&self) -> bool {
         self >= &DATETIME_I64_STORAGE_VERSION
+    }
+    fn stores_dates_as_days(&self) -> bool {
+        self.date_days_storage || self >= &DATE_DAYS_STORAGE_VERSION
     }
     fn stores_sortable_negative_numeric_bytes(&self) -> bool {
         self >= &NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION
@@ -76,6 +97,9 @@ impl VersionInfo for Version {
 impl VersionInfo for Option<Version> {
     fn stores_datetimes_in_i64(&self) -> bool {
         self.filter(|v| v.stores_datetimes_in_i64()).is_some()
+    }
+    fn stores_dates_as_days(&self) -> bool {
+        self.filter(|v| v.stores_dates_as_days()).is_some()
     }
     fn stores_sortable_negative_numeric_bytes(&self) -> bool {
         self.filter(|v| v.stores_sortable_negative_numeric_bytes())
@@ -108,5 +132,13 @@ mod tests {
         assert!(Version::new(0, 18, 9) < Version::new(0, 19, 0));
         assert!(Version::new(0, 99, 99) < Version::new(1, 0, 0));
         assert_eq!(Version::new(1, 2, 3), Version::new(1, 2, 3));
+    }
+
+    #[test]
+    fn date_storage_marker_distinguishes_indexes_at_the_same_version() {
+        let version = Version::new(0, 26, 0);
+        assert!(!version.stores_dates_as_days());
+        assert!(version.with_date_days_storage().stores_dates_as_days());
+        assert!(DATE_DAYS_STORAGE_VERSION.stores_dates_as_days());
     }
 }

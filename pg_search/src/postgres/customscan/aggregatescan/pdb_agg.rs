@@ -26,8 +26,10 @@
 //! own, so a query reads the same on either backend.
 
 use crate::aggregate::{NULL_SENTINEL_MAX, scrub_missing_sentinel_value};
-use crate::api::{HashMap, HashSet, MvccVisibility};
-use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps_with;
+use crate::api::{HashMap, MvccVisibility};
+use crate::postgres::customscan::aggregatescan::json_rewrite::{
+    DatetimeKind, rewrite_aggregate_result_json_timestamps_with,
+};
 use crate::postgres::customscan::datafusion::cardinality_agg::decode_sketch;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
@@ -74,10 +76,22 @@ pub struct PdbAggFieldRef {
 }
 
 impl PdbAggFieldRef {
-    /// Datetime columns reach DataFusion as PG-epoch microseconds and are rendered
-    /// as timestamps, the way the Tantivy backend rewrites them.
+    /// How a date/time column reaches the aggregation backends: a timestamp in
+    /// PG-epoch microseconds, or a DATE as PostgreSQL `DateADT` days.
+    pub fn datetime_kind(&self) -> Option<DatetimeKind> {
+        match self.field_type {
+            SearchFieldType::DateDays(_) => Some(DatetimeKind::DateDays),
+            _ if is_pgoid_datetime_type(self.field_type.typeoid()) => {
+                Some(DatetimeKind::TimestampMicros)
+            }
+            _ => None,
+        }
+    }
+
+    /// Datetime columns are rendered as dates/timestamps, the way the Tantivy
+    /// backend rewrites them.
     pub fn is_datetime(&self) -> bool {
-        is_pgoid_datetime_type(self.field_type.typeoid())
+        self.datetime_kind().is_some()
     }
 
     /// The Tantivy column type of the field's fast field, which salts the
@@ -85,9 +99,10 @@ impl PdbAggFieldRef {
     /// sub-field only reaches this backend when it holds text.
     pub fn column_type(&self) -> ColumnType {
         match self.field_type {
-            SearchFieldType::I64(_) | SearchFieldType::Date(_) | SearchFieldType::Numeric64(..) => {
-                ColumnType::I64
-            }
+            SearchFieldType::I64(_)
+            | SearchFieldType::Date(_)
+            | SearchFieldType::DateDays(_)
+            | SearchFieldType::Numeric64(..) => ColumnType::I64,
             SearchFieldType::U64(_) => ColumnType::U64,
             SearchFieldType::F64(_) => ColumnType::F64,
             SearchFieldType::Bool(_) => ColumnType::Bool,
@@ -121,6 +136,7 @@ fn check_field_type(
                 | SearchFieldType::U64(_)
                 | SearchFieldType::F64(_)
                 | SearchFieldType::Date(_)
+                | SearchFieldType::DateDays(_)
                 | SearchFieldType::Numeric64(..)
                 | SearchFieldType::NumericBytes(..)
         )
@@ -311,7 +327,8 @@ fn check_missing(field: &PdbAggFieldRef, missing: Option<&Key>) -> Result<(), St
             SearchFieldType::I64(_)
             | SearchFieldType::U64(_)
             | SearchFieldType::F64(_)
-            | SearchFieldType::Date(_),
+            | SearchFieldType::Date(_)
+            | SearchFieldType::DateDays(_),
             Key::Str(_),
         ) => Err(format!("`missing` for field '{name}' must be a number")),
         _ => Ok(()),
@@ -473,7 +490,7 @@ struct PdbAggEntryLayout {
     root: PdbAggNodeLayout,
     agg: Aggregation,
     agg_json: serde_json::Value,
-    datetime_fields: HashSet<String>,
+    datetime_fields: HashMap<String, DatetimeKind>,
 }
 
 /// What one column of a [`PdbAggPlan`]'s output holds.
@@ -647,8 +664,7 @@ impl PdbAggPlan {
                 datetime_fields: request
                     .fields
                     .iter()
-                    .filter(|(_, field)| field.is_datetime())
-                    .map(|(name, _)| name.clone())
+                    .filter_map(|(name, field)| Some((name.clone(), field.datetime_kind()?)))
                     .collect(),
             });
         }
@@ -864,7 +880,8 @@ fn value_f64(value: &PdbOwnedValue) -> Option<f64> {
         PdbOwnedValue::U64(v) => Some(*v as f64),
         PdbOwnedValue::F64(v) => Some(*v),
         PdbOwnedValue::Bool(b) => Some(f64::from(u8::from(*b))),
-        PdbOwnedValue::Date(d) => Some(d.into_inner() as f64),
+        PdbOwnedValue::Date(d) => Some(f64::from(d.into_inner())),
+        PdbOwnedValue::Timestamp(d) => Some(d.into_inner() as f64),
         _ => None,
     }
 }
@@ -881,7 +898,8 @@ fn intermediate_key(key: PdbOwnedValue, field: &PdbAggFieldRef) -> IntermediateK
         PdbOwnedValue::U64(v) => IntermediateKey::U64(v),
         PdbOwnedValue::F64(v) => IntermediateKey::F64(v),
         PdbOwnedValue::Bool(b) => IntermediateKey::Bool(b),
-        PdbOwnedValue::Date(d) => IntermediateKey::I64(d.into_inner()),
+        PdbOwnedValue::Date(d) => IntermediateKey::I64(i64::from(d.into_inner())),
+        PdbOwnedValue::Timestamp(d) => IntermediateKey::I64(d.into_inner()),
         _ if field.field_type.is_numeric() => IntermediateKey::F64(f64::MAX),
         _ => match field.column_type() {
             ColumnType::I64 => IntermediateKey::I64(i64::MAX),
@@ -1086,7 +1104,7 @@ impl Assembler<'_> {
         // rewrite would turn it into one.
         scrub_missing_sentinel_value(&mut json);
         rewrite_aggregate_result_json_timestamps_with(&mut json, &entry.agg_json, &|name| {
-            entry.datetime_fields.contains(name)
+            entry.datetime_fields.get(name).copied()
         });
         Ok(json)
     }

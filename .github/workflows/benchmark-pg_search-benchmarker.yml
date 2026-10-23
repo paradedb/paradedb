@@ -99,7 +99,7 @@ jobs:
             --remove-label benchmark-benchmarker \
             --remove-label benchmark-benchmarker-hn || true
 
-      - name: Determine Ref To Benchmark
+      - name: Determine Ref to Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -146,7 +146,7 @@ jobs:
         working-directory: benchmarker
         run: ./bin/loader load --backend paradedb "./datasets/${DATASET}"
 
-      - name: Restart Database For A Clean Start
+      - name: Restart Database for a Clean Start
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
@@ -188,7 +188,7 @@ jobs:
             mv "${dashboard_html[0]}" "$root/results/${name}.html"
           done
 
-      - name: Dump Database Logs On Failure
+      - name: Dump Database Logs on Failure
         if: failure() || cancelled()
         run: |
           echo "== Docker containers =="
@@ -255,7 +255,7 @@ jobs:
             --remove-label benchmark-benchmarker \
             --remove-label "benchmark-benchmarker-${DATASET}" || true
 
-      - name: Determine Ref To Benchmark
+      - name: Determine Ref to Benchmark
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
@@ -322,7 +322,7 @@ jobs:
           sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${target_dir}"
           rm -f "${RUNNER_TEMP}/heap.tar.zst"
 
-      - name: Build ${{ env.DATASET }} Index With ${{ env.IMAGE_TAG }}
+      - name: Build ${{ env.DATASET }} Index with ${{ env.IMAGE_TAG }}
         working-directory: benchmarker/datasets/_ci_config
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
@@ -385,7 +385,7 @@ jobs:
           done
           run_benchmark count mixed
 
-      - name: Dump Database Logs On Failure
+      - name: Dump Database Logs on Failure
         if: failure() || cancelled()
         run: |
           echo "== Docker containers =="
@@ -423,7 +423,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack On Failure (Push Only)
+      - name: Notify Slack on Failure (Push only)
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

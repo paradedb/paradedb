@@ -11,6 +11,10 @@ permissions:
 
 jobs:
   squash-gh-pages:
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
     name: Compact and Squash gh-pages History
     runs-on: ubuntu-latest
     steps:

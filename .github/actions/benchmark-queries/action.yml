@@ -1,5 +1,5 @@
 name: Benchmark - Queries
-description: Run a given benchmark dataset against pg_search and publish metrics
+description: Run a given benchmark dataset against pg_search and stage results for publication
 
 inputs:
   dataset:
@@ -13,9 +13,6 @@ inputs:
     required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
-    required: true
-  github_token:
-    description: "GitHub token to authenticate with"
     required: true
   fail_on_error:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
@@ -78,8 +75,6 @@ runs:
           --output json \
           --fail-on-error "${FAIL_ON_ERROR}"
 
-        echo "ROWS_LABEL=${SIZE}" >> "$GITHUB_ENV"
-
     - name: Upload Query Benchmark Results
       if: always()
       uses: actions/upload-artifact@v7
@@ -101,50 +96,10 @@ runs:
         PG_VERSION: ${{ env.pg_version }}
       run: ./.github/scripts/render_crashdump.sh
 
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
-
-    - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+    - name: Stage results for publication
+      uses: ./.github/actions/stage-benchmark-results
       with:
-        name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
-        ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output-file-path: benchmarks/results.json
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        auto-push: ${{ inputs.publish }}
-        benchmark-data-dir-path: benchmarks
-        alert-threshold: ${{ inputs.alert_threshold }}
-        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ github.event_name == 'pull_request' }}
-
-    # The publish step above appends the current run to its local gh-pages clone, so the script
-    # takes the second-to-last entry as the baseline.
-    - name: Compare Against Baseline (Paired Bootstrap)
-      if: inputs.alert_strategy == 'paired-bootstrap'
-      id: paired_bootstrap
-      shell: bash
-      env:
-        INPUTS_DATASET: ${{ inputs.dataset }}
-        INPUTS_INDEX: ${{ inputs.index }}
-      run: |
-        python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
-          --results benchmarks/results.json \
-          --data-js benchmark-data-repository/benchmarks/data.js \
-          --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ env.ROWS_LABEL }} rows)" \
-          --out benchmark-alert.md
-
-    - name: Comment on Alert (Paired Bootstrap)
-      if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github_token }}
-      run: |
-        printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
-        gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-          -F body=@benchmark-alert.md
+        kind: queries
+        key: ${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}
+        metadata: ${{ toJSON(inputs) }}
+        path: benchmarks/results.json

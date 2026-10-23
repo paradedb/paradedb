@@ -1,0 +1,89 @@
+name: Publish Benchmark Results
+
+on:
+  workflow_call:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  find-results:
+    runs-on: ubuntu-latest
+    outputs:
+      artifacts: ${{ steps.results.outputs.artifacts }}
+      count: ${{ steps.results.outputs.count }}
+    steps:
+      - uses: actions/github-script@v9
+        id: results
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: context.runId, per_page: 100,
+            });
+            const suffix = `-${process.env.GITHUB_RUN_ATTEMPT}`;
+            const results = artifacts.filter(a => !a.expired && a.name.startsWith('gh-pages-') && a.name.endsWith(suffix));
+            core.setOutput('artifacts', JSON.stringify(results.map(a => a.id)));
+            core.setOutput('count', results.length);
+
+  publish:
+    needs: find-results
+    if: needs.find-results.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJSON(needs.find-results.outputs.artifacts) }}
+    # Every writer uses this group, including backfill reset and history compaction.
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ matrix.artifact }}
+          merge-multiple: true
+
+      - name: Read publication inputs
+        id: metadata
+        run: echo "json=$(jq -c . _benchmark_publish/metadata.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Benchmarker results
+        if: fromJSON(steps.metadata.outputs.json).kind == 'benchmarker'
+        uses: ./.github/actions/publish-benchmarker-results
+        with:
+          dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
+          short_commit: ${{ fromJSON(steps.metadata.outputs.json).short_commit }}
+          ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}
+          auto_push: ${{ fromJSON(steps.metadata.outputs.json).auto_push }}
+
+      - name: Publish Query results
+        if: fromJSON(steps.metadata.outputs.json).kind == 'queries'
+        uses: ./.github/actions/publish-queries-results
+        with:
+          dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
+          index: ${{ fromJSON(steps.metadata.outputs.json).index }}
+          size: ${{ fromJSON(steps.metadata.outputs.json).size }}
+          ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish: ${{ fromJSON(steps.metadata.outputs.json).publish }}
+          alert_threshold: ${{ fromJSON(steps.metadata.outputs.json).alert_threshold }}
+          alert_strategy: ${{ fromJSON(steps.metadata.outputs.json).alert_strategy }}
+
+      - name: Publish Stressgres results
+        if: fromJSON(steps.metadata.outputs.json).kind == 'stressgres'
+        uses: ./.github/actions/publish-stressgres-results
+        with:
+          test_file: ${{ fromJSON(steps.metadata.outputs.json).test_file }}
+          ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

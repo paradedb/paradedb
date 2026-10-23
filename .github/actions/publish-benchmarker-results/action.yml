@@ -125,7 +125,6 @@ runs:
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
       if: hashFiles(inputs.metrics_file) != ''
-      continue-on-error: true
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "benchmarker ${{ inputs.dataset }} (latency)"
@@ -158,7 +157,6 @@ runs:
     - name: Publish QPS Metrics
       id: publish_throughput
       if: hashFiles(inputs.throughput_metrics_file) != ''
-      continue-on-error: true
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "benchmarker ${{ inputs.dataset }} (throughput)"

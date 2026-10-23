@@ -1,0 +1,41 @@
+name: Stage Benchmark Results
+description: Save results and publication inputs for the queued publisher
+inputs:
+  kind:
+    required: true
+    description: Publisher kind
+  key:
+    required: true
+    description: Unique dataset or suite key
+  metadata:
+    required: true
+    description: Publication inputs as JSON; credentials are removed before upload
+  path:
+    required: true
+    description: Result files to upload
+runs:
+  using: composite
+  steps:
+    - name: Save publication inputs
+      shell: bash
+      env:
+        METADATA: ${{ inputs.metadata }}
+        KIND: ${{ inputs.kind }}
+      run: |
+        mkdir -p _benchmark_publish
+        ref=$(jq -r .ref <<< "$METADATA")
+        # Resolve moving branch names before the publication job waits in the queue.
+        if [ "$KIND" != benchmarker ]; then
+          ref=$(git rev-parse --verify "${ref}^{commit}")
+        fi
+        jq --arg kind "$KIND" --arg ref "$ref" \
+          'del(.github_token, .github_app_client_id, .github_app_private_key) + {kind: $kind, ref: $ref}' \
+          <<< "$METADATA" > _benchmark_publish/metadata.json
+    - uses: actions/upload-artifact@v7
+      with:
+        name: gh-pages-${{ inputs.kind }}-${{ inputs.key }}-${{ github.run_attempt }}
+        path: |
+          _benchmark_publish/metadata.json
+          ${{ inputs.path }}
+        retention-days: 30
+        if-no-files-found: error

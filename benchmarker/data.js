@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792790305066,
+  "lastUpdate": 1792790318806,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -27098,6 +27098,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 377.11429720731695,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5150aadacd932a18488440bb0a35510c0d0fc8f",
+          "message": "chore: Bump the `ctutils` version to address `RUSTSEC-2026-0385`. (#7004)\n\n## What\n\nBump the version of `ctutils`.\n\n## Why\n\nTo address `RUSTSEC-2026-0385`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T13:35:09-07:00",
+          "tree_id": "897cc91f7e9162acb1807600c7ab53cdfc14c553",
+          "url": "https://github.com/paradedb/paradedb/commit/e5150aadacd932a18488440bb0a35510c0d0fc8f"
+        },
+        "date": 1792790307797,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 540.3590823150646,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 514.3107735272304,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 143.57140993444796,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 258.47518981583033,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 377.2890310460334,
             "unit": "queries/s"
           }
         ]

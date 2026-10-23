@@ -48,7 +48,6 @@ use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate::QueryEstimate;
 use crate::query::estimate_tree::QueryWithEstimates;
-use crate::query::pdb_query::pdb;
 use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
@@ -84,10 +83,11 @@ pub struct DocsEstimate {
     pub query_cost: u64,
 }
 
-/// A count-only summary of the pruning proof for this reader's execution snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SegmentPruningEstimate {
+/// A count-only summary of the pruning proof for this reader's segment snapshot.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SegmentPruningEstimate {
     pub(crate) candidate_segments: usize,
+    pub(crate) pruned_segments: usize,
     pub(crate) candidate_docs: u64,
 }
 
@@ -383,9 +383,10 @@ pub struct SearchIndexReader {
     query: Box<dyn Query>,
     estimate_from_statistics: bool,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
-    /// The original query, retained for pruning only when a predicate references a partition
-    /// column. This eligibility check needs no segment statistics. Keep the whole query so mixed
-    /// Boolean branches retain their original meaning; segment decisions still happen on demand.
+    /// The original query, retained for pruning only when a predicate references a field with
+    /// segment statistics. This eligibility check needs no segment statistics. Keep the whole
+    /// query so mixed Boolean branches retain their original meaning; segment decisions still
+    /// happen on demand.
     pruning_query: Option<SearchQueryInput>,
     need_scores: bool,
     total_segment_count: usize,
@@ -601,6 +602,10 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    pub(crate) fn index_rel(&self) -> &PgSearchRelation {
+        &self.index_rel
+    }
+
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
     /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub(crate) fn validate_vector_segments(&self) -> Result<()> {
@@ -686,7 +691,7 @@ impl SearchIndexReader {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        let segment_stats_snapshot = SegmentStatsSnapshot::capture(&searcher);
+        let segment_stats_snapshot = SegmentStatsSnapshot::capture(&searcher, &directory);
 
         Ok(IndexComponents {
             cleanup_lock,
@@ -839,29 +844,8 @@ impl SearchIndexReader {
                 schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
             )
         };
-        let partition_by = index_relation.options().partition_by();
-        let mut uses_partition_field = false;
-        if !partition_by.is_empty() {
-            search_query_input.visit_ref(&mut |query| {
-                uses_partition_field |= match query {
-                    SearchQueryInput::FieldedQuery { field, query }
-                        if partition_by.contains(field) =>
-                    {
-                        let mut query = query;
-                        while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
-                            query = inner;
-                        }
-                        // A fielded match-all does not constrain the partition column.
-                        !matches!(query, pdb::Query::All)
-                    }
-                    SearchQueryInput::TermSet { terms } => {
-                        terms.iter().any(|term| partition_by.contains(&term.field))
-                    }
-                    _ => false,
-                };
-            });
-        }
-        let pruning_query = uses_partition_field.then(|| search_query_input.clone());
+        let pruning_query = SegmentPruner::has_prunable_predicate(&schema, &search_query_input)
+            .then(|| search_query_input.clone());
         let estimate_from_statistics = search_query_input.supports_statistics_estimation();
         let query = search_query_input
             .into_tantivy_query(
@@ -971,11 +955,22 @@ impl SearchIndexReader {
     }
 
     fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
-        self.searcher.segment_reader(ord).num_docs() > 0
+        self.segment_num_docs(self.searcher.segment_reader(ord)) > 0
             && self
                 .pruning_query
                 .as_ref()
                 .is_none_or(|query| self.pruner().can_match(ord, query))
+    }
+
+    fn directory_segment_num_docs(directory: &MVCCDirectory, reader: &SegmentReader) -> u64 {
+        directory
+            .segment_num_docs(&reader.segment_id())
+            .map(|n| n as u64)
+            .unwrap_or_else(|| u64::from(reader.num_docs()))
+    }
+
+    fn segment_num_docs(&self, reader: &SegmentReader) -> u64 {
+        Self::directory_segment_num_docs(&self.directory, reader)
     }
 
     /// Compiles a tantivy `Weight` for a tagged search query.
@@ -1119,35 +1114,130 @@ impl SearchIndexReader {
         self.total_segment_count
     }
 
+    /// Selects the MVCC segment-loading strategy for plan-time estimation.
+    ///
+    /// When the query contains predicates that can prune segments via `.stats`, open all segment
+    /// headers (`MvccSatisfies::Snapshot` — which is lazy and does not open segment components)
+    /// so `SegmentPruner` can filter to candidate segments before estimating. Otherwise, open only
+    /// the largest segment (`MvccSatisfies::LargestSegment`).
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will maintain persistent, index-wide
+    /// summary statistics so estimation no longer needs to sample a single largest segment.
+    pub(crate) fn mvcc_for_estimation(
+        index_relation: &PgSearchRelation,
+        search_query_input: &SearchQueryInput,
+    ) -> MvccSatisfies {
+        if index_relation
+            .schema()
+            .is_ok_and(|schema| SegmentPruner::has_prunable_predicate(&schema, search_query_input))
+        {
+            MvccSatisfies::Snapshot
+        } else {
+            MvccSatisfies::LargestSegment
+        }
+    }
+
+    /// Returns the number of candidate segments after static pruning when all segments are
+    /// loaded (`MvccSatisfies::Snapshot`), or `total_segment_count` when opened with
+    /// `MvccSatisfies::LargestSegment`.
+    pub(crate) fn estimated_segment_count(&self) -> usize {
+        if self.pruning_query.is_some()
+            && self.searcher.segment_readers().len() == self.total_segment_count
+        {
+            self.segment_pruning_estimate().candidate_segments
+        } else {
+            self.total_segment_count
+        }
+    }
+
+    /// Estimates the number of candidate segments for `search_query_input` without building a
+    /// Tantivy `Query` or `TokenizerManager`.
+    ///
+    /// When `search_query_input` contains a prunable predicate, opens `MvccSatisfies::Snapshot`
+    /// and counts segments that survive [`SegmentPruner`]. Otherwise, opens
+    /// `MvccSatisfies::LargestSegment` and returns `total_segment_count`.
+    pub(crate) fn estimate_segment_count(
+        index_relation: &PgSearchRelation,
+        schema: &SearchIndexSchema,
+        search_query_input: Option<&SearchQueryInput>,
+    ) -> usize {
+        if let Some(query) = search_query_input
+            && SegmentPruner::has_prunable_predicate(schema, query)
+        {
+            let index_created_by_version = index_relation.created_by_version();
+            let components =
+                Self::open_index_components(index_relation, MvccSatisfies::Snapshot, false, None)
+                    .expect("custom_scan: should be able to open index");
+            let pruner = SegmentPruner::new(
+                &components.segment_stats_snapshot,
+                &components.schema,
+                index_created_by_version,
+            );
+            components
+                .searcher
+                .segment_readers()
+                .iter()
+                .enumerate()
+                .filter(|&(ord, reader)| {
+                    Self::directory_segment_num_docs(&components.directory, reader) > 0
+                        && pruner.can_match(ord as SegmentOrdinal, query)
+                })
+                .count()
+        } else {
+            let directory = MvccSatisfies::LargestSegment.directory(index_relation);
+            let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
+            crate::index::open_index(directory).expect("custom_scan: should be able to open index");
+            segment_count.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
     /// Returns the total number of docs in the index, according to the MVCC directory.
     pub fn total_docs(&self) -> u64 {
         self.total_docs
     }
 
-    /// Counts exactly the segments a search of this reader would open.
+    fn non_empty_segment_count(&self) -> usize {
+        self.searcher
+            .segment_readers()
+            .iter()
+            .filter(|r| self.segment_num_docs(r) > 0)
+            .count()
+    }
+
+    fn pruning_estimate_from_candidates(
+        &self,
+        candidates: &[(SegmentOrdinal, &SegmentReader)],
+    ) -> SegmentPruningEstimate {
+        let non_empty_segments = self.non_empty_segment_count();
+        let candidate_segments = candidates.len();
+        let candidate_docs = if self.pruning_query.is_none() {
+            self.total_docs
+        } else {
+            candidates
+                .iter()
+                .map(|(_, r)| self.segment_num_docs(r))
+                .sum()
+        };
+        SegmentPruningEstimate {
+            candidate_segments,
+            pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
+            candidate_docs,
+        }
+    }
+
+    /// Counts the candidate and pruned segments in this reader's snapshot.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
             if self.pruning_query.is_none() {
-                let candidate_segments = self
-                    .searcher
-                    .segment_readers()
-                    .iter()
-                    .filter(|r| r.num_docs() > 0)
-                    .count();
                 SegmentPruningEstimate {
-                    candidate_segments,
+                    candidate_segments: self.non_empty_segment_count(),
+                    pruned_segments: 0,
                     candidate_docs: self.total_docs,
                 }
             } else {
-                let (candidate_segments, candidate_docs) = self
-                    .candidate_segment_readers()
-                    .fold((0, 0), |(count, docs), (_, reader)| {
-                        (count + 1, docs + u64::from(reader.num_docs()))
-                    });
-                SegmentPruningEstimate {
-                    candidate_segments,
-                    candidate_docs,
-                }
+                let candidates: Vec<(SegmentOrdinal, &SegmentReader)> =
+                    self.candidate_segment_readers().collect();
+                self.pruning_estimate_from_candidates(&candidates)
             }
         })
     }
@@ -1991,16 +2081,40 @@ impl SearchIndexReader {
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     /// 3. Tantivy's relative cost to drive the configured query's docset.
     ///
-    /// Samples the largest segment and scales its estimates to the whole relation.
+    /// Prunes segments using `.stats` first, then samples the largest surviving candidate segment
+    /// and scales its estimates to the candidate portion of the relation.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace single-segment sampling
+    /// with persistent index-wide summary statistics, avoiding both the assumption that the
+    /// largest surviving segment is representative of the rest and the plan-time cost of opening
+    /// term dictionaries across every surviving segment.
     pub fn estimate_docs(&self, total_docs: RowEstimate) -> DocsEstimate {
-        let Some(largest_reader) = self.segment_readers().iter().max_by_key(|r| r.num_docs())
-        else {
+        if self.segment_readers().is_empty() {
             return DocsEstimate {
                 matching_docs: 0,
                 total_docs: 0,
                 query_cost: 0,
             };
+        }
+
+        // When the caller's total is unknown or 0 we can't use the heap
+        // proportion, so fall back to the index's own doc count. Either way the
+        // largest candidate segment is then scaled up to the candidate portion of that total.
+        let total_docs = match total_docs {
+            RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
+            _ => self.total_docs(),
         };
+
+        let Some((largest_reader, segment_doc_proportion)) =
+            self.largest_estimation_candidate(total_docs as f64)
+        else {
+            return DocsEstimate {
+                matching_docs: 0,
+                total_docs,
+                query_cost: 0,
+            };
+        };
+
         let (count, mut cost) = self
             .estimate_from_statistics
             .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
@@ -2011,19 +2125,66 @@ impl SearchIndexReader {
             cost = cost.max(shortest_posting_list);
         }
 
-        // When the caller's total is unknown or 0 we can't use the heap
-        // proportion, so fall back to the index's own doc count. Either way the
-        // largest segment is then scaled up to that total.
-        let total_docs = match total_docs {
-            RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
-            _ => self.total_docs(),
-        };
-        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
         DocsEstimate {
             matching_docs: scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
         }
+    }
+
+    /// Returns the largest candidate segment reader and its document proportion for scaling.
+    ///
+    /// Populates `self.pruning_estimate` over all candidate segments (including mutable segments),
+    /// then excludes mutable segments from the estimation sample whenever at least one persisted
+    /// segment exists in the reader so plan-time estimation never materializes mutable segments
+    /// from the heap.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace this largest-segment
+    /// sampling heuristic with index-wide summary statistics.
+    fn largest_estimation_candidate(&self, total_docs: f64) -> Option<(&SegmentReader, f64)> {
+        let mut candidates: Vec<(SegmentOrdinal, &SegmentReader)> =
+            self.candidate_segment_readers().collect();
+        let all_candidate_docs: u64 = candidates
+            .iter()
+            .map(|(_, r)| self.segment_num_docs(r))
+            .sum();
+        let _ = self
+            .pruning_estimate
+            .set(self.pruning_estimate_from_candidates(&candidates));
+
+        let persisted_reader_docs: u64 = self
+            .segment_readers()
+            .iter()
+            .filter(|r| !self.directory.is_mutable(&r.segment_id()))
+            .map(|r| self.segment_num_docs(r))
+            .sum();
+        let (candidate_docs, reader_docs) = if persisted_reader_docs > 0 {
+            candidates.retain(|(_, r)| !self.directory.is_mutable(&r.segment_id()));
+            let candidate_docs = candidates
+                .iter()
+                .map(|(_, r)| self.segment_num_docs(r))
+                .sum();
+            (candidate_docs, persisted_reader_docs)
+        } else {
+            let reader_docs = self
+                .segment_readers()
+                .iter()
+                .map(|r| self.segment_num_docs(r))
+                .sum();
+            (all_candidate_docs, reader_docs)
+        };
+
+        if candidate_docs == 0 {
+            return None;
+        }
+        let (_, largest_reader) = candidates
+            .into_iter()
+            .max_by_key(|&(ord, r)| (self.segment_num_docs(r), ord))?;
+        let reader_proportion = reader_docs.max(1) as f64 / total_docs.max(1.0);
+        let segment_doc_proportion = (self.segment_num_docs(largest_reader) as f64
+            / candidate_docs as f64)
+            * reader_proportion;
+        Some((largest_reader, segment_doc_proportion))
     }
 
     /// The length of the shortest posting list this query walks for its positional terms, or
@@ -2111,22 +2272,15 @@ impl SearchIndexReader {
         total_docs: f64,
         parser: &QueryParserCtor,
     ) {
-        let segment_readers = self.searcher.segment_readers();
-
-        if segment_readers.is_empty() {
+        let Some((largest_reader, segment_doc_proportion)) =
+            self.largest_estimation_candidate(total_docs)
+        else {
             query_tree.traverse_mut(0, &mut |node, _depth| {
                 node.estimated_docs = Some(0);
             });
             return;
-        }
+        };
 
-        // Find the largest segment by num_docs for estimation
-        let largest_reader = segment_readers
-            .iter()
-            .max_by_key(|r| r.num_docs())
-            .expect("should have at least one segment reader");
-
-        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
         // Keep EXPLAIN's child estimates on the same path as the whole query.
         let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
         self.estimate_node_recursive(
@@ -2373,7 +2527,9 @@ impl SearchIndexReader {
             .map(move |ord| (ord, self.searcher.segment_reader(ord)))
     }
 
-    fn candidate_segment_readers(&self) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
+    pub(crate) fn candidate_segment_readers(
+        &self,
+    ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
         self.candidates(0..self.searcher.segment_readers().len() as SegmentOrdinal)
     }
 
@@ -2508,6 +2664,7 @@ mod tests {
     use super::*;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
+    use crate::query::pdb_query::pdb;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
     use std::ops::Bound;
@@ -3290,7 +3447,7 @@ mod tests {
             0,
             "a query without a provable predicate must not open any .stats component"
         );
-        // Planning estimates open the largest segment only, as the join planner does.
+        // Planning estimates prune candidate segments using .stats before estimating.
         let estimating = SearchIndexReader::open(
             &index_rel,
             range_query("id", 100, 200),
@@ -3298,17 +3455,24 @@ mod tests {
             MvccSatisfies::LargestSegment,
         )
         .unwrap();
-        estimating.estimate_docs(RowEstimate::Known(40));
         assert_eq!(
             STATS_OPENS.load(Relaxed),
             0,
-            "a reader that only estimates must not open statistics"
+            "opening a reader must not open statistics"
+        );
+        let estimate = estimating.estimate_docs(RowEstimate::Known(40));
+        assert_eq!(estimate.matching_docs, 0);
+        assert_eq!(estimate.query_cost, 0);
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            1,
+            "estimating docs prunes using the segment's statistics"
         );
         assert_eq!(estimating.segment_pruning_estimate().candidate_segments, 0);
         assert_eq!(
             STATS_OPENS.load(Relaxed),
             1,
-            "the first search decision opens the segment's statistics"
+            "subsequent pruning checks reuse the opened statistics"
         );
 
         let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
@@ -3425,7 +3589,7 @@ mod tests {
             value: PdbOwnedValue::Str("alpha".into()),
         });
         for (terms, expected, candidates, passes) in [
-            (vec![], 0, 2, 0),
+            (vec![], 0, 0, 0),
             (same_field, 1, 1, 1),
             (mixed_fields, 2, 2, 2),
             (unsupported, 20, 2, 2),
@@ -3580,7 +3744,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn pruning_requires_a_query_predicate_on_a_partition_column() {
+    fn pruning_requires_a_query_predicate_on_a_field_with_statistics() {
         use crate::index::segment_pruning::EMPIRICAL_READS;
         use crate::query::TermInput;
         use std::sync::atomic::Ordering::Relaxed;
@@ -3594,12 +3758,13 @@ mod tests {
         let id = range_query("id", 1, 10);
         let bucket = range_query("bucket", 2, 2);
         let mut queries = vec![
-            (bucket.clone(), 10, false),
-            (boolean(vec![], vec![bucket.clone()], vec![]), 10, false),
+            (SearchQueryInput::All, 20, false),
+            (bucket.clone(), 10, true),
+            (boolean(vec![], vec![bucket.clone()], vec![]), 10, true),
             (
                 boolean(vec![SearchQueryInput::All], vec![], vec![bucket.clone()]),
                 10,
-                false,
+                true,
             ),
             (id.clone(), 10, true),
             (
@@ -3611,6 +3776,36 @@ mod tests {
             (
                 boolean(vec![], vec![id.clone(), bucket.clone()], vec![]),
                 20,
+                true,
+            ),
+            // An unprunable OR branch forces every segment to remain a candidate, so statistics
+            // cannot exclude any segment and must not be opened.
+            (
+                boolean(vec![], vec![id.clone(), SearchQueryInput::All], vec![]),
+                20,
+                false,
+            ),
+            // Positive Exists cannot exclude a segment from .stats (nullable only indicates that
+            // at least one row is NULL), whereas negated Exists (IS NULL) can exclude non-null
+            // segments.
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: FieldName::from("id"),
+                    query: pdb::Query::Exists,
+                },
+                20,
+                false,
+            ),
+            (
+                boolean(
+                    vec![SearchQueryInput::All],
+                    vec![],
+                    vec![SearchQueryInput::FieldedQuery {
+                        field: FieldName::from("id"),
+                        query: pdb::Query::Exists,
+                    }],
+                ),
+                0,
                 true,
             ),
             (
@@ -3670,7 +3865,7 @@ mod tests {
                 true,
             ),
         ];
-        // Naming a partition field in a match-all clause cannot make its statistics useful.
+        // Naming a field with statistics in a match-all clause cannot make its statistics useful.
         // Exercise both score adjustments, including nesting, without changing query scores.
         for query in [
             pdb::Query::All,
@@ -3694,17 +3889,14 @@ mod tests {
             for query in [query, boosted, constant, nested] {
                 queries.push((
                     boolean(
-                        vec![
-                            bucket.clone(),
-                            SearchQueryInput::FieldedQuery {
-                                field: FieldName::from("id"),
-                                query,
-                            },
-                        ],
+                        vec![SearchQueryInput::FieldedQuery {
+                            field: FieldName::from("id"),
+                            query,
+                        }],
                         vec![],
                         vec![],
                     ),
-                    if relevant { 1 } else { 10 },
+                    if relevant { 1 } else { 20 },
                     relevant,
                 ));
             }
@@ -3763,7 +3955,7 @@ mod tests {
                         0,
                     );
                     assert_eq!(top.results.len(), *expected);
-                    if partitioned && *relevant {
+                    if *relevant {
                         assert_eq!(STATS_OPENS.load(Relaxed), 2);
                         assert!(EMPIRICAL_READS.load(Relaxed) > 0);
                     } else {
@@ -3819,6 +4011,7 @@ mod tests {
                     "could not read logical statistics for field {:?} in segment {segment:?}: injected Logical statistics failure",
                     id.field()
                 ),
+                InjectedStatsFailure::Missing => unreachable!(),
             };
             // Both consumers of the snapshot raise the same error: partition routing reads every
             // entry, the reader's own candidate decision reads only the empirical one.
@@ -3868,6 +4061,142 @@ mod tests {
                 "a failed read must not cache absence or make the segment permanently eligible"
             );
         }
+    }
+
+    #[pg_test]
+    fn missing_stats_fall_back_to_fast_field_headers() {
+        Spi::run(
+            "CREATE TABLE missing_stats_fast_fallback (
+                 id bigint PRIMARY KEY,
+                 active boolean NOT NULL,
+                 created_at timestamp NOT NULL,
+                 tag text NOT NULL,
+                 nullable_num bigint
+             );
+             CREATE INDEX missing_stats_fast_fallback_idx ON missing_stats_fast_fallback
+             USING paradedb (id, active, created_at, (tag::pdb.literal), nullable_num)
+             WITH (background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO missing_stats_fast_fallback
+             SELECT g, false, TIMESTAMP '2024-01-01 00:00:00' + (g || ' days')::interval, 'alpha',
+                    CASE WHEN g = 1 THEN NULL ELSE 1 END
+             FROM generate_series(1, 10) g;
+             INSERT INTO missing_stats_fast_fallback
+             SELECT g, true, TIMESTAMP '2025-01-01 00:00:00' + (g || ' days')::interval, 'beta', 1
+             FROM generate_series(11, 20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = open_index("missing_stats_fast_fallback_idx");
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let segment_ids = probe.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
+
+        let guards: Vec<_> = segment_ids
+            .iter()
+            .map(|&segment| inject_stats_failure(segment, InjectedStatsFailure::Missing))
+            .collect();
+
+        let bool_query = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("active"),
+            query: pdb::Query::Term {
+                value: PdbOwnedValue::Bool(true),
+            },
+        };
+        let date_range_2024 = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("created_at"),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("2024-01-01T00:00:00Z".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("2024-12-31T23:59:59Z".into())),
+            },
+        };
+        let date_range_empty = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("created_at"),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("2026-01-01T00:00:00Z".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("2026-12-31T23:59:59Z".into())),
+            },
+        };
+        let not_nullable_range = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![range_query("nullable_num", 1, 1)],
+            minimum_should_match: None,
+        };
+        let not_nullable_term = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: FieldName::from("nullable_num"),
+                query: pdb::Query::Term {
+                    value: PdbOwnedValue::I64(1),
+                },
+            }],
+            minimum_should_match: None,
+        };
+        let not_nullable_exists = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: FieldName::from("nullable_num"),
+                query: pdb::Query::Exists,
+            }],
+            minimum_should_match: None,
+        };
+
+        for (query, expected_candidates, expected_docs) in [
+            (range_query("id", 1, 10), 1, 10),
+            (range_query("id", 11, 20), 1, 10),
+            (range_query("id", 1, 20), 2, 20),
+            (range_query("id", 100, 200), 0, 0),
+            (bool_query, 1, 10),
+            (date_range_2024, 1, 10),
+            (date_range_empty, 0, 0),
+            // Segment 1 has min=1, max=1, nullable=false so `must_not` prunes it; segment 0 has
+            // min=1, max=1, nullable=true so it stays a candidate and yields the 1 NULL row.
+            (not_nullable_range, 1, 1),
+            (not_nullable_term, 1, 1),
+            (not_nullable_exists, 1, 1),
+            // Dictionary-backed (`Str`) columns are not read from `.fast`, so all segments stay
+            // candidates when `.stats` is absent.
+            (term_query("tag", "alpha"), 2, 10),
+        ] {
+            for scoring in [false, true] {
+                let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                let estimate = reader.segment_pruning_estimate();
+                assert_eq!(
+                    estimate.candidate_segments, expected_candidates,
+                    "{query:?}"
+                );
+                assert_eq!(
+                    estimate.pruned_segments,
+                    2 - expected_candidates,
+                    "{query:?}"
+                );
+                assert_pruning_matches_tantivy(&reader, expected_docs);
+            }
+        }
+
+        for guard in &guards {
+            assert!(
+                guard.hits() > 0,
+                "every segment must have hidden its .stats component and used the .fast fallback"
+            );
+        }
+
+        Spi::run("SET paradedb.enable_segment_pruning = off;").unwrap();
+        STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
+        let disabled = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
+        let estimate = disabled.segment_pruning_estimate();
+        assert_eq!(estimate.candidate_segments, 2);
+        assert_eq!(estimate.pruned_segments, 0);
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "disabling paradedb.enable_segment_pruning must skip statistics opens"
+        );
+        assert_pruning_matches_tantivy(&disabled, 0);
+        Spi::run("RESET paradedb.enable_segment_pruning;").unwrap();
     }
 
     /// Missing statistics retain mutable segments without materializing their in-memory index.
@@ -3922,8 +4251,27 @@ mod tests {
             );
         }
         assert_eq!(reader.search().count(), 15);
-        let impossible = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
+        let impossible_query = range_query("id", 100, 200);
+        let impossible = open_snapshot_reader(&index_rel, impossible_query.clone(), false);
         assert_eq!(impossible.segment_pruning_estimate().candidate_segments, 1);
+        assert_eq!(
+            impossible.estimate_docs(RowEstimate::Unknown).matching_docs,
+            0
+        );
+        assert_eq!(
+            impossible
+                .build_query_tree_with_estimates(impossible_query)
+                .unwrap()
+                .estimated_docs,
+            Some(0)
+        );
+        assert_eq!(
+            impossible
+                .directory
+                .mutable_segment_materialized(&mutable_id),
+            Some(false),
+            "estimation must not materialize a mutable segment when persisted segments are pruned"
+        );
         assert_pruning_matches_tantivy(&impossible, 0);
         // The immutable segment fits this range; the mutable one cannot prove coverage.
         use crate::index::stats::segments_for_partition;
@@ -3934,6 +4282,23 @@ mod tests {
         let partition_segments = segments_for_partition(&reader, &partitioning, 0);
         assert!(!partition_segments.partially_included.is_empty());
         let bounds = range_query("id", 1, 10);
+        let matching = open_snapshot_reader(&index_rel, bounds.clone(), false);
+        assert_eq!(
+            matching.estimate_docs(RowEstimate::Unknown).matching_docs,
+            15
+        );
+        assert_eq!(
+            matching
+                .build_query_tree_with_estimates(bounds.clone())
+                .unwrap()
+                .estimated_docs,
+            Some(15)
+        );
+        assert_eq!(
+            matching.directory.mutable_segment_materialized(&mutable_id),
+            Some(false),
+            "estimation must scale persisted segments without materializing the mutable segment"
+        );
         let results = reader.search_segments_with_range_filter(&partition_segments, &bounds);
         assert_eq!(results.count(), 10);
         assert_pruning_matches_tantivy(&reader.and_query_input(&bounds), 10);

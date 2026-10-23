@@ -71,19 +71,19 @@ GROUP BY p.category;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
-   Indexes: mt_products_idx (p), mt_tags_idx (t), mt_reviews_idx (r)
+   Indexes: mt_products_idx (p), mt_reviews_idx (r), mt_tags_idx (t)
    Group By: category
    Aggregates: COUNT(*), SUM(rating), AVG(rating)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, id@1]
+     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1, avg(r_1.rating) as agg_2]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, rating@2]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, id@1, rating@2]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (15 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
@@ -132,22 +132,22 @@ GROUP BY p.category;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
-   Indexes: mt_products_idx (p), mt_tags_idx (t), mt_reviews_idx (r), mt_suppliers_idx (s)
+   Indexes: mt_products_idx (p), mt_suppliers_idx (s), mt_tags_idx (t), mt_reviews_idx (r)
    Group By: category
    Aggregates: COUNT(*), SUM(rating)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@0, id@1)], projection=[category@1, rating@3]
-     :     CooperativeExec
-     :       PgSearchScan: table=s, segments=1, visibility=eager, query="all"
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, id@1, rating@2]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, id@1]
+     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_3.rating) as agg_1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@0, id@1)], projection=[category@1, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, visibility=eager, query="all"
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, eager=[category], dynamic_filters=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :         CooperativeExec
-     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :       CooperativeExec
-     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :     CooperativeExec
+     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (18 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)

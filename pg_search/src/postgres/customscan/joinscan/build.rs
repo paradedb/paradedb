@@ -468,7 +468,9 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
+    /// Uses [`SearchIndexReader::mvcc_for_estimation`] (`MvccSatisfies::Snapshot` when the
+    /// query has predicates that can prune segments via `.stats`, or
+    /// `MvccSatisfies::LargestSegment` otherwise) for cheap estimation. When the
     /// query has heap filters or `PostgresExpression`s (which need executor
     /// state we don't have at planning time), falls back to `total_docs` as
     /// an upper bound - looser estimate but avoids evaluating Param-bearing
@@ -499,11 +501,12 @@ impl JoinSourceCandidate {
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let needs_tokenizer_manager = query.needs_tokenizer();
+        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
             false,
-            MvccSatisfies::LargestSegment,
+            mvcc_style,
             NonNull::new(expr_context.as_ptr()),
             None,
             needs_tokenizer_manager,
@@ -511,11 +514,8 @@ impl JoinSourceCandidate {
         )
         .expect("Failed to open index reader for estimation");
 
-        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-        // execution may skip some of these segments.
-        self.segment_count = Some(reader.total_segment_count());
-
         let estimate = reader.estimate_docs(row_estimate);
+        self.segment_count = Some(reader.estimated_segment_count());
         self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }
@@ -1533,14 +1533,12 @@ impl RelNode {
     /// left subtree and the other is in the right. This prevents
     /// `resolve_against` failures caused by both RTIs being in the same subtree.
     ///
-    /// **Why AggregateScan needs this but JoinScan does not:**
-    /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
-    /// for each join pair - so equi-keys arrive pre-distributed across join
-    /// levels by the planner itself. AggregateScan hooks into
-    /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
-    /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
-    /// all equi-keys land in a flat WHERE clause, not distributed across join
-    /// nodes, so this method is needed to place each key at the correct level.
+    /// **Why both scans need this:** JoinScan and AggregateScan reconstruct
+    /// the join tree from the parse tree. For implicit joins
+    /// (`FROM a, b, c WHERE ...`) all equi-keys land in a flat WHERE clause,
+    /// not distributed across join nodes, and a chain rebuilt in the
+    /// planner's estimated order starts with no keys at all, so this method
+    /// places each key at the correct level.
     pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
         for key in keys {
             self.inject_single_equi_key(key);

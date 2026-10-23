@@ -364,7 +364,9 @@ pub unsafe fn load_metas(
     let mut exhausted_metas_lists = false;
 
     let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
-    let mut largest_doc_count = 0;
+    // Prefer non-empty persisted segments over mutable segments so estimation never
+    // materializes a mutable segment from the heap when any persisted segment exists.
+    let mut largest_key = (false, 0usize);
 
     loop {
         // Find all relevant segments in this list.
@@ -442,8 +444,9 @@ pub unsafe fn load_metas(
 
             let mut need_entry = true;
             if is_largest_only {
-                if entry.num_docs() > largest_doc_count {
-                    largest_doc_count = entry.num_docs();
+                let entry_key = (!entry.is_mutable() && entry.num_docs() > 0, entry.num_docs());
+                if entry_key > largest_key {
+                    largest_key = entry_key;
 
                     // the entry we're processing right now is known to be the largest so far
                     // and it's the only one we want

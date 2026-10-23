@@ -22,8 +22,16 @@ jobs:
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
               ...context.repo, run_id: context.runId, per_page: 100,
             });
-            const suffix = `-${process.env.GITHUB_RUN_ATTEMPT}`;
-            const results = artifacts.filter(a => !a.expired && a.name.startsWith('gh-pages-') && a.name.endsWith(suffix));
+            // Retried publisher jobs can consume results from an earlier attempt.
+            // Keep the latest result for each suite and skip completed publications.
+            const completed = new Set(artifacts.filter(a => !a.expired && a.name.startsWith('published-gh-pages-'))
+              .map(a => Number(a.name.slice('published-gh-pages-'.length))));
+            const latest = new Map();
+            for (const artifact of artifacts.filter(a => !a.expired && a.name.startsWith('gh-pages-'))) {
+              const key = artifact.name.replace(/-\d+$/, '');
+              if (!latest.has(key) || artifact.id > latest.get(key).id) latest.set(key, artifact);
+            }
+            const results = [...latest.values()].filter(a => !completed.has(a.id));
             core.setOutput('artifacts', JSON.stringify(results.map(a => a.id)));
             core.setOutput('count', results.length);
 
@@ -87,3 +95,11 @@ jobs:
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Record successful publication
+        uses: actions/upload-artifact@v7
+        with:
+          name: published-gh-pages-${{ matrix.artifact }}
+          path: _benchmark_publish/metadata.json
+          overwrite: true
+          retention-days: 30

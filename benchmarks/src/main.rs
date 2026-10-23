@@ -1447,8 +1447,8 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
         .map(|size| format!("_{size}"))
         .unwrap_or_default();
     let output_file = format!("results_{}_{}{size_suffix}.json", args.dataset, args.index);
-    let mut file = File::create(&output_file)
-        .with_context(|| format!("Failed to create {output_file}"))?;
+    let mut file =
+        File::create(&output_file).with_context(|| format!("Failed to create {output_file}"))?;
     let results_json =
         serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
     file.write_all(results_json.as_bytes())

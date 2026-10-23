@@ -163,3 +163,64 @@ fn config_dump_filter_changes_are_checked_as_installation_actions() {
     assert_eq!(run(&args).status.code(), Some(1));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn check_without_fragments_passes_only_for_unchanged_schemas() {
+    let dir = std::env::temp_dir().join(format!("schemabot-empty-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_schemabot"))
+            .current_dir(&dir)
+            .args(["check", "base.sql", "head.sql"])
+            .output()
+            .unwrap()
+    };
+    std::fs::write(dir.join("base.sql"), "CREATE TYPE status AS ENUM ('open')").unwrap();
+    std::fs::write(dir.join("head.sql"), "CREATE TYPE status AS ENUM ('open')").unwrap();
+    let unchanged = run();
+    assert!(unchanged.status.success());
+    assert!(
+        String::from_utf8(unchanged.stdout)
+            .unwrap()
+            .contains("No schema difference")
+    );
+
+    std::fs::write(
+        dir.join("head.sql"),
+        "CREATE TYPE status AS ENUM ('open'); CREATE TABLE required(x int)",
+    )
+    .unwrap();
+    let automatic = run();
+    assert_eq!(automatic.status.code(), Some(1));
+    assert!(
+        String::from_utf8(automatic.stdout)
+            .unwrap()
+            .contains("CREATE TABLE required(x int)")
+    );
+    assert!(
+        String::from_utf8(automatic.stderr)
+            .unwrap()
+            .contains("missing from migration fragments")
+    );
+
+    std::fs::write(
+        dir.join("head.sql"),
+        "CREATE TYPE status AS ENUM ('open', 'closed')",
+    )
+    .unwrap();
+    let manual = run();
+    assert_eq!(manual.status.code(), Some(1));
+    let stderr = String::from_utf8(manual.stderr).unwrap();
+    assert!(stderr.contains("'closed'"));
+    assert!(stderr.contains("manual migration required"));
+
+    std::fs::write(dir.join("head.sql"), "CREATE TABLE (").unwrap();
+    let invalid = run();
+    assert_eq!(invalid.status.code(), Some(1));
+    assert!(
+        String::from_utf8(invalid.stderr)
+            .unwrap()
+            .contains("SQL parse error")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

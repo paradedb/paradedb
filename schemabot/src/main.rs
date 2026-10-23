@@ -46,10 +46,18 @@ fn run() -> Result<i32, String> {
                 Ok(2)
             }
         }
-        [command, before, after, fragments @ ..] if command == "check" && !fragments.is_empty() => {
+        [command, before, after, fragments @ ..] if command == "check" => {
             let before = sql::read(before)?;
             let after = sql::read(after)?;
             let diff = schema::diff(&before, &after)?;
+            if diff.sql.is_empty() && diff.manual.is_empty() {
+                println!("No schema difference detected");
+                return Ok(0);
+            }
+            println!("Suggested schema changes (review before applying):\n{}", diff.sql);
+            if !diff.manual.is_empty() {
+                eprintln!("SchemaBot: {}", diff.manual.join("\n"));
+            }
             let fragments = fragments.iter().map(|path| {
                 std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
             }).collect::<Result<Vec<_>, _>>()?;
@@ -57,6 +65,6 @@ fn run() -> Result<i32, String> {
             migration::check_manual(&diff.manual_objects, &fragments)?;
             Ok(0)
         }
-        _ => Err("usage: schemabot diff <base.sql> <head.sql> | schemabot check <base.sql> <head.sql> <fragment.sql>...".into()),
+        _ => Err("usage: schemabot diff <base.sql> <head.sql> | schemabot check <base.sql> <head.sql> [<fragment.sql>...]".into()),
     }
 }

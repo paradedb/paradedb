@@ -119,19 +119,6 @@ jobs:
           # Generate schema
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
-      - name: Generate Schema Diffs
-        id: schema_diff
-        run: |
-          status=0
-          "$RUNNER_TEMP/schemabot" diff ~/old.sql ~/this.sql > ~/diff.sql || status=$?
-          if [[ "$status" != 0 && "$status" != 2 ]]; then
-            echo "SchemaBot failed to generate the schema diff."
-            exit "$status"
-          fi
-          echo "Suggested schema changes:"
-          cat ~/diff.sql
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-
       - name: Switch Back to PR Branch
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref }}
@@ -140,49 +127,13 @@ jobs:
           git checkout "$HEAD_REF"
 
       - name: Check Schema Diff and Validate Migration Fragment
-        id: check_schema_diff
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          DIFF_STATUS: ${{ steps.schema_diff.outputs.status }}
         run: |
-          if test -s ~/diff.sql || [[ "$DIFF_STATUS" == 2 ]]; then
-            echo "=========================================="
-            echo "SCHEMA DIFFERENCE DETECTED"
-            echo "=========================================="
-            echo
-            echo "A suggested upgrade.sql script follows. Please review it carefully as SchemaBot is not infallible."
-            echo
-            echo "--- BEGIN SUGGESTED UPGRADE SCRIPT ---"
-            cat ~/diff.sql
-            echo "--- END SUGGESTED UPGRADE SCRIPT ---"
-            echo
-            echo "=========================================="
+          shopt -s nullglob
+          mapfile -t RELEASED_FILES < <(git diff --name-only --diff-filter=AM FETCH_HEAD HEAD -- 'pg_search/sql/pg_search--*--*.sql')
+          MATCHING_FILES=(pg_search/sql/unreleased/*.sql "${RELEASED_FILES[@]}")
 
-            SUGGESTED_FILE="pg_search/sql/unreleased/${PR_NUMBER:-<PR_NUMBER>}.<short_description>.sql"
-            shopt -s nullglob
-            mapfile -t RELEASED_FILES < <(git diff --name-only --diff-filter=AM FETCH_HEAD HEAD -- 'pg_search/sql/pg_search--*--*.sql')
-            MATCHING_FILES=(pg_search/sql/unreleased/*.sql "${RELEASED_FILES[@]}")
-
-            if (( ${#MATCHING_FILES[@]} == 0 )); then
-              echo "❌ ERROR: Schema changed but no SQL migration fragment found in pg_search/sql/unreleased/"
-              echo "Suggested file: ${SUGGESTED_FILE}"
-              echo "Please create a fragment file containing the required schema changes shown above."
-              exit 1
-            fi
-
-            echo "Found migration fragment(s):"
-            for f in "${MATCHING_FILES[@]}"; do
-              echo " - $f"
-            done
-            echo
-
-            echo "Checking migration statements against the expected PostgreSQL parse trees..."
-            if ! "$RUNNER_TEMP/schemabot" check ~/old.sql ~/this.sql "${MATCHING_FILES[@]}"; then
-              echo "Update the migration fragments to include the changes shown above."
-              echo "If the suggested diff is incorrect, update schemabot in this repository."
-              exit 1
-            fi
-          else
-            echo "✅ No schema difference detected"
-            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          if ! "$RUNNER_TEMP/schemabot" check ~/old.sql ~/this.sql "${MATCHING_FILES[@]}"; then
+            echo "Update the migration fragments in pg_search/sql/unreleased/ to cover the schema changes shown above."
+            echo "If the suggested diff is incorrect, update schemabot in this repository."
+            exit 1
           fi

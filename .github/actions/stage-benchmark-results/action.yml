@@ -1,26 +1,28 @@
 name: Stage Benchmark Results
 description: Save results and publication inputs for the queued publisher
+
 inputs:
   source_directory:
     description: "Directory containing the benchmarked Git commit"
     required: false
     default: "."
   kind:
+    description: "Publisher kind"
     required: true
-    description: Publisher kind
   key:
+    description: "Unique dataset or suite key"
     required: true
-    description: Unique dataset or suite key
   metadata:
+    description: "Publication inputs as JSON; credentials are removed before upload"
     required: true
-    description: Publication inputs as JSON; credentials are removed before upload
   path:
+    description: "Result files to upload"
     required: true
-    description: Result files to upload
+
 runs:
   using: composite
   steps:
-    - name: Save publication inputs
+    - name: Save Publication Inputs
       shell: bash
       env:
         METADATA: ${{ inputs.metadata }}
@@ -36,7 +38,9 @@ runs:
         jq --arg kind "$KIND" --arg ref "$ref" \
           'del(.github_token, .github_app_client_id, .github_app_private_key) + {kind: $kind, ref: $ref}' \
           <<< "$METADATA" > _benchmark_publish/metadata.json
-    - uses: actions/upload-artifact@v7
+
+    - name: Upload Benchmark Results
+      uses: actions/upload-artifact@v7
       with:
         name: gh-pages-${{ inputs.kind }}-${{ inputs.key }}-${{ github.run_attempt }}
         path: |

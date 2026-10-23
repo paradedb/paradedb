@@ -13,7 +13,7 @@ Fallbacks, in order, for series where pairing isn't possible: disjoint 95% CIs p
 the same floor (percentile entries without baseline samples), then the plain point
 ratio github-action-benchmark applies (build time/size, pre-CI baselines).
 
-Reads the current run's results.json and the gh-pages data.js that the
+Reads the current run's result JSON and the gh-pages data.js that the
 github-action-benchmark step has already cloned (and appended the current run to,
 which is why the baseline is the second-to-last entry).
 """

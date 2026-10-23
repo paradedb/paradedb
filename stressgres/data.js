@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792742369847,
+  "lastUpdate": 1792743191008,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -474952,6 +474952,58 @@ window.BENCHMARK_DATA = {
             "value": 24.245381833639968,
             "unit": "median tps",
             "extra": "avg tps: 40.997914296407096, max tps: 589.4781079492122, count: 59201"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792743178974,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3935.321652726465,
+            "unit": "median tps",
+            "extra": "avg tps: 3921.298780663456, max tps: 4756.3732759468085, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4608.817758201388,
+            "unit": "median tps",
+            "extra": "avg tps: 4626.397492986123, max tps: 6688.175569067472, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.42075413869998,
+            "unit": "median tps",
+            "extra": "avg tps: 166.81879074813745, max tps: 3276.876068646383, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.127294599335247,
+            "unit": "median tps",
+            "extra": "avg tps: 40.79275176525796, max tps: 606.8890028862937, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.077128347537897,
+            "unit": "median tps",
+            "extra": "avg tps: 40.63923870822488, max tps: 576.4496170670257, count: 59240"
           }
         ]
       }

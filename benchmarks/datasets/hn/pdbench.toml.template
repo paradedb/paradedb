@@ -1,0 +1,32 @@
+[dataset]
+name = "hn"
+size = "full"
+table = "hn_items"
+expected_rows = {{ expected_rows }}
+dims = 1536
+vector_field = "emb"
+s3_base_path = {{ data_path }}
+
+[postgres.build]
+shared_buffers = "12GB"
+maintenance_work_mem = "12GB"
+max_parallel_maintenance_workers = 8
+
+[postgres.search]
+shared_buffers = "12GB"
+
+[index]
+training_sample_ratio = 0.32
+target_segment_count = 4
+
+[search]
+runs = 3
+warmup_runs = 1
+explain_sample = 100
+
+[search.sweep]
+param = "paradedb.vector_cluster_max_probe"
+min = 0.0001
+max = 1.0
+start = 0.005
+targets = [0.90, 0.95, 0.99]

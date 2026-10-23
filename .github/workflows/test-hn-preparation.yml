@@ -1,0 +1,71 @@
+name: Test HN Preparation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/test-hn-preparation.yml"
+      - ".github/workflows/generate-hn-embeddings.yml"
+      - ".github/workflows/generate-hn-ground-truth.yml"
+      - ".github/workflows/benchmark-hn-vectors.yml"
+      - "benchmarks/datasets/hn/**"
+      - "benchmarks/scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test HN Preparation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: hn_gt_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      HN_GT_DATABASE_URL: postgresql://postgres:hn_gt_local@localhost:5432/postgres
+      HN_GT_SUPERNOVA: ${{ github.workspace }}/supernova
+      NOVA_BF_DEVICE: cpu
+      OMP_NUM_THREADS: "2"
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Checkout Pinned Supernova
+        uses: actions/checkout@v7
+        with:
+          repository: qdrant-labs/supernova
+          ref: 695841a0fc29f8da303e8dccb80eb21cb732e280
+          path: supernova
+          persist-credentials: false
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Preparation Dependencies
+        run: |
+          python -m pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r benchmarks/scripts/requirements-hn-gt.txt
+
+      - name: Install pgvector for Heap Loader Tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "${POSTGRES_CONTAINER}" apt-get update
+          docker exec "${POSTGRES_CONTAINER}" apt-get install -y postgresql-18-pgvector
+          docker exec "${POSTGRES_CONTAINER}" psql -U postgres -d postgres -c 'CREATE EXTENSION vector;'
+
+      - name: Test Dataset Preparation
+        run: python -m unittest discover -s benchmarks/scripts -p 'test_*hn*.py'

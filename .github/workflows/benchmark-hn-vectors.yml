@@ -1,0 +1,192 @@
+name: Benchmark HN Vectors (pdbench)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Create a heap snapshot or run all frozen HN workloads with pdbench."
+        type: choice
+        options: [snapshot, benchmark]
+        default: snapshot
+      heap_source:
+        description: "Benchmark input; snapshot creation always loads verified Parquet."
+        type: choice
+        options: [snapshot, parquet]
+        default: snapshot
+      snapshot_id:
+        description: "For restore, the ID printed by a successful snapshot run."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hn-v1-pdbench
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: ${{ inputs.action }} Full HN
+    timeout-minutes: 360
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache
+    env:
+      ACTION: ${{ inputs.action }}
+      HEAP_SOURCE: ${{ inputs.heap_source }}
+      SNAPSHOT_ID: ${{ inputs.snapshot_id }}
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Artifact Dependencies
+        run: python -m pip install duckdb==1.4.3 pyarrow==21.0.0 tiktoken==0.12.0 openai==3.31.0 'psycopg[binary]==3.2.10'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Resolve Dataset and Snapshot
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          snapshot = os.environ["SNAPSHOT_ID"]
+          if os.environ["ACTION"] == "snapshot":
+              snapshot = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          elif os.environ["HEAP_SOURCE"] == "snapshot" and not re.fullmatch(r"[0-9]+-[0-9]+", snapshot):
+              raise ValueError("Provide the ID from a successful HN snapshot run")
+          config = tomllib.loads(Path("benchmarks/datasets/hn/prepare.toml").read_text())
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write(f"WORK={os.environ['RUNNER_TEMP']}/hn-pdbench\n")
+              stream.write(f"DATASET_PREFIX={config['artifact_prefix']}\n")
+              stream.write(f"SNAPSHOT_ID={snapshot}\n")
+              stream.write(f"PDBENCH_URL=postgresql://{os.environ['USER']}@localhost:28818/postgres\n")
+          PY
+
+      - name: Prepare Verified pdbench Assets
+        run: |
+          args=()
+          if [ "${ACTION}" = snapshot ] || [ "${HEAP_SOURCE}" = parquet ]; then
+            args+=(--corpus)
+          fi
+          python benchmarks/scripts/pdbench_hn.py prepare \
+            --dataset-directory "${WORK}/dataset" --s3-prefix "${DATASET_PREFIX}" \
+            --output "${WORK}/benchmark" "${args[@]}"
+
+      - name: Generate pdbench Read Token
+        if: inputs.action == 'benchmark'
+        id: pdbench-token
+        uses: actions/create-github-app-token@v3.2.0 # Exact pin for actionlint's client-id support
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pdbench
+          permission-contents: read
+
+      - name: Checkout Pinned pdbench
+        if: inputs.action == 'benchmark'
+        uses: actions/checkout@v7
+        with:
+          repository: paradedb/pdbench
+          ref: 059615191b0890fea8c3693567b145d0bc63086e
+          path: pdbench
+          token: ${{ steps.pdbench-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Set Up Benchmark Cluster
+        uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: "18"
+          global_target_segment_count: "0"
+
+      - name: Load Verified Heap
+        if: inputs.action == 'snapshot' || inputs.heap_source == 'parquet'
+        run: python benchmarks/scripts/pdbench_hn.py load-heap --output "${WORK}/benchmark"
+
+      - name: Stop PostgreSQL for Snapshot or Restore
+        if: inputs.action == 'snapshot' || inputs.heap_source == 'snapshot'
+        working-directory: pg_search
+        run: cargo pgrx stop pg18
+
+      - name: Snapshot or Restore Heap
+        if: inputs.action == 'snapshot' || inputs.heap_source == 'snapshot'
+        working-directory: benchmarks
+        run: |
+          command=restore-heap
+          if [ "${ACTION}" = snapshot ]; then
+            command=snapshot-heap
+          fi
+          cargo run --release -- "${command}" \
+            --dataset "${SNAPSHOT_ID}" --size full \
+            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
+            --repo-bucket paradedb-ci-benchmarks \
+            --repo-path-prefix /snapshots/hn/v1 \
+            --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
+            --repo-s3-key-type shared --process-max 8
+
+      - name: Record Successful Snapshot
+        if: inputs.action == 'snapshot'
+        run: |
+          aws s3 cp "${WORK}/benchmark/bundle.json" \
+            "s3://paradedb-ci-benchmarks/snapshots/hn/v1/${SNAPSHOT_ID}/full/hn-bundle.json" \
+            --only-show-errors
+          echo "HN heap snapshot ID: \`${SNAPSHOT_ID}\`. Use this ID with action=benchmark, heap_source=snapshot." >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Start Restored PostgreSQL and Refresh pg_search
+        if: inputs.action == 'benchmark' && inputs.heap_source == 'snapshot'
+        working-directory: pg_search
+        run: |
+          cargo pgrx start pg18
+          psql "${PDBENCH_URL}" -v ON_ERROR_STOP=1 \
+            -c 'DROP EXTENSION pg_search; CREATE EXTENSION pg_search;'
+
+      - name: Build Pinned pdbench
+        if: inputs.action == 'benchmark'
+        working-directory: pdbench
+        run: cargo build --locked --release
+
+      - name: Build Index, Verify Pushdown, and Benchmark Frozen Workloads
+        if: inputs.action == 'benchmark'
+        run: |
+          python benchmarks/scripts/pdbench_hn.py run \
+            --output "${WORK}/benchmark" --pdbench "${GITHUB_WORKSPACE}/pdbench"
+
+      - name: Preserve Reports and Provenance
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hn-pdbench-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK }}/benchmark/bundle.json
+            ${{ env.WORK }}/benchmark/hn-full.toml
+            ${{ env.WORK }}/benchmark/assets
+            ${{ env.WORK }}/benchmark/provenance
+            ${{ env.WORK }}/benchmark/runs
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Summarize Recall Caveat
+        if: always() && inputs.action == 'benchmark'
+        run: |
+          echo 'Reports use pdbench strict ID recall. Read the accompanying boundary_audit and boundary Parquet files for duplicate-vector ties and near ties.' >> "${GITHUB_STEP_SUMMARY}"

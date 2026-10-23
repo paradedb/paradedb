@@ -1,0 +1,19 @@
+k = 10
+time_targets = [0.1, 0.01, 0.001]
+author_targets = [0.001, 0.0001, 0.00001]
+
+[[filters]]
+name = "knn_top10_unfiltered"
+predicate = "TRUE"
+
+[[filters]]
+name = "knn_top10_score"
+predicate = "score >= 10"
+
+[[filters]]
+name = "knn_top10_story"
+predicate = "type = 'story'"
+
+[[filters]]
+name = "knn_top10_story_score"
+predicate = "type = 'story' AND score >= 10"

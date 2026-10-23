@@ -72,7 +72,7 @@ permissions:
   deployments: write
   pull-requests: write
 
-# Benchmark jobs run in parallel; publication uses the shared gh-pages queue.
+# Benchmark jobs run in parallel. Publication jobs use the shared gh-pages queue.
 
 jobs:
   benchmark-pg_search-queries:

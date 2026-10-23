@@ -58,7 +58,7 @@ permissions:
   contents: write # github-action-benchmark pushes to the gh-pages branch
   pull-requests: write # comment benchmark alerts on PRs
 
-# Benchmark jobs run in parallel; publication uses the shared gh-pages queue.
+# Benchmark jobs run in parallel. Publication jobs use the shared gh-pages queue.
 
 jobs:
   benchmark-hackernews:

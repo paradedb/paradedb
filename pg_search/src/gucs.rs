@@ -753,8 +753,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.global_mutable_segment_rows",
-        c"a global mutable segment rows override",
-        c"Setting this to a non-negative value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
+        c"Default mutable segment row limit for indexes without an explicit setting",
+        c"An explicit index `mutable_segment_rows` setting takes precedence. Set to -1 to use the built-in default of 1000 rows.",
         &GLOBAL_MUTABLE_SEGMENT_ROWS,
         -1,
         MAX_MUTABLE_SEGMENT_ROWS as i32,
@@ -1415,34 +1415,89 @@ mod tests {
             std::panic::catch_unwind(|| Spi::run("SET paradedb.global_mutable_segment_rows = -2;"))
                 .is_err()
         );
+    }
 
-        // global override
+    #[pg_test]
+    fn test_mutable_segment_rows_precedence() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        for (reloptions, expected_rows) in [
+            ("", [1000, 0, 2000]),
+            ("WITH (target_segment_count = 1)", [1000, 0, 2000]),
+            ("WITH (mutable_segment_rows = 0)", [0, 0, 0]),
+            ("WITH (mutable_segment_rows = 500)", [500, 500, 500]),
+            ("WITH (mutable_segment_rows = 1000)", [1000, 1000, 1000]),
+            ("WITH (mutable_segment_rows = 10000)", [10000, 10000, 10000]),
+        ] {
+            Spi::run("SET paradedb.global_mutable_segment_rows = 2000;").unwrap();
+            Spi::run(&format!(
+                "CREATE INDEX t_idx ON t USING paradedb (id, data) {reloptions}"
+            ))
+            .unwrap();
+            let relation_oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+
+            for (global_rows, expected_rows) in [-1, 0, 2000].into_iter().zip(expected_rows) {
+                Spi::run(&format!(
+                    "SET paradedb.global_mutable_segment_rows = {global_rows};"
+                ))
+                .unwrap();
+                let indexrel = PgSearchRelation::open(relation_oid);
+                assert_eq!(
+                    indexrel.options().mutable_segment_rows(),
+                    NonZeroUsize::new(expected_rows),
+                    "{reloptions}, global={global_rows}"
+                );
+            }
+            Spi::run("DROP INDEX t_idx;").unwrap();
+        }
+    }
+
+    #[pg_test]
+    fn test_alter_mutable_segment_rows_precedence() {
         Spi::run(
-            "CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (mutable_segment_rows = 500)",
+            "SET paradedb.global_mutable_segment_rows = 2000;
+             CREATE TABLE t (id SERIAL, data TEXT);
+             CREATE INDEX t_idx ON t USING paradedb (id, data)
+                 WITH (mutable_segment_rows = 500);",
         )
         .unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
-        let indexrel = PgSearchRelation::open(relation_oid);
-        let options = indexrel.options();
+        let relation_oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
 
-        Spi::run("SET paradedb.global_mutable_segment_rows = -1;").unwrap();
-        assert_eq!(
-            options.mutable_segment_rows(),
-            Some(NonZeroUsize::new(500).unwrap())
-        );
+        for (alter, expected_rows) in [
+            ("SET (mutable_segment_rows = 0)", 0),
+            ("SET (mutable_segment_rows = 1000)", 1000),
+            ("RESET (mutable_segment_rows)", 2000),
+            ("SET (mutable_segment_rows = 500)", 500),
+            ("RESET (mutable_segment_rows)", 2000),
+        ] {
+            Spi::run(&format!("ALTER INDEX t_idx {alter};")).unwrap();
+            {
+                let indexrel = PgSearchRelation::open(relation_oid);
+                assert_eq!(
+                    indexrel.options().mutable_segment_rows(),
+                    NonZeroUsize::new(expected_rows),
+                    "{alter}"
+                );
+            }
+            Spi::run("TRUNCATE t; INSERT INTO t (data) VALUES ('test');").unwrap();
+            assert_eq!(
+                Spi::get_one::<bool>("SELECT mutable FROM paradedb.index_info('t_idx')").unwrap(),
+                Some(expected_rows != 0),
+                "{alter}"
+            );
+        }
+    }
 
-        Spi::run("SET paradedb.global_mutable_segment_rows = 0;").unwrap();
-        assert_eq!(options.mutable_segment_rows(), None);
-
-        Spi::run("SET paradedb.global_mutable_segment_rows = 1000;").unwrap();
-        assert_eq!(
-            options.mutable_segment_rows(),
-            Some(NonZeroUsize::new(1000).unwrap())
-        );
+    #[pg_test(error = "value -1 out of bounds for option \"mutable_segment_rows\"")]
+    fn test_mutable_segment_rows_rejects_negative_index_setting() {
+        Spi::run(
+            "CREATE TABLE t (id SERIAL, data TEXT);
+             CREATE INDEX t_idx ON t USING paradedb (id, data)
+                 WITH (mutable_segment_rows = -1);",
+        )
+        .unwrap();
     }
 }

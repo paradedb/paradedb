@@ -123,7 +123,7 @@ These settings affect segment layout and background merging.
 | ------------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------- |
 | `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload. |
 | `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                  |
-| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.      |
+| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Default for indexes without an explicit `mutable_segment_rows`; `-1` uses 1000 rows.  |
 
 ## Per-Index Search Options
 

@@ -116,6 +116,19 @@ WHERE id @@@ pdb.parse('fixed_precision:[1 TO not-a-number]') ORDER BY id;
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('arbitrary_precision: IN [1234 not-a-number]') ORDER BY id;
 
+-- PostgreSQL rejects these, so they must not be rounded or read as zero.
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('fixed_precision:1.2x') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE fixed_precision @@@ pdb.parse_with_field('1.2x') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('fixed_precision:1..2') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('arbitrary_precision:""') ORDER BY id;
+
 -- Lenient parsing still ignores invalid phrases and converts the remaining NUMERIC values.
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('arbitrary_precision:not-a-number OR fixed_precision:1.23', lenient => true) ORDER BY id;
@@ -123,7 +136,94 @@ WHERE id @@@ pdb.parse('arbitrary_precision:not-a-number OR fixed_precision:1.23
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('fixed_precision: IN [not-a-number 1.23]', lenient => true) ORDER BY id;
 
+-- Tantivy's lenient parser makes an invalid bound unbounded, so this runs as [1 TO *].
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('fixed_precision:[1 TO not-a-number]', lenient => true) ORDER BY id;
 
 DROP TABLE mock_items;
+
+-- NUMERIC literals compare exactly, as in PostgreSQL. A literal with more fractional digits
+-- than NUMERIC(10,2) holds lies between two stored values: no row equals it, and a range
+-- bound moves to the stored value on its side. Unlimited NUMERIC stores values exactly, so
+-- each query must return the same rows for both columns.
+CREATE TABLE numeric_literals (
+    id INT,
+    arbitrary_precision NUMERIC,
+    fixed_precision NUMERIC(10, 2)
+);
+INSERT INTO numeric_literals VALUES
+    (1, 1.00, 1.00),
+    (2, 0.01, 0.01),
+    (3, 1.23, 1.23),
+    (4, 2.50, 2.50);
+CREATE INDEX ON numeric_literals USING paradedb (id, arbitrary_precision, fixed_precision);
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:[1.001 TO 2]') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:[1.001 TO 2]') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:[1 TO 1.229]') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:[1 TO 1.229]') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:{0.999 TO 2}') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:{0.999 TO 2}') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:<1.234') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:<1.234') ORDER BY id;
+
+-- These match no rows.
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision:1.001') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision:1.001') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE arbitrary_precision @@@ pdb.parse_with_field('1.001') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE fixed_precision @@@ pdb.parse_with_field('1.001') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('arbitrary_precision: IN [1.001 2.504]') ORDER BY id;
+
+SELECT id FROM numeric_literals
+WHERE id @@@ pdb.parse('fixed_precision: IN [1.001 2.504]') ORDER BY id;
+
+DROP TABLE numeric_literals;
+
+-- Negative scales and large literals must not match physical integers or the NaN sentinel.
+CREATE TABLE numeric_literal_limits (id INT, price NUMERIC(18, -2));
+INSERT INTO numeric_literal_limits VALUES (1, 123400), (2, 1000), (3, 'NaN');
+CREATE INDEX ON numeric_literal_limits USING paradedb (id, price);
+
+SELECT id FROM numeric_literal_limits
+WHERE id @@@ pdb.parse('price:1234') ORDER BY id;
+
+SELECT id FROM numeric_literal_limits
+WHERE price @@@ pdb.parse_with_field('1234') ORDER BY id;
+
+SELECT id FROM numeric_literal_limits
+WHERE id @@@ pdb.parse('price: IN [1234 1000 1e100]') ORDER BY id;
+
+SELECT id FROM numeric_literal_limits
+WHERE id @@@ pdb.parse('price:{999 TO 1234}') ORDER BY id;
+
+SELECT id FROM numeric_literal_limits
+WHERE id @@@ pdb.parse('price:1e100') ORDER BY id;
+
+SELECT id FROM numeric_literal_limits
+WHERE id @@@ pdb.parse('price:[1e100 TO *]') ORDER BY id;
+
+DROP TABLE numeric_literal_limits;

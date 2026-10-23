@@ -223,6 +223,7 @@ WHERE id @@@ pdb.parse('arbitrary_precision:null AND id:1', lenient => true) ORD
 SELECT id FROM numeric_literals
 WHERE id @@@ pdb.parse('fixed_precision:null AND id:1', lenient => true) ORDER BY id;
 
+-- Tantivy's trim_ast skips Boost nodes, so a boosted empty clause still matches nothing.
 SELECT id FROM numeric_literals
 WHERE id @@@ pdb.parse('(arbitrary_precision:"gA==")^2 AND id:5', lenient => true) ORDER BY id;
 

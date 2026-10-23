@@ -19,22 +19,24 @@
 //!
 //! Track all private component allocations, including unconsumed buffers and unattached mapping
 //! pages. Publication transfers ownership at the atomic segment-list switch. Abandoned blocks
-//! return to the FSM in a clean transaction after a cooperative stop, from the parent transaction
-//! when the merge payload fails inside [`reclaiming_on_error`], or during `before_shmem_exit`
-//! after cancellation/shutdown.
+//! return to the FSM in a clean transaction after a cooperative stop, or from the parent
+//! transaction when the merge payload fails inside [`reclaiming_on_error`].
 //!
-//! This process-local registry does not survive crashes; `storage::sweep` finds what it missed.
-//! Exit reclamation also skips an index locked by DDL rather than delaying shutdown.
+//! This process-local registry does not survive a crash or a FATAL, which does not unwind;
+//! `storage::sweep` returns what it held at the next `VACUUM`. The two never return the same
+//! block twice. A return here leaves every page stamped with this transaction's id, under the
+//! page lock, before the FSM sees it; the sweep claims a page under the same lock, re-reads the
+//! stamp, and stamps `FrozenTransactionId`. Whichever writes first owns the return: the sweep
+//! never claims a running transaction's page, and this registry skips a Frozen one.
 
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::BM25PageSpecialData;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
-use crate::postgres::utils::ExitWorkScope;
 use parking_lot::Mutex;
-use pgrx::{PgTryBuilder, pg_guard, pg_sys};
+use pgrx::{PgTryBuilder, pg_sys};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug)]
 struct UnpublishedFile {
@@ -80,16 +82,8 @@ fn relfilenumber(rel: &PgSearchRelation) -> pg_sys::Oid {
     }
 }
 
-static EXIT_CALLBACK_REGISTERED: AtomicBool = AtomicBool::new(false);
-
 /// Establish ownership before allocating the first block of a private output file.
 pub(crate) fn track(rel: &PgSearchRelation) -> Allocation {
-    // Once per process, and before anything is registered, so the callback can never miss a
-    // chain. Registered lazily rather than in `_PG_init` so only processes that merge pay for it.
-    if !EXIT_CALLBACK_REGISTERED.load(Ordering::Relaxed) {
-        unsafe { pg_sys::before_shmem_exit(Some(reclaim_at_exit), pg_sys::Datum::from(0)) };
-        EXIT_CALLBACK_REGISTERED.store(true, Ordering::Relaxed);
-    }
     let allocation = Allocation(Arc::new(UnpublishedFile {
         index_oid: rel.oid(),
         relfilenumber: relfilenumber(rel),
@@ -217,19 +211,18 @@ impl OuterState {
 /// Returns the number of files reclaimed.
 ///
 /// Must be called in a transaction with no ERROR in flight: an ERROR leaves buffer locks and
-/// pins behind until the transaction aborts. Reclamation modifies the FSM in a clean transaction.
-///
-/// # Safety
-///
-/// Every recorded allocation must be unreachable from the index. Publication must acknowledge
+/// pins held, so after one the caller must wait for transaction abort to release them before
+/// returning blocks here. Private allocations never had a reader, so the FSM may hand them out
+/// at once. Skips chains written to storage the index no longer uses. Does not need the
+/// [`MergeLock`](crate::postgres::storage::merge::MergeLock): the registry is per-process, and
 /// the ownership transfer at the atomic metadata switch.
 pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
     let index_oid = rel.oid();
     let current = relfilenumber(rel);
 
     // Out of the registry before the FSM is touched: an ERROR in the FSM must not let a later
-    // reclaim or the exit callback return the same block twice. Blocks a failed extend leaves
-    // outside the FSM are found by `storage::sweep`.
+    // reclaim return the same block twice. Blocks a failed extend leaves outside the FSM are
+    // found by `storage::sweep`.
     let mine = {
         let mut registry = UNPUBLISHED.lock();
         let (mine, others) = registry
@@ -253,6 +246,41 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
         #[cfg(feature = "pg_test")]
         crate::postgres::storage::coordination_test::failpoint(c"pg_search.test_reclaim_fail");
         let mut bman = BufferManager::new(rel);
+        // Every page goes back carrying this transaction's id, so the sweep leaves it alone:
+        // a running transaction's pages are never claimed. A page this transaction wrote
+        // already says so. A reserved page never written shows its previous owner, or
+        // nothing, and the sweep could be judging it abandoned at this very moment, so it is
+        // stamped under the page lock, which the sweep's claim also takes: whichever side
+        // writes first wins, and the other sees its stamp and skips.
+        let mine = pg_sys::GetTopTransactionId();
+        blocks.retain(|blockno| {
+            let mut buffer = bman.get_buffer_mut(*blockno);
+            let (new, stamp) = {
+                let page = buffer.page();
+                if page.is_new() {
+                    (true, pg_sys::InvalidTransactionId)
+                } else {
+                    (false, page.special::<BM25PageSpecialData>().alloc_xid)
+                }
+            };
+            if stamp == mine {
+                return true;
+            }
+            if stamp == pg_sys::FrozenTransactionId {
+                // The sweep claimed it first and returns it.
+                return false;
+            }
+            if new {
+                // `init_page` stamps the current transaction.
+                buffer.init_page();
+            } else {
+                buffer
+                    .page_mut()
+                    .special_mut::<BM25PageSpecialData>()
+                    .alloc_xid = mine;
+            }
+            true
+        });
         bman.fsm().extend(&mut bman, blocks.into_iter());
     }
     if freed > 0 {
@@ -262,64 +290,6 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
         );
     }
     freed
-}
-
-/// Reclaim by OID, forgetting replaced/dropped storage and skipping an index locked by DDL.
-/// Exit cleanup must not wait behind a `REINDEX` whose holder may be terminating this backend.
-unsafe fn reclaim_by_oid(index_oid: pg_sys::Oid) -> usize {
-    let lockmode = pg_sys::AccessShareLock as pg_sys::LOCKMODE;
-    if !pg_sys::ConditionalLockRelationOid(index_oid, lockmode) {
-        return 0;
-    }
-    match PgSearchRelation::try_open(index_oid, pg_sys::NoLock as pg_sys::LOCKMODE) {
-        Some(rel) => reclaim(&rel),
-        None => {
-            UNPUBLISHED
-                .lock()
-                .retain(|file| file.0.index_oid != index_oid);
-            0
-        }
-    }
-}
-
-/// Reclaim before shared-memory detachment. FATAL does not unwind, so first abort the
-/// interrupted transaction to release its pins and locks, then start a clean transaction,
-/// as PostgreSQL's `RemoveTempRelationsCallback` does. Only fresh buffer cleanup runs under
-/// [`ExitWorkScope`], after that abort.
-///
-/// ERROR during exit becomes FATAL and continues with the remaining exit callbacks; this
-/// callback is not retried, so reclamation is best-effort.
-#[pg_guard]
-unsafe extern "C-unwind" fn reclaim_at_exit(_code: core::ffi::c_int, _arg: pg_sys::Datum) {
-    let index_oids = {
-        // A FATAL cannot land while the registry is locked, since nothing under the lock checks
-        // for interrupts, but there is no reason to risk an exit on it either.
-        let Some(registry) = UNPUBLISHED.try_lock() else {
-            return;
-        };
-        let mut index_oids = registry
-            .iter()
-            .map(|file| file.0.index_oid)
-            .collect::<Vec<_>>();
-        index_oids.sort_unstable_by_key(|oid| oid.to_u32());
-        index_oids.dedup();
-        index_oids
-    };
-    if index_oids.is_empty() {
-        return;
-    }
-
-    pg_sys::AbortOutOfAnyTransaction();
-    pg_sys::StartTransactionCommand();
-    pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
-    {
-        let _scope = ExitWorkScope::enter();
-        for index_oid in index_oids {
-            reclaim_by_oid(index_oid);
-        }
-    }
-    pg_sys::PopActiveSnapshot();
-    pg_sys::CommitTransactionCommand();
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -369,12 +339,16 @@ mod tests {
     }
 
     fn allocated_blocks(index_oid: pg_sys::Oid) -> usize {
+        allocated_block_list(index_oid).len()
+    }
+
+    fn allocated_block_list(index_oid: pg_sys::Oid) -> Vec<pg_sys::BlockNumber> {
         UNPUBLISHED
             .lock()
             .iter()
             .filter(|file| file.0.index_oid == index_oid)
-            .map(|file| file.0.blocks.lock().len())
-            .sum()
+            .flat_map(|file| file.0.blocks.lock().clone())
+            .collect()
     }
 
     unsafe fn abandon_batch(rel: &PgSearchRelation, count: usize) {
@@ -411,7 +385,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_reclamation_error_leaves_blocks_to_the_sweep() {
         use crate::postgres::storage::linked_bytes::LinkedBytesList;
-        use crate::postgres::storage::sweep;
+        use crate::postgres::storage::sweep::{self, testing};
         let rel = setup("unpublished_retry", "1gb");
         let free_before = free_blocks(&rel);
         abort_subtransaction(|| {
@@ -420,7 +394,8 @@ mod tests {
             writer.finalize_and_write().unwrap();
             pgrx::error!("abandon allocated batch");
         });
-        let allocated = allocated_blocks(rel.oid()) as i64;
+        let blocks = allocated_block_list(rel.oid());
+        let allocated = blocks.len() as i64;
         assert!(allocated > 64);
         abort_subtransaction(|| {
             Spi::run("SET LOCAL pg_search.test_reclaim_fail = 'on'").unwrap();
@@ -430,9 +405,16 @@ mod tests {
         assert_eq!(allocated_blocks(rel.oid()), 0);
         assert_eq!(reclaim(&rel), 0);
         assert_eq!(free_blocks(&rel), free_before);
-        // Allocated by an aborted subtransaction and referenced by nothing: the sweep's case.
+        // Referenced by nothing, and once the allocating transaction has aborted and fallen
+        // behind the sweep's horizon: the sweep's case. The pages carry this test's running
+        // id, so stand in for the crashed transaction with an aborted one.
+        testing::stamp(&rel, &blocks, testing::aborted_xid());
         assert_eq!(sweep::unaccounted_blocks(&rel), allocated);
-        assert_eq!(sweep::reclaim(&rel) as i64, allocated);
+        assert_eq!(sweep::reclaim(&rel), 0);
+        assert_eq!(
+            sweep::reclaim_as_of(&rel, testing::next_xid()) as i64,
+            allocated
+        );
         assert_eq!(free_blocks(&rel) - free_before, allocated);
         assert_eq!(sweep::unaccounted_blocks(&rel), 0);
     }

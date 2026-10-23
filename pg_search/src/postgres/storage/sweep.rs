@@ -16,37 +16,50 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Returns blocks that nothing in the index references to the free space map, once the
-//! transaction that allocated them is known to have aborted or crashed.
+//! transaction that allocated them is known to be gone.
 //!
 //! A writer takes blocks from the FSM or by extending the relation, fills them, and links them
 //! into a segment entry last. An ERROR or a crash before that link leaves the blocks full of data
 //! with no owner. This module is VACUUM's answer, modelled on how heap and nbtree VACUUM treat
 //! pages left behind by a crashed extension: the page says who allocated it
-//! (`BM25PageSpecialData::alloc_xid`, written by `BufferMut::init_page`), and the allocator's
-//! transaction state decides, so no writer is ever waited for.
+//! (`BM25PageSpecialData::alloc_xid`, the top-level transaction id written by
+//! `BufferMut::init_page`), the allocator's transaction state decides, and a page is freed only
+//! under a cleanup lock, so no writer is ever waited for.
 //!
 //! VACUUM first totals the blocks every structure owns from their list headers
 //! (`LinkedListData::npages`) and the blocks the FSM holds. When the total equals the relation
-//! size nothing is missing and the walk below is skipped. Otherwise a block is a candidate when
-//! no segment, list, or FSM page references it and the FSM does not hold it. A candidate whose
-//! allocator is in progress is still being written. One whose allocator committed was abandoned
-//! by a caller that swallowed an ERROR, which is a bug to fix at that caller, so it is reported
-//! and left alone. One whose allocator neither committed nor runs any more aborted or crashed
-//! and is freed.
+//! size nothing is missing and the walk below is skipped, as it is while a merge is writing
+//! output, since its unpublished blocks are the gap. Otherwise a block is a candidate when no
+//! segment, list, or FSM page references it and the FSM does not hold it. The structures are
+//! read before the FSM, so a block garbage collection moves from a dead segment into the FSM
+//! during the walk is seen in one place or the other.
+//!
+//! A candidate is judged by its stamp against the oldest transaction that was running when the
+//! sweep began. A stamp at or past that horizon belongs to a transaction that may publish the
+//! block before the sweep ends, so it waits for the next sweep. An older stamp belongs to a
+//! transaction that finished before the walk started: had it published, the walk would have
+//! found the block. So an older stamp that committed marks a block a caller abandoned by
+//! swallowing an ERROR, reported and freed; one that aborted or crashed is freed; a never
+//! written page is a crashed extension and is freed.
+//!
+//! A freed block is claimed under a conditional cleanup lock, its stamp re-read, and stamped
+//! `FrozenTransactionId` before it is returned. The process-local registry in
+//! `storage::unpublished` returns a page only after stamping it with its own running id under
+//! the same lock, and skips a Frozen one, so whichever side writes first owns the return and no
+//! block reaches the FSM twice. The cleanup lock is what makes a block in transit safe:
+//! `FreeSpaceManager::drain` and relation extension pin a block until its writer locks it, so a
+//! pinned block is never claimed, however stale its page.
 //!
 //! Reachability is not optional. Segment entries carry no creator id, so a segment published by
 //! a transaction that later rolled back stays linked and keeps serving. Its blocks carry an
-//! aborted stamp and must not be freed.
-//!
-//! A block reserved by `new_buffers` but never initialised still shows its previous content, so
-//! the sweep keeps it. While the process lives, `storage::unpublished` returns such blocks.
+//! aborted stamp and must not be freed on the stamp alone.
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, SegmentMetaEntry,
     SegmentMetaEntryContent,
 };
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{BufferManager, Page, PinnedBuffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::fsm::v2::{FsmBlock, V2FSM};
 use crate::postgres::storage::merge::MergeEntry;
@@ -58,28 +71,49 @@ use pgrx::{PgRelation, check_for_interrupts, name, pg_extern, pg_sys};
 /// What the allocation stamp says about an unreferenced block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// The allocating transaction is still running and may publish the block.
+    /// The allocating transaction was running when the sweep began, or began since, and may
+    /// still publish the block. Judged by a later sweep.
+    Recent,
+    /// The allocating transaction is still running.
     InProgress,
-    /// The allocating transaction committed without publishing. Never freed: the caller that
-    /// swallowed its ERROR must be fixed.
+    /// The allocating transaction committed before the sweep began without publishing: a
+    /// caller swallowed its ERROR. Freed, and reported so the caller can be fixed.
     Committed,
-    /// The allocating transaction aborted or crashed. Safe to free.
+    /// The allocating transaction aborted or crashed. Freed.
     Abandoned,
-    /// Written before pages carried a stamp, or by a parallel worker without an xid.
+    /// Written before pages carried a stamp. Kept.
     Unstamped,
-    /// Freed by an earlier sweep, so the FSM holds it or a writer just took it.
+    /// Never written: a relation extension whose writer is gone. Freed.
+    Empty,
+    /// Stamped by an earlier sweep and yet outside the FSM: that sweep crashed between the
+    /// stamp and the FSM, or a writer drained it and then let the registry skip it. Returned
+    /// again; only the sweep ever returns a Frozen block.
     Freed,
-    /// Older than the oldest transaction the commit log still answers for.
+    /// Older than the oldest transaction the commit log still answers for. Nothing that old can
+    /// still publish it. Freed.
     BeyondClog,
 }
 
 impl Verdict {
+    fn frees(self) -> bool {
+        matches!(
+            self,
+            Verdict::Committed
+                | Verdict::Abandoned
+                | Verdict::Empty
+                | Verdict::Freed
+                | Verdict::BeyondClog
+        )
+    }
+
     fn as_str(self) -> &'static str {
         match self {
+            Verdict::Recent => "recent",
             Verdict::InProgress => "in_progress",
             Verdict::Committed => "committed",
             Verdict::Abandoned => "abandoned",
             Verdict::Unstamped => "unstamped",
+            Verdict::Empty => "empty",
             Verdict::Freed => "freed",
             Verdict::BeyondClog => "beyond_clog",
         }
@@ -103,12 +137,29 @@ pub unsafe fn unaccounted_blocks(indexrel: &PgSearchRelation) -> i64 {
 
 /// Every block that is neither referenced nor held by the FSM, with its verdict. Read-only.
 pub unsafe fn candidates(indexrel: &PgSearchRelation) -> Vec<Candidate> {
-    candidates_in(indexrel, relation_blocks(indexrel))
+    candidates_as_of(indexrel, sweep_horizon())
 }
 
-/// Frees every `Abandoned` candidate and returns how many. Skips the walk entirely when the
-/// accounting says no block is missing.
+/// Frees every candidate whose verdict allows it and returns how many. Skips the walk entirely
+/// when the accounting says no block is missing, or when a merge is writing output.
 pub unsafe fn reclaim(indexrel: &PgSearchRelation) -> usize {
+    reclaim_as_of(indexrel, sweep_horizon())
+}
+
+/// [`candidates`] judged against `horizon` instead of the oldest running transaction. A test
+/// runs inside one transaction and passes the next xid to stand for one that has finished.
+pub(crate) unsafe fn candidates_as_of(
+    indexrel: &PgSearchRelation,
+    horizon: pg_sys::TransactionId,
+) -> Vec<Candidate> {
+    candidates_in(indexrel, relation_blocks(indexrel), horizon)
+}
+
+/// [`reclaim`] judged against `horizon`; see [`candidates_as_of`].
+pub(crate) unsafe fn reclaim_as_of(
+    indexrel: &PgSearchRelation,
+    horizon: pg_sys::TransactionId,
+) -> usize {
     let (accounted, nblocks) = accounted_blocks(indexrel, true);
     if accounted == nblocks as u64 {
         return 0;
@@ -119,29 +170,88 @@ pub unsafe fn reclaim(indexrel: &PgSearchRelation) -> usize {
             indexrel.name()
         );
     }
-
-    let abandoned = candidates_in(indexrel, nblocks)
-        .into_iter()
-        .filter(|candidate| candidate.verdict == Verdict::Abandoned)
-        .map(|candidate| candidate.blockno)
-        .collect::<Vec<_>>();
-    if abandoned.is_empty() {
+    let meta = MetaPage::open(indexrel);
+    if merge_in_flight(indexrel, &meta) {
+        pgrx::debug1!(
+            "pg_search: index {} has a merge in flight; its output is the unaccounted space",
+            indexrel.name()
+        );
         return 0;
     }
 
-    // Stamp first, then extend. A crash between the two leaves a Frozen page outside the FSM,
-    // which every later sweep keeps. The other order could leave an aborted stamp on a page the
-    // FSM already hands out, and a later sweep reading that stale stamp would free it twice.
-    let mut bman = BufferManager::new(indexrel);
-    for blockno in &abandoned {
-        let mut buffer = bman.get_buffer_mut(*blockno);
-        buffer
-            .page_mut()
-            .special_mut::<BM25PageSpecialData>()
-            .alloc_xid = pg_sys::FrozenTransactionId;
+    let freeable = candidates_in(indexrel, nblocks, horizon)
+        .into_iter()
+        .filter(|candidate| candidate.verdict.frees())
+        .collect::<Vec<_>>();
+    if freeable.is_empty() {
+        return 0;
     }
-    bman.fsm().extend(&mut bman, abandoned.iter().copied());
-    abandoned.len()
+
+    let mut bman = BufferManager::new(indexrel);
+    let mut claimed = Vec::new();
+    let mut committed = 0;
+    for candidate in freeable {
+        check_for_interrupts!();
+        if !claim(&mut bman, &candidate) {
+            continue;
+        }
+        committed += (candidate.verdict == Verdict::Committed) as usize;
+        claimed.push(candidate.blockno);
+    }
+    if committed > 0 {
+        pgrx::log!(
+            "pg_search: index {} had {committed} blocks allocated by committed transactions that \
+             never published them; returned to the free space map",
+            indexrel.name()
+        );
+    }
+    // Stamped before extended. A crash between the two leaves a Frozen page outside the FSM,
+    // which the next sweep returns; the other order could leave an aborted stamp on a page the
+    // FSM already hands out.
+    bman.fsm().extend(&mut bman, claimed.iter().copied());
+    claimed.len()
+}
+
+/// Stamps the candidate's page `FrozenTransactionId` if it still says what the verdict was
+/// based on, and reports whether it did. The cleanup lock is conditional: a page anyone else
+/// has pinned is in a writer's hands, whatever its stamp says. A registry return that got
+/// there first has left its own running id, which fails the comparison.
+unsafe fn claim(bman: &mut BufferManager, candidate: &Candidate) -> bool {
+    let Some(mut buffer) = bman.get_buffer_for_cleanup_conditional(candidate.blockno) else {
+        return false;
+    };
+    let (empty, alloc_xid) = {
+        let page = buffer.page();
+        page_stamp(&page)
+    };
+    if empty != (candidate.verdict == Verdict::Empty) || alloc_xid != candidate.alloc_xid {
+        return false;
+    }
+    if candidate.verdict == Verdict::Freed {
+        return true;
+    }
+    if empty {
+        buffer.init_page();
+    }
+    buffer
+        .page_mut()
+        .special_mut::<BM25PageSpecialData>()
+        .alloc_xid = pg_sys::FrozenTransactionId;
+    true
+}
+
+/// The oldest transaction running as the sweep begins. Anything at or past it may still
+/// publish during the walk.
+unsafe fn sweep_horizon() -> pg_sys::TransactionId {
+    pg_sys::GetOldestActiveTransactionId()
+}
+
+/// Whether a merge is writing output. Its blocks are unaccounted until it publishes, so the
+/// count gate cannot close and a walk would read every block for nothing.
+unsafe fn merge_in_flight(indexrel: &PgSearchRelation, meta: &MetaPage) -> bool {
+    let (entries, _) = merge_list_snapshot(indexrel, meta);
+    let mut bman = BufferManager::new(indexrel);
+    entries.iter().any(|entry| !entry.recyclable(&mut bman))
 }
 
 unsafe fn relation_blocks(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
@@ -151,6 +261,7 @@ unsafe fn relation_blocks(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
 unsafe fn candidates_in(
     indexrel: &PgSearchRelation,
     nblocks: pg_sys::BlockNumber,
+    horizon: pg_sys::TransactionId,
 ) -> Vec<Candidate> {
     let keep = referenced_or_free(indexrel, nblocks);
     let bman = BufferManager::new(indexrel);
@@ -160,41 +271,52 @@ unsafe fn candidates_in(
         .filter(|blockno| !keep.contains(*blockno))
         .map(|blockno| {
             check_for_interrupts!();
-            let alloc_xid = alloc_xid(&bman, blockno);
+            let buffer = bman.get_buffer(blockno);
+            let (empty, alloc_xid) = page_stamp(&buffer.page());
             Candidate {
                 blockno,
                 alloc_xid,
-                verdict: verdict(alloc_xid, oldest_clog_xid),
+                verdict: verdict(alloc_xid, empty, horizon, oldest_clog_xid),
             }
         })
         .collect()
 }
 
-unsafe fn alloc_xid(bman: &BufferManager, blockno: pg_sys::BlockNumber) -> pg_sys::TransactionId {
-    let buffer = bman.get_buffer(blockno);
-    let page = buffer.page();
-    // An all-zero page is a relation extension whose first write never happened.
-    if page.header().pd_upper == 0 {
-        return pg_sys::InvalidTransactionId;
+/// Whether the page was never written, and its stamp if it was.
+fn page_stamp(page: &Page<'_>) -> (bool, pg_sys::TransactionId) {
+    if page.is_new() {
+        (true, pg_sys::InvalidTransactionId)
+    } else {
+        (false, page.special::<BM25PageSpecialData>().alloc_xid)
     }
-    page.special::<BM25PageSpecialData>().alloc_xid
 }
 
-/// PostgreSQL's rule from `HeapTupleSatisfiesVacuum`: ask the proc array before the commit log,
-/// and treat "neither running nor committed" as aborted, because a crashed transaction never
-/// wrote its abort record.
-unsafe fn verdict(xid: pg_sys::TransactionId, oldest_clog_xid: pg_sys::TransactionId) -> Verdict {
+/// PostgreSQL's rule from `HeapTupleSatisfiesVacuum`, behind the sweep's horizon: ask the proc
+/// array before the commit log, and treat "neither running nor committed" as aborted, because
+/// a crashed transaction never wrote its abort record.
+unsafe fn verdict(
+    xid: pg_sys::TransactionId,
+    empty: bool,
+    horizon: pg_sys::TransactionId,
+    oldest_clog_xid: pg_sys::TransactionId,
+) -> Verdict {
+    if empty {
+        return Verdict::Empty;
+    }
     if xid == pg_sys::FrozenTransactionId {
         return Verdict::Freed;
     }
     if xid.into_inner() < pg_sys::FirstNormalTransactionId.into_inner() {
         return Verdict::Unstamped;
     }
-    if pg_sys::TransactionIdPrecedes(xid, oldest_clog_xid) {
-        return Verdict::BeyondClog;
+    if !pg_sys::TransactionIdPrecedes(xid, horizon) {
+        return Verdict::Recent;
     }
     if pg_sys::TransactionIdIsInProgress(xid) {
         return Verdict::InProgress;
+    }
+    if pg_sys::TransactionIdPrecedes(xid, oldest_clog_xid) {
+        return Verdict::BeyondClog;
     }
     if pg_sys::TransactionIdDidCommit(xid) {
         return Verdict::Committed;
@@ -241,6 +363,12 @@ impl BlockSet {
 
     fn contains(&self, blockno: pg_sys::BlockNumber) -> bool {
         blockno < self.nblocks && self.words[(blockno / 64) as usize] & (1 << (blockno % 64)) != 0
+    }
+
+    fn extend_from(&mut self, other: &BlockSet) {
+        for (word, bits) in self.words.iter_mut().zip(&other.words) {
+            *word |= bits;
+        }
     }
 }
 
@@ -303,15 +431,23 @@ unsafe fn merge_list_blocks(
     indexrel: &PgSearchRelation,
     meta: &MetaPage,
 ) -> (Vec<pg_sys::BlockNumber>, Vec<pg_sys::BlockNumber>) {
-    let merge_lock = meta.acquire_merge_lock();
-    let merge_list =
-        LinkedItemList::<MergeEntry>::open(indexrel, merge_lock.merge_list_header_blockno());
-    let segment_id_lists = merge_list
-        .list(None)
+    let (entries, pages) = merge_list_snapshot(indexrel, meta);
+    let segment_id_lists = entries
         .iter()
         .map(|entry| entry.segment_ids_start_blockno)
         .collect();
-    (segment_id_lists, merge_list.pages())
+    (segment_id_lists, pages)
+}
+
+/// The merge list's entries and pages, read under the merge lock and returned without it.
+unsafe fn merge_list_snapshot(
+    indexrel: &PgSearchRelation,
+    meta: &MetaPage,
+) -> (Vec<MergeEntry>, Vec<pg_sys::BlockNumber>) {
+    let merge_lock = meta.acquire_merge_lock();
+    let merge_list =
+        LinkedItemList::<MergeEntry>::open(indexrel, merge_lock.merge_list_header_blockno());
+    (merge_list.list(None), merge_list.pages())
 }
 
 unsafe fn chain_len(
@@ -369,7 +505,10 @@ unsafe fn bytes_list_pages(
     if backfill && finalized {
         let mut bman = BufferManager::new(indexrel);
         let mut header = bman.get_buffer_mut(header_blockno);
-        header.page_mut().contents_mut::<LinkedListData>().npages = npages;
+        header
+            .page_mut()
+            .contents_mut_in_place::<LinkedListData>()
+            .npages = npages;
     }
     npages as u64
 }
@@ -451,14 +590,6 @@ unsafe fn referenced_or_free(
         keep.insert(blockno);
     }
 
-    V2FSM::open(meta.fsm()).visit(&bman, |block| match block {
-        FsmBlock::Page(blockno) => {
-            keep.insert(blockno);
-            walked.insert(blockno)
-        }
-        FsmBlock::Free(blockno) => keep.insert(blockno),
-    });
-
     for header in [
         meta.schema_bytes().header_blockno,
         meta.settings_bytes().header_blockno,
@@ -481,7 +612,30 @@ unsafe fn referenced_or_free(
         keep.insert(blockno);
     }
 
+    // Last, after every list. A block garbage collection frees between two of these reads moves
+    // from a dead segment's entry into the FSM, and the entry was read first; read the FSM first
+    // and a block freed between the two reads would be in neither.
+    keep.extend_from(&fsm_blocks(indexrel, &meta, nblocks));
+
     keep
+}
+
+/// Blocks the FSM holds as free and the pages it occupies.
+unsafe fn fsm_blocks(
+    indexrel: &PgSearchRelation,
+    meta: &MetaPage,
+    nblocks: pg_sys::BlockNumber,
+) -> BlockSet {
+    let bman = BufferManager::new(indexrel);
+    let mut blocks = BlockSet::new(nblocks);
+    V2FSM::open(meta.fsm()).visit(&bman, |block| match block {
+        FsmBlock::Page(blockno) => blocks.insert(blockno),
+        FsmBlock::Free(blockno) => {
+            blocks.insert(blockno);
+            true
+        }
+    });
+    blocks
 }
 
 unsafe fn mark_chain(
@@ -644,9 +798,59 @@ pub(crate) unsafe fn accounting_report(indexrel: &PgSearchRelation) -> String {
     out
 }
 
+/// Fixtures for the stamp. A test runs inside one transaction, so pages it allocates carry its
+/// own running id; these write the id of a transaction that aborted, or any other, instead.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod testing {
+    use super::*;
+
+    /// A transaction id that has aborted: a subtransaction given an id and rolled back.
+    pub(crate) unsafe fn aborted_xid() -> pg_sys::TransactionId {
+        let context = pg_sys::CurrentMemoryContext;
+        let resource_owner = pg_sys::CurrentResourceOwner;
+        pg_sys::BeginInternalSubTransaction(std::ptr::null());
+        let xid = pg_sys::GetCurrentTransactionId();
+        pg_sys::RollbackAndReleaseCurrentSubTransaction();
+        pg_sys::MemoryContextSwitchTo(context);
+        pg_sys::CurrentResourceOwner = resource_owner;
+        xid
+    }
+
+    /// The next transaction id: as a horizon, every transaction so far counts as finished.
+    pub(crate) unsafe fn next_xid() -> pg_sys::TransactionId {
+        pg_sys::TransactionId::from(pg_sys::ReadNextFullTransactionId().value as u32)
+    }
+
+    pub(crate) unsafe fn stamp(
+        indexrel: &PgSearchRelation,
+        blocks: &[pg_sys::BlockNumber],
+        xid: pg_sys::TransactionId,
+    ) {
+        let mut bman = BufferManager::new(indexrel);
+        for blockno in blocks {
+            bman.get_buffer_mut(*blockno)
+                .page_mut()
+                .special_mut::<BM25PageSpecialData>()
+                .alloc_xid = xid;
+        }
+    }
+
+    pub(crate) unsafe fn stamp_of(
+        indexrel: &PgSearchRelation,
+        blockno: pg_sys::BlockNumber,
+    ) -> pg_sys::TransactionId {
+        BufferManager::new(indexrel)
+            .get_buffer(blockno)
+            .page()
+            .special::<BM25PageSpecialData>()
+            .alloc_xid
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use super::testing::*;
     use super::*;
     use pgrx::prelude::*;
 
@@ -659,11 +863,12 @@ mod tests {
             "INSERT INTO {table} (data) SELECT 'row ' || g FROM generate_series(1, 2000) g"
         ))
         .unwrap();
+        // Every segment is immutable, so finalized list headers with page counts exist.
         Spi::run(&format!(
-            "CREATE INDEX {table}_idx ON {table} USING bm25 (id, data) WITH (key_field = 'id')"
+            "CREATE INDEX {table}_idx ON {table} USING bm25 (id, data) \
+             WITH (key_field = 'id', mutable_segment_rows = 0)"
         ))
         .unwrap();
-        // Rows inserted after the build land in a mutable segment.
         Spi::run(&format!(
             "INSERT INTO {table} (data) SELECT 'late ' || g FROM generate_series(1, 200) g"
         ))
@@ -672,22 +877,6 @@ mod tests {
             .unwrap()
             .unwrap();
         PgSearchRelation::open(oid)
-    }
-
-    /// Runs `f` in a subtransaction that is then rolled back, so whatever it allocated carries
-    /// an aborted stamp.
-    unsafe fn rolled_back<T>(f: impl FnOnce() -> T) -> T {
-        let context = pg_sys::CurrentMemoryContext;
-        // Ending the subtransaction leaves the top transaction's owner current, not the
-        // portal's that opened the test relation.
-        let resource_owner = pg_sys::CurrentResourceOwner;
-        pg_sys::BeginInternalSubTransaction(std::ptr::null());
-        pg_sys::MemoryContextSwitchTo(context);
-        let result = f();
-        pg_sys::RollbackAndReleaseCurrentSubTransaction();
-        pg_sys::MemoryContextSwitchTo(context);
-        pg_sys::CurrentResourceOwner = resource_owner;
-        result
     }
 
     /// Allocates and fills a list that nothing references, returning its blocks.
@@ -745,26 +934,26 @@ mod tests {
     #[pg_test]
     unsafe fn abandoned_allocation_is_reclaimed() {
         let indexrel = test_index("sweep_abandoned");
-        let blocks = rolled_back(|| allocate_unpublished(&indexrel));
+        let blocks = allocate_unpublished(&indexrel);
+        stamp(&indexrel, &blocks, aborted_xid());
         assert_eq!(unaccounted_blocks(&indexrel), blocks.len() as i64);
 
+        // The aborted transaction began after this one, so a sweep that starts now keeps its
+        // blocks: it cannot tell them from a merge still running.
         let found = candidates(&indexrel);
+        assert_eq!(sorted_blocks(&found, Verdict::Recent), blocks);
+        assert_eq!(reclaim(&indexrel), 0);
+
+        // Once it is behind the horizon, the blocks are abandoned.
+        let found = candidates_as_of(&indexrel, next_xid());
         assert_eq!(sorted_blocks(&found, Verdict::Abandoned), blocks);
         assert_eq!(found.len(), blocks.len(), "{found:?}");
 
-        assert_eq!(reclaim(&indexrel), blocks.len());
+        assert_eq!(reclaim_as_of(&indexrel, next_xid()), blocks.len());
         assert!(candidates(&indexrel).is_empty());
         assert_eq!(unaccounted_blocks(&indexrel), 0);
-
-        let bman = BufferManager::new(&indexrel);
         for blockno in blocks {
-            assert_eq!(
-                bman.get_buffer(blockno)
-                    .page()
-                    .special::<BM25PageSpecialData>()
-                    .alloc_xid,
-                pg_sys::FrozenTransactionId
-            );
+            assert_eq!(stamp_of(&indexrel, blockno), pg_sys::FrozenTransactionId);
         }
     }
 
@@ -775,27 +964,189 @@ mod tests {
         assert_eq!(unaccounted_blocks(&indexrel), blocks.len() as i64);
 
         let found = candidates(&indexrel);
-        assert_eq!(sorted_blocks(&found, Verdict::InProgress), blocks);
+        assert_eq!(sorted_blocks(&found, Verdict::Recent), blocks);
         assert_eq!(found.len(), blocks.len(), "{found:?}");
+        assert_eq!(reclaim(&indexrel), 0);
+
+        // Behind the horizon the stamp is still in progress, which also keeps the blocks.
+        let found = candidates_as_of(&indexrel, next_xid());
+        assert_eq!(sorted_blocks(&found, Verdict::InProgress), blocks);
+        assert_eq!(reclaim_as_of(&indexrel, next_xid()), 0);
+    }
+
+    /// A transaction that committed before the sweep began and published nothing abandoned its
+    /// blocks: a swallowed ERROR. They are freed.
+    #[pg_test]
+    unsafe fn committed_unpublished_allocation_is_reclaimed() {
+        let indexrel = test_index("sweep_committed");
+        let blocks = allocate_unpublished(&indexrel);
+        let committed = Spi::get_one::<i64>(
+            "SELECT xmin::text::bigint FROM pg_extension WHERE extname = 'pg_search'",
+        )
+        .unwrap()
+        .unwrap() as u32;
+        if committed < pg_sys::FirstNormalTransactionId.into_inner() {
+            // Frozen by a VACUUM of the catalog; no committed id to borrow.
+            return;
+        }
+        stamp(&indexrel, &blocks, pg_sys::TransactionId::from(committed));
+
+        let found = candidates(&indexrel);
+        assert_eq!(sorted_blocks(&found, Verdict::Committed), blocks);
+        assert_eq!(reclaim(&indexrel), blocks.len());
+        assert!(candidates(&indexrel).is_empty());
+    }
+
+    /// A relation extension whose writer is gone leaves never-written pages. They are freed.
+    #[pg_test]
+    unsafe fn empty_extension_is_reclaimed() {
+        let indexrel = test_index("sweep_empty");
+        let bman = BufferManager::new(&indexrel);
+        let blocks = bman
+            .buffer_access()
+            .new_buffers(3)
+            .map(|pg_buffer| {
+                let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
+                pg_sys::UnlockReleaseBuffer(pg_buffer);
+                blockno
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(unaccounted_blocks(&indexrel), 3);
+
+        let found = candidates(&indexrel);
+        assert_eq!(sorted_blocks(&found, Verdict::Empty), blocks);
+        assert_eq!(reclaim(&indexrel), 3);
+        assert_eq!(unaccounted_blocks(&indexrel), 0);
+        for blockno in blocks {
+            assert_eq!(stamp_of(&indexrel, blockno), pg_sys::FrozenTransactionId);
+        }
+    }
+
+    /// A pinned block is in some writer's hands, whatever its page says.
+    #[pg_test]
+    unsafe fn pinned_block_is_not_claimed() {
+        let indexrel = test_index("sweep_pinned");
+        let blocks = allocate_unpublished(&indexrel);
+        stamp(&indexrel, &blocks, aborted_xid());
+        let bman = BufferManager::new(&indexrel);
+        let pin = bman.pinned_buffer(blocks[0]);
+
+        assert_eq!(reclaim_as_of(&indexrel, next_xid()), blocks.len() - 1);
+        assert_eq!(unaccounted_blocks(&indexrel), 1);
+        assert_ne!(stamp_of(&indexrel, blocks[0]), pg_sys::FrozenTransactionId);
+        drop(pin);
+        assert_eq!(reclaim_as_of(&indexrel, next_xid()), 1);
+        assert_eq!(unaccounted_blocks(&indexrel), 0);
+    }
+
+    /// A block an earlier sweep stamped and lost before the FSM is returned again.
+    #[pg_test]
+    unsafe fn frozen_block_outside_the_fsm_is_returned_again() {
+        let indexrel = test_index("sweep_frozen");
+        let blocks = allocate_unpublished(&indexrel);
+        stamp(&indexrel, &blocks, pg_sys::FrozenTransactionId);
+        let found = candidates(&indexrel);
+        assert_eq!(sorted_blocks(&found, Verdict::Freed), blocks);
+        assert_eq!(reclaim(&indexrel), blocks.len());
+        assert!(candidates(&indexrel).is_empty());
         assert_eq!(reclaim(&indexrel), 0);
     }
 
-    /// A segment published inside a rolled-back subtransaction stays linked, so its blocks carry
-    /// an aborted stamp but must never be freed.
+    /// Pages written before stamping and headers written before counting: nothing is freed, the
+    /// counts are backfilled, and the next VACUUM reads headers only.
+    #[pg_test]
+    unsafe fn old_format_index_is_kept_and_backfilled() {
+        let indexrel = test_index("sweep_old");
+        let leaked = allocate_unpublished(&indexrel);
+        // Every component file of every immutable segment is a finalized list with a header.
+        let headers = {
+            let mut metas = MetaPage::open(&indexrel).segment_metas();
+            let (entries, _pins) = pinned_entries(&mut metas);
+            entries
+                .iter()
+                .flat_map(|entry| match &entry.content {
+                    SegmentMetaEntryContent::Immutable(content) => content
+                        .file_entries()
+                        .map(|(file_entry, _)| file_entry.starting_block)
+                        .collect::<Vec<_>>(),
+                    SegmentMetaEntryContent::Mutable(_) => Vec::new(),
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(!headers.is_empty(), "the build wrote an immutable segment");
+        let npages = |header| {
+            LinkedBytesList::open(&indexrel, header)
+                .get_linked_list_data()
+                .npages
+        };
+        assert!(headers.iter().all(|header| npages(*header) != 0));
+
+        // An index written before this change: no page stamped, no header counted.
+        let nblocks = relation_blocks(&indexrel);
+        let mut bman = BufferManager::new(&indexrel);
+        for blockno in 0..nblocks {
+            let mut buffer = bman.get_buffer_mut(blockno);
+            if buffer.page().is_new() {
+                continue;
+            }
+            buffer
+                .page_mut()
+                .special_mut::<BM25PageSpecialData>()
+                .alloc_xid = pg_sys::InvalidTransactionId;
+        }
+        for header in &headers {
+            bman.get_buffer_mut(*header)
+                .page_mut()
+                .contents_mut_in_place::<LinkedListData>()
+                .npages = 0;
+        }
+
+        let found = candidates_as_of(&indexrel, next_xid());
+        assert_eq!(sorted_blocks(&found, Verdict::Unstamped), leaked);
+        assert_eq!(reclaim_as_of(&indexrel, next_xid()), 0);
+        assert!(headers.iter().all(|header| npages(*header) != 0));
+        assert_eq!(unaccounted_blocks(&indexrel), leaked.len() as i64);
+    }
+
+    /// A segment published by a transaction that then rolled back stays linked, so its blocks
+    /// carry an aborted stamp but must never be freed.
     #[pg_test]
     unsafe fn rolled_back_insert_keeps_its_segment() {
         let indexrel = test_index("sweep_rollback");
-        rolled_back(|| {
-            Spi::run(
-                "INSERT INTO sweep_rollback (data) SELECT 'undone ' || g FROM generate_series(1, 300) g",
-            )
-            .unwrap();
-        });
+        let segment_blocks = |indexrel: &PgSearchRelation| -> Vec<pg_sys::BlockNumber> {
+            let mut metas = MetaPage::open(indexrel).segment_metas();
+            let (entries, _pins) = pinned_entries(&mut metas);
+            entries
+                .iter()
+                .flat_map(|entry| entry.freeable_blocks(indexrel))
+                .collect()
+        };
+        let before = segment_blocks(&indexrel);
+        let context = pg_sys::CurrentMemoryContext;
+        let resource_owner = pg_sys::CurrentResourceOwner;
+        pg_sys::BeginInternalSubTransaction(std::ptr::null());
+        pg_sys::MemoryContextSwitchTo(context);
+        Spi::run(
+            "INSERT INTO sweep_rollback (data) SELECT 'undone ' || g FROM generate_series(1, 300) g",
+        )
+        .unwrap();
+        let aborted = pg_sys::GetCurrentTransactionId();
+        pg_sys::RollbackAndReleaseCurrentSubTransaction();
+        pg_sys::MemoryContextSwitchTo(context);
+        pg_sys::CurrentResourceOwner = resource_owner;
+        // In production the rolled-back transaction is the top-level one and the stamp is its
+        // id; here the insert ran under this test's id, so give its blocks the aborted one.
+        let published = segment_blocks(&indexrel)
+            .into_iter()
+            .filter(|blockno| !before.contains(blockno))
+            .collect::<Vec<_>>();
+        assert!(!published.is_empty());
+        stamp(&indexrel, &published, aborted);
 
         assert_eq!(unaccounted_blocks(&indexrel), 0);
-        let found = candidates(&indexrel);
+        let found = candidates_as_of(&indexrel, next_xid());
         assert!(found.is_empty(), "{found:?}");
-        assert_eq!(reclaim(&indexrel), 0);
+        assert_eq!(reclaim_as_of(&indexrel, next_xid()), 0);
 
         let visible = Spi::get_one::<i64>(
             "SELECT count(*) FROM sweep_rollback WHERE sweep_rollback @@@ 'data:undone'",

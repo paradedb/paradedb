@@ -115,33 +115,6 @@ impl RelationBufferAccess {
     /// The [`pg_sys::Page`] representation of each buffer has not been initialized.  The caller must do this.
     pub fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> + use<> {
         unsafe {
-            // a simple wrapper so we can make sure the buffer is released if the iterator
-            // is dropped before exhaustion.
-            struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
-                iter: I,
-            }
-            crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] BufferIter<I>, |self| {
-                unsafe {
-                    if !pg_sys::IsTransactionState() {
-                        return;
-                    }
-                }
-
-                for pg_buffer in &mut self.iter {
-                    unsafe {
-                        pg_sys::ReleaseBuffer(pg_buffer);
-                    }
-                }
-            });
-            impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for BufferIter<I> {
-                type Item = pg_sys::Buffer;
-
-                #[inline]
-                fn next(&mut self) -> Option<Self::Item> {
-                    self.iter.next()
-                }
-            }
-
             let rel = self.rel.as_ptr();
             let fork = self.rel.fork_number();
             let allocation = self.allocation.clone();
@@ -161,12 +134,23 @@ impl RelationBufferAccess {
                     // ... so we need to lock them here
                     pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
                 });
-            BufferIter { iter }
+            PinnedBuffers(iter)
         }
     }
 
-    /// Retrieve an existing [`pg_sys::Buffer`] by its number.  The returned buffer is always pinned
-    /// and if `lock` is `Some`, it'll be locked with that lock level.
+    /// Pins `blockno` without reading it from disk, for a block about to be rewritten. The
+    /// buffer is left unlocked; its contents are zero or stale and must not be read.
+    pub(crate) fn pin_for_reuse(&self, blockno: pg_sys::BlockNumber) -> pg_sys::Buffer {
+        let pg_buffer = self.get_buffer_extended(
+            blockno,
+            std::ptr::null_mut(),
+            pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
+            None,
+        );
+        unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _) };
+        pg_buffer
+    }
+
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> pg_sys::Buffer {
         self.get_buffer_extended(
             blockno,
@@ -285,6 +269,37 @@ unsafe fn extend_by_one_buffer(
                 // requires it
                 | pg_sys::ExtendBufferedFlags::EB_SKIP_EXTENSION_LOCK,
         )
+    }
+}
+
+/// Pinned buffers a writer has reserved and not yet taken. Whatever is left when the iterator
+/// drops is unpinned, so an early return leaves no pin behind.
+///
+/// A reserved block stays pinned from the moment it leaves the free space map or extends the
+/// relation until its writer locks it. `storage::sweep` frees only blocks it can take a cleanup
+/// lock on, so a block in transit is never mistaken for an abandoned one.
+pub(crate) struct PinnedBuffers<I: Iterator<Item = pg_sys::Buffer>>(pub(crate) I);
+
+crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] PinnedBuffers<I>, |self| {
+    unsafe {
+        if !pg_sys::IsTransactionState() {
+            return;
+        }
+    }
+
+    for pg_buffer in &mut self.0 {
+        unsafe {
+            pg_sys::ReleaseBuffer(pg_buffer);
+        }
+    }
+});
+
+impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for PinnedBuffers<I> {
+    type Item = pg_sys::Buffer;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }
 

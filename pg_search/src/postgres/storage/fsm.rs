@@ -64,25 +64,34 @@ pub trait FreeSpaceManager {
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified starting block number.
     fn open(start_blockno: pg_sys::BlockNumber) -> Self;
 
-    /// Retrieve a single recyclable [`pg_sys::BlockNumber`], which can be acquired and re-initialized.
+    /// Retrieve a single recyclable block as a pinned, unlocked buffer, which can be locked and
+    /// re-initialized. See [`Self::drain`] for the pin.
     ///
     /// Returns `None` if no recyclable blocks are available.
     ///
     /// Upon return, the block is removed from the [`FreeSpaceManager`]'s control.  It is the caller's
     /// responsibility to ensure the block is properly used, or else it will be lost forever as
     /// dead space in the underlying relation.
-    fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber>;
+    fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::Buffer> {
+        self.drain(bman, 1).next()
+    }
 
     /// Drain `n` recyclable blocks from this [`FreeSpaceManager`] instance, using the specified
     /// [`BufferManager`] for underlying disk access.
     ///
     /// All blocks in the returned iterator have already been removed from the FSM, including
     /// blocks the caller does not consume. The caller must use or return every reserved block.
+    ///
+    /// Each block is pinned, unlocked, before it leaves the FSM and stays pinned until the caller
+    /// locks or releases it. `storage::sweep` frees only unreferenced blocks it can take a
+    /// cleanup lock on, so a block in transit between the FSM and its writer, whose page still
+    /// carries a stale stamp, is never mistaken for an abandoned one. Blocks the iterator still
+    /// holds when it drops are unpinned.
     fn drain(
         &mut self,
         bman: &mut BufferManager,
         n: usize,
-    ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static;
+    ) -> impl Iterator<Item = pg_sys::Buffer> + 'static;
 
     /// Add the specified `extend_with` iterator of [`pg_sys::BlockNumber`]s to this [`V1FSM`].
     ///
@@ -155,6 +164,7 @@ pub mod v1 {
     use crate::postgres::storage::block::{BM25PageSpecialData, bm25_max_free_space};
     use crate::postgres::storage::buffer::{Buffer, BufferManager, init_new_buffer};
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
+    use crate::postgres::storage::utils::PinnedBuffers;
     use pgrx::pg_sys;
 
     /// The header information for the current FSM block format.  Its first field is purposely the [`FSMBlockHeader`]
@@ -256,101 +266,27 @@ pub mod v1 {
         /// Upon return, the block is removed from the [`V1FSM`]'s control.  It is the caller's
         /// responsibility to ensure the block is properly used, or else it will be lost forever as
         /// dead space in the underlying relation.
-        fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-            let xid_horizon = pg_sys::TransactionId::from(super::recycling_horizon().value as u32);
-            let mut blockno = self.start_blockno;
-            loop {
-                if blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-
-                let buffer = bman.get_buffer(blockno);
-                let page = buffer.page();
-
-                blockno = page.special::<BM25PageSpecialData>().next_blockno;
-
-                if matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v0) {
-                    // skip v0 blocks
-                    continue;
-                }
-
-                let contents = page.contents_ref::<FSMBlock>();
-                if contents.header.empty {
-                    continue;
-                }
-
-                let mut buffer = if blockno == pg_sys::InvalidBlockNumber {
-                    // if we're at the end of the FSM, we'll wait for a buffer upgrade
-                    // this is likely better than ending up not finding a block to recycle and requiring
-                    // the caller to extend the relation
-                    buffer.upgrade(bman)
-                } else {
-                    // there is a next block so we'll conditionally upgrade the buffer.  If we don't get
-                    // the upgrade then we'll move to the next block in FSM
-                    let Some(buffer) = buffer.upgrade_conditional(bman) else {
-                        // and here's where that happens
-                        continue;
-                    };
-                    buffer
-                };
-                let mut page = buffer.page_mut();
-                let contents = page.contents_mut::<FSMBlock>();
-
-                if !contents.header.empty {
-                    let mut found_blockno = None;
-                    let mut all_invalid = true;
-
-                    for FSMEntry(blockno, fsm_xid) in &mut contents.entries {
-                        if found_blockno.is_none()
-                            && *blockno != pg_sys::InvalidBlockNumber
-                            && passses_visibility_horizon(*fsm_xid, xid_horizon)
-                        {
-                            found_blockno = Some(*blockno);
-                            *blockno = pg_sys::InvalidBlockNumber;
-                        }
-
-                        all_invalid &= *blockno == pg_sys::InvalidBlockNumber;
-                    }
-
-                    if all_invalid {
-                        // the page is now all invalid so mark it as empty
-                        contents.header.empty = true;
-                    } else if found_blockno.is_none() {
-                        // we didn't actually change the page and
-                        buffer.set_dirty(false);
-                        continue;
-                    }
-
-                    if found_blockno.is_some() {
-                        // return the block we found
-                        return found_blockno;
-                    }
-                } else {
-                    // page was empty by the time we got the exclusive lock -- we didn't change it
-                    buffer.set_dirty(false);
-                }
-            }
-        }
-
-        /// Drain `n` recyclable blocks from this [`V1FSM`] instance, using the specified
-        /// [`BufferManager`] for underlying disk access.
-        ///
-        /// As [`pg_sys::BlockNumber`]s are yielded from the returned iterator, they are removed from the
-        /// FSM.  The returned iterator will never return more than `n`, but it could return fewer.
-        ///
-        /// It is the caller's responsibility to ensure each yielded block is properly used, or else it will
-        /// be lost forever as dead space in the underlying relation.  Unyielded blocks are unaffected.
         fn drain(
             &mut self,
             bman: &mut BufferManager,
             n: usize,
-        ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
+        ) -> impl Iterator<Item = pg_sys::Buffer> + 'static {
             let xid_horizon = pg_sys::TransactionId::from(super::recycling_horizon().value as u32);
+            // Only `convert_v1_to_v2` drains a v1 FSM, straight into a v2 one, so the pins are
+            // taken as the blocks are handed over rather than up front.
+            let rbufacc = bman.buffer_access().clone();
+            let pinned = move |blocks: Vec<pg_sys::BlockNumber>| {
+                PinnedBuffers(
+                    blocks
+                        .into_iter()
+                        .map(move |blockno| rbufacc.pin_for_reuse(blockno)),
+                )
+            };
             let mut blocks = Vec::with_capacity(n);
             let mut blockno = self.start_blockno;
             loop {
                 if blockno == pg_sys::InvalidBlockNumber {
-                    return blocks.into_iter();
+                    return pinned(blocks);
                 }
 
                 let buffer = bman.get_buffer(blockno);
@@ -401,7 +337,7 @@ pub mod v1 {
 
                     if blocks.len() == n {
                         // we have all the requested blocks so return them
-                        return blocks.into_iter();
+                        return pinned(blocks);
                     }
                 } else {
                     // page was empty by the time we got the exclusive lock -- we didn't change it
@@ -650,6 +586,7 @@ pub mod v2 {
         BufferManager, BufferMut, Page, PageMut, init_new_buffer,
     };
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
+    use crate::postgres::storage::utils::PinnedBuffers;
     use pgrx::pg_sys;
     use std::iter::Peekable;
     use std::time::Duration;
@@ -777,15 +714,11 @@ pub mod v2 {
             Self { start_blockno }
         }
 
-        fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-            self.drain(bman, 1).next()
-        }
-
         fn drain(
             &mut self,
             bman: &mut BufferManager,
             many: usize,
-        ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
+        ) -> impl Iterator<Item = pg_sys::Buffer> + 'static {
             let current_xid = super::recycling_horizon().value;
 
             if let Some(allocation) = &bman.buffer_access().allocation {
@@ -793,7 +726,7 @@ pub mod v2 {
             }
 
             let mut xid = current_xid;
-            let mut blocks = Vec::with_capacity(many);
+            let mut blocks: Vec<pg_sys::Buffer> = Vec::with_capacity(many);
             let mut unlinked_heads = Vec::new();
 
             'outer: while blocks.len() < many {
@@ -913,7 +846,9 @@ pub mod v2 {
                                     })
                                 );
                             });
-                            blocks.push(drained);
+                            // Pinned before the leaf lock drops, so the block is never both
+                            // outside the FSM and unpinned.
+                            blocks.push(bman.buffer_access().pin_for_reuse(drained));
                             modified = true;
                         }
                         cnt += contents.len as usize;
@@ -935,8 +870,8 @@ pub mod v2 {
                     // and we can't have both at the same time
                     drop(buffer);
                     if let Some(allocation) = &bman.buffer_access().allocation {
-                        for blockno in &blocks[first_drained..] {
-                            allocation.record(*blockno);
+                        for pg_buffer in &blocks[first_drained..] {
+                            allocation.record(unsafe { pg_sys::BufferGetBlockNumber(*pg_buffer) });
                         }
                     }
 
@@ -1015,7 +950,7 @@ pub mod v2 {
                 );
             }
 
-            blocks.into_iter()
+            PinnedBuffers(blocks.into_iter())
         }
 
         fn extend_with_when_recyclable(
@@ -1247,6 +1182,55 @@ pub mod v2 {
         use crate::postgres::storage::buffer::BufferManager;
         use crate::postgres::storage::fsm::FreeSpaceManager;
         use crate::postgres::storage::metadata::MetaPage;
+        use crate::postgres::storage::utils::MAX_BUFFERS_TO_EXTEND_BY;
+
+        /// Block numbers of drained buffers, with the pins released.
+        fn blocknos(buffers: impl Iterator<Item = pg_sys::Buffer>) -> Vec<pg_sys::BlockNumber> {
+            buffers
+                .map(|pg_buffer| unsafe {
+                    let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
+                    pg_sys::ReleaseBuffer(pg_buffer);
+                    blockno
+                })
+                .collect()
+        }
+
+        /// Drains up to `n` blocks the way `BufferManager::new_buffers` does, a chunk at a time,
+        /// so a large drain never holds more than a chunk of pins.
+        fn drain_blocknos(
+            fsm: &mut V2FSM,
+            bman: &mut BufferManager,
+            n: usize,
+        ) -> Vec<pg_sys::BlockNumber> {
+            let mut drained = Vec::new();
+            while drained.len() < n {
+                let before = drained.len();
+                let chunk = (n - before).min(MAX_BUFFERS_TO_EXTEND_BY);
+                drained.extend(blocknos(fsm.drain(bman, chunk)));
+                if drained.len() == before {
+                    break;
+                }
+            }
+            drained
+        }
+
+        /// `n` real, never-written blocks. `drain` pins what it takes, so the FSM must be fed
+        /// numbers of pages that exist and that nothing holds; a made-up number could be the
+        /// very leaf being drained.
+        unsafe fn fresh_blocks(bman: &mut BufferManager, n: usize) -> Vec<pg_sys::BlockNumber> {
+            bman.buffer_access()
+                .new_buffers(n)
+                .map(|pg_buffer| {
+                    let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
+                    pg_sys::UnlockReleaseBuffer(pg_buffer);
+                    blockno
+                })
+                .collect()
+        }
+
+        fn reversed(blocks: &[pg_sys::BlockNumber]) -> Vec<pg_sys::BlockNumber> {
+            blocks.iter().rev().copied().collect()
+        }
 
         #[pg_test]
         unsafe fn test_fsmv2_basics() -> spi::Result<()> {
@@ -1267,33 +1251,35 @@ pub mod v2 {
             let metapage = MetaPage::open(&indexrel);
             let mut fsm = V2FSM::open(metapage.fsm());
 
+            let first = fresh_blocks(&mut bman, 3);
+            let second = fresh_blocks(&mut bman, 3);
             fsm.extend_with_when_recyclable(
                 &mut bman,
                 pg_sys::FullTransactionId { value: 100 },
-                0..3,
+                first.iter().copied(),
             );
-            let drained = fsm.drain(&mut bman, 3).collect::<Vec<_>>();
-            assert_eq!(drained, [2, 1, 0]);
+            let drained = drain_blocknos(&mut fsm, &mut bman, 3);
+            assert_eq!(drained, reversed(&first));
             assert!(
-                fsm.drain(&mut bman, 1).next().is_none(),
+                drain_blocknos(&mut fsm, &mut bman, 1).is_empty(),
                 "fsm should be empty"
             );
 
             fsm.extend_with_when_recyclable(
                 &mut bman,
                 pg_sys::FullTransactionId { value: 100 },
-                0..3,
+                first.iter().copied(),
             );
             fsm.extend_with_when_recyclable(
                 &mut bman,
                 pg_sys::FullTransactionId { value: 101 },
-                3..6,
+                second.iter().copied(),
             );
 
-            let drained = fsm.drain(&mut bman, 6).collect::<Vec<_>>();
-            assert_eq!(drained, [5, 4, 3, 2, 1, 0]);
+            let drained = drain_blocknos(&mut fsm, &mut bman, 6);
+            assert_eq!(drained, [reversed(&second), reversed(&first)].concat());
             assert!(
-                fsm.drain(&mut bman, 1).next().is_none(),
+                drain_blocknos(&mut fsm, &mut bman, 1).is_empty(),
                 "fsm should be empty"
             );
 
@@ -1319,15 +1305,18 @@ pub mod v2 {
             let metapage = MetaPage::open(&indexrel);
             let mut fsm = V2FSM::open(metapage.fsm());
 
+            let blocks = fresh_blocks(&mut bman, 5_000);
             fsm.extend_with_when_recyclable(
                 &mut bman,
                 pg_sys::FullTransactionId { value: 100 },
-                0..100_000,
+                blocks.iter().copied(),
             );
-            let drained = fsm.drain(&mut bman, 100_000).collect::<HashSet<_>>();
-            assert_eq!(drained, (0..100_000).rev().collect::<HashSet<_>>());
+            let drained = drain_blocknos(&mut fsm, &mut bman, 5_000)
+                .into_iter()
+                .collect::<HashSet<_>>();
+            assert_eq!(drained, blocks.into_iter().collect::<HashSet<_>>());
             assert!(
-                fsm.drain(&mut bman, 1).next().is_none(),
+                drain_blocknos(&mut fsm, &mut bman, 1).is_empty(),
                 "fsm should be empty"
             );
 
@@ -1359,7 +1348,7 @@ pub mod v2 {
             };
             fsm.extend_with_when_recyclable(&mut bman, future_xid, 0..3);
             assert!(
-                fsm.drain(&mut bman, 1).next().is_none(),
+                drain_blocknos(&mut fsm, &mut bman, 1).is_empty(),
                 "fsm should not find future transactions"
             );
 
@@ -1387,13 +1376,14 @@ pub mod v2 {
 
             let current_xid = pg_sys::GetCurrentFullTransactionId();
 
+            let blocks = fresh_blocks(&mut bman, 3);
             for offset in -100i64..=100i64 {
                 let xid = pg_sys::FullTransactionId {
                     value: current_xid.value.saturating_add_signed(offset),
                 };
-                fsm.extend_with_when_recyclable(&mut bman, xid, 0..3);
+                fsm.extend_with_when_recyclable(&mut bman, xid, blocks.iter().copied());
                 assert!(
-                    fsm.drain(&mut bman, 1).next().is_some(),
+                    !drain_blocknos(&mut fsm, &mut bman, 1).is_empty(),
                     "fsm should find something"
                 );
             }
@@ -1430,20 +1420,21 @@ pub mod v2 {
                 value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
             };
 
+            let block = fresh_blocks(&mut bman, 1)[0];
             for offset in 0..=MAX_SLOTS as u64 {
                 let xid = pg_sys::FullTransactionId {
                     value: current_xid.value + offset,
                 };
-                fsm.extend_with_when_recyclable(&mut bman, xid, 0..1);
+                fsm.extend_with_when_recyclable(&mut bman, xid, std::iter::once(block));
             }
 
-            let drained = fsm.drain(&mut bman, MAX_SLOTS + 1).collect::<Vec<_>>();
+            let drained = drain_blocknos(&mut fsm, &mut bman, MAX_SLOTS + 1);
             assert_eq!(
                 drained,
-                std::iter::repeat_n(0, MAX_SLOTS + 1).collect::<Vec<_>>()
+                std::iter::repeat_n(block, MAX_SLOTS + 1).collect::<Vec<_>>()
             );
 
-            let empty = fsm.drain(&mut bman, 1).next().is_none();
+            let empty = drain_blocknos(&mut fsm, &mut bman, 1).is_empty();
             assert!(empty);
 
             Ok(())
@@ -1482,10 +1473,11 @@ pub mod v2 {
 
             // Create a freelist with 3 blocks: B1 -> B2 -> B3
             // Each block has MAX_ENTRIES elements
-            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 3));
+            let blocks = fresh_blocks(&mut bman, MAX_ENTRIES * 3);
+            fsm.extend_with_when_recyclable(&mut bman, xid, blocks.into_iter());
 
             // Simulate P1: Drain exactly MAX_ENTRIES (empties B1 completely)
-            let drained1 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            let drained1 = drain_blocknos(&mut fsm, &mut bman, MAX_ENTRIES);
             assert_eq!(drained1.len(), MAX_ENTRIES);
 
             // At this point, B1 should be empty and unlinked, B2 should be the new head
@@ -1502,7 +1494,7 @@ pub mod v2 {
 
             // Simulate P2: Try to drain from what should now be B2
             // This tests that we correctly handle the updated head
-            let drained2 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            let drained2 = drain_blocknos(&mut fsm, &mut bman, MAX_ENTRIES);
             assert_eq!(
                 drained2.len(),
                 MAX_ENTRIES,
@@ -1515,7 +1507,7 @@ pub mod v2 {
             assert_eq!(blocks[0] as usize, MAX_ENTRIES);
 
             // Drain the last block
-            let drained3 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            let drained3 = drain_blocknos(&mut fsm, &mut bman, MAX_ENTRIES);
             assert_eq!(drained3.len(), MAX_ENTRIES, "Should drain last block");
 
             // FSM should be empty now
@@ -1555,11 +1547,12 @@ pub mod v2 {
             };
 
             // Create freelist with multiple blocks
-            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 2));
+            let blocks = fresh_blocks(&mut bman, MAX_ENTRIES * 2);
+            fsm.extend_with_when_recyclable(&mut bman, xid, blocks.into_iter());
 
             // Drain half of first block
             let drain_count = MAX_ENTRIES / 2;
-            let drained1 = fsm.drain(&mut bman, drain_count).collect::<Vec<_>>();
+            let drained1 = drain_blocknos(&mut fsm, &mut bman, drain_count);
             assert_eq!(drained1.len(), drain_count);
 
             // Verify head block still has entries (approximately half, may be off by 1 due to rounding)
@@ -1572,7 +1565,7 @@ pub mod v2 {
             );
 
             // Drain the rest of the first block - this should trigger unlinking
-            let drained2 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            let drained2 = drain_blocknos(&mut fsm, &mut bman, MAX_ENTRIES);
             // Should drain remaining from first block plus some from second
             assert!(
                 drained2.len() >= drain_count,
@@ -1580,11 +1573,11 @@ pub mod v2 {
             );
 
             // Verify we can continue draining successfully (tests no deadlock/panic)
-            let drained3 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            let drained3 = drain_blocknos(&mut fsm, &mut bman, MAX_ENTRIES);
             assert!(!drained3.is_empty(), "Should be able to continue draining");
 
             // Drain everything remaining
-            let _ = fsm.drain(&mut bman, MAX_ENTRIES * 10).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, MAX_ENTRIES * 10);
 
             // FSM should be empty now
             assert!(
@@ -1618,10 +1611,12 @@ pub mod v2 {
                 value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
             };
 
-            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 3));
+            let blocks = fresh_blocks(&mut bman, MAX_ENTRIES * 3 + 1);
+            let (spliced, blocks) = blocks.split_last().unwrap();
+            fsm.extend_with_when_recyclable(&mut bman, xid, blocks.iter().copied());
 
             for _ in 0..5 {
-                fsm.extend_with_when_recyclable(&mut bman, xid, 0..1_u32);
+                fsm.extend_with_when_recyclable(&mut bman, xid, std::iter::once(*spliced));
             }
 
             assert_eq!(
@@ -1629,16 +1624,16 @@ pub mod v2 {
                 vec![2039, 5, 2039, 2039]
             );
 
-            let _ = fsm.drain(&mut bman, 2041).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 2041);
             assert_eq!(
                 freelist_blocks(&mut bman, &mut fsm, xid),
                 vec![3, 2039, 2039]
             );
 
-            let _ = fsm.drain(&mut bman, 2043).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 2043);
             assert_eq!(freelist_blocks(&mut bman, &mut fsm, xid), vec![2038]);
 
-            let _ = fsm.drain(&mut bman, 2038).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 2038);
             assert!(!slot_exists(&mut bman, &mut fsm, xid));
 
             Ok(())
@@ -1664,47 +1659,47 @@ pub mod v2 {
             let xid = pg_sys::FullTransactionId {
                 value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
             };
-            let entries = (MAX_ENTRIES * 5) as u32;
+            let blocks = fresh_blocks(&mut bman, MAX_ENTRIES * 5);
 
             // punch holes in middle
-            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+            fsm.extend_with_when_recyclable(&mut bman, xid, blocks.iter().copied());
 
             punch_holes_in_freelist(&mut bman, &mut fsm, xid, vec![1, 2, 3]);
 
-            let _ = fsm.drain(&mut bman, 1).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 1);
             assert_eq!(
                 freelist_blocks(&mut bman, &mut fsm, xid),
                 vec![2038, 0, 0, 0, 2039]
             );
 
-            let _ = fsm.drain(&mut bman, 2050).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 2050);
             assert_eq!(freelist_blocks(&mut bman, &mut fsm, xid), vec![2027]);
 
-            let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 5000);
             assert!(!slot_exists(&mut bman, &mut fsm, xid));
 
             // punch holes at start
-            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+            fsm.extend_with_when_recyclable(&mut bman, xid, blocks.iter().copied());
 
             punch_holes_in_freelist(&mut bman, &mut fsm, xid, vec![0, 1, 2]);
 
-            let _ = fsm.drain(&mut bman, 1).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 1);
             assert_eq!(freelist_blocks(&mut bman, &mut fsm, xid), vec![2038, 2039]);
 
-            let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 5000);
             assert!(!slot_exists(&mut bman, &mut fsm, xid));
 
             // punch holes at end
-            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+            fsm.extend_with_when_recyclable(&mut bman, xid, blocks.iter().copied());
             punch_holes_in_freelist(&mut bman, &mut fsm, xid, vec![2, 3, 4]);
 
-            let _ = fsm.drain(&mut bman, 1).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 1);
             assert_eq!(
                 freelist_blocks(&mut bman, &mut fsm, xid),
                 vec![2038, 2039, 0, 0, 0]
             );
 
-            let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
+            let _ = drain_blocknos(&mut fsm, &mut bman, 5000);
             assert!(!slot_exists(&mut bman, &mut fsm, xid));
 
             Ok(())
@@ -1776,13 +1771,14 @@ pub mod v2 {
             };
 
             let entries = MAX_ENTRIES * 2;
-            fsm.extend_with_when_recyclable(&mut bman, slot1_key, 0..(entries as u32));
+            let blocks = fresh_blocks(&mut bman, entries);
+            fsm.extend_with_when_recyclable(&mut bman, slot1_key, blocks.iter().copied());
 
             let slot2_key = pg_sys::FullTransactionId {
                 value: pg_sys::FirstNormalTransactionId.into_inner() as u64 + 1,
             };
 
-            fsm.extend_with_when_recyclable(&mut bman, slot2_key, 0..(entries as u32));
+            fsm.extend_with_when_recyclable(&mut bman, slot2_key, blocks.iter().copied());
 
             // corrupt slot 1
             {
@@ -1800,7 +1796,7 @@ pub mod v2 {
             }
 
             // now try draining
-            let drained = fsm.drain(&mut bman, entries + 1).collect::<Vec<_>>();
+            let drained = drain_blocknos(&mut fsm, &mut bman, entries + 1);
             assert_eq!(drained.len(), entries);
 
             Ok(())
@@ -1895,7 +1891,14 @@ pub fn convert_v1_to_v2(bman1: &mut BufferManager, mut v1: V1FSM, mut v2: V2FSM)
 
     let mut bman2 = bman1.clone();
     loop {
-        let mut drained = v1.drain(bman1, 1000).peekable();
+        let mut drained = v1
+            .drain(bman1, 1000)
+            .map(|pg_buffer| unsafe {
+                let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
+                pg_sys::ReleaseBuffer(pg_buffer);
+                blockno
+            })
+            .peekable();
         if drained.peek().is_some() {
             v2.extend_with_when_recyclable(&mut bman2, when_recyclable, drained);
         } else {

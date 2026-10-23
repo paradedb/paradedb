@@ -219,7 +219,8 @@ impl LinkedBytesListWriter {
                 .next_blockno = overflow;
             npages += chain_len(&self.list.bman, blockno) + chain_len(&self.list.bman, overflow);
         }
-        header_page.contents_mut::<LinkedListData>().npages = npages;
+        // `finish` appended the directory after the header struct; `pd_lower` must stay put.
+        header_page.contents_mut_in_place::<LinkedListData>().npages = npages;
         Ok(self.list)
     }
 }

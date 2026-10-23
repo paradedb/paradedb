@@ -93,7 +93,7 @@ macro_rules! impl_safe_drop {
     ([$($generics:tt)*] $ty:ty, |$self:ident| $body:block) => {
         impl<$($generics)*> Drop for $ty {
             fn drop(&mut $self) {
-                if std::thread::panicking() || $crate::postgres::utils::skip_drop_on_exit() {
+                if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
                 }
                 $body
@@ -171,39 +171,6 @@ impl PgMemoryContextsExt for PgMemoryContexts {
 pub(crate) fn proc_exit_in_progress() -> bool {
     // SAFETY: plain read of a backend-local flag on the backend thread.
     unsafe { pgrx::pg_sys::proc_exit_inprogress }
-}
-
-static EXIT_WORK_IN_PROGRESS: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-pub(crate) fn skip_drop_on_exit() -> bool {
-    proc_exit_in_progress() && !EXIT_WORK_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Marks a stretch of a `before_shmem_exit` callback in which the `Drop`s guarded by
-/// `impl_safe_drop!` run again.
-///
-/// Enter only after aborting the interrupted transaction and starting a clean one. This
-/// enables fresh buffer cleanup without changing exit detection for scan-state destructors.
-pub(crate) struct ExitWorkScope(());
-
-impl ExitWorkScope {
-    /// # Safety
-    ///
-    /// Only call from an exit callback, after `AbortOutOfAnyTransaction()` and inside a
-    /// transaction the callback started itself.
-    pub(crate) unsafe fn enter() -> Self {
-        EXIT_WORK_IN_PROGRESS.store(true, std::sync::atomic::Ordering::Relaxed);
-        Self(())
-    }
-}
-
-// We intentionally do NOT use `impl_safe_drop!` here because this guard exists to run while
-// the backend exits, and its body only clears a flag.
-impl Drop for ExitWorkScope {
-    fn drop(&mut self) {
-        EXIT_WORK_IN_PROGRESS.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
 }
 
 /// The lib-test binary doesn't link the PG globals, and no test runs `proc_exit`.

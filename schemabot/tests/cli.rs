@@ -66,17 +66,10 @@ fn manual_type_changes_require_a_fragment_targeting_the_same_object() {
     ] {
         std::fs::write(dir.join("base.sql"), before).unwrap();
         std::fs::write(dir.join("head.sql"), after).unwrap();
-        let diff = run(&["diff", "--manual", "manual.sql", "base.sql", "head.sql"]);
+        let diff = run(&["diff", "base.sql", "head.sql"]);
         assert_eq!(diff.status.code(), Some(2));
         assert!(diff.stdout.is_empty());
-        std::fs::write(dir.join("diff.sql"), diff.stdout).unwrap();
-        let check_args = [
-            "check",
-            "--manual",
-            "manual.sql",
-            "diff.sql",
-            "fragment.sql",
-        ];
+        let check_args = ["check", "base.sql", "head.sql", "fragment.sql"];
         for fragment in ["SELECT 1", "ALTER TYPE other.status ADD VALUE 'closed'"] {
             std::fs::write(dir.join("fragment.sql"), fragment).unwrap();
             assert_eq!(run(&check_args).status.code(), Some(1));
@@ -92,17 +85,11 @@ fn manual_type_changes_require_a_fragment_targeting_the_same_object() {
         assert!(run(&check_args).status.success());
     }
     // Manual coverage must not bypass the automatically generated requirements.
-    std::fs::write(dir.join("diff.sql"), "CREATE TABLE required(x int)").unwrap();
+    std::fs::write(dir.join("head.sql"), "CREATE TABLE required(x int)").unwrap();
     assert_eq!(
-        run(&[
-            "check",
-            "--manual",
-            "manual.sql",
-            "diff.sql",
-            "fragment.sql"
-        ])
-        .status
-        .code(),
+        run(&["check", "base.sql", "head.sql", "fragment.sql"])
+            .status
+            .code(),
         Some(1)
     );
     // Hard failures are distinct from manual work and emit no suggestion.
@@ -119,5 +106,39 @@ fn manual_type_changes_require_a_fragment_targeting_the_same_object() {
         run(&["diff", "missing.sql", "head.sql"]).status.code(),
         Some(1)
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn config_dump_filter_changes_are_checked_as_installation_actions() {
+    let dir = std::env::temp_dir().join(format!("schemabot-select-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let before = "SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache', '')";
+    let after =
+        "SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache', 'WHERE id > 0')";
+    for (name, sql) in [
+        ("base.sql", before),
+        ("head.sql", after),
+        ("fragment.sql", after),
+    ] {
+        std::fs::write(dir.join(name), sql).unwrap();
+    }
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_schemabot"))
+            .current_dir(&dir)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let diff = run(&["diff", "base.sql", "head.sql"]);
+    assert!(diff.status.success());
+    assert_eq!(
+        String::from_utf8(diff.stdout).unwrap(),
+        format!("{after};\n")
+    );
+    let args = ["check", "base.sql", "head.sql", "fragment.sql"];
+    assert!(run(&args).status.success());
+    std::fs::write(dir.join("fragment.sql"), before).unwrap();
+    assert_eq!(run(&args).status.code(), Some(1));
     std::fs::remove_dir_all(dir).unwrap();
 }

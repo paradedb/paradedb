@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::sql::ParsedStatement;
+use pg_query::{Node, NodeEnum, protobuf::ObjectType};
 use std::collections::{BTreeMap, HashSet};
 
 fn statements(sql: &str) -> Result<BTreeMap<String, String>, String> {
@@ -56,30 +58,35 @@ pub fn check(expected: &str, fragments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn type_name(names: &[Node]) -> Result<Vec<String>, String> {
+    names
+        .iter()
+        .map(|name| match &name.node {
+            Some(NodeEnum::String(name)) => Ok(name.sval.clone()),
+            _ => Err("expected a type name identifier".into()),
+        })
+        .collect()
+}
+
 // Manual coverage proves only that a fragment addresses the affected object;
 // reviewers still need to check that its ALTER or DROP implements the change.
-pub fn check_manual(expected: &str, fragments: &[String]) -> Result<(), String> {
-    use pg_query::NodeEnum;
+pub fn check_manual(expected: &[&ParsedStatement], fragments: &[String]) -> Result<(), String> {
     let mut actual = HashSet::new();
     for fragment in fragments {
         for statement in crate::sql::parse(fragment)? {
             match statement.node.node {
                 Some(NodeEnum::AlterTypeStmt(node)) => {
-                    actual
-                        .insert(serde_json::to_string(&node.type_name).map_err(|e| e.to_string())?);
+                    actual.insert(type_name(&node.type_name)?);
                 }
                 Some(NodeEnum::AlterEnumStmt(node)) => {
-                    actual
-                        .insert(serde_json::to_string(&node.type_name).map_err(|e| e.to_string())?);
+                    actual.insert(type_name(&node.type_name)?);
                 }
                 Some(NodeEnum::DropStmt(node))
-                    if node.remove_type == pg_query::protobuf::ObjectType::ObjectType as i32 =>
+                    if node.remove_type == ObjectType::ObjectType as i32 =>
                 {
                     for object in node.objects {
                         if let Some(NodeEnum::TypeName(name)) = object.node {
-                            actual.insert(
-                                serde_json::to_string(&name.names).map_err(|e| e.to_string())?,
-                            );
+                            actual.insert(type_name(&name.names)?);
                         }
                     }
                 }
@@ -88,18 +95,23 @@ pub fn check_manual(expected: &str, fragments: &[String]) -> Result<(), String> 
         }
     }
     let mut missing = Vec::new();
-    for statement in crate::sql::parse(expected)? {
+    for statement in expected {
         let names = match &statement.node.node {
             Some(NodeEnum::CreateEnumStmt(node)) => Some(&node.type_name),
-            Some(NodeEnum::DefineStmt(node))
-                if node.kind == pg_query::protobuf::ObjectType::ObjectType as i32 =>
-            {
+            Some(NodeEnum::DefineStmt(node)) if node.kind == ObjectType::ObjectType as i32 => {
                 Some(&node.defnames)
             }
             _ => None,
         };
         let covered = names
-            .map(|names| serde_json::to_string(names).map(|key| actual.contains(&key)))
+            .map(|names| {
+                let expected = type_name(names)?;
+                Ok::<_, String>(actual.iter().any(|actual| {
+                    actual == &expected
+                        || ((actual.len() == 1 || expected.len() == 1)
+                            && actual.last() == expected.last())
+                }))
+            })
             .transpose()
             .map_err(|e| e.to_string())?
             .unwrap_or(false);
@@ -120,6 +132,46 @@ pub fn check_manual(expected: &str, fragments: &[String]) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_types_match_qualified_and_unqualified_names() {
+        for definition in [
+            "CREATE TYPE TestTable AS ENUM ('Orders')",
+            "CREATE TYPE TestTable (INPUT = decode, OUTPUT = encode)",
+            "CREATE TYPE paradedb.testtable AS ENUM ('Orders')",
+        ] {
+            let parsed = crate::sql::parse(definition).unwrap();
+            let expected: Vec<_> = parsed.iter().collect();
+            for fragment in [
+                "ALTER TYPE paradedb.testtable ADD VALUE 'Parts'",
+                "ALTER TYPE testtable ADD VALUE 'Parts'",
+                "ALTER TYPE paradedb.testtable SET (STORAGE = extended)",
+                "DROP TYPE paradedb.testtable",
+                "DROP TYPE testtable",
+            ] {
+                check_manual(&expected, &[fragment.into()]).unwrap();
+            }
+            assert!(check_manual(&expected, &["DROP TYPE unrelated".into()]).is_err());
+        }
+        let parsed =
+            crate::sql::parse("CREATE TYPE paradedb.testtable AS ENUM ('Orders')").unwrap();
+        assert!(
+            check_manual(
+                &parsed.iter().collect::<Vec<_>>(),
+                &["DROP TYPE other.testtable".into()]
+            )
+            .is_err()
+        );
+        // Quoted identifiers remain case sensitive.
+        let parsed = crate::sql::parse("CREATE TYPE \"TestTable\" AS ENUM ('Orders')").unwrap();
+        assert!(
+            check_manual(
+                &parsed.iter().collect::<Vec<_>>(),
+                &["DROP TYPE paradedb.testtable".into()]
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn accepts_statements_in_any_order() {

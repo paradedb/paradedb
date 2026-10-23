@@ -123,7 +123,7 @@ jobs:
         id: schema_diff
         run: |
           status=0
-          "$RUNNER_TEMP/schemabot" diff --manual ~/manual.sql ~/old.sql ~/this.sql > ~/diff.sql || status=$?
+          "$RUNNER_TEMP/schemabot" diff ~/old.sql ~/this.sql > ~/diff.sql || status=$?
           if [[ "$status" != 0 && "$status" != 2 ]]; then
             echo "SchemaBot failed to generate the schema diff."
             exit "$status"
@@ -177,7 +177,7 @@ jobs:
             echo
 
             echo "Checking migration statements against the expected PostgreSQL parse trees..."
-            if ! "$RUNNER_TEMP/schemabot" check --manual ~/manual.sql ~/diff.sql "${MATCHING_FILES[@]}"; then
+            if ! "$RUNNER_TEMP/schemabot" check ~/old.sql ~/this.sql "${MATCHING_FILES[@]}"; then
               echo "Update the migration fragments to include the changes shown above."
               echo "If the suggested diff is incorrect, update schemabot in this repository."
               exit 1

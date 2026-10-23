@@ -22,13 +22,16 @@ use std::collections::{HashMap, HashSet};
 // Changes are found by subtracting normalized statement sets. Named-object
 // matching is needed only to distinguish supported replacements from changes
 // that require an explicit, manually designed migration.
-pub struct Diff {
+pub struct Diff<'a> {
     pub sql: String,
     pub manual: Vec<String>,
-    pub manual_sql: String,
+    pub manual_objects: Vec<&'a ParsedStatement>,
 }
 
-pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Diff, String> {
+pub fn diff<'a>(
+    before: &'a [ParsedStatement],
+    after: &[ParsedStatement],
+) -> Result<Diff<'a>, String> {
     let old: HashSet<_> = before
         .iter()
         .map(|statement| &statement.comparison)
@@ -53,7 +56,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
     }
 
     let mut manual = Vec::new();
-    let mut manual_sql = String::new();
+    let mut manual_objects = Vec::new();
     let mut drops = Vec::new();
     let mut owner_changes = Vec::new();
     let mut consumed = HashSet::new();
@@ -67,7 +70,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
             Ok(None) => continue,
             Err(error) => {
                 manual.push(error);
-                manual_sql.push_str(&format!("{};\n", statement.source));
+                manual_objects.push(statement);
                 continue;
             }
         };
@@ -77,7 +80,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
                     Ok(sql) => owner_changes.push(sql),
                     Err(error) => {
                         manual.push(error);
-                        manual_sql.push_str(&format!("{};\n", statement.source));
+                        manual_objects.push(statement);
                     }
                 }
                 consumed.insert(&replacement.comparison);
@@ -88,7 +91,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
                     "cannot replace this object automatically; migrate manually:\nBefore:\n{}\nAfter:\n{}",
                     statement.source, replacement.source
                 ));
-                manual_sql.push_str(&format!("{};\n", statement.source));
+                manual_objects.push(statement);
                 consumed.insert(&replacement.comparison);
                 continue;
             }
@@ -114,7 +117,7 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Dif
     Ok(Diff {
         sql: output,
         manual,
-        manual_sql,
+        manual_objects,
     })
 }
 
@@ -371,7 +374,8 @@ fn removal(statement: &ParsedStatement) -> Result<Option<Removal>, String> {
             }));
         }
         // These are installation actions, not independently removable objects.
-        NodeEnum::DoStmt(_)
+        NodeEnum::SelectStmt(_)
+        | NodeEnum::DoStmt(_)
         | NodeEnum::InsertStmt(_)
         | NodeEnum::AlterFunctionStmt(_)
         | NodeEnum::AlterTypeStmt(_)

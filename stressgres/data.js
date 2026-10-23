@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792743212543,
+  "lastUpdate": 1792743388871,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -457190,6 +457190,58 @@ window.BENCHMARK_DATA = {
             "value": 39.09284419763464,
             "unit": "median tps",
             "extra": "avg tps: 60.73235352755675, max tps: 548.427716135236, count: 58732"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c3e82fe473d1ba903851345d3c4d15ecaea38891",
+          "message": "chore: Generate Dockerfiles for v0.26.3 (#6993)\n\nUpdates generated Dockerfiles for v0.26.3 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T00:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c3e82fe473d1ba903851345d3c4d15ecaea38891"
+        },
+        "date": 1792743376755,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.95286665294282,
+            "unit": "median tps",
+            "extra": "avg tps: 58.39934202139019, max tps: 553.8114004488709, count: 58733"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.61123048249921,
+            "unit": "median tps",
+            "extra": "avg tps: 32.57488889102144, max tps: 384.98847045084, count: 58733"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 73.06220974390436,
+            "unit": "median tps",
+            "extra": "avg tps: 134.0822156849382, max tps: 1194.6900377718102, count: 58733"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.543675423930168,
+            "unit": "median tps",
+            "extra": "avg tps: 31.06139570372311, max tps: 275.2602500792589, count: 58733"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.90676372632571,
+            "unit": "median tps",
+            "extra": "avg tps: 60.764341765587794, max tps: 583.1262958577607, count: 58733"
           }
         ]
       }

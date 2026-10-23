@@ -910,6 +910,9 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, BUFFERS ON, SUMMARY OFF) SELEC
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
+   Segments:
+     Included: 1
+     Pruned: 0
    Heap Fetches: 1
    Virtual Tuples: 0
    Invisible Tuples: 0
@@ -926,7 +929,7 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, BUFFERS ON, SUMMARY OFF) SELEC
    Buffers: shared hit=20
  Planning:
    Buffers: shared hit=41
-(21 rows)
+(24 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
 EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';

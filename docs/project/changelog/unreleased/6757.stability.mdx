@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Range and term queries on integer fields are now correct at the edges of the type (#6673). Fractional values are no longer truncated: `x >= 2.5` and term 2.5 used to match 2, and `x <= -2.5` used to match -2. A bound that is not a number on an integer field is now an error. On int4range and int8range, a fractional bound or value works in terms of integers: `range_term` 2.5 matches nothing.

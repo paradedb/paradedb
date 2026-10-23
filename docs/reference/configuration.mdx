@@ -1,6 +1,6 @@
 ---
 title: Configuration Reference
-description: Runtime settings for ParadeDB and pg_search
+description: Runtime settings and per-index options for ParadeDB and pg_search
 canonical: https://www.paradedb.com/docs/reference/configuration
 ---
 
@@ -36,34 +36,36 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.enable_custom_scan_without_operator` | `off`         | user    | Allows custom scans without a ParadeDB search operator when the whole `WHERE` clause can push down.                        |
 | `paradedb.enable_filter_pushdown`              | `on`          | user    | Allows non-indexed predicates to use heap filtering after the ParadeDB scan.                                               |
 | `paradedb.enable_range_partitioned_join`       | `on`          | user    | Enables range co-partitioned joins and asymmetric range alignment for MPP joins on indexes configured with `partition_by`. |
+| `paradedb.enable_segment_pruning`              | `on`          | user    | Prunes non-matching index segments using per-segment min/max field statistics during planning and scan execution.          |
 | `paradedb.enable_heuristic_selectivity`        | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.                               |
 | `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                          |
 | `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                     |
+| `paradedb.planner_warnings`                    | `warning`     | user    | Controls warnings when an optimized scan cannot be used. Accepts `off`, `warning`, or `error`.                             |
+| `paradedb.spill_to_disk`                       | `off`         | user    | Allows eligible join and aggregate queries to spill to disk when they exceed `work_mem`.                                   |
 
 ## Top K
 
 These settings affect queries that combine a ParadeDB predicate with `ORDER BY ... LIMIT`. See [Top K](/reference/full-text/top-k).
 
-| Setting                                | Default  | Context | Description                                                                                  |
-| -------------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------- |
-| `paradedb.limit_fetch_multiplier`      | `1.0`    | user    | Multiplies the query `LIMIT` to choose the initial Top K fetch size.                         |
-| `paradedb.topk_retry_scale_factor`     | `2`      | user    | Multiplies the fetch size on retries when the first Top K pass does not collect enough rows. |
-| `paradedb.max_topk_chunk_size`         | `100000` | user    | Maximum chunk size for Top K collection.                                                     |
-| `paradedb.check_topk_scan`             | `on`     | user    | Logs a warning when a `LIMIT` query expected to use Top K cannot use it.                     |
-| `paradedb.enable_segmented_topk`       | `on`     | user    | Enables segmented Top K pruning for late-materialized string and byte columns.               |
-| `paradedb.expensive_query_cost_factor` | `25.0`   | user    | Scales planner cost estimates for fuzzy, regex, and more-like-this queries.                  |
+| Setting                                | Default  | Context | Description                                                                                                  |
+| -------------------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `paradedb.limit_fetch_multiplier`      | `1.0`    | user    | Multiplies the query `LIMIT` to choose the initial Top K fetch size.                                         |
+| `paradedb.topk_retry_scale_factor`     | `2`      | user    | Multiplies the fetch size on retries when the first Top K pass does not collect enough rows.                 |
+| `paradedb.max_topk_chunk_size`         | `100000` | user    | Maximum chunk size for Top K collection.                                                                     |
+| `paradedb.enable_segmented_topk`       | `on`     | user    | Enables segmented Top K pruning for late-materialized string and byte columns.                               |
+| `paradedb.expensive_query_cost_factor` | `25.0`   | user    | Scales planner cost estimates for fuzzy, regex, and more-like-this queries.                                  |
+| `paradedb.disjunction_pruning`         | `auto`   | user    | Selects the pruning algorithm for eligible scored Top K disjunctions. Accepts `auto`, `wand`, or `maxscore`. |
 
 ## Aggregates
 
 These settings affect `pdb.agg`, `GROUP BY`, and faceted search. See [Aggregate Syntax](/reference/aggregates/overview).
 
-| Setting                                        | Default   | Context | Description                                                                               |
-| ---------------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------- |
-| `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.             |
-| `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes. |
-| `paradedb.check_aggregate_scan`                | `on`      | user    | Logs a warning when a query expected to use aggregate scan cannot use it.                 |
-| `paradedb.enable_bitmap_postings`              | `on`      | user    | Uses posting bitmaps for eligible counts; disable to use ordinary postings.               |
-| `paradedb.add_doc_count_to_aggs`               | `off`     | user    | Internal testing setting for aggregate null-handling compatibility.                       |
+| Setting                                        | Default   | Context | Description                                                                                                                                                       |
+| ---------------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.                                                                                     |
+| `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes.                                                                         |
+| `paradedb.enable_bitmap_postings`              | `on`      | user    | Uses posting bitmaps for eligible counts; disable to use ordinary postings.                                                                                       |
+| `paradedb.visibility_threshold`                | `10000`   | user    | With aggregate visibility set to `threshold`, applies transaction visibility checks below this estimated matching row count. Reads raw index data at or above it. |
 
 ## Vector Search
 
@@ -122,6 +124,29 @@ These settings affect segment layout and background merging.
 | `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload. |
 | `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                  |
 | `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.      |
+
+## Per-Index Search Options
+
+Set these options in the index's `WITH` clause. The linked guides explain when changes require rebuilding the index.
+
+| Option                  | Default                   | Description                                                                                                                    | Reference                                                                           |
+| ----------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `partition_by`          | None                      | Columns used to partition index segments.                                                                                      | [Index Partitioning](/reference/indexing/partition-by)                              |
+| `target_segment_count`  | Automatic                 | Target number of segments during `CREATE INDEX` or `REINDEX`. Overridden by a non-zero `paradedb.global_target_segment_count`. | [Read Throughput](/operate/performance-tuning/reads#adjusting-target-segment-count) |
+| `search_tokenizer`      | Indexed field's tokenizer | Default search-time tokenizer for text and JSON fields.                                                                        | [Search Tokenizer](/reference/tokenizers/search-tokenizer)                          |
+| `training_sample_ratio` | `0.32`                    | Fraction of vectors sampled whenever a segment is clustered. Accepts `0.000001` through `1.0`.                                 | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `max_leaf_size`         | `200`                     | Maximum sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                          | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `vector_fields`         | No overrides              | JSON configuration for each vector field, including quantization.                                                              | [Vector Quantization](/reference/indexing/indexing-vectors#vector-quantization)     |
+
+## Per-Index Write Options
+
+Set these options with `CREATE INDEX ... WITH (...)` or `ALTER INDEX ... SET (...)`. See [Write Throughput](/operate/performance-tuning/writes) for tuning guidance.
+
+| Option                   | Default                              | Description                                                                                                                          |
+| ------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `layer_sizes`            | Disabled                             | Foreground merge thresholds. Set to `'0'` to disable foreground merging.                                                             |
+| `background_layer_sizes` | `100KB, 1MB, 10MB, 100MB, 1GB, 10GB` | Background merge thresholds. Set to `'0'` to disable background merging.                                                             |
+| `mutable_segment_rows`   | `1000`                               | Number of rows buffered in mutable segments. Overridden by `paradedb.global_mutable_segment_rows` when that setting is non-negative. |
 
 ## Related Postgres Settings
 

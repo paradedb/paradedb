@@ -1,5 +1,0 @@
----
-header: stability
----
-
-A query with a `LIMIT` above 8192 no longer fails with `min > max. min = ..., max = 8192` when only part of its `ORDER BY` can be pushed down, such as `ORDER BY pdb.score(id) DESC, id DESC` on a table with a text key. This regressed in 0.26.1.

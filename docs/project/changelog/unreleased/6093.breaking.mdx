@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Direct indexing of `ltree` columns in ParadeDB indexes (`USING paradedb (..., path)`) is now deprecated with a create-time warning and will be removed in a future release. Users should create a standard PostgreSQL GiST index on the `ltree` column alongside the ParadeDB index (`USING gist (path)`), which is automatically intersected with ParadeDB searches via bitmap intersection while supporting the full set of `ltree` operators (`<@`, `@>`, `~`, `?`, `@`).

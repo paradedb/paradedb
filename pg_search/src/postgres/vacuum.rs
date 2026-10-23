@@ -33,11 +33,12 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
         garbage_collect_index(&index, next_xid, next_xid);
     }
     do_merge(&index, MergeStyle::Vacuum, None, None).expect("should be able to merge");
-    if !(*info).analyze_only && index.is_valid() {
-        if let Err(error) = index_wide::refresh(&index) {
-            MetaPage::clear_index_stats(&index);
-            pgrx::warning!("could not refresh index statistics: {error}");
-        }
+    if !(*info).analyze_only
+        && index.is_valid()
+        && let Err(error) = index_wide::refresh(&index)
+    {
+        MetaPage::clear_index_stats(&index);
+        pgrx::warning!("could not refresh index statistics: {error}");
     }
     stats
 }

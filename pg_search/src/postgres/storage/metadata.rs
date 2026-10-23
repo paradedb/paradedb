@@ -532,14 +532,14 @@ mod tests {
             .unwrap();
         let indexrel = PgSearchRelation::open(oid);
         // older metapages have zeros past `created_at`. recreate those bytes in place.
-        let mut bman = BufferManager::new(&indexrel);
-        let mut buffer = bman.get_buffer_mut(METAPAGE);
-        let mut page = buffer.page_mut();
-        let data = page.contents_mut::<MetaPageData>();
-        data.index_stats_lock = 0;
-        data.index_stats_start = 0;
-        drop(page);
-        drop(buffer);
+        {
+            let mut bman = BufferManager::new(&indexrel);
+            let mut buffer = bman.get_buffer_mut(METAPAGE);
+            let mut page = buffer.page_mut();
+            let data = page.contents_mut::<MetaPageData>();
+            data.index_stats_lock = 0;
+            data.index_stats_start = 0;
+        }
 
         assert!(block_number_is_valid(
             MetaPage::open(&indexrel).data.index_stats_lock

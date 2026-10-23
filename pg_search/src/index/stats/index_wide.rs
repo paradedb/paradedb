@@ -169,7 +169,8 @@ pub(crate) fn refresh(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
                 .flatten();
             let observed = match persisted {
                 Some(stats) => Some(stats),
-                None => EmpiricalStats::from_fast_field(segment, &field)?,
+                None if field.is_fast() => EmpiricalStats::from_fast_field(segment, &field)?,
+                None => None,
             };
             let Some(observed) = observed else {
                 complete = false;
@@ -324,10 +325,13 @@ mod tests {
 
     #[pg_test]
     fn vacuum_refreshes_index_wide_summary() {
-        Spi::run("CREATE TABLE index_stats_vacuum_source (id BIGINT);").unwrap();
-        Spi::run("INSERT INTO index_stats_vacuum_source VALUES (1), (2), (3);").unwrap();
+        Spi::run("CREATE TABLE index_stats_vacuum_source (id BIGINT, metadata JSONB);").unwrap();
         Spi::run(
-            "CREATE INDEX index_stats_vacuum_source_idx ON index_stats_vacuum_source USING paradedb (id);",
+            "INSERT INTO index_stats_vacuum_source VALUES (1, '{}'::jsonb), (2, '{}'::jsonb), (3, '{}'::jsonb);",
+        )
+        .unwrap();
+        Spi::run(
+            "CREATE INDEX index_stats_vacuum_source_idx ON index_stats_vacuum_source USING paradedb (id, metadata);",
         )
         .unwrap();
         let oid =
@@ -344,6 +348,16 @@ mod tests {
         }
 
         let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
-        assert_eq!(load_for(&indexrel, &reader).unwrap().unwrap().total_docs, 3);
+        let summary = load_for(&indexrel, &reader).unwrap().unwrap();
+        assert_eq!(summary.total_docs, 3);
+        assert!(
+            summary
+                .fields
+                .iter()
+                .find(|field| field.name == "metadata")
+                .unwrap()
+                .bounds()
+                .is_none()
+        );
     }
 }

@@ -163,7 +163,8 @@ jobs:
             echo "Determined ref as default: main"
           fi
 
-      # Keep workflow actions separate from the source commit being benchmarked.
+      # Keep workflow actions separate from the source commit being benchmarked
+      # so we can benchmark older commits with newer actions.
       - name: Checkout workflow actions
         uses: actions/checkout@v7
         with:

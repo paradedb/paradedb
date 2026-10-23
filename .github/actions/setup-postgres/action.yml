@@ -11,7 +11,7 @@ inputs:
     required: false
     default: "system"
   initialize_pgrx:
-    description: "Initialize cargo-pgrx for PostgreSQL; requires cargo-pgrx to be installed first"
+    description: "Initialize cargo-pgrx for PostgreSQL. Install cargo-pgrx first."
     required: false
     default: "true"
   pgrx_cache_hit:
@@ -68,7 +68,7 @@ runs:
         if [ "$PGRX_CACHE_HIT" != 'true' ]; then
           cargo pgrx init "--pg${INPUTS_PG_VERSION}=download" --configure-flag="--without-readline"
         else
-          # Only compiled binaries are cached; recreate pgrx config and database state.
+          # Only compiled binaries are cached. Recreate the pgrx config and database state.
           configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
           test -x "${configs[0]}"
           cargo pgrx init "--pg${INPUTS_PG_VERSION}=${configs[0]}"

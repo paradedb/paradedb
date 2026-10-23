@@ -76,7 +76,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
@@ -87,7 +87,7 @@ jobs:
       IMAGE_TAG: paradedb-source:ci
 
     steps:
-      # The label triggers this run; remove it so it can be re-applied to re-run.
+      # Remove the label so it can be applied again to start another run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn')
         env:
@@ -104,7 +104,7 @@ jobs:
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
-          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
+          # Use workflow_dispatch `commit` when set. Otherwise use github.sha (the PR merge
           # commit, or the commit pushed to main).
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
@@ -172,7 +172,7 @@ jobs:
           fi
           for script in "${scripts[@]}"; do
             name="$(basename "$script" .js)"
-            # Warm-up pass (discarded) fills page cache + shared_buffers; the
+            # The warm-up pass fills the page cache and shared_buffers. The
             # second pass is the measured, exported one.
             echo "== warming ${name} (discarded) =="
             ( cd "$root/results" && taskset -c 5-7 "$root/k6" run "$script" >/dev/null )
@@ -216,7 +216,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'push' ||
@@ -242,7 +242,7 @@ jobs:
       - name: Initialize Environment
         run: echo "VOLUME_ROOT=${RUNNER_TEMP}/volumes" >> "$GITHUB_ENV"
 
-      # The label triggers this run; remove it so it can be re-applied to re-run.
+      # Remove the label so it can be applied again to start another run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request'
         env:
@@ -259,7 +259,7 @@ jobs:
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
-          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
+          # Use workflow_dispatch `commit` when set. Otherwise use github.sha (the PR merge
           # commit, or the commit pushed to main).
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"

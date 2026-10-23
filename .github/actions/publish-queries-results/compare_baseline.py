@@ -170,8 +170,8 @@ def write_alert_report(path, suite, baseline, alerts):
             "Percentile series with paired per-query samples alert when the bootstrapped "
             "one-sided lower 95% bound of the paired percentile ratio exceeds "
             f"{EFFECT_FLOOR:.2f}x. Without samples, a series alerts when its 95% CI sits "
-            f"entirely above the baseline's and the value regressed >{EFFECT_FLOOR:.2f}x; "
-            f"without CIs, when the value regressed >{FALLBACK_RATIO:.2f}x."
+            f"entirely above the baseline's and the value regressed >{EFFECT_FLOOR:.2f}x. "
+            f"Without CIs, a series alerts when the value regressed >{FALLBACK_RATIO:.2f}x."
         ),
         "",
         f"### {suite}",
@@ -191,7 +191,7 @@ def write_alert_report(path, suite, baseline, alerts):
 
 
 def collect_alerts(current, baseline):
-    """Judge every current series against the baseline; return the regressed ones."""
+    """Compare each current series with the baseline and return regressions."""
     baseline_by_name = {b["name"]: b for b in baseline["benches"]}
     cur_groups = samples_by_group(current)
     base_groups = samples_by_group(baseline["benches"])
@@ -228,7 +228,7 @@ def main():
 
     baseline = load_baseline(args.data_js, args.suite)
     if baseline is None:
-        print(f"No baseline entry for suite '{args.suite}'; nothing to compare.")
+        print(f"No baseline entry for suite '{args.suite}'. Nothing to compare.")
         return
 
     alerts = collect_alerts(current, baseline)

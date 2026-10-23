@@ -202,7 +202,7 @@ jobs:
         if: success()
         uses: ./.github/actions/stage-benchmark-results
         with:
-          kind: benchmarker
+          benchmark_type: benchmarker
           key: ${{ env.DATASET }}
           path: benchmarker/results/
           metadata: >-
@@ -399,7 +399,7 @@ jobs:
         if: success()
         uses: ./.github/actions/stage-benchmark-results
         with:
-          kind: benchmarker
+          benchmark_type: benchmarker
           key: ${{ env.DATASET }}
           path: benchmarker/results/
           metadata: >-

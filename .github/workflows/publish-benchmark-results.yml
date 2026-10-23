@@ -89,7 +89,7 @@ jobs:
           exit 1
 
       - name: Publish Benchmarker Results
-        if: fromJSON(steps.metadata.outputs.json).kind == 'benchmarker'
+        if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'benchmarker'
         uses: ./.github/actions/publish-benchmarker-results
         with:
           dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
@@ -99,7 +99,7 @@ jobs:
           auto_push: ${{ fromJSON(steps.metadata.outputs.json).auto_push }}
 
       - name: Publish Query Results
-        if: fromJSON(steps.metadata.outputs.json).kind == 'queries'
+        if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'queries'
         uses: ./.github/actions/publish-queries-results
         with:
           results_file: ${{ fromJSON(steps.metadata.outputs.json).source_directory || '.' }}/benchmarks/results.json
@@ -113,7 +113,7 @@ jobs:
           alert_strategy: ${{ fromJSON(steps.metadata.outputs.json).alert_strategy }}
 
       - name: Publish Stressgres Results
-        if: fromJSON(steps.metadata.outputs.json).kind == 'stressgres'
+        if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'stressgres'
         uses: ./.github/actions/publish-stressgres-results
         with:
           test_file: ${{ fromJSON(steps.metadata.outputs.json).test_file }}

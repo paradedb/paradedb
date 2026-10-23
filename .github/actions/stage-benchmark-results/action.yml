@@ -2,7 +2,7 @@ name: Stage Benchmark Results
 description: Upload results and publication inputs as GitHub Actions artifacts for the queued publisher
 
 inputs:
-  kind:
+  benchmark_type:
     description: "Benchmark type: benchmarker, queries, or stressgres"
     required: true
   key:
@@ -22,17 +22,17 @@ runs:
       shell: bash
       env:
         METADATA: ${{ inputs.metadata }}
-        KIND: ${{ inputs.kind }}
+        BENCHMARK_TYPE: ${{ inputs.benchmark_type }}
       run: |
         mkdir -p _benchmark_publish
-        jq --arg kind "$KIND" \
-          'del(.github_token, .github_app_client_id, .github_app_private_key) + {kind: $kind}' \
+        jq --arg benchmark_type "$BENCHMARK_TYPE" \
+          'del(.github_token, .github_app_client_id, .github_app_private_key) + {benchmark_type: $benchmark_type}' \
           <<< "$METADATA" > _benchmark_publish/metadata.json
 
     - name: Upload Benchmark Results
       uses: actions/upload-artifact@v7
       with:
-        name: gh-pages-${{ inputs.kind }}-${{ inputs.key }}-${{ github.run_attempt }}
+        name: gh-pages-${{ inputs.benchmark_type }}-${{ inputs.key }}-${{ github.run_attempt }}
         path: |
           _benchmark_publish/metadata.json
           ${{ inputs.path }}

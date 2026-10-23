@@ -8,18 +8,6 @@ inputs:
   ref:
     description: "Full SHA of the commit benchmarked"
     required: true
-  results_dir:
-    description: "Directory containing results json and html files"
-    required: false
-    default: "benchmarker/results"
-  metrics_file:
-    description: "Path to write extracted latency metrics json"
-    required: false
-    default: "benchmarker/benchmarker_metrics.json"
-  throughput_metrics_file:
-    description: "Path to write extracted QPS metrics json"
-    required: false
-    default: "benchmarker/benchmarker_throughput_metrics.json"
   github_token:
     description: "GitHub token for publishing and comments"
     required: true
@@ -113,16 +101,22 @@ runs:
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
-      if: hashFiles(inputs.metrics_file) != ''
+      if: hashFiles('benchmarker/benchmarker_metrics.json') != ''
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
-        metrics_file: benchmarker/benchmarker_metrics.json
-        github_token: ${{ steps.app-token.outputs.token }}
-        pages_directory: benchmarker
-        publish_baseline: ${{ inputs.publish_baseline }}
-        comment_on_regression: ${{ inputs.pr_number == '' }}
+        tool: customSmallerIsBetter
+        output-file-path: benchmarker/benchmarker_metrics.json
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: benchmarker
+        auto-push: ${{ inputs.auto_push == 'true' }}
+        alert-threshold: "115%"
+        comment-on-alert: ${{ inputs.pr_number == '' }}
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: false
 
     - name: Read Latency Baseline
       if: inputs.pr_number != '' && steps.publish_latency.outcome == 'success'
@@ -135,17 +129,22 @@ runs:
 
     - name: Publish QPS Metrics
       id: publish_throughput
-      if: hashFiles(inputs.throughput_metrics_file) != ''
+      if: hashFiles('benchmarker/benchmarker_throughput_metrics.json') != ''
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "benchmarker ${{ inputs.dataset }} (throughput)"
         ref: ${{ inputs.ref }}
-        direction: bigger
-        metrics_file: benchmarker/benchmarker_throughput_metrics.json
-        github_token: ${{ steps.app-token.outputs.token }}
-        pages_directory: benchmarker
-        publish_baseline: ${{ inputs.publish_baseline }}
-        comment_on_regression: ${{ inputs.pr_number == '' }}
+        tool: customBiggerIsBetter
+        output-file-path: benchmarker/benchmarker_throughput_metrics.json
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: benchmarker
+        auto-push: ${{ inputs.auto_push == 'true' }}
+        alert-threshold: "115%"
+        comment-on-alert: ${{ inputs.pr_number == '' }}
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: false
 
     - name: Read QPS Baseline
       if: inputs.pr_number != '' && steps.publish_throughput.outcome == 'success'

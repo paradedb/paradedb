@@ -2,9 +2,10 @@ name: Publish Queries Results
 description: Publish query metrics and compare them against the baseline
 
 inputs:
-  results_file:
-    description: "Path to the staged query metrics JSON"
-    required: true
+  source_directory:
+    description: "Source directory used by the benchmark"
+    required: false
+    default: "."
   dataset:
     description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
     required: true
@@ -56,7 +57,7 @@ runs:
         name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ inputs.size }} rows)"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
-        output-file-path: ${{ inputs.results_file }}
+        output-file-path: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
         github-token: ${{ inputs.github_token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
@@ -76,7 +77,7 @@ runs:
       env:
         INPUTS_DATASET: ${{ inputs.dataset }}
         INPUTS_INDEX: ${{ inputs.index }}
-        RESULTS_FILE: ${{ inputs.results_file }}
+        RESULTS_FILE: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
       run: |
         python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
           --results "$RESULTS_FILE" \

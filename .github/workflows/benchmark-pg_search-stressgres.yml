@@ -101,6 +101,7 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 1
 
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 

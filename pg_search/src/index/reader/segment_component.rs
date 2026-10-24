@@ -71,14 +71,6 @@ impl SegmentComponentReader {
             let end = range.end.min(self.len());
             let range = range.start..end;
 
-            #[cfg(feature = "pg18")]
-            if tantivy::vector::current_vector_read_kind()
-                == tantivy::vector::VectorReadKind::FullPrecision
-                && range.len() > bm25_max_free_space()
-            {
-                return Ok(self.block_list.get_bytes_ranges(&[range]).pop().unwrap());
-            }
-
             // read one or more pages
             Ok(self.block_list.get_bytes_range(range))
         }
@@ -86,6 +78,22 @@ impl SegmentComponentReader {
 }
 
 impl FileHandle for SegmentComponentReader {
+    fn supports_streaming_reads(&self) -> bool {
+        cfg!(feature = "pg18") && crate::gucs::vector_stream_rerank()
+    }
+
+    fn visit_bytes(
+        &self,
+        ranges: &[Range<usize>],
+        visitor: &mut dyn FnMut(usize, OwnedBytes) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let ranges: Vec<_> = ranges
+            .iter()
+            .map(|range| range.start..range.end.min(self.len()))
+            .collect();
+        unsafe { self.block_list.visit_bytes_ranges(&ranges, visitor) }
+    }
+
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         self.read_bytes_raw(range)
     }
@@ -179,6 +187,7 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_segment_component_batch_reads() {
+        Spi::run("SET paradedb.recent_buffers = on").unwrap();
         Spi::run("CREATE TABLE batch_reads (id INT)").unwrap();
         Spi::run("CREATE INDEX batch_reads_idx ON batch_reads USING paradedb (id)").unwrap();
         let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'batch_reads_idx'::regclass::oid")
@@ -228,6 +237,23 @@ mod tests {
                 assert_eq!(actual.as_ref(), &bytes[range.clone()]);
             }
             assert!(reader.read_bytes_batch(&[]).unwrap().is_empty());
+            let mut visited = 0;
+            let result = reader.visit_bytes(&ranges, &mut |i, actual| {
+                assert_eq!(
+                    actual.as_ref(),
+                    &bytes[ranges[i].start..ranges[i].end.min(bytes.len())]
+                );
+                // Nested reads must remain safe while the stream has I/O outstanding.
+                assert_eq!(reader.read_byte(35 * page).unwrap(), bytes[35 * page]);
+                visited += 1;
+                if i == 3 {
+                    return Err(std::io::Error::other("stop"));
+                }
+                Ok(())
+            });
+            assert!(result.is_err());
+            assert_eq!(visited, 4);
+            assert_eq!(reader.read_bytes(0..bytes.len()).unwrap().as_ref(), bytes);
         }
     }
 }

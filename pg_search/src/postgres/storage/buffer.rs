@@ -968,18 +968,27 @@ impl BufferManager {
         let run = || {
             let mut blocks = blocks.iter();
             let rel = self.rbufacc.rel();
-            // The callback only consumes pre-resolved block numbers, so AIO batching is safe.
-            let stream = Stream(pg_sys::read_stream_begin_relation(
-                pg_sys::READ_STREAM_USE_BATCHING as _,
-                std::ptr::null_mut(),
-                rel.as_ptr(),
-                rel.fork_number(),
-                Some(next_block),
-                (&mut blocks as *mut std::slice::Iter<'_, pg_sys::BlockNumber>).cast(),
-                0,
-            ));
+            let mut begin = || {
+                pg_sys::read_stream_begin_relation(
+                    pg_sys::READ_STREAM_DEFAULT as _,
+                    std::ptr::null_mut(),
+                    rel.as_ptr(),
+                    rel.fork_number(),
+                    Some(next_block),
+                    (&mut blocks as *mut std::slice::Iter<'_, pg_sys::BlockNumber>).cast(),
+                    0,
+                )
+            };
+            let stream = Stream(match &self.rbufacc.io_stats {
+                Some(stats) => stats.buffer(begin),
+                None => begin(),
+            });
             let mut buffers = std::iter::from_fn(|| {
-                let pg_buffer = pg_sys::read_stream_next_buffer(stream.0, std::ptr::null_mut());
+                let next = || pg_sys::read_stream_next_buffer(stream.0, std::ptr::null_mut());
+                let pg_buffer = match &self.rbufacc.io_stats {
+                    Some(stats) => stats.buffer(next),
+                    None => next(),
+                };
                 if pg_buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
                     return None;
                 }
@@ -989,10 +998,7 @@ impl BufferManager {
             });
             read(&mut buffers)
         };
-        match &self.rbufacc.io_stats {
-            Some(stats) => stats.buffer(run),
-            None => run(),
-        }
+        run()
     }
 
     ///

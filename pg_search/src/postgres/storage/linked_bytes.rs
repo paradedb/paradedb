@@ -474,6 +474,20 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn get_bytes_ranges(&self, ranges: &[Range<usize>]) -> Vec<OwnedBytes> {
+        let mut results = Vec::with_capacity(ranges.len());
+        self.visit_bytes_ranges(ranges, &mut |_, bytes| {
+            results.push(bytes);
+            Ok(())
+        })
+        .expect("infallible byte collector");
+        results
+    }
+
+    pub unsafe fn visit_bytes_ranges(
+        &self,
+        ranges: &[Range<usize>],
+        visitor: &mut dyn FnMut(usize, OwnedBytes) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
         #[cfg(feature = "pg18")]
         if ranges
             .iter()
@@ -528,17 +542,17 @@ impl LinkedBytesList {
                         });
                         bytes
                     };
-                    ranges
-                        .iter()
-                        .map(|range| self.get_bytes_range_with(range.clone(), &mut get_block))
-                        .collect()
+                    for (i, range) in ranges.iter().enumerate() {
+                        visitor(i, self.get_bytes_range_with(range.clone(), &mut get_block))?;
+                    }
+                    Ok(())
                 });
             }
         }
-        ranges
-            .iter()
-            .map(|range| self.get_bytes_range(range.clone()))
-            .collect()
+        for (i, range) in ranges.iter().enumerate() {
+            visitor(i, self.get_bytes_range(range.clone()))?;
+        }
+        Ok(())
     }
 
     unsafe fn get_bytes_range_with(

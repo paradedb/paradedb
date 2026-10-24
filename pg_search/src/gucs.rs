@@ -343,6 +343,16 @@ pub fn vector_max_scan_levels() -> usize {
 
 /// Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`.
 static VECTOR_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+static RECENT_BUFFERS: GucSetting<bool> = GucSetting::<bool>::new(false);
+static VECTOR_STREAM_RERANK: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+pub fn recent_buffers() -> bool {
+    RECENT_BUFFERS.get()
+}
+
+pub fn vector_stream_rerank() -> bool {
+    VECTOR_STREAM_RERANK.get()
+}
 
 /// Returns whether per-segment vector scan statistics are shown in EXPLAIN.
 pub fn vector_stats() -> bool {
@@ -358,6 +368,23 @@ pub fn vector_clustering_threshold() -> usize {
 }
 
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.recent_buffers",
+        c"Cache buffer IDs for normal index reads",
+        c"Validate remembered buffer IDs before falling back to the shared buffer mapping table",
+        &RECENT_BUFFERS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_stream_rerank",
+        c"Stream the final vector shortlist in one read stream",
+        c"Score full precision vectors as their planned ranges arrive",
+        &VECTOR_STREAM_RERANK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 

@@ -32,6 +32,8 @@ pub mod plan_walk;
 pub mod pre_filter;
 pub mod propagate_empty_unnest_rule;
 pub mod range_partitioning;
+pub mod rank_join_exec;
+pub mod rank_join_rule;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;
 pub mod table_provider;

@@ -152,8 +152,14 @@ impl TryFrom<&str> for CtidColumn {
 pub struct ScoreColumn(String);
 
 impl ScoreColumn {
+    pub const PREFIX: &'static str = "pdb.score(";
+
     pub fn new(table: impl Into<String>) -> Self {
         Self(table.into())
+    }
+
+    pub fn is_score_column(name: &str) -> bool {
+        name.starts_with(Self::PREFIX) && name.ends_with(')')
     }
 }
 
@@ -1769,6 +1775,15 @@ impl RelNode {
                         f(&mut tq.query);
                     }
                 }
+                crate::scan::ScanMode::Disjunctive {
+                    base_query,
+                    disjunct_queries,
+                } => {
+                    f(base_query);
+                    for q in disjunct_queries {
+                        f(q);
+                    }
+                }
             },
             RelNode::Join(j) => {
                 j.left.visit_queries_mut(f);
@@ -1799,6 +1814,15 @@ impl RelNode {
                     f(base_query);
                     for tq in local_queries {
                         f(&tq.query);
+                    }
+                }
+                crate::scan::ScanMode::Disjunctive {
+                    base_query,
+                    disjunct_queries,
+                } => {
+                    f(base_query);
+                    for q in disjunct_queries {
+                        f(q);
                     }
                 }
             },

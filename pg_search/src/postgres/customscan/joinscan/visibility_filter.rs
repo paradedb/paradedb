@@ -1113,7 +1113,6 @@ impl VisibilityFilterExec {
         Ok(new_node)
     }
 
-    #[cfg(any(test, feature = "pg_test"))]
     pub fn projection(&self) -> Option<&[usize]> {
         self.projection.as_deref()
     }

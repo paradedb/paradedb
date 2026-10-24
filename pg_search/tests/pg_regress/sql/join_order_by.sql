@@ -9,8 +9,10 @@ SET enable_indexscan to OFF;
 -- Load the pg_search extension
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- Make sure the GUC is enabled
+-- Make sure the GUC is enabled, and keep RankJoin disabled so these tests
+-- exercise the HashJoinExec + SortExec(TopK) dynamic filter path.
 SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_rank_join = off;
 
 -- =============================================================================
 -- TEST 1: Join on sorted keys (Both sides sorted on join key)
@@ -546,4 +548,5 @@ DROP TABLE IF EXISTS null_val_t2 CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_rank_join;
 RESET paradedb.enable_join_custom_scan;

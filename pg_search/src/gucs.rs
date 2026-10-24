@@ -203,6 +203,14 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to enable or disable `RankJoinExec` (SA + RA Rank Join) for top-K scored joins.
+static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Minimum estimated matching rows on both join inputs required before `RankJoinRule`
+/// replaces a one-pass `HashJoinExec` with `RankJoinExec`. Set to 0 in tests to bypass
+/// the row-count floor.
+static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
 /// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
 /// a window query with a LIMIT takes that path regardless.
@@ -347,33 +355,6 @@ static VECTOR_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Returns whether per-segment vector scan statistics are shown in EXPLAIN.
 pub fn vector_stats() -> bool {
     VECTOR_STATS.get()
-}
-
-/// Recall target for the stacked IVF router's centroid ranking. Below `1.0`
-/// the router stops scanning its centroid lists once the estimated recall
-/// of the top clusters reaches the target (adaptive partition scanning);
-/// `1.0` ranks with the fixed per-level nprobe fractions instead. Tantivy
-/// ignores the target and uses the nprobe path above
-/// `APS_MAX_DIM` (128) dimensions, where the estimate is unreliable.
-static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> =
-    GucSetting::<f64>::new(tantivy::vector::DEFAULT_ROUTER_RECALL as f64);
-
-/// Returns the stacked IVF router's recall target.
-pub fn vector_router_recall_target() -> f32 {
-    VECTOR_ROUTER_RECALL_TARGET.get() as f32
-}
-
-/// Recall target for each segment's own cluster scan. Below `1.0` the probe
-/// loop stops once the estimated recall of the clusters covered so far
-/// reaches the target (adaptive partition scanning); `1.0` leaves
-/// `vector_cluster_max_probe` as the only bound. Tantivy applies it to
-/// stacked-router segments only and ignores it above `APS_MAX_DIM` (128)
-/// dimensions.
-static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
-
-/// Returns the segment cluster scan's recall target.
-pub fn vector_recall_target() -> f32 {
-    VECTOR_RECALL_TARGET.get() as f32
 }
 
 /// Minimum merged-segment row count for IVF vector storage.
@@ -698,28 +679,6 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_router_recall_target",
-        c"Recall target for the IVF router's centroid ranking in vector ORDER BY queries",
-        c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
-        &VECTOR_ROUTER_RECALL_TARGET,
-        0.000001,
-        1.0,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_recall_target",
-        c"Recall target for each segment's cluster scan in vector ORDER BY queries",
-        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with the stacked IVF router, and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
-        &VECTOR_RECALL_TARGET,
-        0.000001,
-        1.0,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     GucRegistry::define_int_guc(
         c"paradedb.max_scan_levels",
         c"Maximum quantized vector layers scored before exact scoring",
@@ -827,6 +786,28 @@ pub fn init() {
           Global thresholds are published progressively to the scanner \
           for early row pruning during collection.",
         &ENABLE_SEGMENTED_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_rank_join",
+        c"Enable RankJoinExec (SA + RA Rank Join) for top-K scored joins",
+        c"When enabled, top-K joins ordered by a monotonic score expression use \
+          RankJoinExec with lazy score-ordered (SA) and point-lookup (RA) scan streams.",
+        &ENABLE_RANK_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.rank_join_min_rows",
+        c"Minimum estimated matching rows on both join inputs for RankJoinExec",
+        c"Minimum estimated matching rows on both join inputs before RankJoinRule replaces \
+          a one-pass HashJoinExec with RankJoinExec. Set to 0 to bypass the size floor.",
+        &RANK_JOIN_MIN_ROWS,
+        0,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1242,6 +1223,14 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_rank_join() -> bool {
+    ENABLE_RANK_JOIN.get()
+}
+
+pub fn rank_join_min_rows() -> usize {
+    RANK_JOIN_MIN_ROWS.get().max(0) as usize
 }
 
 pub fn joinscan_force_topk_as_agg() -> bool {

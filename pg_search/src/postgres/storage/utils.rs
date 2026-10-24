@@ -268,8 +268,8 @@ unsafe fn extend_by_one_buffer(
     }
 }
 
-/// Pinned buffers a writer has reserved and not yet taken. Whatever is left when the iterator
-/// drops is unpinned, so an early return leaves no pin behind.
+/// A simple wrapper so we can make sure the buffer is released if the iterator is dropped before
+/// exhaustion.
 ///
 /// A reserved block stays pinned from the moment it leaves the free space map or extends the
 /// relation until its writer locks it. `storage::sweep` frees only blocks it can take a cleanup

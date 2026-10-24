@@ -772,8 +772,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for AtomicGuard<'_, T>
     }
 }
 
-/// Entries of a [`LinkedItemList`] together with the pins that keep them in place. The pins
-/// cannot be dropped before the entries: that is the point.
+/// Entries of a [`LinkedItemList`] together with the pins that keep them in place, so a walk
+/// of the entries cannot outlive the pins.
 pub(crate) struct PinnedEntries<T> {
     entries: Vec<T>,
     _pins: Vec<PinnedBuffer>,

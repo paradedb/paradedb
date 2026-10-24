@@ -925,6 +925,7 @@ impl BufferManager {
         let mut source: Option<Source> = None;
         let buffers = std::iter::from_fn(move || {
             if remaining == 0 {
+                // got all we wanted from the fsm
                 return None;
             }
             loop {
@@ -944,9 +945,14 @@ impl BufferManager {
                             unsafe {
                                 pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _)
                             };
-                            // Not XlogFlag::ExistingBuffer: that asks Postgres to diff the page,
-                            // and the caller asked for a "new buffer" it will overwrite entirely.
                             return Some(BufferMut {
+                                // one might think that XlogFlag::ExistingBuffer would be the right style here.
+                                // However, it's really not.
+                                //
+                                // ExistingBuffer asks Postgres to generate diffs for the page but since we're
+                                // returning this existing buffer from the FSM in response to the caller asking for
+                                // "new buffers", they're most likely going to change every byte on the page anyway,
+                                // so we avoid the diff calculation by using NewBuffer
                                 style: XlogFlag::NewBuffer.into_style(&rel),
                                 dirty: false,
                                 inner: Buffer::new(pg_buffer),
@@ -954,6 +960,8 @@ impl BufferManager {
                         }
                         None if *wanted == 0 => source = None,
                         None => {
+                            // the fsm didn't give us all the buffers we asked for, so we need to get the rest
+                            // by extending the relation with brand new buffers
                             source = Some(Source::Extending(Box::new(
                                 bman.buffer_access().new_buffers(remaining),
                             )));

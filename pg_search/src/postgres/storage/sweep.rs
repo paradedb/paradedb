@@ -52,8 +52,6 @@ use pgrx::{check_for_interrupts, pg_sys};
 /// was running when the sweep began may still publish during the walk, so it waits; an older
 /// stamp belongs to a transaction that finished before the walk and would have been seen
 /// publishing.
-/// Each variant carries the stamp it was read from, so a verdict and the page state it
-/// rests on cannot disagree; [`Verdict::stamp`] gives it back for the claim's re-read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
     /// Running when the sweep began, or begun since. Judged by a later sweep.
@@ -335,7 +333,7 @@ enum Owner {
     Bytes(pg_sys::BlockNumber),
     /// A list of segment entries, each owning lists of its own.
     Segments(LinkedItemList<SegmentMetaEntry>),
-    /// Pages already read.
+    /// The merge list's own pages, from the snapshot.
     Pages(Vec<pg_sys::BlockNumber>),
 }
 

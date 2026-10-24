@@ -799,16 +799,20 @@ impl SegmentMetaEntry {
     pub fn owned_lists(&self) -> impl Iterator<Item = OwnedList> + '_ {
         let iter: Box<dyn Iterator<Item = OwnedList>> = match self.content {
             SegmentMetaEntryContent::Immutable(ref content) if self.is_orphaned_delete() => {
-                // This is a "fake" `DeleteEntry`: only the old `DeleteEntry`'s file is this entry's
+                // This is a "fake" `DeleteEntry`: free the blocks for the old `DeleteEntry` only
                 let block = content.delete.as_ref().unwrap().file_entry.starting_block;
                 Box::new(std::iter::once(OwnedList::Bytes(block)))
             }
-            SegmentMetaEntryContent::Immutable(ref content) => Box::new(
-                content
-                    .file_entries()
-                    .map(|(file_entry, _)| OwnedList::Bytes(file_entry.starting_block)),
-            ),
+            SegmentMetaEntryContent::Immutable(ref content) => {
+                // Free all files.
+                Box::new(
+                    content
+                        .file_entries()
+                        .map(|(file_entry, _)| OwnedList::Bytes(file_entry.starting_block)),
+                )
+            }
             SegmentMetaEntryContent::Mutable(ref content) => {
+                // Free the content list.
                 Box::new(std::iter::once(OwnedList::Items(content.header_block)))
             }
         };

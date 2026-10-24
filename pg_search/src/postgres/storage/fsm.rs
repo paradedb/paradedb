@@ -80,8 +80,9 @@ pub trait FreeSpaceManager {
     /// Drain `n` recyclable blocks from this [`FreeSpaceManager`] instance, using the specified
     /// [`BufferManager`] for underlying disk access.
     ///
-    /// All blocks in the returned iterator have already been removed from the FSM, including
-    /// blocks the caller does not consume. The caller must use or return every reserved block.
+    /// It is the caller's responsibility to ensure each yielded block is properly used, or else it will
+    /// be lost forever as dead space in the underlying relation.  Blocks the iterator never yields
+    /// were removed from the FSM too, so the caller must use or return every one.
     ///
     /// Each block is pinned, unlocked, before it leaves the FSM and stays pinned until the caller
     /// locks or releases it. `storage::sweep` frees only unreferenced blocks it can take a
@@ -260,13 +261,14 @@ pub mod v1 {
             Self { start_blockno }
         }
 
-        /// Retrieve a single recyclable [`pg_sys::BlockNumber`], which can be acquired and re-initialized.
+        /// Drain `n` recyclable blocks from this [`V1FSM`] instance, using the specified
+        /// [`BufferManager`] for underlying disk access.
         ///
-        /// Returns `None` if no recyclable blocks are available.
+        /// As [`pg_sys::BlockNumber`]s are yielded from the returned iterator, they are removed from the
+        /// FSM.  The returned iterator will never return more than `n`, but it could return fewer.
         ///
-        /// Upon return, the block is removed from the [`V1FSM`]'s control.  It is the caller's
-        /// responsibility to ensure the block is properly used, or else it will be lost forever as
-        /// dead space in the underlying relation.
+        /// It is the caller's responsibility to ensure each yielded block is properly used, or else it will
+        /// be lost forever as dead space in the underlying relation.  Unyielded blocks are unaffected.
         fn drain(
             &mut self,
             bman: &mut BufferManager,

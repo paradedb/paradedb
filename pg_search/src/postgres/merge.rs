@@ -25,10 +25,10 @@ use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
-use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{MergePins, MetaPage};
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -85,23 +85,27 @@ fn merge_crash_details(caught: &CaughtError) -> Option<serde_json::Value> {
     }))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum MergeStyle {
-    Insert,
+    /// An INSERT created a segment. A foreground merge runs inside that statement's transaction
+    /// and publishes under these ids.
+    Insert {
+        current_xid: pg_sys::FullTransactionId,
+        next_xid: pg_sys::FullTransactionId,
+    },
+    /// VACUUM finished; only a background merge may follow.
     Vacuum,
 }
 
-impl TryFrom<u8> for MergeStyle {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => MergeStyle::Insert,
-            1 => MergeStyle::Vacuum,
-            _ => anyhow::bail!("invalid merge style: {value}"),
-        })
-    }
+/// Who runs a merge, which decides what happens between candidates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MergeMode {
+    /// Runs inside the statement that triggered it: ignores the VACUUM signal and returns blocks
+    /// to the FSM once, after the last candidate.
+    Foreground,
+    /// Runs in a background worker: yields to a waiting VACUUM between candidates and returns
+    /// blocks to the FSM after each one.
+    Background,
 }
 
 #[repr(C)]
@@ -279,7 +283,7 @@ impl IndexLayerSizes {
 /// We need backpressure if there are more than 2 mutable segments present during an insert
 #[inline]
 fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMetaEntry>) -> bool {
-    if style != MergeStyle::Insert {
+    if !matches!(style, MergeStyle::Insert { .. }) {
         return false;
     }
 
@@ -298,12 +302,7 @@ fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMet
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
-pub unsafe fn do_merge(
-    index: &PgSearchRelation,
-    style: MergeStyle,
-    current_xid: Option<pg_sys::FullTransactionId>,
-    next_xid: Option<pg_sys::FullTransactionId>,
-) -> anyhow::Result<()> {
+pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
     // don't kick off merges for invalid indexes
     if !index.is_valid() {
         return Ok(());
@@ -315,7 +314,7 @@ pub unsafe fn do_merge(
     // apply backpressure if there are too many mutable segments
     // this means forcing a foreground merge of the mutable segments
     let need_backpressure = need_backpressure(style, metadata.segment_metas());
-    let cleanup_lock = metadata.cleanup_lock_shared();
+    let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
@@ -339,10 +338,13 @@ pub unsafe fn do_merge(
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
-        drop(cleanup_lock);
+        drop(merge_pins);
 
         try_launch_background_merger(index, largest_layer_size);
-    } else if style == MergeStyle::Insert
+    } else if let MergeStyle::Insert {
+        current_xid,
+        next_xid,
+    } = style
         && (!foreground_layer_sizes.is_empty() || need_backpressure)
     {
         let foreground_layer_sizes = if foreground_layer_sizes.is_empty() {
@@ -355,11 +357,10 @@ pub unsafe fn do_merge(
             index,
             foreground_merge_policy,
             merge_lock,
-            cleanup_lock,
-            false,
-            false,
-            current_xid.expect("foreground merging requires a current transaction id"),
-            next_xid.expect("foreground merging requires a next transaction id"),
+            merge_pins,
+            MergeMode::Foreground,
+            current_xid,
+            next_xid,
         );
 
         // The foreground merge only covers the foreground layers, so the background layers still
@@ -476,7 +477,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let layer_sizes = IndexLayerSizes::from(&index);
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
-        let cleanup_lock = metadata.cleanup_lock_shared();
+        let merge_pins = metadata.pin_merge();
         // this ensures there's only one merge running at a time for the given index,
         // while the lock is held
         let merge_lock = metadata.acquire_merge_lock();
@@ -486,9 +487,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 &index,
                 merge_policy,
                 merge_lock,
-                cleanup_lock,
-                true,
-                true,
+                merge_pins,
+                MergeMode::Background,
                 current_xid,
                 next_xid,
             )
@@ -511,24 +511,24 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 #[inline]
-#[allow(clippy::too_many_arguments)]
-unsafe fn merge_index(
+pub(crate) unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
-    cleanup_lock: Buffer,
-    is_background: bool,
-    gc_after_merge: bool,
+    merge_pins: MergePins,
+    mode: MergeMode,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
 ) {
-    // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
-    // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
-    // before it decides to find the segments it should vacuum.  The reason is that it needs to see
-    // the final merged segment, not the original segments that will be deleted
+    // Hold both pins until the output is published and the reservation removed. ambulkdelete must
+    // see the final merged segment, not the originals about to be deleted, and must not deactivate
+    // its exclusion list while this merger still works from an older metadata view.
     let metadata = MetaPage::open(indexrel);
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
         .expect("should be able to open merger");
+
+    #[cfg(feature = "pg_test")]
+    crate::postgres::storage::coordination_test::selection_pause();
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
@@ -543,7 +543,6 @@ unsafe fn merge_index(
         .adjust_pins(merge_policy.mergeable_segments())
         .expect("should be able to adjust merger pins");
 
-    let mut need_gc = !gc_after_merge;
     let ncandidates = merge_candidates.len();
     if ncandidates > 0 {
         // record all the segments the SearchIndexMerger can see, as those are the ones that
@@ -554,6 +553,9 @@ unsafe fn merge_index(
             .expect("should be able to write current merge segment_id list");
         drop(merge_lock);
 
+        #[cfg(feature = "pg_test")]
+        crate::postgres::storage::coordination_test::merge_pause();
+
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
         //
         // we defer raising a panic in the face of a merge error as we need to remove the created
@@ -563,7 +565,7 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
-            if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
+            if mode == MergeMode::Background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
                 pgrx::debug1!("VACUUM waiting, exiting merge early");
                 break;
             }
@@ -574,9 +576,8 @@ unsafe fn merge_index(
             if merge_result.is_err() {
                 break;
             }
-            if gc_after_merge {
+            if mode == MergeMode::Background {
                 garbage_collect_index(indexrel, current_xid, next_xid);
-                need_gc = false;
             }
         }
 
@@ -589,7 +590,7 @@ unsafe fn merge_index(
         drop(merge_lock);
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
-        if need_gc {
+        if mode == MergeMode::Foreground {
             garbage_collect_index(indexrel, current_xid, next_xid);
         }
 
@@ -606,7 +607,7 @@ unsafe fn merge_index(
     } else {
         drop(merge_lock);
     }
-    drop(cleanup_lock);
+    drop(merge_pins);
 }
 
 ///

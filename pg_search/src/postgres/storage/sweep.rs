@@ -52,20 +52,22 @@ use pgrx::{check_for_interrupts, pg_sys};
 /// was running when the sweep began may still publish during the walk, so it waits; an older
 /// stamp belongs to a transaction that finished before the walk and would have been seen
 /// publishing.
+/// Each variant carries the stamp it was read from, so a verdict and the page state it
+/// rests on cannot disagree; [`Verdict::stamp`] gives it back for the claim's re-read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
     /// Running when the sweep began, or begun since. Judged by a later sweep.
-    Recent,
+    Recent(pg_sys::TransactionId),
     /// Still running.
-    InProgress,
+    InProgress(pg_sys::TransactionId),
     /// Committed before the sweep began without publishing. Only a write outside the merge
     /// path does that, an INSERT flush that errored inside a subtransaction the application
     /// committed. Kept; not this module's leak.
-    Committed,
+    Committed(pg_sys::TransactionId),
     /// Aborted or crashed. Freed.
-    Abandoned,
+    Abandoned(pg_sys::TransactionId),
     /// Written before pages carried a stamp. Kept.
-    Unstamped,
+    Unstamped(pg_sys::TransactionId),
     /// Never written: a relation extension whose writer is gone. Freed.
     Empty,
     /// Stamped by an earlier sweep and yet outside the FSM: that sweep crashed between the
@@ -74,28 +76,42 @@ enum Verdict {
     Freed,
     /// Older than the oldest transaction the commit log still answers for. Nothing that old can
     /// still publish it. Freed.
-    BeyondClog,
+    BeyondClog(pg_sys::TransactionId),
 }
 
 impl Verdict {
     fn frees(self) -> bool {
         matches!(
             self,
-            Verdict::Abandoned | Verdict::Empty | Verdict::Freed | Verdict::BeyondClog
+            Verdict::Abandoned(_) | Verdict::Empty | Verdict::Freed | Verdict::BeyondClog(_)
         )
+    }
+
+    /// What the page said when it was judged, as `Page::alloc_xid` reads it.
+    fn stamp(self) -> Option<pg_sys::TransactionId> {
+        match self {
+            Verdict::Empty => None,
+            Verdict::Freed => Some(pg_sys::FrozenTransactionId),
+            Verdict::Recent(xid)
+            | Verdict::InProgress(xid)
+            | Verdict::Committed(xid)
+            | Verdict::Abandoned(xid)
+            | Verdict::Unstamped(xid)
+            | Verdict::BeyondClog(xid) => Some(xid),
+        }
     }
 
     #[cfg(feature = "pg_test")]
     fn as_str(self) -> &'static str {
         match self {
-            Verdict::Recent => "recent",
-            Verdict::InProgress => "in_progress",
-            Verdict::Committed => "committed",
-            Verdict::Abandoned => "abandoned",
-            Verdict::Unstamped => "unstamped",
+            Verdict::Recent(_) => "recent",
+            Verdict::InProgress(_) => "in_progress",
+            Verdict::Committed(_) => "committed",
+            Verdict::Abandoned(_) => "abandoned",
+            Verdict::Unstamped(_) => "unstamped",
             Verdict::Empty => "empty",
             Verdict::Freed => "freed",
-            Verdict::BeyondClog => "beyond_clog",
+            Verdict::BeyondClog(_) => "beyond_clog",
         }
     }
 }
@@ -103,8 +119,6 @@ impl Verdict {
 #[derive(Debug, Clone, Copy)]
 struct Candidate {
     blockno: pg_sys::BlockNumber,
-    /// `None` for a page never written.
-    alloc_xid: Option<pg_sys::TransactionId>,
     verdict: Verdict,
 }
 
@@ -194,7 +208,7 @@ unsafe fn claim(bman: &mut BufferManager, candidate: &Candidate) -> bool {
     let Some(mut buffer) = bman.get_buffer_for_cleanup_conditional(candidate.blockno) else {
         return false;
     };
-    if buffer.page().alloc_xid() != candidate.alloc_xid {
+    if buffer.page().alloc_xid() != candidate.verdict.stamp() {
         return false;
     }
     if candidate.verdict != Verdict::Freed {
@@ -230,7 +244,6 @@ unsafe fn candidates_in(
             let alloc_xid = bman.get_buffer(blockno).page().alloc_xid();
             Candidate {
                 blockno,
-                alloc_xid,
                 verdict: verdict(alloc_xid, horizon, oldest_clog_xid),
             }
         })
@@ -251,21 +264,21 @@ unsafe fn verdict(
         return Verdict::Freed;
     }
     if xid.into_inner() < pg_sys::FirstNormalTransactionId.into_inner() {
-        return Verdict::Unstamped;
+        return Verdict::Unstamped(xid);
     }
     if !pg_sys::TransactionIdPrecedes(xid, horizon) {
-        return Verdict::Recent;
+        return Verdict::Recent(xid);
     }
     if pg_sys::TransactionIdIsInProgress(xid) {
-        return Verdict::InProgress;
+        return Verdict::InProgress(xid);
     }
     if pg_sys::TransactionIdPrecedes(xid, oldest_clog_xid) {
-        return Verdict::BeyondClog;
+        return Verdict::BeyondClog(xid);
     }
     if pg_sys::TransactionIdDidCommit(xid) {
-        return Verdict::Committed;
+        return Verdict::Committed(xid);
     }
-    Verdict::Abandoned
+    Verdict::Abandoned(xid)
 }
 
 /// The commit log is truncated up to this xid; asking it about an older one raises an ERROR.
@@ -430,7 +443,7 @@ unsafe fn count_owner(
         Owner::Chain(start) => bman.chain(start).take_while(|b| seen.insert(*b)).count() as u64,
         Owner::Bytes(header) => bytes_list_pages(indexrel, header),
         Owner::Segments(mut list) => {
-            let (entries, _pins) = list.list_pinned();
+            let entries = list.list_pinned();
             let files: u64 = entries
                 .iter()
                 .flat_map(SegmentMetaEntry::owned_lists)
@@ -466,13 +479,13 @@ unsafe fn mark_owner(
             }
         }
         Owner::Segments(mut list) => {
-            let (entries, pins) = list.list_pinned();
-            for entry in &entries {
+            let entries = list.list_pinned();
+            for entry in entries.iter() {
                 for blockno in entry.freeable_blocks(indexrel) {
                     keep.insert(blockno);
                 }
             }
-            drop(pins);
+            drop(entries);
             for blockno in list.pages() {
                 keep.insert(blockno);
             }
@@ -563,7 +576,10 @@ unsafe fn unreferenced_blocks(
     pgrx::iter::TableIterator::new(candidates(&index).into_iter().map(|candidate| {
         (
             candidate.blockno as i64,
-            candidate.alloc_xid.unwrap_or(pg_sys::InvalidTransactionId),
+            candidate
+                .verdict
+                .stamp()
+                .unwrap_or(pg_sys::InvalidTransactionId),
             candidate.verdict.as_str().to_string(),
         )
     }))
@@ -704,10 +720,13 @@ mod tests {
         blocks
     }
 
-    fn sorted_blocks(candidates: &[Candidate], verdict: Verdict) -> Vec<pg_sys::BlockNumber> {
+    fn sorted_blocks(
+        candidates: &[Candidate],
+        verdict: impl Fn(Verdict) -> bool,
+    ) -> Vec<pg_sys::BlockNumber> {
         let mut blocks = candidates
             .iter()
-            .filter(|candidate| candidate.verdict == verdict)
+            .filter(|candidate| verdict(candidate.verdict))
             .map(|candidate| candidate.blockno)
             .collect::<Vec<_>>();
         blocks.sort_unstable();
@@ -755,12 +774,18 @@ mod tests {
         // The aborted transaction began after this one, so a sweep that starts now keeps its
         // blocks: it cannot tell them from a merge still running.
         let found = candidates(&indexrel);
-        assert_eq!(sorted_blocks(&found, Verdict::Recent), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Recent(_))),
+            blocks
+        );
         assert_eq!(reclaim(&indexrel), 0);
 
         // Once it is behind the horizon, the blocks are abandoned.
         let found = candidates_as_of(&indexrel, next_xid());
-        assert_eq!(sorted_blocks(&found, Verdict::Abandoned), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Abandoned(_))),
+            blocks
+        );
         assert_eq!(found.len(), blocks.len(), "{found:?}");
 
         assert_eq!(reclaim_as_of(&indexrel, next_xid()), blocks.len());
@@ -778,13 +803,19 @@ mod tests {
         assert_eq!(unaccounted_blocks(&indexrel), blocks.len() as i64);
 
         let found = candidates(&indexrel);
-        assert_eq!(sorted_blocks(&found, Verdict::Recent), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Recent(_))),
+            blocks
+        );
         assert_eq!(found.len(), blocks.len(), "{found:?}");
         assert_eq!(reclaim(&indexrel), 0);
 
         // Behind the horizon the stamp is still in progress, which also keeps the blocks.
         let found = candidates_as_of(&indexrel, next_xid());
-        assert_eq!(sorted_blocks(&found, Verdict::InProgress), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::InProgress(_))),
+            blocks
+        );
         assert_eq!(reclaim_as_of(&indexrel, next_xid()), 0);
     }
 
@@ -806,7 +837,10 @@ mod tests {
         stamp(&indexrel, &blocks, pg_sys::TransactionId::from(committed));
 
         let found = candidates(&indexrel);
-        assert_eq!(sorted_blocks(&found, Verdict::Committed), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Committed(_))),
+            blocks
+        );
         assert_eq!(reclaim(&indexrel), 0);
         assert_eq!(unaccounted_blocks(&indexrel), blocks.len() as i64);
     }
@@ -828,7 +862,10 @@ mod tests {
         assert_eq!(unaccounted_blocks(&indexrel), 3);
 
         let found = candidates(&indexrel);
-        assert_eq!(sorted_blocks(&found, Verdict::Empty), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Empty)),
+            blocks
+        );
         assert_eq!(reclaim(&indexrel), 3);
         assert_eq!(unaccounted_blocks(&indexrel), 0);
         for blockno in blocks {
@@ -860,7 +897,10 @@ mod tests {
         let blocks = allocate_unpublished(&indexrel);
         stamp(&indexrel, &blocks, pg_sys::FrozenTransactionId);
         let found = candidates(&indexrel);
-        assert_eq!(sorted_blocks(&found, Verdict::Freed), blocks);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Freed)),
+            blocks
+        );
         assert_eq!(reclaim(&indexrel), blocks.len());
         assert!(candidates(&indexrel).is_empty());
         assert_eq!(reclaim(&indexrel), 0);
@@ -875,7 +915,7 @@ mod tests {
         // Every component file of every immutable segment is a finalized list with a header.
         let headers = {
             let mut metas = MetaPage::open(&indexrel).segment_metas();
-            let (entries, _pins) = metas.list_pinned();
+            let entries = metas.list_pinned();
             entries
                 .iter()
                 .flat_map(SegmentMetaEntry::owned_lists)
@@ -911,7 +951,10 @@ mod tests {
         }
 
         let found = candidates_as_of(&indexrel, next_xid());
-        assert_eq!(sorted_blocks(&found, Verdict::Unstamped), leaked);
+        assert_eq!(
+            sorted_blocks(&found, |v| matches!(v, Verdict::Unstamped(_))),
+            leaked
+        );
         assert_eq!(reclaim_as_of(&indexrel, next_xid()), 0);
         assert!(headers.iter().all(|header| npages(*header) != 0));
         assert_eq!(unaccounted_blocks(&indexrel), leaked.len() as i64);
@@ -924,7 +967,7 @@ mod tests {
         let indexrel = test_index("sweep_rollback");
         let segment_blocks = |indexrel: &PgSearchRelation| -> Vec<pg_sys::BlockNumber> {
             let mut metas = MetaPage::open(indexrel).segment_metas();
-            let (entries, _pins) = metas.list_pinned();
+            let entries = metas.list_pinned();
             entries
                 .iter()
                 .flat_map(|entry| entry.freeable_blocks(indexrel))

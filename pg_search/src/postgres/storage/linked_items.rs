@@ -245,10 +245,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             .collect()
     }
 
-    /// Every entry, with a pin on each entry's pin-test block, the pin readers hold: garbage
-    /// collection skips a pinned entry, so the entries' blocks stay put while the caller works
-    /// through them. Drop the pins as soon as that is done.
-    pub(crate) unsafe fn list_pinned(&mut self) -> (Vec<T>, Vec<PinnedBuffer>)
+    /// Every entry, held with a pin on each entry's pin-test block, the pin readers hold:
+    /// garbage collection skips a pinned entry, so the entries' blocks stay put for as long as
+    /// the returned [`PinnedEntries`] lives. Drop it as soon as the walk is done.
+    pub(crate) unsafe fn list_pinned(&mut self) -> PinnedEntries<T>
     where
         T: MVCCEntry,
     {
@@ -261,7 +261,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             }
             entries.push(entry);
         });
-        (entries, pins)
+        PinnedEntries {
+            entries,
+            _pins: pins,
+        }
     }
 
     /// Return the freeable blocks of this list, including the header block.
@@ -766,6 +769,21 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for AtomicGuard<'_, T>
         }
 
         panic!("internal error: failed to call `AtomicGuard::commit()`");
+    }
+}
+
+/// Entries of a [`LinkedItemList`] together with the pins that keep them in place. The pins
+/// cannot be dropped before the entries: that is the point.
+pub(crate) struct PinnedEntries<T> {
+    entries: Vec<T>,
+    _pins: Vec<PinnedBuffer>,
+}
+
+impl<T> std::ops::Deref for PinnedEntries<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.entries
     }
 }
 

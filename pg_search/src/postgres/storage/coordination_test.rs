@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::merge_policy::LayeredMergePolicy;
-use crate::postgres::merge::merge_index;
+use crate::postgres::merge::{MergeMode, merge_index};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::metadata::MetaPage;
@@ -90,8 +90,7 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
         LayeredMergePolicy::new(vec![layer_size]),
         merge_lock,
         merge_pins,
-        false,
-        false,
+        MergeMode::Foreground,
         pg_sys::GetCurrentFullTransactionId(),
         pg_sys::ReadNextFullTransactionId(),
     );

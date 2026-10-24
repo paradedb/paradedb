@@ -4,7 +4,8 @@
 # Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
 # This workflow is triggered manually via the GitHub Actions UI and releases the selected branch or tag.
 # Beta releases require an -rc.N version and create a prerelease without advancing the branch.
-# The new version tag triggers the other publishing workflows.
+# Stable releases publish all package formats and Docker images for all supported PostgreSQL versions.
+# Beta releases publish only Debian packages and Docker images for the provided pg_version.
 #
 # Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
 # version bumps, and release commits only run on the community repository.
@@ -25,6 +26,16 @@ on:
         type: boolean
         required: false
         default: false
+      pg_version:
+        description: "PostgreSQL major version for beta packages and Docker images. Ignored for stable releases."
+        type: choice
+        required: false
+        default: "18"
+        options:
+          - "15"
+          - "16"
+          - "17"
+          - "18"
 
 concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}
@@ -63,6 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
           INPUTS_BETA: ${{ github.event.inputs.beta }}
+          PG_VERSION: ${{ inputs.pg_version || '18' }}
         run: |
           echo "start_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Checking for existing release..."
@@ -73,6 +85,10 @@ jobs:
           echo "Release check passed!"
 
           if [[ "${INPUTS_BETA}" == "true" ]]; then
+            case "$PG_VERSION" in
+              15|16|17|18) ;;
+              *) echo "Unsupported PostgreSQL major: $PG_VERSION"; exit 1 ;;
+            esac
             echo "Validating that the version contains '-rc.X'..."
             if [[ "${INPUTS_VERSION}" != *"-rc."* ]]; then
               echo "Version (${INPUTS_VERSION}) does not contain '-rc.X' but is marked as a beta release."
@@ -256,6 +272,20 @@ jobs:
           body_path: ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Beta Debian Packages
+        if: inputs.beta
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          PG_VERSION: ${{ inputs.pg_version }}
+        run: |
+          gh workflow run publish-pg_search-debian.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "v$RELEASE_VERSION" \
+            -f version="$RELEASE_VERSION" \
+            -f pg_version="$PG_VERSION" \
+            -f publish_docker=true
 
       - name: Stage Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'

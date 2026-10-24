@@ -4,9 +4,9 @@
 # Publish ParadeDB as Docker images to Docker Hub after the pg_search .deb packages have
 # been published to GitHub Releases. The selected branch or tag provides the Dockerfiles
 # and workflow code. The images use the release packages instead of building pg_search from source.
-# Stable releases default to all supported PostgreSQL versions, while versions containing
-# a dash only build PostgreSQL 18. This workflow also publishes the mountable extension image
-# for PostgreSQL 18, except for beta (-rc.) releases.
+# Stable releases default to all supported PostgreSQL versions. Beta releases require one
+# PostgreSQL major in the pg_version input. Stable releases also publish the mountable
+# extension image for PostgreSQL 18.
 #
 # Once the runnable Docker images are published, notify ORM wrapper repositories via
 # repository_dispatch so they can run compatibility checks against the new version.
@@ -26,7 +26,7 @@ on:
         required: true
         default: ""
       pg_version:
-        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Versions containing a dash always use [18]. Extension images always use PostgreSQL 18."
+        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Beta releases require exactly one major (e.g. [17]). Extension images always use PostgreSQL 18."
         required: false
         default: "[15, 16, 17, 18]"
       images:
@@ -62,15 +62,15 @@ jobs:
           RELEASE_REF: ${{ github.event.inputs.version || github.ref_name }}
           PG_VERSIONS: ${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}
         run: |
-          REF_NAME="${RELEASE_REF}"
-          echo "Evaluating ref: $REF_NAME"
-          if [[ "$REF_NAME" == *"-"* ]]; then
-            echo "Pre-release version (contains a dash, e.g. a beta -rc. tag); publishing PostgreSQL 18 only."
-            echo "matrix=[18]" >> $GITHUB_OUTPUT
-          else
-            echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
-            echo "matrix=${PG_VERSIONS}" >> $GITHUB_OUTPUT
+          if ! jq -e 'type == "array" and length > 0 and all(.[]; . == 15 or . == 16 or . == 17 or . == 18)' <<< "$PG_VERSIONS" > /dev/null; then
+            echo "pg_version must be a nonempty JSON array of supported PostgreSQL majors." >&2
+            exit 1
           fi
+          if [[ "$RELEASE_REF" == *-rc.* ]] && [[ "$(jq length <<< "$PG_VERSIONS")" != 1 ]]; then
+            echo "Select exactly one PostgreSQL major for a beta release (e.g. [17])." >&2
+            exit 1
+          fi
+          echo "matrix=$(jq -c . <<< "$PG_VERSIONS")" >> "$GITHUB_OUTPUT"
 
   generate-dockerfiles:
     name: Generate Dockerfiles
@@ -151,8 +151,7 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
-      # is [18], and only the PG 18 .deb are published.
+      # Generate Dockerfiles for the PostgreSQL major version(s) whose packages were published.
       - name: Generate Dockerfiles
         env:
           JOB_SET_MATRIX_MATRIX: ${{ needs.set-matrix.outputs.matrix }}
@@ -167,7 +166,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: rc-dockerfiles
-          path: docker/Dockerfile.*-18
+          path: docker/Dockerfile.*-${{ fromJSON(needs.set-matrix.outputs.matrix)[0] }}
           if-no-files-found: error
           retention-days: 1
 
@@ -223,6 +222,7 @@ jobs:
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
       dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
+      pg_version: ${{ contains(fromJSON(needs.set-matrix.outputs.matrix), 18) && '18' || format('{0}', fromJSON(needs.set-matrix.outputs.matrix)[0]) }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 
@@ -354,7 +354,7 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-  # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
+  # Beta (`-rc.`) releases publish only the selected runnable image, not the mountable extension image.
   publish-extension-image:
     name: Publish ParadeDB Extension Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest

@@ -494,8 +494,6 @@ pub struct PgGucs {
     pub seqscan: bool,
     pub indexscan: bool,
     pub parallel_workers: bool,
-    /// Open the MPP row-count gate for generators that exercise its execution path.
-    pub mpp_enabled: bool,
     /// Toggles Postgres' `parallel_leader_participation` GUC. When `false`,
     /// only background workers emit tuples — useful for shaking out parallel
     /// scans whose leader/worker partitioning is incorrect (e.g. issue #5024).
@@ -672,7 +670,6 @@ impl Arbitrary for PgGucs {
                     seqscan: b[5],
                     indexscan: b[6],
                     parallel_workers: b[7],
-                    mpp_enabled: false,
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
                     range_partitioned_join: b[10],
@@ -698,7 +695,6 @@ impl PgGucs {
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
-            mpp_enabled: false,
             parallel_leader_participation: true,
             columnar_exec: false,
             range_partitioned_join: false,
@@ -727,7 +723,6 @@ impl PgGucs {
             seqscan,
             indexscan,
             parallel_workers,
-            mpp_enabled,
             parallel_leader_participation,
             columnar_exec,
             range_partitioned_join,
@@ -792,12 +787,6 @@ impl PgGucs {
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
         }
-        let mpp_min_rows = if *mpp_enabled && *parallel_workers {
-            "0"
-        } else {
-            "DEFAULT"
-        };
-        writeln!(gucs, "{verb} paradedb.mpp_min_rows TO {mpp_min_rows};").unwrap();
         writeln!(
             gucs,
             "{verb} statement_timeout TO {};",

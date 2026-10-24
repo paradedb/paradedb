@@ -966,9 +966,6 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         gucs.aggregate_custom_scan = true;
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
-        // The reported MPP plan joins two tables; three-way cases can exceed work_mem here.
-        gucs.mpp_enabled = num_tables == 2;
-
         qgen_oracle!("qgen: generated_aggregate_join - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,

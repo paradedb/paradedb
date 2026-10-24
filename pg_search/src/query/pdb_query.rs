@@ -2365,22 +2365,44 @@ fn rewrite_leaf(
             upper,
         } => {
             if let Some(search_field) = schema.search_field(name.as_str()) {
-                rewrite_bound(
-                    lower,
-                    true,
-                    name,
-                    &search_field,
-                    index_created_by_version,
-                    lenient,
-                )?;
-                rewrite_bound(
-                    upper,
-                    false,
-                    name,
-                    &search_field,
-                    index_created_by_version,
-                    lenient,
-                )?;
+                let field_type = search_field.field_type();
+                match field_type {
+                    SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..) => {
+                        let lower_bound = parse_numeric_bound(lower, name, lenient)?;
+                        let upper_bound = parse_numeric_bound(upper, name, lenient)?;
+                        let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
+                            &search_field,
+                            index_created_by_version,
+                            lower_bound,
+                            upper_bound,
+                        )?;
+                        let to_user_bound = |bound| match bound {
+                            Bound::Included(value) => {
+                                UserInputBound::Inclusive(numeric_value_to_phrase(value))
+                            }
+                            Bound::Excluded(value) => {
+                                UserInputBound::Exclusive(numeric_value_to_phrase(value))
+                            }
+                            Bound::Unbounded => UserInputBound::Unbounded,
+                        };
+                        *lower = to_user_bound(lower_bound);
+                        *upper = to_user_bound(upper_bound);
+                    }
+                    _ => {
+                        for bound in [lower, upper] {
+                            if let UserInputBound::Inclusive(phrase)
+                            | UserInputBound::Exclusive(phrase) = bound
+                                && let Some(replacement) = phrase_to_pg_micros_string(
+                                    phrase,
+                                    field_type.typeoid(),
+                                    index_created_by_version,
+                                )
+                            {
+                                *phrase = replacement;
+                            }
+                        }
+                    }
+                }
             }
         }
         UserInputLeaf::Set {
@@ -2455,47 +2477,6 @@ fn rewrite_phrase(
     }
 }
 
-fn rewrite_bound(
-    bound: &mut UserInputBound,
-    is_lower: bool,
-    field_name: &str,
-    search_field: &SearchField,
-    index_created_by_version: Option<Version>,
-    lenient: bool,
-) -> anyhow::Result<()> {
-    let (phrase, inclusive) = match bound {
-        UserInputBound::Inclusive(phrase) => (phrase, true),
-        UserInputBound::Exclusive(phrase) => (phrase, false),
-        UserInputBound::Unbounded => return Ok(()),
-    };
-    let field_type = search_field.field_type();
-    match field_type {
-        SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..) => {
-            match numeric_bound_to_physical(
-                phrase,
-                inclusive,
-                is_lower,
-                field_name,
-                search_field,
-                index_created_by_version,
-            ) {
-                Ok(replacement) => *bound = replacement,
-                // Match Tantivy's lenient handling without interpreting invalid input as Base64.
-                Err(_) if lenient => *bound = UserInputBound::Unbounded,
-                Err(err) => return Err(err),
-            }
-        }
-        _ => {
-            if let Some(replacement) =
-                phrase_to_pg_micros_string(phrase, field_type.typeoid(), index_created_by_version)
-            {
-                *phrase = replacement;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Converts a NUMERIC query literal to the value its field stores. Returns `None` when the
 /// literal falls between or outside the values a `Numeric64` field can hold.
 fn numeric_literal_to_field_value(
@@ -2514,48 +2495,27 @@ fn numeric_literal_to_field_value(
         .with_context(|| invalid_numeric_value(phrase, field_name))
 }
 
-/// Converts one NUMERIC range bound with the conversion that `range` uses.
-/// Each bound is converted alone, so in lenient mode an invalid bound does not stop
-/// the other bound from being converted.
-fn numeric_bound_to_physical(
-    phrase: &str,
-    inclusive: bool,
-    is_lower: bool,
+/// Parses a NUMERIC range bound, treating invalid phrases as unbounded in lenient mode.
+fn parse_numeric_bound(
+    bound: &UserInputBound,
     field_name: &str,
-    search_field: &SearchField,
-    index_created_by_version: Option<Version>,
-) -> anyhow::Result<UserInputBound> {
-    let value =
-        parse_numeric_phrase(phrase).with_context(|| invalid_numeric_value(phrase, field_name))?;
-    let bound = if inclusive {
-        Bound::Included(value)
-    } else {
-        Bound::Excluded(value)
+    lenient: bool,
+) -> anyhow::Result<Bound<PdbOwnedValue>> {
+    let (phrase, inclusive) = match bound {
+        UserInputBound::Inclusive(phrase) => (phrase, true),
+        UserInputBound::Exclusive(phrase) => (phrase, false),
+        UserInputBound::Unbounded => return Ok(Bound::Unbounded),
     };
-    let converted = if is_lower {
-        canonicalize_range_bounds_for_field(
-            search_field,
-            index_created_by_version,
-            bound,
-            Bound::Unbounded,
-        )
-        .map(|(lower, _)| lower)
-    } else {
-        canonicalize_range_bounds_for_field(
-            search_field,
-            index_created_by_version,
-            Bound::Unbounded,
-            bound,
-        )
-        .map(|(_, upper)| upper)
+    match parse_numeric_phrase(phrase).with_context(|| invalid_numeric_value(phrase, field_name)) {
+        Ok(value) => Ok(if inclusive {
+            Bound::Included(value)
+        } else {
+            Bound::Excluded(value)
+        }),
+        // Match Tantivy's lenient handling without interpreting invalid input as Base64.
+        Err(_) if lenient => Ok(Bound::Unbounded),
+        Err(err) => Err(err),
     }
-    .with_context(|| invalid_numeric_value(phrase, field_name))?;
-
-    Ok(match converted {
-        Bound::Included(value) => UserInputBound::Inclusive(numeric_value_to_phrase(value)),
-        Bound::Excluded(value) => UserInputBound::Exclusive(numeric_value_to_phrase(value)),
-        Bound::Unbounded => UserInputBound::Unbounded,
-    })
 }
 
 /// Parses `phrase` with the PostgreSQL NUMERIC input function, so PostgreSQL decides which

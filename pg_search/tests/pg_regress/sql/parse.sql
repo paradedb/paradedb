@@ -279,6 +279,7 @@ WHERE id @@@ pdb.parse('price:{999 TO 1234}') ORDER BY id;
 SELECT id FROM numeric_literal_limits
 WHERE id @@@ pdb.parse('price:1e100') ORDER BY id;
 
+-- PostgreSQL sorts NaN above every number, so this range includes the NaN row.
 SELECT id FROM numeric_literal_limits
 WHERE id @@@ pdb.parse('price:[1e100 TO *]') ORDER BY id;
 

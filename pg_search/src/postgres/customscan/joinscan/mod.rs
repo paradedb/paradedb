@@ -2838,15 +2838,18 @@ impl JoinScan {
                     }
                     let rel_state = state.custom_state().relations.get(plan_position)?;
                     let source_slot = rel_state.fetch_slot;
-                    if *original_attno <= 0
+                    if *original_attno == 0
                         || *original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16
                     {
                         *nulls.add(i) = true;
                         continue;
                     }
                     let mut is_null = false;
-                    *datums.add(i) =
-                        pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
+                    *datums.add(i) = if *original_attno < 0 {
+                        pg_sys::slot_getsysattr(source_slot, *original_attno as i32, &mut is_null)
+                    } else {
+                        pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null)
+                    };
                     *nulls.add(i) = is_null;
                 }
                 privdat::OutputColumnInfo::WindowAgg { agg_index } => {

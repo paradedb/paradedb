@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792871157131,
+  "lastUpdate": 1792873009686,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16909,6 +16909,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 185.803,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d6f6092266f2836780c01ccd757169f90f33c4e",
+          "message": "test: use a unique tiebreaker in generated_subquery (#7019)\n\n`generated_subquery` can choose a generated UUID as its only sorting\ntiebreaker, even though the UUID generator permits duplicates. An `IN`\nsubquery with LIMIT/OFFSET can then select different values from tied\nrows in PostgreSQL and ParadeDB, producing a false result mismatch.\n\nMove UUID into the ordinary sorting columns and always append the unique\nprimary-key `id`, following #7014. This covers both clean and churn\nvariants and the shared test code used by regular CI and Antithesis.\n\nLeave `generated_paging_large` unchanged: it orders by UUID and projects\nonly UUID, so exchanging rows with identical UUIDs does not change its\ncompared result. Preserving that query shape also retains its existing\nUUID-only sorting coverage.\n\nValidation: inspected the generator's unconditional tiebreaker append\nand verified the commit contains only the intended one-line change.\nDatabase tests and Antithesis replay were not run locally; CI validation\nis pending.",
+          "timestamp": "2026-10-24T11:49:35-07:00",
+          "tree_id": "a2f849057249d92a35c8180047f22cfb16626f49",
+          "url": "https://github.com/paradedb/paradedb/commit/3d6f6092266f2836780c01ccd757169f90f33c4e"
+        },
+        "date": 1792872997627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 93.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 331.632,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 14.162,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 101.059,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 176.884,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.581,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 147.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 208.85,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.839,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 196.794,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.401,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.912,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 182.336,
             "unit": "ms"
           }
         ]

@@ -151,7 +151,7 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Generate Dockerfiles for the majors whose packages were published.
+      # Generate Dockerfiles for the PostgreSQL major version(s) whose packages were published.
       - name: Generate Dockerfiles
         env:
           JOB_SET_MATRIX_MATRIX: ${{ needs.set-matrix.outputs.matrix }}

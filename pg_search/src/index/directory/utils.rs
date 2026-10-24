@@ -391,8 +391,12 @@ pub unsafe fn load_metas(
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
                 matches!(solve_mvcc, MvccSatisfies::ParallelWorker(view) if view.contains(&entry.segment_id()))
 
-                    // vacuum sees all non-retired segments
-                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
+                    // VACUUM's index reader only needs persisted segments. Mutable segments are
+                    // processed separately from their CTID lists so VACUUM never materializes
+                    // historical heap tuples (which may have lost their TOAST values).
+                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum)
+                        && !entry.is_mutable()
+                        && entry.xmax() == pg_sys::InvalidTransactionId)
 
                     || (matches!(solve_mvcc, MvccSatisfies::VacuumMerge { live_ctids } if live_ctids.contains_key(&entry.segment_id()))
                         && entry.xmax() == pg_sys::InvalidTransactionId)
@@ -420,7 +424,7 @@ pub unsafe fn load_metas(
 
             // A mutable segment has no delete bitset: once all its ctids are removed it has no
             // documents, and a scorer that starts from "all docs" still hands out doc 0 for it.
-            // It can't match anything, so query readers skip it. Vacuum and merge still see it.
+            // It can't match anything, so query readers skip it. VacuumMerge and merge still see it.
             if matches!(
                 solve_mvcc,
                 MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792829435265,
+  "lastUpdate": 1792829452589,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -469690,6 +469690,94 @@ window.BENCHMARK_DATA = {
             "value": 47.77734375,
             "unit": "median mem",
             "extra": "avg mem: 47.95892348637052, max mem: 55.9296875, count: 58733"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792829441118,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 29.1875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 29.850236428820747, max partition_index_size:MB: 48.2109375, count: 58732"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.05715345057026, max cpu: 32.78049, count: 58732"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.30449522034411, max mem: 58.80859375, count: 58732"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.7850953117817, max cpu: 37.263466, count: 58732"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 51.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.45203171290778, max mem: 59.21484375, count: 58732"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.481482,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.893691847439701, max cpu: 23.738873, count: 58732"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 40.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.911903460847576, max mem: 42.9453125, count: 58732"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.803319017777717, max cpu: 34.177216, count: 58732"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.41851599213376, max mem: 61.91796875, count: 58732"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.009871175449202, max cpu: 33.005894, count: 58732"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.786105210958254, max mem: 55.30859375, count: 58732"
           }
         ]
       }

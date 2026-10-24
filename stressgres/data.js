@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792743623287,
+  "lastUpdate": 1792828355837,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -177674,6 +177674,64 @@ window.BENCHMARK_DATA = {
             "value": 23.724351197632178,
             "unit": "median tps",
             "extra": "avg tps: 23.380482547911303, max tps: 34.947490347328426, count: 59312"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792828344581,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 141.450481201398,
+            "unit": "median tps",
+            "extra": "avg tps: 139.9879282659204, max tps: 151.09308312572028, count: 59315"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 522.5361201077077,
+            "unit": "median tps",
+            "extra": "avg tps: 564.1144275764651, max tps: 5685.945811616039, count: 59315"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 887.6687601843573,
+            "unit": "median tps",
+            "extra": "avg tps: 856.5416578177064, max tps: 1086.2709794025595, count: 59315"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 174.4846844474958,
+            "unit": "median tps",
+            "extra": "avg tps: 172.7065144666315, max tps: 186.898905058007, count: 59315"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 248.738617378556,
+            "unit": "median tps",
+            "extra": "avg tps: 328.06193542475086, max tps: 3029.989647174659, count: 118630"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.52870292607688,
+            "unit": "median tps",
+            "extra": "avg tps: 22.201896276456885, max tps: 35.318998011328496, count: 59315"
           }
         ]
       }

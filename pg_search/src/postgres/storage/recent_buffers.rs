@@ -41,6 +41,14 @@ pub(super) unsafe fn read(
     let file = locator.relNode.to_u32();
     #[cfg(not(feature = "pg15"))]
     let file = locator.relNumber.to_u32();
+    #[cfg(feature = "pg15")]
+    let key = [
+        locator.spcNode.to_u32(),
+        locator.dbNode.to_u32(),
+        file,
+        fork as u32,
+    ];
+    #[cfg(not(feature = "pg15"))]
     let key = [
         locator.spcOid.to_u32(),
         locator.dbOid.to_u32(),

@@ -126,9 +126,3 @@ After executing the community release, you should sync all new commits on the co
 Verify that the GitHub release and tag were created correctly and that all downstream packaging jobs completed successfully.
 
 That's it! Go for a walk, you deserve it.
-
-### Rebuilding Packages or Images
-
-For a manual **Publish pg_search (Debian)** run, set `version` and `pg_version` directly. Beta packages require one PostgreSQL major. Stable package rebuilds can select one major or `all`. Enable `publish_docker` to publish images after packaging succeeds.
-
-For a manual **Publish ParadeDB (Docker)** run, set `version` and `pg_version` directly. Docker accepts a JSON array such as `[17]`. Beta images require one major. The matching Debian packages must already exist.

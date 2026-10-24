@@ -47,12 +47,13 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
       - name: Check impl Drop
         run: python3 .github/scripts/check_impl_drop.py
-
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
 
       - name: Set Up pg_search Toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
@@ -67,7 +68,7 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
-          extra_packages: lld libfontconfig1-dev libopenblas-dev
+          extra_packages: clang libclang-dev lld libfontconfig1-dev libopenblas-dev
 
       - name: Run Rustfmt
         run: cargo fmt --all -- --check

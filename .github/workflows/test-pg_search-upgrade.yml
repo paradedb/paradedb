@@ -48,7 +48,7 @@ jobs:
         id: compute
         run: |
           set -euo pipefail
-          LATEST_TAG=$(./scripts/release.sh latest-sql-release)
+          LATEST_TAG=$(./scripts/release.sh latest-sql-version --released)
           LATEST_PGRX=$(git show "$LATEST_TAG:Cargo.toml" | sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' | head -1)
           if [ -z "$LATEST_PGRX" ]; then
             echo "Could not determine pgrx version at $LATEST_TAG" >&2

@@ -41,6 +41,7 @@ const BLOCK_CACHE_SIZE: usize = 16;
 /// get_byte indexes directly into the pre-resolved &[u8] slice (no vtable dispatch).
 /// get_bytes_range_block clones the Arc on cache hit and promotes the entry
 /// to the back (LRU); get_byte skips promotion to keep its hot path minimal.
+#[derive(Clone)]
 struct CacheEntry {
     block_ord: usize,
     block_bytes: OwnedBytes,
@@ -469,6 +470,82 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> OwnedBytes {
+        self.get_bytes_range_with(range, &mut |ord| self.get_bytes_range_block(ord))
+    }
+
+    pub unsafe fn get_bytes_ranges(&self, ranges: &[Range<usize>]) -> Vec<OwnedBytes> {
+        #[cfg(feature = "pg18")]
+        if ranges
+            .iter()
+            .filter(|range| !range.is_empty())
+            .map(|range| {
+                (range.end - 1) / bm25_max_free_space() - range.start / bm25_max_free_space() + 1
+            })
+            .sum::<usize>()
+            >= 8
+            && !ranges.windows(2).any(|pair| pair[0].end > pair[1].start)
+        {
+            const ITEM_SIZE: usize = bm25_max_free_space();
+            let cached: Vec<_> = self.cache.get().iter().cloned().collect();
+            let mut blocks = Vec::new();
+            let mut previous = None;
+            for range in ranges.iter().filter(|range| !range.is_empty()) {
+                for ord in range.start / ITEM_SIZE..=(range.end - 1) / ITEM_SIZE {
+                    if previous != Some(ord) && !cached.iter().any(|entry| entry.block_ord == ord) {
+                        blocks.push(self.block_for_ord(ord).expect("block not found"));
+                    }
+                    previous = Some(ord);
+                }
+            }
+            if blocks.len() > 1 {
+                return self.bman.with_read_stream(&blocks, |buffers| {
+                    let mut previous: Option<CacheEntry> = None;
+                    let mut get_block = |ord| {
+                        if let Some(entry) = &previous
+                            && entry.block_ord == ord
+                        {
+                            return entry.block_bytes.clone();
+                        }
+                        let bytes = if let Some(entry) = cached.iter().find(|e| e.block_ord == ord)
+                        {
+                            entry.block_bytes.clone()
+                        } else {
+                            let buffer = buffers.next().expect("read stream ended early");
+                            let bytes = OwnedBytes::new(buffer.into_immutable_page());
+                            let cache = self.cache.get();
+                            if cache.len() >= BLOCK_CACHE_SIZE {
+                                cache.pop_front();
+                            }
+                            cache.push_back(CacheEntry {
+                                block_ord: ord,
+                                block_bytes: bytes.clone(),
+                            });
+                            bytes
+                        };
+                        previous = Some(CacheEntry {
+                            block_ord: ord,
+                            block_bytes: bytes.clone(),
+                        });
+                        bytes
+                    };
+                    ranges
+                        .iter()
+                        .map(|range| self.get_bytes_range_with(range.clone(), &mut get_block))
+                        .collect()
+                });
+            }
+        }
+        ranges
+            .iter()
+            .map(|range| self.get_bytes_range(range.clone()))
+            .collect()
+    }
+
+    unsafe fn get_bytes_range_with(
+        &self,
+        range: Range<usize>,
+        get_block: &mut impl FnMut(usize) -> OwnedBytes,
+    ) -> OwnedBytes {
         if range.is_empty() {
             return OwnedBytes::empty();
         }
@@ -481,7 +558,7 @@ impl LinkedBytesList {
 
         if start_block_ord == end_block_ord {
             // Single block read
-            let block_bytes = self.get_bytes_range_block(start_block_ord);
+            let block_bytes = get_block(start_block_ord);
             let slice_start = range.start % ITEM_SIZE;
             let slice_end = slice_start + range.len();
             return block_bytes.slice(slice_start..slice_end);
@@ -494,7 +571,7 @@ impl LinkedBytesList {
         let mut remaining = range.len();
 
         for block_ord in start_block_ord..=end_block_ord {
-            let block_bytes = self.get_bytes_range_block(block_ord);
+            let block_bytes = get_block(block_ord);
             let slice_start = if block_ord == start_block_ord {
                 range.start % ITEM_SIZE
             } else {

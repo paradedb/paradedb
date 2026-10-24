@@ -71,6 +71,14 @@ impl SegmentComponentReader {
             let end = range.end.min(self.len());
             let range = range.start..end;
 
+            #[cfg(feature = "pg18")]
+            if tantivy::vector::current_vector_read_kind()
+                == tantivy::vector::VectorReadKind::FullPrecision
+                && range.len() > bm25_max_free_space()
+            {
+                return Ok(self.block_list.get_bytes_ranges(&[range]).pop().unwrap());
+            }
+
             // read one or more pages
             Ok(self.block_list.get_bytes_range(range))
         }
@@ -80,6 +88,17 @@ impl SegmentComponentReader {
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         self.read_bytes_raw(range)
+    }
+
+    fn read_bytes_batch(&self, ranges: &[Range<usize>]) -> Result<Vec<OwnedBytes>, Error> {
+        if ranges.iter().all(|range| range.end <= self.len()) {
+            return Ok(unsafe { self.block_list.get_bytes_ranges(ranges) });
+        }
+        let ranges: Vec<_> = ranges
+            .iter()
+            .map(|range| range.start..range.end.min(self.len()))
+            .collect();
+        Ok(unsafe { self.block_list.get_bytes_ranges(&ranges) })
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
@@ -155,6 +174,60 @@ mod tests {
                 }
                 assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
             }
+        }
+    }
+
+    #[pg_test]
+    unsafe fn test_segment_component_batch_reads() {
+        Spi::run("CREATE TABLE batch_reads (id INT)").unwrap();
+        Spi::run("CREATE INDEX batch_reads_idx ON batch_reads USING paradedb (id)").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'batch_reads_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let rel = PgSearchRelation::open(oid);
+        let page = bm25_max_free_space();
+        let bytes: Vec<_> = (0..80 * page + 31)
+            .map(|i| ((i / page * 37 + i) % 251) as u8)
+            .collect();
+        let mut writer = SegmentComponentWriter::new(&rel, Path::new("batch.vec"));
+        writer.write_all(&bytes).unwrap();
+        let entry = writer.file_entry();
+        writer.terminate().unwrap();
+        let ranges = [
+            0..0,
+            3..17,
+            page - 7..page + 13,
+            page + 13..page + 29,
+            3 * page..5 * page + 1,
+            9 * page..79 * page,
+            bytes.len() - 31..bytes.len() + 9,
+        ];
+        for finalized in [false, true] {
+            let reader = if finalized {
+                SegmentComponentReader::new(&rel, entry, None)
+            } else {
+                SegmentComponentReader::new_uncommitted(&rel, entry, None)
+            };
+            for _ in 0..2 {
+                let actual = reader.read_bytes_batch(&ranges).unwrap();
+                for (range, actual) in ranges.iter().zip(&actual) {
+                    assert_eq!(
+                        actual.as_ref(),
+                        &bytes[range.start..range.end.min(bytes.len())]
+                    );
+                }
+                // Retained single-page results survive cache eviction and subsequent reads.
+                reader.read_bytes(20 * page..40 * page).unwrap();
+                assert_eq!(actual[1].as_ref(), &bytes[3..17]);
+            }
+            let overlapping = [page..3 * page, 0..2 * page, page..page];
+            for (range, actual) in overlapping
+                .iter()
+                .zip(reader.read_bytes_batch(&overlapping).unwrap())
+            {
+                assert_eq!(actual.as_ref(), &bytes[range.clone()]);
+            }
+            assert!(reader.read_bytes_batch(&[]).unwrap().is_empty());
         }
     }
 }

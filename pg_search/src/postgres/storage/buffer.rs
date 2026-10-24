@@ -945,6 +945,56 @@ impl BufferManager {
         Buffer::new(pg_buffer)
     }
 
+    #[cfg(feature = "pg18")]
+    pub unsafe fn with_read_stream<R>(
+        &self,
+        blocks: &[pg_sys::BlockNumber],
+        read: impl FnOnce(&mut dyn Iterator<Item = Buffer>) -> R,
+    ) -> R {
+        unsafe extern "C-unwind" fn next_block(
+            _stream: *mut pg_sys::ReadStream,
+            private: *mut std::ffi::c_void,
+            _data: *mut std::ffi::c_void,
+        ) -> pg_sys::BlockNumber {
+            let blocks = &mut *private.cast::<std::slice::Iter<'_, pg_sys::BlockNumber>>();
+            blocks.next().copied().unwrap_or(pg_sys::InvalidBlockNumber)
+        }
+
+        struct Stream(*mut pg_sys::ReadStream);
+        crate::impl_safe_drop!(Stream, |self| {
+            unsafe { pg_sys::read_stream_end(self.0) };
+        });
+
+        let run = || {
+            let mut blocks = blocks.iter();
+            let rel = self.rbufacc.rel();
+            // The callback only consumes pre-resolved block numbers, so AIO batching is safe.
+            let stream = Stream(pg_sys::read_stream_begin_relation(
+                pg_sys::READ_STREAM_USE_BATCHING as _,
+                std::ptr::null_mut(),
+                rel.as_ptr(),
+                rel.fork_number(),
+                Some(next_block),
+                (&mut blocks as *mut std::slice::Iter<'_, pg_sys::BlockNumber>).cast(),
+                0,
+            ));
+            let mut buffers = std::iter::from_fn(|| {
+                let pg_buffer = pg_sys::read_stream_next_buffer(stream.0, std::ptr::null_mut());
+                if pg_buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
+                    return None;
+                }
+                pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
+                block_tracker::track!(Read, pg_sys::BufferGetBlockNumber(pg_buffer));
+                Some(Buffer::new(pg_buffer))
+            });
+            read(&mut buffers)
+        };
+        match &self.rbufacc.io_stats {
+            Some(stats) => stats.buffer(run),
+            None => run(),
+        }
+    }
+
     ///
     /// A convenience wrapper around `get_buffer` to handle acquiring a lock on the Buffer for the
     /// given blockno before releasing the lock on the given Buffer.

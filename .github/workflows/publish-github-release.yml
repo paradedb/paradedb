@@ -4,7 +4,7 @@
 # Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
 # This workflow is triggered manually via the GitHub Actions UI and releases the selected branch or tag.
 # Beta releases require an -rc.N version and create a prerelease without advancing the branch.
-# The new version tag triggers the other publishing workflows.
+# Stable tags trigger package publishing. Betas dispatch Debian publishing with pg_version.
 #
 # Release files are prepared without secrets and passed as a patch to separate
 # approval and publishing jobs. Both validate the patch before using credentials.
@@ -30,7 +30,7 @@ on:
         type: boolean
         required: false
         default: false
-      beta_pg_version:
+      pg_version:
         description: "PostgreSQL major version for beta packages and Docker images. Ignored for stable releases."
         type: choice
         required: false
@@ -76,7 +76,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
           INPUTS_BETA: ${{ github.event.inputs.beta }}
-          BETA_PG_VERSION: ${{ inputs.beta_pg_version || '18' }}
+          PG_VERSION: ${{ inputs.pg_version || '18' }}
         run: |
           echo "start_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Checking for existing release..."
@@ -87,9 +87,9 @@ jobs:
           echo "Release check passed!"
 
           if [[ "${INPUTS_BETA}" == "true" ]]; then
-            case "$BETA_PG_VERSION" in
+            case "$PG_VERSION" in
               15|16|17|18) ;;
-              *) echo "Unsupported PostgreSQL major: $BETA_PG_VERSION"; exit 1 ;;
+              *) echo "Unsupported PostgreSQL major: $PG_VERSION"; exit 1 ;;
             esac
             echo "Validating that the version contains '-rc.X'..."
             if [[ "${INPUTS_VERSION}" != *"-rc."* ]]; then
@@ -394,17 +394,11 @@ jobs:
       - name: Create Tag
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          BETA: ${{ inputs.beta }}
-          BETA_PG_VERSION: ${{ inputs.beta_pg_version || '18' }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           TAG="v${INPUTS_VERSION}"
           echo "Creating and pushing tag ${TAG}..."
-          if [[ "$BETA" == "true" ]]; then
-            git tag -s "$TAG" -m "Release $TAG" -m "Beta-Postgres-Version: $BETA_PG_VERSION"
-          else
-            git tag -s "$TAG" -m "Release $TAG"
-          fi
+          git tag -s "$TAG" -m "Release $TAG"
           git verify-tag "$TAG"
           git push origin "refs/tags/$TAG"
 
@@ -439,6 +433,20 @@ jobs:
           fi
           gh release create "v$RELEASE_VERSION" --verify-tag \
             --title "v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" "${FLAGS[@]}"
+
+      - name: Publish Beta Debian Packages
+        if: inputs.beta
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          PG_VERSION: ${{ inputs.pg_version }}
+        run: |
+          gh workflow run publish-pg_search-debian.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "v$RELEASE_VERSION" \
+            -f version="$RELEASE_VERSION" \
+            -f pg_version="$PG_VERSION" \
+            -f publish_docker=true
 
       - name: Stage Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'

@@ -4,9 +4,9 @@
 # Publish ParadeDB as Docker images to Docker Hub after the pg_search .deb packages have
 # been published to GitHub Releases. The selected branch or tag provides the Dockerfiles
 # and workflow code. The images use the release packages instead of building pg_search from source.
-# Stable releases default to all supported PostgreSQL versions. Beta releases use the major
-# recorded in the release tag (default PostgreSQL 18). Stable releases also publish the
-# mountable extension image for PostgreSQL 18.
+# Stable releases default to all supported PostgreSQL versions. Beta releases require one
+# PostgreSQL major in the pg_version input. Stable releases also publish the mountable
+# extension image for PostgreSQL 18.
 #
 # Once the runnable Docker images are published, notify ORM wrapper repositories via
 # repository_dispatch so they can run compatibility checks against the new version.
@@ -26,7 +26,7 @@ on:
         required: true
         default: ""
       pg_version:
-        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Beta releases use the major recorded in the release tag (default 18). Extension images always use PostgreSQL 18."
+        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Beta releases require exactly one major (e.g. [17]). Extension images always use PostgreSQL 18."
         required: false
         default: "[15, 16, 17, 18]"
       images:
@@ -56,31 +56,21 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v7
-
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         env:
           RELEASE_REF: ${{ github.event.inputs.version || github.ref_name }}
           PG_VERSIONS: ${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}
         run: |
-          REF_NAME="${RELEASE_REF}"
-          echo "Evaluating ref: $REF_NAME"
-          if [[ "$REF_NAME" == *-rc.* ]]; then
-            RELEASE_TAG="v${REF_NAME#v}"
-            git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-            PG_VERSION=$(git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" | sed -n 's/^Beta-Postgres-Version: //p')
-            PG_VERSION=${PG_VERSION:-18}
-            case "$PG_VERSION" in
-              15 | 16 | 17 | 18) ;;
-              *) echo "Invalid beta PostgreSQL major in $RELEASE_TAG: $PG_VERSION" >&2; exit 1 ;;
-            esac
-            echo "matrix=[$PG_VERSION]" >> "$GITHUB_OUTPUT"
-          else
-            echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
-            echo "matrix=${PG_VERSIONS}" >> $GITHUB_OUTPUT
+          if ! jq -e 'type == "array" and length > 0 and all(.[]; . == 15 or . == 16 or . == 17 or . == 18)' <<< "$PG_VERSIONS" > /dev/null; then
+            echo "pg_version must be a nonempty JSON array of supported PostgreSQL majors." >&2
+            exit 1
           fi
+          if [[ "$RELEASE_REF" == *-rc.* ]] && [[ "$(jq length <<< "$PG_VERSIONS")" != 1 ]]; then
+            echo "Select exactly one PostgreSQL major for a beta release (e.g. [17])." >&2
+            exit 1
+          fi
+          echo "matrix=$(jq -c . <<< "$PG_VERSIONS")" >> "$GITHUB_OUTPUT"
 
   generate-dockerfiles:
     name: Generate Dockerfiles
@@ -232,7 +222,7 @@ jobs:
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
       dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
-      pg_version: ${{ contains(needs.generate-dockerfiles.outputs.version, '-rc.') && format('{0}', fromJSON(needs.set-matrix.outputs.matrix)[0]) || '18' }}
+      pg_version: ${{ contains(fromJSON(needs.set-matrix.outputs.matrix), 18) && '18' || format('{0}', fromJSON(needs.set-matrix.outputs.matrix)[0]) }}
       test_extension: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit

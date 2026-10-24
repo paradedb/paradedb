@@ -171,11 +171,6 @@ Custom Scan (ParadeDB Base Scan) on mock_items_geo
 
 For hierarchical filters, combine the ParadeDB index with a PostgreSQL GiST index on an `ltree` column.
 
-<Warning>
-  Indexing `ltree` columns directly in a ParadeDB index is deprecated. Use a
-  separate PostgreSQL GiST index for hierarchical filtering.
-</Warning>
-
 Starting with `mock_items`, create a table with a product hierarchy and separate indexes for text search and path filtering:
 
 ```sql

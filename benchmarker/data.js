@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792803618801,
+  "lastUpdate": 1792803636933,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -28234,6 +28234,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 378.5917812679752,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70983df4b7da9c410b5a6abd8dcc43a673a6191e",
+          "message": "ci: standardize RunsOn setup before cache and artifact operations (#7010)\n\n## What\n\nConfigure RunsOn immediately after checkout in all 23 Community RunsOn\njob definitions. Add the same comment above each setup step:\n\n```yaml\n# With extras=s3-cache, configure RunsOn before cache or artifact operations.\n```\n\nKeep the existing runner labels and cache backends. Eighteen jobs enable\n`extras=s3-cache`. The other five keep their existing backend.\n\n## Why\n\nEnterprise RC publishing failed in [this\nrun](https://github.com/paradedb/paradedb-enterprise/actions/runs/39522106754)\nbecause the Docker-test jobs downloaded artifacts before RunsOn setup.\nArtifact listing returned `Unexpected token 'O', \"Original A\"... is not\nvalid JSON`.\n\nThe failed runners used RunsOn v3.3.1. Versions before v3.4.0 require\nsetup before artifact operations with `extras=s3-cache`. [RunsOn\ndocuments the exact\nerror](https://runs-on.com/docs/performance/caching/actions/).\n\n## How\n\nKeep setup in the calling workflows, including the two Benchmarker jobs.\nRemove the nested setup from `build-paradedb-image` so each job runs it\nonce. Preserve the Debian publish job's existing build guard.\n\nThis can sync to Enterprise without changing RC versions or Dockerfile\ngeneration.\n\n## Tests\n\n- Prettier, actionlint, and `git diff --check` passed.\n- Audited workflows and local composite actions. All 23 RunsOn jobs have\nexactly one setup step immediately after checkout, before cache and\nartifact operations.\n- Verified all 23 setup steps have the comment.\n- Compared parsed workflows and confirmed all other settings and steps\nare unchanged.\n- Live publishing and the five newly added setup steps await CI\nvalidation.",
+          "timestamp": "2026-10-23T17:17:36-07:00",
+          "tree_id": "8524751a0839e3aaccbbf322c0c131266ad26b2c",
+          "url": "https://github.com/paradedb/paradedb/commit/70983df4b7da9c410b5a6abd8dcc43a673a6191e"
+        },
+        "date": 1792803624945,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 537.9981435845168,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 515.1242738525591,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 140.90464984893185,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 355.96396827074443,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 378.10466992226924,
             "unit": "queries/s"
           }
         ]

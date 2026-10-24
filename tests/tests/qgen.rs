@@ -822,7 +822,7 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
         ],
         // Bounded by the inner table's size: an `OFFSET` past its rows makes the `EXISTS` false
         // whatever the scan returns.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"], tables_and_sizes[1].1),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age", "uuid"], vec!["id"], tables_and_sizes[1].1),
         mut gucs in any::<PgGucs>(),
     )| {
         // TODO(#6814): once Postgres pulls the EXISTS up into a semi join, the InitPlan form is a

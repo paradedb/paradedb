@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792859795843,
+  "lastUpdate": 1792861022666,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111874,6 +111874,52 @@ window.BENCHMARK_DATA = {
             "value": 2871.8372615128355,
             "unit": "median tps",
             "extra": "avg tps: 2773.890338410324, max tps: 3204.272680952686, count: 59429"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "a74b5bccd94a08b1a7a1d30fcd69b7af43643a75",
+          "message": "refactor: reuse merge candidate eligibility snapshot",
+          "timestamp": "2026-10-24T15:50:04Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a74b5bccd94a08b1a7a1d30fcd69b7af43643a75"
+        },
+        "date": 1792861011776,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2199.45575992069,
+            "unit": "median tps",
+            "extra": "avg tps: 2196.374583050342, max tps: 2267.14807529327, count: 59429"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.844828492005624,
+            "unit": "median tps",
+            "extra": "avg tps: 3.1093084484153692, max tps: 4.978736401829314, count: 59429"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 2640.6050949260384,
+            "unit": "median tps",
+            "extra": "avg tps: 2618.538813307197, max tps: 2649.0449905626256, count: 59429"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3603.0483318117017,
+            "unit": "median tps",
+            "extra": "avg tps: 3565.0461660698475, max tps: 3711.616060053918, count: 59429"
           }
         ]
       }

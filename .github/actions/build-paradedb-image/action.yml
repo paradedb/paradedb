@@ -17,7 +17,6 @@ inputs:
     description: "Scope for GHA cache"
     required: false
     default: "benchmarker-source-pg18-arm64"
-
   dst:
     description: "Build the instrumented dst profile (currently Antithesis, requires linux/amd64)"
     required: false

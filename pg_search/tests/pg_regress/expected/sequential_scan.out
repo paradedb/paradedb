@@ -24,22 +24,11 @@ SELECT
 FROM generate_series(1, 20000) g;
 CREATE INDEX sequential_scan_idx ON sequential_scan USING paradedb (anchor, id, body) WHERE keep;
 CREATE INDEX sequential_scan_anchor_idx ON sequential_scan (anchor) INCLUDE (id);
--- The per-row filter's deparsed qual embeds the BM25 index oid, which changes on every database
--- creation; mask it so the plans below are stable.
-CREATE FUNCTION explain_seqscan(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
-    END LOOP;
-END;
-$$;
 -- Tiny work_mem: the ~20k-key match set exceeds it and spills; count is still correct.
 SET work_mem = '64kB';
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                                                                                                               explain_seqscan                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                              explain_redact_oid                                                                                                                                                                                                                                                                                              
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
@@ -100,8 +89,8 @@ ROLLBACK TO before_first_fetch;
 CLOSE sequential_scan_cursor;
 ROLLBACK;
 -- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
-SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
-                                                                                                                                                                                                                                                                                               explain_seqscan                                                                                                                                                                                                                                                                                                
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
+                                                                                                                                                                                                                                                                                              explain_redact_oid                                                                                                                                                                                                                                                                                              
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
@@ -124,9 +113,9 @@ WARNING:  the query's filter match set exceeded work_mem and spilled to a tempor
 (3 rows)
 
 -- Negation over the spilled set: everything matched, so NOT (...) excludes all rows.
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                                                                                                                  explain_seqscan                                                                                                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                                                                                 explain_redact_oid                                                                                                                                                                                                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
@@ -141,9 +130,9 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
 (1 row)
 
 -- A term matched by no row -> empty set -> nothing matches (no spill).
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                                                                                                                   explain_seqscan                                                                                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                                                                                  explain_redact_oid                                                                                                                                                                                                                                                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
@@ -172,8 +161,8 @@ SET paradedb.enable_custom_scan = off;
 RESET enable_indexscan;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target'$$);
-                                                                                                                                                                                                                                                                                            explain_seqscan                                                                                                                                                                                                                                                                                            
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target'$$);
+                                                                                                                                                                                                                                                                                          explain_redact_oid                                                                                                                                                                                                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using sequential_scan_anchor_idx on sequential_scan
    Index Cond: (anchor = 'duplicate'::text)
@@ -205,8 +194,8 @@ SET enable_mergejoin = off;
 RESET enable_indexscan;
 RESET enable_indexonlyscan;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
-                                                                  explain_seqscan                                                                  
+SELECT explain_redact_oid($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
+                                                                explain_redact_oid                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
    ->  Seq Scan on sequential_scan_terms t
@@ -219,8 +208,8 @@ SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 RESET enable_seqscan;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
-                                                                                                                                                                                                                                   explain_seqscan                                                                                                                                                                                                                                   
+SELECT explain_redact_oid($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
+                                                                                                                                                                                                                                 explain_redact_oid                                                                                                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
    Join Filter: paradedb.search_with_query_input_ctid_or_row_strict(s.id, paradedb.with_index('sequential_scan_idx'::regclass, paradedb.match_disjunction('body'::paradedb.fieldname, t.term)), s.ctid, CASE WHEN (paradedb.ctid_is_valid(s.ctid) IS NOT TRUE) THEN (ARRAY[s.*])::record[] WHEN (paradedb.xmin_is_visible(s.xmin, s.tableoid, s.ctid) IS NOT TRUE) THEN (ARRAY[s.*])::record[] WHEN (s.keep IS NOT TRUE) THEN (ARRAY[s.*])::record[] ELSE '{}'::record[] END, ROW())
@@ -295,9 +284,9 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 
 -- With ample work_mem the identical query stays in memory: no spill WARNING.
 SET work_mem = '256MB';
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                                                                                                               explain_seqscan                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                              explain_redact_oid                                                                                                                                                                                                                                                                                              
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
@@ -386,8 +375,8 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
   2
 (1 row)
 
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
-                                                                                                                                                                                                                                                explain_seqscan                                                                                                                                                                                                                                                
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
+                                                                                                                                                                                                                                              explain_redact_oid                                                                                                                                                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on sequential_scan_nulls
    Filter: (NOT paradedb.search_with_query_input_ctid_or_row_strict(id, '{"with_index":{"oid":N,"query":{"boolean":{"must":[{"exists":{"field":"color"}}],"must_not":[{"term":{"field":"color","value":"red"}}]}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_nulls.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_nulls.*])::record[] ELSE '{}'::record[] END, ROW()))
@@ -459,8 +448,8 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
   2
 (1 row)
 
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
-                                                                                        explain_seqscan                                                                                        
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
+                                                                                      explain_redact_oid                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on sequential_scan_nulls
    Table: sequential_scan_nulls
@@ -721,8 +710,8 @@ SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 SET enable_bitmapscan = off;
 SET enable_seqscan = on;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
-                                                                                                                                                                                                                                       explain_seqscan                                                                                                                                                                                                                                        
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                                                                                                                                                                      explain_redact_oid                                                                                                                                                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on sequential_scan_expr_first
    Filter: paradedb.search_with_query_input_ctid_or_row((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] ELSE '{}'::record[] END, ROW())
@@ -771,8 +760,8 @@ FROM (VALUES ('alpha'), ('beta'), ('missing')) p(term) ORDER BY p.term;
 
 SET enable_indexscan = on;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
-                                                                                 explain_seqscan                                                                                  
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                explain_redact_oid                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using sequential_scan_expr_first_idx on sequential_scan_expr_first
    Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput)
@@ -786,8 +775,8 @@ SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
 
 SET enable_indexscan = off;
 SET enable_bitmapscan = on;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
-                                                                                                                                                                                                                                       explain_seqscan                                                                                                                                                                                                                                        
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                                                                                                                                                                      explain_redact_oid                                                                                                                                                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Bitmap Heap Scan on sequential_scan_expr_first
    Filter: paradedb.search_with_query_input_ctid_or_row((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] ELSE '{}'::record[] END, ROW())
@@ -811,8 +800,8 @@ CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING 
 );
 SET enable_indexscan = on;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
-                                                                                  explain_seqscan                                                                                  
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
+                                                                                explain_redact_oid                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using sequential_scan_expr_first_idx on sequential_scan_expr_first
    Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"note_lower","value":"needle"}}}}'::paradedb.searchqueryinput)
@@ -922,10 +911,10 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 
 SET enable_indexscan = on;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
     paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
 ])$$);
-                                                                             explain_seqscan                                                                              
+                                                                            explain_redact_oid                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using sequential_scan_arrays_idx on sequential_scan_arrays
    Index Cond: (id @@@ ANY ('{"{\"term\":{\"field\":\"body\",\"value\":\"alpha\"}}","{\"term\":{\"field\":\"body\",\"value\":\"beta\"}}"}'::paradedb.searchqueryinput[]))

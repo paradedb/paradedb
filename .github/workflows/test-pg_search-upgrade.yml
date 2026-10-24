@@ -96,11 +96,12 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Fetch Release Tags
-        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
-
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.

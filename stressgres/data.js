@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792829452589,
+  "lastUpdate": 1792829701447,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -380874,6 +380874,124 @@ window.BENCHMARK_DATA = {
             "value": 28.5844902673684,
             "unit": "median tps",
             "extra": "avg tps: 46.60295922993122, max tps: 1568.848935535997, count: 57428"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792829690394,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 508.7178903470714,
+            "unit": "median tps",
+            "extra": "avg tps: 508.1471797588772, max tps: 510.34123726370643, count: 57410"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 469.55464389823163,
+            "unit": "median tps",
+            "extra": "avg tps: 469.2159740824071, max tps: 470.91811484132313, count: 57410"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3738.9014802160254,
+            "unit": "median tps",
+            "extra": "avg tps: 3734.01934330895, max tps: 3913.9494451225323, count: 57410"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 506.43540183586185,
+            "unit": "median tps",
+            "extra": "avg tps: 505.6154209817242, max tps: 507.96225650428653, count: 57410"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3233.622054432987,
+            "unit": "median tps",
+            "extra": "avg tps: 3225.371989703135, max tps: 3250.363370181294, count: 57410"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3275.2183214956394,
+            "unit": "median tps",
+            "extra": "avg tps: 3274.585903558163, max tps: 3378.9030376862625, count: 57410"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 202.70780964678443,
+            "unit": "median tps",
+            "extra": "avg tps: 202.53606925186298, max tps: 202.912538124055, count: 57410"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 387.48284526229844,
+            "unit": "median tps",
+            "extra": "avg tps: 387.0956995722654, max tps: 387.88284030309615, count: 57410"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 586.9384004320888,
+            "unit": "median tps",
+            "extra": "avg tps: 585.6174635582989, max tps: 608.5529559553215, count: 57410"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 710.8550109428114,
+            "unit": "median tps",
+            "extra": "avg tps: 706.8291584759143, max tps: 713.6066352823549, count: 57410"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1426.8184636496837,
+            "unit": "median tps",
+            "extra": "avg tps: 1425.282307267082, max tps: 1428.9104773044608, count: 57410"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 521.5013971210378,
+            "unit": "median tps",
+            "extra": "avg tps: 520.7423185303461, max tps: 522.7249613437291, count: 57410"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 645.3010477735666,
+            "unit": "median tps",
+            "extra": "avg tps: 642.9038393774491, max tps: 646.5050053595232, count: 57410"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2373.874281407264,
+            "unit": "median tps",
+            "extra": "avg tps: 2365.890629385895, max tps: 2382.8908576745357, count: 57410"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1889.7968362016481,
+            "unit": "median tps",
+            "extra": "avg tps: 1883.6776282502599, max tps: 1917.868286064616, count: 57410"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.176402590494735,
+            "unit": "median tps",
+            "extra": "avg tps: 25.970453289813108, max tps: 1732.9220531660485, count: 57410"
           }
         ]
       }

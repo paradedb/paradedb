@@ -81,41 +81,48 @@ VACUUM filtered_scan_items;
 -- The same rows without a paradedb index: Postgres scans and sorts them exhaustively.
 CREATE TABLE filtered_scan_oracle AS SELECT * FROM filtered_scan_items;
 
--- Twelve of two hundred documents match: the segment locates them.
+-- Eight of two hundred documents match, under the 5% cap of ten: the segment locates them.
 SELECT * FROM filtered_scan_path(
     'SELECT id FROM filtered_scan_items '
-    'WHERE category @@@ paradedb.range(''category'', int4range(0, 3, ''[)'')) '
+    'WHERE category @@@ paradedb.range(''category'', int4range(0, 2, ''[)'')) '
     'ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5'
 );
 SELECT * FROM filtered_scan_plan(
     'SELECT id FROM filtered_scan_items '
-    'WHERE category @@@ paradedb.range(''category'', int4range(0, 3, ''[)'')) '
+    'WHERE category @@@ paradedb.range(''category'', int4range(0, 2, ''[)'')) '
     'ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5'
 );
 
 -- The located top-k is the exhaustive top-k.
 SELECT id FROM filtered_scan_items
-WHERE category @@@ paradedb.range('category', int4range(0, 3, '[)'))
+WHERE category @@@ paradedb.range('category', int4range(0, 2, '[)'))
 ORDER BY vec <-> filtered_scan_vector(768, 7), id
 LIMIT 5;
 SELECT id FROM filtered_scan_oracle
-WHERE category >= 0 AND category < 3
+WHERE category >= 0 AND category < 2
 ORDER BY vec <-> filtered_scan_vector(768, 7), id
 LIMIT 5;
 SELECT
     ARRAY(
         SELECT id FROM filtered_scan_items
-        WHERE category @@@ paradedb.range('category', int4range(0, 3, '[)'))
+        WHERE category @@@ paradedb.range('category', int4range(0, 2, '[)'))
         ORDER BY vec <-> filtered_scan_vector(768, 7), id
         LIMIT 5
     ) = ARRAY(
         SELECT id FROM filtered_scan_oracle
-        WHERE category >= 0 AND category < 3
+        WHERE category >= 0 AND category < 2
         ORDER BY vec <-> filtered_scan_vector(768, 7), id
         LIMIT 5
     ) AS located_matches_exhaustive;
 
--- A dense filter (196 of 200) matches more documents than the probe budget buys: it routes.
+-- Twelve of two hundred documents match, above the 5% cap of ten: the segment routes.
+SELECT * FROM filtered_scan_path(
+    'SELECT id FROM filtered_scan_items '
+    'WHERE category @@@ paradedb.range(''category'', int4range(0, 3, ''[)'')) '
+    'ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5'
+);
+
+-- A dense filter (196 of 200) is above both caps: it routes.
 SELECT * FROM filtered_scan_path(
     'SELECT id FROM filtered_scan_items '
     'WHERE category @@@ paradedb.range(''category'', int4range(0, 49, ''[)'')) '

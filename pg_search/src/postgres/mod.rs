@@ -1447,6 +1447,12 @@ mod segment_info_tests {
             Value::String("Located".to_string()),
         );
         fields.insert("work_charged".to_string(), Value::from(f64::MAX));
+        for name in ["rate_stops", "opening_empty_stops"] {
+            insert_counter(&mut fields, name);
+        }
+        for name in ["rate_opening", "rate_current", "rate_evidence"] {
+            fields.insert(name.to_string(), Value::from(f64::MAX));
+        }
         fields.insert(
             "termination".to_string(),
             Value::String("work_budget_exhausted".to_string()),

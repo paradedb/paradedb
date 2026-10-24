@@ -346,11 +346,12 @@ FROM segment_info;
 
 -- The same rows without a paradedb index: Postgres scans and sorts them exhaustively.
 CREATE TEMP TABLE q_cosine_oracle AS SELECT * FROM q_cosine;
--- 50 of 200 documents match: the segment locates them, scoring each match once.
+-- 10 of 200 documents match, at the 5% cap of ten: the segment locates them, scoring each match
+-- once.
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 51, ''[)'')) '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 11, ''[)'')) '
         'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -375,18 +376,18 @@ SELECT
 FROM segment_info;
  access_path | located_matches | located_prunes_nothing | located_rows_every_located_cluster | located_scores_every_match | located_visits_accounted 
 -------------+-----------------+------------------------+------------------------------------+----------------------------+--------------------------
- Located     |              50 | t                      | t                                  | t                          | t
+ Located     |              10 | t                      | t                                  | t                          | t
 (1 row)
 
 SELECT
     ARRAY(
         SELECT id FROM q_cosine
-        WHERE id @@@ paradedb.range('id', int4range(1, 51, '[)'))
+        WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) = ARRAY(
         SELECT id FROM q_cosine_oracle
-        WHERE id >= 1 AND id < 51
+        WHERE id >= 1 AND id < 11
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS located_matches_exhaustive;
@@ -395,7 +396,25 @@ SELECT
  t
 (1 row)
 
--- 120 of 200 documents match, well above the probe budget's rows: the segment routes, and
+-- 50 of 200 documents match, above the 5% cap of ten: the segment routes.
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 51, ''[)'')) '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT jsonb_path_query_first(value, '$.**.access_path') #>> '{}' AS access_path
+FROM segment_info;
+ access_path 
+-------------
+ Routed
+(1 row)
+
+-- 120 of 200 documents match, above both caps: the segment routes, and
 -- admission scores and charges only rows that pass the filter. Skipping a cluster whose rows all
 -- fail the filter is asserted in tantivy's filtered_empty_cluster_skips_band_reads.
 SET paradedb.vector_cluster_max_probe = 0.25;

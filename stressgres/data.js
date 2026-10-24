@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792859738895,
+  "lastUpdate": 1792859758172,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -471450,6 +471450,94 @@ window.BENCHMARK_DATA = {
             "value": 47.15625,
             "unit": "median mem",
             "extra": "avg mem: 47.786105210958254, max mem: 55.30859375, count: 58732"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "a74b5bccd94a08b1a7a1d30fcd69b7af43643a75",
+          "message": "refactor: reuse merge candidate eligibility snapshot",
+          "timestamp": "2026-10-24T15:50:04Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a74b5bccd94a08b1a7a1d30fcd69b7af43643a75"
+        },
+        "date": 1792859747873,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 26.046875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 26.239929188841092, max partition_index_size:MB: 34.625, count: 58814"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.36335,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.08435670896487, max cpu: 32.876713, count: 58814"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.493812923474856, max mem: 56.796875, count: 58814"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.803541572853078, max cpu: 37.684006, count: 58814"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 49.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.04506201489016, max mem: 55.7109375, count: 58814"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.514371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.971241856748787, max cpu: 23.845009, count: 58814"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 40.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.90921478888955, max mem: 40.9453125, count: 58814"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.80892389349471, max cpu: 42.39451, count: 58814"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.37216804512956, max mem: 62.09765625, count: 58814"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.063784944353916, max cpu: 32.78049, count: 58814"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.17278796821335, max mem: 55.62109375, count: 58814"
           }
         ]
       }

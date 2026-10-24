@@ -231,6 +231,10 @@ impl MetaPage {
     }
 
     /// `acquire_merge_lock` for VACUUM: waits for admitted mergers to drop their merge-page pins first.
+    ///
+    /// Keep `ambulkdelete` the only production caller. `LockBufferForCleanup` raises an ERROR when
+    /// a second backend waits on the same buffer, and VACUUM's self-conflicting table lock is what
+    /// keeps the waiter unique.
     pub unsafe fn acquire_merge_lock_for_cleanup(&self) -> MergeLock {
         assert!(block_number_is_valid(self.data.merge_lock));
         MergeLock::acquire_for_cleanup(self.bman.buffer_access().rel(), self.data.merge_lock)

@@ -37,7 +37,7 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    LinkedList, LinkedListData, MVCCEntry, MutableSegmentEntry, OwnedList, SegmentMetaEntry,
+    LinkedList, LinkedListData, MutableSegmentEntry, OwnedList, SegmentMetaEntry,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
@@ -149,7 +149,7 @@ pub(crate) unsafe fn reclaim_as_of(
             indexrel.name()
         );
     }
-    if merge.in_flight(indexrel) {
+    if merge.in_flight() {
         pgrx::debug1!(
             "pg_search: index {} has a merge in flight; its output is the unaccounted space",
             indexrel.name()
@@ -385,11 +385,8 @@ impl MergeListSnapshot {
 
     /// Whether a merge is writing output. Its blocks are unaccounted until it publishes, so the
     /// count gate cannot close and a walk would read every block for nothing.
-    unsafe fn in_flight(&self, indexrel: &PgSearchRelation) -> bool {
-        let mut bman = BufferManager::new(indexrel);
-        self.entries
-            .iter()
-            .any(|entry| !entry.recyclable(&mut bman))
+    unsafe fn in_flight(&self) -> bool {
+        self.entries.iter().any(|entry| entry.is_live())
     }
 }
 

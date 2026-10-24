@@ -39,6 +39,6 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
             );
         }
     }
-    do_merge(&index, MergeStyle::Vacuum, None, None).expect("should be able to merge");
+    do_merge(&index, MergeStyle::Vacuum).expect("should be able to merge");
     stats
 }

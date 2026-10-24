@@ -34,11 +34,12 @@ WORKDIR /build
 COPY . .
 # Scope SanitizerCoverage to the explicit target so host build scripts and
 # cargo-pgrx stay uninstrumented. Keep the release path identical for benchmarks.
-ARG ANTITHESIS=false
+# DST runs currently use Antithesis instrumentation and require linux/amd64.
+ARG DST=false
 RUN /bin/bash <<'BUILD'
 set -euo pipefail
 args=(--package pg_search --profile release --pg-config /usr/lib/postgresql/18/bin/pg_config --out-dir /package)
-case "$ANTITHESIS" in
+case "$DST" in
     false) ;;
     true)
         test "$(dpkg --print-architecture)" = amd64
@@ -46,7 +47,7 @@ case "$ANTITHESIS" in
               --pg-config /usr/lib/postgresql/18/bin/pg_config --out-dir /package)
         export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id"
         ;;
-    *) echo "Invalid ANTITHESIS value: $ANTITHESIS" >&2; exit 1 ;;
+    *) echo "Invalid DST value: $DST" >&2; exit 1 ;;
 esac
 cargo pgrx package "${args[@]}"
 mkdir -p /artifacts/usr/lib/postgresql/18/lib /artifacts/usr/share/postgresql/18/extension
@@ -62,7 +63,7 @@ if [ -n "$undefined_rust" ]; then
     echo "pg_search.so has unresolved Rust symbols: $undefined_rust" >&2
     exit 1
 fi
-if [ "$ANTITHESIS" = true ]; then
+if [ "$DST" = true ]; then
     # Check before stripping; fail rather than shipping uninstrumented code.
     nm "$lib" | grep 'antithesis_load_libvoidstar' > /dev/null
     readelf -S "$lib" | grep -i 'sancov' > /dev/null

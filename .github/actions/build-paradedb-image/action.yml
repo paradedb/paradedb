@@ -18,8 +18,8 @@ inputs:
     required: false
     default: "benchmarker-source-pg18-arm64"
 
-  antithesis:
-    description: "Build the instrumented dst profile for Antithesis (requires linux/amd64)"
+  dst:
+    description: "Build the instrumented dst profile (currently Antithesis, requires linux/amd64)"
     required: false
     default: "false"
   platforms:
@@ -72,7 +72,7 @@ runs:
         platforms: ${{ inputs.platforms }}
         build-args: |
           BASE_IMAGE=${{ inputs.base_image }}
-          ANTITHESIS=${{ inputs.antithesis }}
+          DST=${{ inputs.dst }}
         pull: true
         push: ${{ inputs.push == 'true' }}
         load: ${{ inputs.load == 'true' }}

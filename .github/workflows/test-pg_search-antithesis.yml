@@ -160,7 +160,7 @@ jobs:
         uses: ./.github/actions/build-paradedb-image
         with:
           ref: ${{ env.COMMIT_SHA }}
-          antithesis: "true"
+          dst: "true"
           platforms: linux/amd64
           push: "true"
           load: "false"

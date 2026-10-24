@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792870331468,
+  "lastUpdate": 1792870347450,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -29074,6 +29074,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 378.3531575662159,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d6f6092266f2836780c01ccd757169f90f33c4e",
+          "message": "test: use a unique tiebreaker in generated_subquery (#7019)\n\n`generated_subquery` can choose a generated UUID as its only sorting\ntiebreaker, even though the UUID generator permits duplicates. An `IN`\nsubquery with LIMIT/OFFSET can then select different values from tied\nrows in PostgreSQL and ParadeDB, producing a false result mismatch.\n\nMove UUID into the ordinary sorting columns and always append the unique\nprimary-key `id`, following #7014. This covers both clean and churn\nvariants and the shared test code used by regular CI and Antithesis.\n\nLeave `generated_paging_large` unchanged: it orders by UUID and projects\nonly UUID, so exchanging rows with identical UUIDs does not change its\ncompared result. Preserving that query shape also retains its existing\nUUID-only sorting coverage.\n\nValidation: inspected the generator's unconditional tiebreaker append\nand verified the commit contains only the intended one-line change.\nDatabase tests and Antithesis replay were not run locally; CI validation\nis pending.",
+          "timestamp": "2026-10-24T11:49:35-07:00",
+          "tree_id": "a2f849057249d92a35c8180047f22cfb16626f49",
+          "url": "https://github.com/paradedb/paradedb/commit/3d6f6092266f2836780c01ccd757169f90f33c4e"
+        },
+        "date": 1792870335784,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 535.4273960549615,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 511.76027450966023,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 141.66720257113795,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 256.0992509637806,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 376.9883125674375,
             "unit": "queries/s"
           }
         ]

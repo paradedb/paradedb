@@ -14,14 +14,17 @@ inputs:
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
-  github_token:
-    description: "GitHub token to authenticate with"
+  github_app_client_id:
+    description: "ParadeDB GitHub App client ID"
+    required: true
+  github_app_private_key:
+    description: "ParadeDB GitHub App private key"
     required: true
   fail_on_error:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
     default: "true"
-  publish:
+  publish_baseline:
     description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
     required: false
     default: "false"
@@ -101,27 +104,42 @@ runs:
         PG_VERSION: ${{ env.pg_version }}
       run: ./.github/scripts/render_crashdump.sh
 
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+      with:
+        client-id: ${{ inputs.github_app_client_id }}
+        private-key: ${{ inputs.github_app_private_key }}
+
+    - name: Wait for App Token to Become Usable
       shell: bash
-      run: rm -rf ./benchmark-data-repository
+      env:
+        APP_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        for attempt in $(seq 1 10); do
+          if git -c http.extraheader="$auth" ls-remote \
+              "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
+            echo "App token usable after ${attempt} attempt(s)"
+            exit 0
+          fi
+          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
+          sleep 5
+        done
+        echo "App token never became usable after 10 attempts" >&2
+        exit 1
 
     - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: ./.github/actions/publish-benchmark-results
       with:
         name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output-file-path: benchmarks/results.json
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        auto-push: ${{ inputs.publish }}
-        benchmark-data-dir-path: benchmarks
-        alert-threshold: ${{ inputs.alert_threshold }}
-        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ github.event_name == 'pull_request' }}
+        metrics_file: benchmarks/results.json
+        github_token: ${{ steps.app-token.outputs.token }}
+        publish_baseline: ${{ inputs.publish_baseline }}
+        pages_directory: benchmarks
+        alert_threshold: ${{ inputs.alert_threshold }}
+        comment_summary: ${{ github.event_name == 'pull_request' }}
 
     # The publish step above appends the current run to its local gh-pages clone, so the script
     # takes the second-to-last entry as the baseline.
@@ -143,7 +161,7 @@ runs:
       if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
       run: |
         printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
         gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \

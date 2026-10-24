@@ -172,6 +172,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             SearchFieldType::Text(_)
                                 | SearchFieldType::Tokenized(..)
                                 | SearchFieldType::Bool(_)
+                                | SearchFieldType::Json(_)
                         );
                         grouping_columns.push(GroupingColumn {
                             field_name,

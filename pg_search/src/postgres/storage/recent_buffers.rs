@@ -156,6 +156,7 @@ mod tests {
         pg_sys::ReleaseBuffer(first);
         assert_eq!(RECENT.with_borrow(|cache| cache.buffers[0]), first);
         let hint_bytes = RECENT.with_borrow(|cache| {
+            assert!(pg_sys::MemoryContextGetParent(cache.context) == pg_sys::CacheMemoryContext);
             assert_eq!(
                 pg_sys::GetMemoryChunkContext(cache.buffers.as_ptr().cast_mut().cast()),
                 cache.context
@@ -164,7 +165,7 @@ mod tests {
         });
         let context_bytes = Spi::get_one::<i64>(
             "SELECT sum(used_bytes)::bigint FROM pg_backend_memory_contexts
-             WHERE name = 'pg_search recent buffers' AND parent = 'CacheMemoryContext'",
+             WHERE name = 'pg_search recent buffers'",
         )
         .unwrap()
         .unwrap();
@@ -225,7 +226,7 @@ mod tests {
         assert_eq!(
             Spi::get_one::<i64>(
                 "SELECT sum(used_bytes)::bigint FROM pg_backend_memory_contexts
-                 WHERE name = 'pg_search recent buffers' AND parent = 'CacheMemoryContext'",
+                 WHERE name = 'pg_search recent buffers'",
             )
             .unwrap(),
             Some(context_bytes)

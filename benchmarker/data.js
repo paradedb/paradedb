@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792873028277,
+  "lastUpdate": 1792873850902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -17008,6 +17008,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 182.336,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ujjawalpathak6@gmail.com",
+            "name": "Kumar Ujjawal",
+            "username": "kumarUjjawal"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24919e6c5568eb28470cbd6170e108b376ffa120",
+          "message": "fix: parse numeric fields in query strings (#6209)\n\n# Ticket(s) Closed\n\n- Closes #6105\n\n## What\n\nFix `NUMERIC` literals, range bounds, and `IN` sets in explicitly\nfielded `pdb.parse()` queries and in `pdb.parse_with_field()`.\n\n## Why\n\nTantivy reads the physical field type, not PostgreSQL's logical\n`NUMERIC` type. Passing numeric text directly could return wrong rows,\nno rows, or parse errors.\n\nFixed-precision comparisons must also preserve exact values. A literal\nbetween two stored values must match nothing, and each range bound must\nmove in the correct direction.\n\n## How\n\n- Extend the existing query AST walker to resolve numeric fields and\nrewrite their literals, bounds, and set elements.\n- Validate literals through PostgreSQL's `numeric_in` via `AnyNumeric`,\nthen use normalized numeric text.\n- Use the shared conversion and bound helpers from #6978. Preserve\noff-grid and out-of-domain equality as a no-match query.\n- Encode `Numeric64` values as scaled `i64` text and `NumericBytes`\nvalues as version-aware decimal bytes. Use `base64` directly for\nstandard Base64 encoding. The direct dependency is `0.22.1`, which was\nalready in `Cargo.lock` transitively.\n- Report strict-mode errors as `invalid NUMERIC value '...' for field\n'...'`.\n- In lenient mode, make invalid bounds unbounded, discard invalid\nliteral clauses, and remove invalid set elements. Do not pass invalid\nnumeric text to Tantivy's Base64 parser. Empty sets and valid no-match\nliterals still match nothing.\n- Preserve existing datetime and JSON behavior. Add a changelog entry\nand refresh the Nix dependency hash for the dependency change.\n\n## Tests\n\nThe existing `parse` SQL suite covers both numeric representations,\n`parse_with_field()`, negative values, large values, off-grid literals,\nrange-bound direction, `IN` sets, malformed input, and compound queries.\nNew lenient cases use Base64-compatible invalid input (`null`, `abcd`,\nand `gA==`) with ranges, `AND`, `NOT`, boosts, and sets. The\nPostgreSQL-backed unit test also checks current and legacy byte\nencodings.\n\nLocal validation on PostgreSQL 17:\n\n- `cargo pgrx test pg17`: 753 passed, 0 failed, 1 ignored.\n- Eight exact `pg_regress` suites: `parse`,\n`numeric64_high_precision_literal`, `numeric_typmod_scale`,\n`numeric_pushdown`, `pushdown_numeric`, `datetime_stability`,\n`datetime_fields_deprecated`, and `datetime_date_pushdown`.\n- A separate 1,023-case comparison check against PostgreSQL for both\nparser APIs and numeric storage types.\n- `cargo clippy --workspace --all-targets --no-default-features\n--features pg17 -- -D warnings --no-deps`.\n- `cargo fmt --all --check`.\n- `python3 .github/scripts/release.py lint-fragments --changelog-only`.\n- `nix build --no-link .#pg_search-pg18.cargoDeps` in Linux Docker; the\ndependency hash is valid.\n\nThe broad `cargo pgrx regress ... parse` filter also selects\n`join_hash_dynamic_filters_sparse`, which has an unrelated local EXPLAIN\noutput difference (`10` versus `10.00`). The exact eight suites above\npass.\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-10-24T12:03:07-07:00",
+          "tree_id": "cab76da6223c11abc4fd0b464213dcf01a8a7a1b",
+          "url": "https://github.com/paradedb/paradedb/commit/24919e6c5568eb28470cbd6170e108b376ffa120"
+        },
+        "date": 1792873838521,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.185,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 327.758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.726,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.357,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 209.884,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.433,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 190.914,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.236,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 77.199,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 161.413,
             "unit": "ms"
           }
         ]

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed `pdb.parse()` queries on `NUMERIC` fields that returned wrong rows, no rows, or parse errors. Literals, ranges, and sets use exact comparisons, and invalid input follows strict or lenient parsing rules (#6105).

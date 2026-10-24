@@ -29,6 +29,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
+use crate::postgres::storage::unpublished;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -308,6 +309,13 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         return Ok(());
     }
 
+    // The scope encloses every pin the merge takes, from the barrier pins to the merger's: a
+    // subtransaction's resource owner knows only what was pinned under it, and a pin released
+    // under the wrong owner is an ERROR.
+    unpublished::reclaiming_on_error(index, || do_merge_inner(index, style))
+}
+
+unsafe fn do_merge_inner(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
 
@@ -477,21 +485,25 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let layer_sizes = IndexLayerSizes::from(&index);
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
-        let merge_pins = metadata.pin_merge();
-        // this ensures there's only one merge running at a time for the given index,
-        // while the lock is held
-        let merge_lock = metadata.acquire_merge_lock();
-
         PgTryBuilder::new(AssertUnwindSafe(|| {
-            merge_index(
-                &index,
-                merge_policy,
-                merge_lock,
-                merge_pins,
-                MergeMode::Background,
-                current_xid,
-                next_xid,
-            )
+            // See `do_merge`: the scope must enclose every pin the merge takes.
+            unpublished::reclaiming_on_error(&index, || {
+                let merge_pins = metadata.pin_merge();
+                // this ensures there's only one merge running at a time for the given index,
+                // while the lock is held
+                let merge_lock = metadata.acquire_merge_lock();
+                merge_index(
+                    &index,
+                    merge_policy,
+                    merge_lock,
+                    merge_pins,
+                    MergeMode::Background,
+                    current_xid,
+                    next_xid,
+                );
+                Ok(())
+            })
+            .expect("merge_index reports failures as ERRORs")
         }))
         // A crash here dies in this background worker: it never reaches a client
         // connection, and Postgres logs only to the container's stdout, so nothing
@@ -589,6 +601,9 @@ pub(crate) unsafe fn merge_index(
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);
+
+        // Return private output allocations after a cooperative stop.
+        unpublished::reclaim(indexrel);
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if mode == MergeMode::Foreground {

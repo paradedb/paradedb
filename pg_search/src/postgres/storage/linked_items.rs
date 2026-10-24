@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::buffer::{Buffer, BufferManager, BufferMut, init_new_buffer};
+use super::buffer::{Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
@@ -235,6 +235,38 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         })
     }
 
+    /// Every block the list occupies, including the header block. Read under the header lock so
+    /// a concurrent `atomically().commit()` cannot swap the list out and recycle its pages
+    /// mid-walk.
+    pub(crate) unsafe fn pages(&self) -> Vec<pg_sys::BlockNumber> {
+        let (_header_lock, start_blockno) = self.get_header_and_start_blockno();
+        std::iter::once(self.header_blockno)
+            .chain(self.bman().chain(start_blockno))
+            .collect()
+    }
+
+    /// Every entry, held with a pin on each entry's pin-test block, the pin readers hold:
+    /// garbage collection skips a pinned entry, so the entries' blocks stay put for as long as
+    /// the returned [`PinnedEntries`] lives. Drop it as soon as the walk is done.
+    pub(crate) unsafe fn list_pinned(&mut self) -> PinnedEntries<T>
+    where
+        T: MVCCEntry,
+    {
+        let mut entries = Vec::new();
+        let mut pins = Vec::new();
+        self.for_each(|bman, entry| {
+            let pintest = entry.pintest_blockno();
+            if pintest != pg_sys::InvalidBlockNumber {
+                pins.push(bman.pinned_buffer(pintest));
+            }
+            entries.push(entry);
+        });
+        PinnedEntries {
+            entries,
+            _pins: pins,
+        }
+    }
+
     /// Return the freeable blocks of this list, including the header block.
     pub fn freeable_blocks(self) -> impl Iterator<Item = pg_sys::BlockNumber> {
         unsafe {
@@ -248,16 +280,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         bman: BufferManager,
         start_blockno: pg_sys::BlockNumber,
     ) -> impl Iterator<Item = pg_sys::BlockNumber> {
-        let mut blockno = start_blockno;
-        std::iter::from_fn(move || {
-            if blockno == pg_sys::InvalidBlockNumber {
-                return None;
-            }
-            let freeable_blockno = blockno;
-            let buffer = bman.get_buffer(blockno);
-            blockno = buffer.page().next_blockno();
-            Some(freeable_blockno)
-        })
+        bman.chain(start_blockno)
     }
 
     /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns
@@ -658,7 +681,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> DerefMut for AtomicGuard<'_
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
-    pub fn commit(mut self) {
+    pub fn commit(self) {
+        self.commit_with(|| {});
+    }
+
+    /// Acknowledge publication before recycling the previous list. The acknowledgment must
+    /// neither fail nor call PostgreSQL: no error or interrupt may separate it from the switch.
+    pub(crate) fn commit_with(mut self, on_publish: impl FnOnce()) {
         let (original, mut original_header_lock) =
             self.original.take().expect("Cannot commit twice!");
 
@@ -704,6 +733,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
             original_start_blockno
         };
 
+        on_publish();
+
         // And then collect our old contents, which are no longer reachable.
         let recyclable_blocks = unsafe {
             LinkedItemList::<T>::freeable_blocks_without_header(
@@ -738,6 +769,21 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for AtomicGuard<'_, T>
         }
 
         panic!("internal error: failed to call `AtomicGuard::commit()`");
+    }
+}
+
+/// Entries of a [`LinkedItemList`] together with the pins that keep them in place, so a walk
+/// of the entries cannot outlive the pins.
+pub(crate) struct PinnedEntries<T> {
+    entries: Vec<T>,
+    _pins: Vec<PinnedBuffer>,
+}
+
+impl<T> std::ops::Deref for PinnedEntries<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.entries
     }
 }
 

@@ -269,6 +269,25 @@ impl MetaPage {
         self.data.v2_fsm
     }
 
+    /// Blocks the metadata page points at directly, excluding the lists that have their own
+    /// accessors. The chains hanging off these (the vacuum list's overflow pages, a v1 FSM) are
+    /// reachable through `next_blockno`.
+    pub(crate) fn fixed_blocks(&self) -> impl Iterator<Item = pg_sys::BlockNumber> {
+        // Block 0 fails `block_number_is_valid`, so it goes in unfiltered.
+        std::iter::once(METAPAGE).chain(
+            [
+                self.data.active_vacuum_list,
+                self.data.ambulkdelete_sentinel,
+                self.data.merge_lock,
+                self.cleanup_lock_blockno(),
+                self.data.v1_fsm,
+                self.data.v2_fsm,
+            ]
+            .into_iter()
+            .filter(|blockno| block_number_is_valid(*blockno)),
+        )
+    }
+
     /// The pg_search version that created this index. Returns `None` for indices created
     /// before version stamping was added (the on-disk fields read as zero).
     #[allow(dead_code)]

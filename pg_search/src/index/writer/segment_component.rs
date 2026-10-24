@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{FileEntry, SegmentFileDetails};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedBytesListWriter};
 use pgrx::pg_sys;
 use std::io::{BufWriter, Result, Write};
@@ -32,7 +32,7 @@ pub struct SegmentComponentWriter {
 }
 
 impl SegmentComponentWriter {
-    pub unsafe fn new(indexrel: &PgSearchRelation, path: &Path) -> Self {
+    pub unsafe fn new(bman: BufferManager, path: &Path) -> Self {
         if path.component_type() == Some(SegmentComponent::Store)
             || path.component_type() == Some(SegmentComponent::TempStore)
         {
@@ -42,7 +42,7 @@ impl SegmentComponentWriter {
             }
         } else {
             Self {
-                inner: Some(InnerSegmentComponentWriter::new(indexrel)),
+                inner: Some(InnerSegmentComponentWriter::new(bman)),
                 path: path.to_path_buf(),
             }
         }
@@ -163,8 +163,8 @@ impl<W: Write> Drop for PanicSafeBufWriter<W> {
 }
 
 impl InnerSegmentComponentWriter {
-    pub unsafe fn new(indexrel: &PgSearchRelation) -> Self {
-        let segment_component = LinkedBytesList::create_with_fsm(indexrel);
+    pub unsafe fn new(bman: BufferManager) -> Self {
+        let segment_component = LinkedBytesList::create_with_buffer_manager(bman);
 
         Self {
             header_blockno: segment_component.header_blockno,
@@ -213,7 +213,6 @@ impl TerminatingWrite for InnerSegmentComponentWriter {
 mod tests {
     use super::*;
     use crate::postgres::rel::PgSearchRelation;
-    use crate::postgres::storage::buffer::BufferManager;
     use pgrx::prelude::*;
     use std::io::Write;
     use std::path::Path;
@@ -240,7 +239,7 @@ mod tests {
 
         let mut writer = unsafe {
             SegmentComponentWriter::new(
-                &indexrel,
+                BufferManager::new(&indexrel),
                 Path::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.idx"),
             )
         };
@@ -292,7 +291,7 @@ mod tests {
         // Create the writer BEFORE the panic so we don't touch PG during unwind.
         let writer = unsafe {
             SegmentComponentWriter::new(
-                &indexrel,
+                BufferManager::new(&indexrel),
                 Path::new("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.idx"),
             )
         };

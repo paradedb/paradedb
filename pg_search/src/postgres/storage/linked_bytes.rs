@@ -140,9 +140,18 @@ impl LinkedBytesListWriter {
                 as usize
         };
         let mut new_buffers = self.list.bman.new_buffers(new_buffers_needed);
+        #[cfg(feature = "pg_test")]
+        let initial_blockno = self.last_blockno;
+        #[cfg(feature = "pg_test")]
+        let mut paused = false;
 
         while bytes_written < bytes.len() {
             check_for_interrupts!();
+            #[cfg(feature = "pg_test")]
+            if !paused && self.last_blockno != initial_blockno {
+                crate::postgres::storage::coordination_test::output_pause();
+                paused = true;
+            }
             self.blocklist_builder.push(self.last_blockno);
 
             let mut buffer = self.list.bman.get_buffer_mut(self.last_blockno);
@@ -197,6 +206,8 @@ impl LinkedBytesListWriter {
         let mut header_page = header_buffer.page_mut();
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.last_blockno = self.last_blockno;
+        // The header plus the data pages; the start page exists even when nothing was written.
+        let mut npages = 1 + self.blocklist_builder.len().max(1) as u32;
 
         if let Some((blockno, directory, overflow)) =
             self.blocklist_builder.finish(&mut self.list.bman)
@@ -206,7 +217,10 @@ impl LinkedBytesListWriter {
             header_page
                 .special_mut::<BM25PageSpecialData>()
                 .next_blockno = overflow;
+            npages += (self.list.bman.chain(blockno).count()
+                + self.list.bman.chain(overflow).count()) as u32;
         }
+        header_page.contents_mut_in_place::<LinkedListData>().npages = npages;
         Ok(self.list)
     }
 }
@@ -317,7 +331,10 @@ impl LinkedBytesList {
     /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
     /// will attempt to create the initial block structure using recycled blocks from the [`FreeSpaceManager`].
     pub fn create_with_fsm(rel: &PgSearchRelation) -> Self {
-        let mut bman = BufferManager::new(rel);
+        Self::create_with_buffer_manager(BufferManager::new(rel))
+    }
+
+    pub(crate) fn create_with_buffer_manager(mut bman: BufferManager) -> Self {
         let mut buffers = bman.new_buffers(2);
 
         let mut header_buffer = buffers.next().unwrap();
@@ -390,33 +407,28 @@ impl LinkedBytesList {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
 
-        let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
-        let mut header_blockno = self.header_blockno;
-        let header_bman = self.bman.clone();
+        let data = self.get_linked_list_data();
+        let blocklist_blockno = data.blocklist_start;
+        // A list written without a writer (schema, settings) has no mapping; its data pages are
+        // reached from the start page instead.
+        let data_pages: Box<dyn Iterator<Item = pg_sys::BlockNumber>> =
+            if blocklist_blockno == pg_sys::InvalidBlockNumber {
+                Box::new(self.bman.chain(data.start_blockno))
+            } else {
+                Box::new(
+                    self.blocklist_reader
+                        .take()
+                        .map(Mutex::into_inner)
+                        .unwrap_or_else(|| blocklist::reader::BlockList::new(blocklist_blockno))
+                        .into_blocks(&self.bman),
+                )
+            };
         // iterate the BlockList contents -- this is every block used by this LinkedBytesList
-        self.blocklist_reader
-            .take()
-            .map(Mutex::into_inner)
-            .unwrap_or_else(|| blocklist::reader::BlockList::new(blocklist_blockno))
-            .into_blocks(&self.bman)
-            .chain(std::iter::from_fn(move || {
-                if header_blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-                let blockno = header_blockno;
-                header_blockno = header_bman.get_buffer(blockno).page().next_blockno();
-                Some(blockno)
-            }))
+        data_pages
+            // the header and any directory overflow pages chained after it
+            .chain(self.bman.chain(self.header_blockno))
             // the BlockList itself consumes one or more blocks -- make sure to include them too
-            .chain(std::iter::from_fn(move || {
-                if blocklist_blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-                let blockno = blocklist_blockno;
-                let buffer = self.bman.get_buffer(blockno);
-                blocklist_blockno = buffer.page().next_blockno();
-                Some(blockno)
-            }))
+            .chain(self.bman.chain(blocklist_blockno))
     }
 
     /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
@@ -751,12 +763,12 @@ mod tests {
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
 
             // NB:  There was a time when the call to `linked_list.returm_to_fsm()` above would
-            // update every page in the list, setting the `xmax` in the special data to the transaction id
-            // of the transaction that deleted it.
+            // update every page in the list, setting the special data's transaction id to the
+            // transaction that deleted it.
             //
-            // Our custom FSM does not do this, and so now we assert that the xmax value is still invalid
-            // it's actually no longer used anywhere.
-            assert!((*special).xmax == pg_sys::InvalidTransactionId);
+            // Our custom FSM does not do this, so the page still carries the stamp of the
+            // transaction that allocated it: this one.
+            assert!((*special).alloc_xid == pg_sys::GetCurrentTransactionId());
             blockno = (*special).next_blockno;
             pg_sys::UnlockReleaseBuffer(buffer);
         }

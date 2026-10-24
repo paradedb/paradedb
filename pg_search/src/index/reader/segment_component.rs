@@ -101,6 +101,7 @@ impl HasLen for SegmentComponentReader {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::storage::buffer::BufferManager;
 
     use crate::index::writer::segment_component::SegmentComponentWriter;
     use crate::postgres::rel::PgSearchRelation;
@@ -132,7 +133,8 @@ mod tests {
             let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
             let segment = format!("{}.term", uuid::Uuid::new_v4());
             let path = Path::new(segment.as_str());
-            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
+            let mut writer =
+                unsafe { SegmentComponentWriter::new(BufferManager::new(&indexrel), path) };
             writer.write_all(&bytes).unwrap();
             let file_entry = writer.file_entry();
             writer.terminate().unwrap();

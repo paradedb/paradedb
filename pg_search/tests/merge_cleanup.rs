@@ -25,8 +25,13 @@ use std::time::{Duration, Instant};
 static SCHEDULE: Mutex<()> = Mutex::new(());
 
 fn connect() -> Client {
+    try_connect().expect("test server must be reachable")
+}
+
+/// `None` while the server is down, as it is for a moment after a backend crash.
+fn try_connect() -> Option<Client> {
     let mut client = if let Ok(url) = std::env::var("PG_SEARCH_TEST_DATABASE_URL") {
-        Client::connect(&url, NoTls).unwrap()
+        Client::connect(&url, NoTls).ok()?
     } else {
         static INITIALIZE: Once = Once::new();
         INITIALIZE.call_once(|| {
@@ -37,10 +42,25 @@ fn connect() -> Client {
             )
             .unwrap();
         });
-        pgrx_tests::client().unwrap().0
+        pgrx_tests::client().ok()?.0
     };
-    client.batch_execute("SET statement_timeout='15s'").unwrap();
-    client
+    client.batch_execute("SET statement_timeout='15s'").ok()?;
+    Some(client)
+}
+
+/// Waits through crash recovery for a working connection.
+fn reconnect() -> Client {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(client) = try_connect() {
+            return client;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "server did not come back after a crash"
+        );
+        sleep(Duration::from_millis(200));
+    }
 }
 
 fn wait_until(description: &str, mut condition: impl FnMut() -> bool) {
@@ -59,6 +79,51 @@ struct Actor {
     ready: i64,
     gate: i64,
     handle: JoinHandle<(Client, Result<Vec<Row>, Error>)>,
+}
+
+/// Pauses background mergers at their first output page through a database-level setting,
+/// since a background worker has no session to `SET` in. Every backend that connects to the
+/// database while this lives pauses the same way, and the setting outlives a killed test
+/// process: `Drop` resets it, so keep tests that use it short.
+struct BackgroundOutputPause {
+    client: Client,
+    database: String,
+}
+
+impl BackgroundOutputPause {
+    fn new(ready: i64, gate: i64) -> Self {
+        let mut client = connect();
+        let database: String = client
+            .query_one("SELECT current_database()", &[])
+            .unwrap()
+            .get(0);
+        let database = format!("\"{}\"", database.replace('"', "\"\""));
+        let mut pause = Self { client, database };
+        pause
+            .client
+            .batch_execute(&format!(
+                "ALTER DATABASE {} SET pg_search.test_output_ready='{ready}';
+                 ALTER DATABASE {} SET pg_search.test_output_gate='{gate}'",
+                pause.database, pause.database
+            ))
+            .unwrap();
+        pause
+    }
+}
+
+impl Drop for BackgroundOutputPause {
+    fn drop(&mut self) {
+        // Always attempted: a database-level setting left behind by a failed test would pause
+        // every later writer in the database.
+        let result = self.client.batch_execute(&format!(
+            "ALTER DATABASE {} RESET pg_search.test_output_ready;
+             ALTER DATABASE {} RESET pg_search.test_output_gate",
+            self.database, self.database
+        ));
+        if !std::thread::panicking() {
+            result.unwrap();
+        }
+    }
 }
 
 impl Actor {
@@ -185,19 +250,20 @@ impl Fixture {
     }
 
     fn stage(&mut self, actor: &Actor) {
-        wait_until(
-            &format!("backend {} reaching ready key {}", actor.pid, actor.ready),
-            || {
-                self.controller
-                    .query_one(
-                        "SELECT EXISTS(SELECT FROM pg_locks WHERE pid=$1 AND locktype='advisory'
+        self.stage_key(actor.pid, actor.ready);
+    }
+
+    fn stage_key(&mut self, pid: i32, ready: i64) {
+        wait_until(&format!("backend {pid} reaching ready key {ready}"), || {
+            self.controller
+                .query_one(
+                    "SELECT EXISTS(SELECT FROM pg_locks WHERE pid=$1 AND locktype='advisory'
              AND objid::bigint=$2 AND granted)",
-                        &[&actor.pid, &actor.ready],
-                    )
-                    .unwrap()
-                    .get(0)
-            },
-        );
+                    &[&pid, &ready],
+                )
+                .unwrap()
+                .get(0)
+        });
     }
 
     fn waiting(&mut self, actor: &Actor, event: &str) {
@@ -216,6 +282,42 @@ impl Fixture {
         self.controller
             .query_one("SELECT pg_advisory_unlock($1)", &[&actor.gate])
             .unwrap();
+    }
+
+    fn fsm_counts(&mut self) -> (i64, i64) {
+        let row = self
+            .controller
+            .query_one(
+                &format!(
+                    "SELECT count(*), count(DISTINCT free_blockno) FROM paradedb.fsm_info('{}')",
+                    self.index
+                ),
+                &[],
+            )
+            .unwrap();
+        (row.get(0), row.get(1))
+    }
+
+    fn relation_blocks(&mut self) -> i64 {
+        self.value(&format!(
+            "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
+            self.index
+        ))
+    }
+
+    fn unaccounted_blocks(&mut self) -> i64 {
+        self.value(&format!(
+            "SELECT paradedb.unaccounted_blocks('{}')",
+            self.index
+        ))
+    }
+
+    fn pid_gone(&mut self, pid: i32) {
+        wait_until(&format!("backend {pid} exit"), || {
+            self.value::<i64>(&format!(
+                "SELECT count(*) FROM pg_stat_activity WHERE pid={pid}"
+            )) == 0
+        });
     }
 
     fn cancel(&mut self, actor: &Actor, terminate: bool) {
@@ -249,6 +351,17 @@ impl Fixture {
             expected
         );
     }
+}
+
+/// Returns the writer's registered blocks from its own session, as the ERROR scope would.
+fn reclaim_unpublished(client: &mut Client, index: &str) -> i64 {
+    client
+        .query_one(
+            &format!("SELECT paradedb.test_reclaim_unpublished('{index}')"),
+            &[],
+        )
+        .unwrap()
+        .get(0)
 }
 
 fn assert_error(result: Result<Vec<Row>, Error>, code: &str) {
@@ -530,4 +643,205 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
         vacuum.finish().1.unwrap();
         fixture.assert_rows(if cancel { 200 } else { 500 });
     }
+}
+
+#[test]
+fn background_merge_cancellation_and_termination_reclaim_output() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for terminate in [false, true] {
+        let table = if terminate {
+            "merge_cleanup_background_terminate"
+        } else {
+            "merge_cleanup_background_cancel"
+        };
+        let mut fixture = Fixture::new(table, false);
+        fixture.segments_with_rows(5000);
+        let (ready, gate) = fixture.pause_keys();
+        let settings = BackgroundOutputPause::new(ready, gate);
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "ALTER INDEX {} SET(background_layer_sizes='1gb');
+                 INSERT INTO {table} VALUES(20001,'alpha beta')",
+                fixture.index
+            ))
+            .unwrap();
+        let worker_query = format!(
+            "SELECT pid FROM pg_locks JOIN pg_stat_activity USING(pid)
+             WHERE locktype='advisory' AND objid::bigint={ready} AND granted
+             AND backend_type LIKE 'background merger for %'"
+        );
+        wait_until("background merger writing output", || {
+            !fixture
+                .controller
+                .query(&worker_query, &[])
+                .unwrap()
+                .is_empty()
+        });
+        let pid: i32 = fixture.value(&worker_query);
+        let free_before = fixture.fsm_counts().0;
+        fixture.cancel_pid(pid, terminate);
+        fixture.pid_gone(pid);
+        drop(settings);
+        if terminate {
+            // FATAL does not unwind and the registry dies with the process: the output is left
+            // to the next VACUUM.
+            assert!(fixture.unaccounted_blocks() > 0);
+            assert_eq!(fixture.fsm_counts().0, free_before);
+            fixture
+                .controller
+                .batch_execute(&format!("VACUUM {table}"))
+                .unwrap();
+        }
+        let (free, unique) = fixture.fsm_counts();
+        assert!(free > free_before);
+        assert_eq!(unique, free);
+        assert_eq!(fixture.unaccounted_blocks(), 0);
+        fixture.assert_rows(10001);
+    }
+}
+
+#[test]
+fn cancellation_and_termination_reclaim_reserved_output_pages() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for terminate in [false, true] {
+        let table = if terminate {
+            "merge_cleanup_output_terminate"
+        } else {
+            "merge_cleanup_output_cancel"
+        };
+        let mut fixture = Fixture::new(table, false);
+        let blocks_before = fixture.relation_blocks();
+        let free_before = fixture.fsm_counts().0;
+        let writer = fixture.actor(
+            "output",
+            format!(
+                "SELECT paradedb.test_write_unpublished('{}', {})",
+                fixture.index,
+                8 * 1024 * 1024
+            ),
+        );
+        fixture.stage(&writer);
+        let allocated: i64 = fixture.relation_blocks() - blocks_before;
+        assert!(allocated > 2);
+        let pid = writer.pid;
+        fixture.cancel(&writer, terminate);
+        let (mut client, result) = writer.finish();
+        assert_error(result, if terminate { "57P01" } else { "57014" });
+        if terminate {
+            fixture.pid_gone(pid);
+            // Left to VACUUM: written pages carry an aborted stamp, reserved ones are empty or
+            // still show their previous owner, and nothing pins them any more.
+            assert!(fixture.unaccounted_blocks() >= allocated);
+            fixture
+                .controller
+                .batch_execute(&format!("VACUUM {table}"))
+                .unwrap();
+        } else {
+            assert_eq!(reclaim_unpublished(&mut client, &fixture.index), 1);
+            assert_eq!(reclaim_unpublished(&mut client, &fixture.index), 0);
+        }
+        let (free, unique) = fixture.fsm_counts();
+        assert_eq!(free - free_before, allocated);
+        assert_eq!(unique, free);
+    }
+}
+
+/// Blocks a writer has reserved but not yet written still carry their previous stamps, so a
+/// sweep that judged them by stamp alone would free them under the writer. It must not: they
+/// are pinned, and the sweep claims only under a cleanup lock.
+#[test]
+fn sweep_leaves_a_writers_reserved_blocks_alone() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let table = "merge_cleanup_sweep_reserved";
+    let mut fixture = Fixture::new(table, false);
+    fixture.segments();
+    // Merge and garbage-collect, so the FSM holds blocks whose stamps are old and committed.
+    fixture
+        .controller
+        .batch_execute(&format!("VACUUM {table}"))
+        .unwrap();
+    let (free_before, _) = fixture.fsm_counts();
+    assert!(free_before > 0, "fixture must leave free blocks to reuse");
+
+    let writer = fixture.actor(
+        "output",
+        format!(
+            "SELECT paradedb.test_write_unpublished('{}', {})",
+            fixture.index,
+            8 * 1024 * 1024
+        ),
+    );
+    fixture.stage(&writer);
+    fixture
+        .controller
+        .batch_execute(&format!("VACUUM {table}"))
+        .unwrap();
+    let (free, unique) = fixture.fsm_counts();
+    assert_eq!(free, unique);
+
+    fixture.cancel(&writer, false);
+    let (mut client, result) = writer.finish();
+    assert_error(result, "57014");
+    reclaim_unpublished(&mut client, &fixture.index);
+    let (free, unique) = fixture.fsm_counts();
+    assert_eq!(free, unique, "a block was returned twice");
+    assert_eq!(fixture.unaccounted_blocks(), 0);
+    fixture.assert_rows(500);
+}
+
+/// A crash leaves no registry and no pins. The next VACUUM returns what the writer had
+/// allocated, reserved and never written included, and the index keeps answering.
+#[test]
+fn vacuum_returns_blocks_a_crash_left_behind() {
+    // The crash restarts every backend of the cluster. The harness's own cluster serves only
+    // this test binary, but a cluster named by PG_SEARCH_TEST_DATABASE_URL may serve more, so
+    // there this runs only on request.
+    if std::env::var_os("PG_SEARCH_TEST_DATABASE_URL").is_some()
+        && std::env::var_os("PG_SEARCH_TEST_CRASH").is_none()
+    {
+        eprintln!("skipping: set PG_SEARCH_TEST_CRASH=1 to crash a shared cluster");
+        return;
+    }
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let table = "merge_cleanup_crash";
+    let mut fixture = Fixture::new(table, false);
+    fixture.segments();
+    let blocks_before = fixture.relation_blocks();
+    let writer = fixture.actor(
+        "output",
+        format!(
+            "SELECT paradedb.test_write_unpublished('{}', {})",
+            fixture.index,
+            8 * 1024 * 1024
+        ),
+    );
+    fixture.stage(&writer);
+    let allocated: i64 = fixture.relation_blocks() - blocks_before;
+    assert!(allocated > 2);
+
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &writer.pid.to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    // The postmaster restarts every backend, this test's connections included.
+    writer.finish().1.unwrap_err();
+    fixture.controller = reconnect();
+    fixture
+        .controller
+        .batch_execute("SET statement_timeout='60s'")
+        .unwrap();
+
+    // Every block the writer took is unaccounted: the extension counted above, plus whatever
+    // it drained from the FSM.
+    assert!(fixture.unaccounted_blocks() >= allocated);
+    fixture
+        .controller
+        .batch_execute(&format!("VACUUM {table}"))
+        .unwrap();
+    assert_eq!(fixture.unaccounted_blocks(), 0);
+    let (free, unique) = fixture.fsm_counts();
+    assert_eq!(free, unique);
+    fixture.assert_rows(500);
 }

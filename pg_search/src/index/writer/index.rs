@@ -507,7 +507,8 @@ impl SearchIndexMerger {
         indexrel: &PgSearchRelation,
         mvcc_satisfies: MvccSatisfies,
     ) -> Result<SearchIndexMerger> {
-        let directory = mvcc_satisfies.directory(indexrel);
+        let mut directory = mvcc_satisfies.directory(indexrel);
+        directory.track_unpublished_files();
         let mut index = crate::index::open_index(directory.clone())?;
         stats::register(&mut index);
         ctid_map::register(&mut index);

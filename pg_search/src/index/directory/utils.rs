@@ -56,11 +56,12 @@ pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettin
     Ok(())
 }
 
-pub unsafe fn save_new_metas(
+pub(crate) unsafe fn save_new_metas(
     indexrel: &PgSearchRelation,
     new_meta: &IndexMeta,
     prev_meta: &IndexMeta,
     directory_entries: &mut HashMap<PathBuf, FileEntry>,
+    publication: crate::postgres::storage::unpublished::Publication,
 ) -> Result<()> {
     // in order to ensure that all of our mutations to the list of segments appear atomically on
     // physical replicas, we atomically operate on a deep copy of the list.
@@ -332,7 +333,17 @@ pub unsafe fn save_new_metas(
     }
 
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
-    linked_list.commit();
+    #[cfg(feature = "pg_test")]
+    crate::postgres::storage::coordination_test::failpoint(
+        c"pg_search.test_publication_before_fail",
+    );
+    linked_list.commit_with(|| {
+        publication.publish();
+        #[cfg(feature = "pg_test")]
+        crate::postgres::storage::coordination_test::failpoint(
+            c"pg_search.test_publication_after_fail",
+        );
+    });
 
     Ok(())
 }

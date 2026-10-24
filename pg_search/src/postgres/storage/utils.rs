@@ -70,6 +70,7 @@ impl BM25Page for pg_sys::Page {
 pub struct RelationBufferAccess {
     rel: PgSearchRelation,
     pub(super) io_stats: Option<crate::index::reader::io_stats::ComponentStats>,
+    pub(super) allocation: Option<crate::postgres::storage::unpublished::Allocation>,
 }
 
 unsafe impl Send for RelationBufferAccess {}
@@ -80,6 +81,7 @@ impl RelationBufferAccess {
         Self {
             rel: rel.clone(),
             io_stats: None,
+            allocation: None,
         }
     }
 
@@ -92,10 +94,14 @@ impl RelationBufferAccess {
     ///
     /// The [`pg_sys::Page`] representation has not been initialized.  The caller must do this.
     pub fn new_buffer(&self) -> pg_sys::Buffer {
-        self.get_buffer(
+        let buffer = self.get_buffer(
             pg_sys::InvalidBlockNumber,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        )
+        );
+        if let Some(allocation) = &self.allocation {
+            allocation.record(unsafe { pg_sys::BufferGetBlockNumber(buffer) });
+        }
+        buffer
     }
 
     /// Return an iterator of [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys::Buffer`]s.  The buffers
@@ -106,50 +112,37 @@ impl RelationBufferAccess {
     /// The [`pg_sys::Page`] representation of each buffer has not been initialized.  The caller must do this.
     pub fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> + use<> {
         unsafe {
-            // a simple wrapper so we can make sure the buffer is released if the iterator
-            // is dropped before exhaustion.
-            struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
-                iter: I,
-            }
-            crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] BufferIter<I>, |self| {
-                unsafe {
-                    if !pg_sys::IsTransactionState() {
-                        return;
-                    }
-                }
-
-                for pg_buffer in &mut self.iter {
-                    unsafe {
-                        pg_sys::ReleaseBuffer(pg_buffer);
-                    }
-                }
-            });
-            impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for BufferIter<I> {
-                type Item = pg_sys::Buffer;
-
-                #[inline]
-                fn next(&mut self) -> Option<Self::Item> {
-                    self.iter.next()
-                }
-            }
-
             let rel = self.rel.as_ptr();
             let fork = self.rel.fork_number();
+            let allocation = self.allocation.clone();
             let iter = (0..npages)
                 .step_by(MAX_BUFFERS_TO_EXTEND_BY)
                 .flat_map(move |i| {
                     let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
 
                     // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked...
-                    let buffers = bulk_extend_relation(rel, many, fork);
+                    let buffers = bulk_extend_relation(rel, many, fork, allocation.as_ref());
                     buffers.into_iter().take(many)
                 })
                 .inspect(move |&pg_buffer| {
                     // ... so we need to lock them here
                     pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
                 });
-            BufferIter { iter }
+            PinnedBuffers(iter)
         }
+    }
+
+    /// Pins `blockno` without reading it from disk, for a block about to be rewritten. The
+    /// buffer is left unlocked; its contents are zero or stale and must not be read.
+    pub(crate) fn pin_for_reuse(&self, blockno: pg_sys::BlockNumber) -> pg_sys::Buffer {
+        let pg_buffer = self.get_buffer_extended(
+            blockno,
+            std::ptr::null_mut(),
+            pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
+            None,
+        );
+        unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _) };
+        pg_buffer
     }
 
     /// Retrieve an existing [`pg_sys::Buffer`] by its number.  The returned buffer is always pinned
@@ -275,10 +268,55 @@ unsafe fn extend_by_one_buffer(
     }
 }
 
+/// A simple wrapper so we can make sure the buffer is released if the iterator is dropped before
+/// exhaustion.
+///
+/// A reserved block stays pinned from the moment it leaves the free space map or extends the
+/// relation until its writer locks it. `storage::sweep` frees only blocks it can take a cleanup
+/// lock on, so a block in transit is never mistaken for an abandoned one.
+pub(crate) struct PinnedBuffers<I: Iterator<Item = pg_sys::Buffer>>(pub(crate) I);
+
+crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] PinnedBuffers<I>, |self| {
+    unsafe {
+        if !pg_sys::IsTransactionState() {
+            return;
+        }
+    }
+
+    for pg_buffer in &mut self.0 {
+        unsafe {
+            pg_sys::ReleaseBuffer(pg_buffer);
+        }
+    }
+});
+
+impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for PinnedBuffers<I> {
+    type Item = pg_sys::Buffer;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+/// The block numbers of pinned, unlocked buffers, unpinning each.
+pub(crate) fn release_blocknos(
+    buffers: impl Iterator<Item = pg_sys::Buffer>,
+) -> Vec<pg_sys::BlockNumber> {
+    buffers
+        .map(|pg_buffer| unsafe {
+            let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
+            pg_sys::ReleaseBuffer(pg_buffer);
+            blockno
+        })
+        .collect()
+}
+
 unsafe fn bulk_extend_relation(
     rel: pg_sys::Relation,
     npages: usize,
     fork: pg_sys::ForkNumber::Type,
+    allocation: Option<&crate::postgres::storage::unpublished::Allocation>,
 ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
     struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
     unsafe impl Send for BufferAccessStrategyHolder {}
@@ -327,6 +365,11 @@ unsafe fn bulk_extend_relation(
                     buffers[filled..].as_mut_ptr(),
                     &mut extended_by,
                 );
+                if let Some(allocation) = allocation {
+                    for buffer in &buffers[filled..filled + extended_by as usize] {
+                        allocation.record(pg_sys::BufferGetBlockNumber(*buffer));
+                    }
+                }
                 filled += extended_by as usize;
                 extended_by = 0;
                 if filled == npages {
@@ -352,6 +395,9 @@ unsafe fn bulk_extend_relation(
             fork,
         );
         debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        if let Some(allocation) = allocation {
+            allocation.record(pg_sys::BufferGetBlockNumber(pg_buffer));
+        }
         *slot = pg_buffer;
     }
     pg_sys::UnlockRelationForExtension(rel, pg_sys::ExclusiveLock as i32);

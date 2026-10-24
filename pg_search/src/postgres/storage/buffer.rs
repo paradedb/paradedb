@@ -20,7 +20,7 @@ use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
+use crate::postgres::storage::utils::{BM25Page, MAX_BUFFERS_TO_EXTEND_BY, RelationBufferAccess};
 use crate::postgres::storage::xlog::{XlogFlag, XlogStyle, finish_xlog};
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
@@ -344,6 +344,11 @@ crate::impl_safe_drop!(BufferMut, |self| {
 
 impl BufferMut {
     pub fn init_page(&mut self) -> PageMut<'_> {
+        self.init_page_stamped(allocation_xid())
+    }
+
+    /// [`Self::init_page`] with a given stamp, for a caller that is not the page's allocator.
+    pub fn init_page_stamped(&mut self, alloc_xid: pg_sys::TransactionId) -> PageMut<'_> {
         self.assert_mutable();
         let page_size = self.page_size();
         let page = self.page_mut();
@@ -353,9 +358,20 @@ impl BufferMut {
 
             let special = pg_sys::PageGetSpecialPointer(page.pg_page) as *mut BM25PageSpecialData;
             (*special).next_blockno = pg_sys::InvalidBlockNumber;
-            (*special).xmax = pg_sys::InvalidTransactionId;
+            (*special).alloc_xid = alloc_xid;
         }
         page
+    }
+
+    /// Writes the stamp, initialising the page first if it was never written.
+    pub fn set_alloc_xid(&mut self, alloc_xid: pg_sys::TransactionId) {
+        if self.page().is_new() {
+            self.init_page_stamped(alloc_xid);
+        } else {
+            self.page_mut()
+                .special_mut::<BM25PageSpecialData>()
+                .alloc_xid = alloc_xid;
+        }
     }
 
     pub fn page(&self) -> Page<'_> {
@@ -519,6 +535,18 @@ impl<'a> Page<'a> {
     #[allow(dead_code)]
     pub fn free_space(&self) -> usize {
         unsafe { pg_sys::PageGetFreeSpace(self.pg_page) }
+    }
+
+    /// Whether the page is all zeroes: extended but never initialised, PostgreSQL's
+    /// `PageIsNew`. An initialised page with no items yet is not new.
+    pub fn is_new(&self) -> bool {
+        self.header().pd_upper == 0
+    }
+
+    /// The transaction stamped on the page at allocation, `None` for a page never written. See
+    /// [`BM25PageSpecialData::alloc_xid`].
+    pub fn alloc_xid(&self) -> Option<pg_sys::TransactionId> {
+        (!self.is_new()).then(|| self.special::<BM25PageSpecialData>().alloc_xid)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -765,6 +793,15 @@ impl<'a> PageMut<'a> {
         true
     }
 
+    /// Like [`Self::contents_mut`] but leaves `pd_lower` alone, for updating a field of the
+    /// contents struct on a page that has bytes appended after it, such as a list header
+    /// carrying its block-list directory.
+    pub fn contents_mut_in_place<T>(&mut self) -> &'a mut T {
+        self.buffer.assert_mutable();
+        self.buffer.dirty = true;
+        unsafe { &mut *(pg_sys::PageGetContents(self.pg_page) as *mut T) }
+    }
+
     pub fn contents_mut<T>(&mut self) -> &'a mut T {
         self.buffer.assert_mutable();
         let contents = unsafe {
@@ -818,6 +855,14 @@ impl BufferManager {
         }
     }
 
+    /// A manager whose allocations are recorded in `storage::unpublished` until the file they
+    /// belong to is published.
+    pub(crate) fn new_tracked(rel: &PgSearchRelation) -> Self {
+        let mut bman = Self::new(rel);
+        bman.rbufacc.allocation = Some(super::unpublished::track(rel));
+        bman
+    }
+
     pub fn fsm(&mut self) -> impl FreeSpaceManager + use<> {
         let fsm_blockno = *self
             .fsm_blockno
@@ -834,14 +879,9 @@ impl BufferManager {
         let pg_buffer = self
             .fsm()
             .pop(self)
-            .map(|blockno| {
-                block_tracker::track!(Write, blockno);
-                self.rbufacc.get_buffer_extended(
-                    blockno,
-                    std::ptr::null_mut(),
-                    pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
-                    None,
-                )
+            .inspect(|&pg_buffer| {
+                block_tracker::track!(Write, unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
+                unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _) };
             })
             .unwrap_or_else(|| {
                 #[allow(clippy::let_and_return)]
@@ -860,6 +900,9 @@ impl BufferManager {
     /// Like `new_buffer`, but returns an iterator of buffers instead.
     /// This is better than calling `new_buffer` multiple times because it avoids potentially
     /// locking the relation for every new buffer.
+    ///
+    /// The FSM is drained in chunks of [`MAX_BUFFERS_TO_EXTEND_BY`], like the relation is
+    /// extended, so no more than one chunk is pinned ahead of the writer.
     pub fn new_buffers(&mut self, npages: usize) -> Box<dyn Iterator<Item = BufferMut>> {
         if npages == 0 {
             return Box::new(std::iter::empty());
@@ -867,67 +910,101 @@ impl BufferManager {
             return Box::new(std::iter::once(self.new_buffer()));
         }
 
-        let buffer_access = self.buffer_access().clone();
-        let rel = buffer_access.rel().clone();
+        /// Where the next buffer comes from.
+        enum Source {
+            /// A chunk drained from the FSM, and how many more it was asked for.
+            Fsm {
+                chunk: Box<dyn Iterator<Item = pg_sys::Buffer>>,
+                wanted: usize,
+            },
+            /// The FSM ran dry; the rest extends the relation.
+            Extending(Box<dyn Iterator<Item = pg_sys::Buffer>>),
+        }
 
-        let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
-            block_tracker::track!(Write, blockno);
-            let pg_buffer = buffer_access.get_buffer_extended(
-                blockno,
-                std::ptr::null_mut(),
-                pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
-                None,
-            );
-            BufferMut {
-                // one might think that XlogFlag::ExistingBuffer would be the right style here.
-                // However, it's really not.
-                //
-                // ExistingBuffer asks Postgres to generate diffs for the page but since we're
-                // returning this existing buffer from the FSM in response to the caller asking for
-                // "new buffers", they're most likely going to change every byte on the page anyway,
-                // so we avoid the diff calculation by using NewBuffer
-                style: XlogFlag::NewBuffer.into_style(&rel),
-                dirty: false,
-                inner: Buffer::new(pg_buffer),
-            }
-        });
-
-        let bman = self.clone();
-        let mut remaining_from_fsm = npages;
-        let mut new_buffers = None;
+        let mut bman = self.clone();
+        let rel = bman.buffer_access().rel().clone();
+        let mut remaining = npages;
+        let mut source: Option<Source> = None;
         let buffers = std::iter::from_fn(move || {
-            if remaining_from_fsm == 0 {
+            if remaining == 0 {
                 // got all we wanted from the fsm
                 return None;
             }
-
-            if let Some(from_fsm) = fsm_blocknos.next() {
-                remaining_from_fsm -= 1;
-                return Some(from_fsm);
-            }
-
-            if new_buffers.is_none() {
-                // the fsm didn't give us all the buffers we asked for, so we need to get the rest
-                // by extending the relation with brand new buffers
-                let rel = bman.buffer_access().rel().clone();
-                new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
-                    move |pg_buffer| {
+            loop {
+                match &mut source {
+                    None => {
+                        let wanted = remaining.min(MAX_BUFFERS_TO_EXTEND_BY);
+                        let chunk = Box::new(bman.fsm().drain(&mut bman, wanted));
+                        source = Some(Source::Fsm { chunk, wanted });
+                    }
+                    Some(Source::Fsm { chunk, wanted }) => match chunk.next() {
+                        Some(pg_buffer) => {
+                            *wanted -= 1;
+                            remaining -= 1;
+                            block_tracker::track!(Write, unsafe {
+                                pg_sys::BufferGetBlockNumber(pg_buffer)
+                            });
+                            unsafe {
+                                pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _)
+                            };
+                            return Some(BufferMut {
+                                // one might think that XlogFlag::ExistingBuffer would be the right style here.
+                                // However, it's really not.
+                                //
+                                // ExistingBuffer asks Postgres to generate diffs for the page but since we're
+                                // returning this existing buffer from the FSM in response to the caller asking for
+                                // "new buffers", they're most likely going to change every byte on the page anyway,
+                                // so we avoid the diff calculation by using NewBuffer
+                                style: XlogFlag::NewBuffer.into_style(&rel),
+                                dirty: false,
+                                inner: Buffer::new(pg_buffer),
+                            });
+                        }
+                        None if *wanted == 0 => source = None,
+                        None => {
+                            // the fsm didn't give us all the buffers we asked for, so we need to get the rest
+                            // by extending the relation with brand new buffers
+                            source = Some(Source::Extending(Box::new(
+                                bman.buffer_access().new_buffers(remaining),
+                            )));
+                        }
+                    },
+                    Some(Source::Extending(buffers)) => {
+                        let pg_buffer = buffers.next()?;
+                        remaining -= 1;
                         block_tracker::track!(Write, unsafe {
                             pg_sys::BufferGetBlockNumber(pg_buffer)
                         });
-                        BufferMut {
+                        return Some(BufferMut {
                             style: XlogFlag::NewBuffer.into_style(&rel),
                             dirty: false,
                             inner: Buffer::new(pg_buffer),
-                        }
-                    },
-                ));
+                        });
+                    }
+                }
             }
-
-            new_buffers.as_mut().unwrap().next()
         });
 
         Box::new(buffers)
+    }
+
+    /// The blocks reached from `start` through `next_blockno`, `start` included, each read
+    /// under its own share lock. Nothing holds the chain still: a caller walking a chain that
+    /// may be recycled under it stops at the first block it has already seen.
+    pub fn chain(
+        &self,
+        start: pg_sys::BlockNumber,
+    ) -> impl Iterator<Item = pg_sys::BlockNumber> + use<> {
+        let bman = self.clone();
+        let mut blockno = start;
+        std::iter::from_fn(move || {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return None;
+            }
+            let current = blockno;
+            blockno = bman.get_buffer(current).page().next_blockno();
+            Some(current)
+        })
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
@@ -1137,11 +1214,25 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
         dirty: false,
         inner: Buffer::new(pg_buffer),
     };
-    let mut page = buffer.init_page();
-    let special = page.special_mut::<BM25PageSpecialData>();
-    special.next_blockno = pg_sys::InvalidBlockNumber;
-    special.xmax = pg_sys::InvalidTransactionId;
+    buffer.init_page();
     buffer
+}
+
+/// The transaction id stamped on a page at allocation, read back by `storage::sweep`. Assigns
+/// the top-level transaction an id if it has none yet; VACUUM's merge therefore takes one.
+///
+/// The top-level id, not the subtransaction's that `unpublished::reclaiming_on_error` runs a
+/// merge in: a subtransaction id per merge would overflow the subxid cache past 64 merges in one
+/// transaction. A parallel worker cannot assign an id and stamps the leader's, which an index
+/// build's leader has from writing the catalog.
+pub fn allocation_xid() -> pg_sys::TransactionId {
+    unsafe {
+        if pg_sys::IsInParallelMode() {
+            pg_sys::GetTopTransactionIdIfAny()
+        } else {
+            pg_sys::GetTopTransactionId()
+        }
+    }
 }
 
 #[derive(Debug)]

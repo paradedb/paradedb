@@ -123,7 +123,7 @@ pub(crate) fn prepare_publication(
 
 /// Number of unpublished files recorded for `index_oid`.
 #[cfg(any(test, feature = "pg_test"))]
-fn pending(index_oid: pg_sys::Oid) -> usize {
+pub(crate) fn pending(index_oid: pg_sys::Oid) -> usize {
     UNPUBLISHED
         .lock()
         .iter()
@@ -200,7 +200,6 @@ impl OuterState {
 }
 
 /// Return this process's private output allocations for `rel` to its FSM, in one batch.
-/// Returns the number of files reclaimed.
 ///
 /// Must be called in a transaction with no ERROR in flight: an ERROR leaves buffer locks and
 /// pins held, so after one the caller must wait for transaction abort to release them before
@@ -208,7 +207,7 @@ impl OuterState {
 /// at once. Skips chains written to storage the index no longer uses. Does not need the
 /// [`MergeLock`](crate::postgres::storage::merge::MergeLock): the registry is per-process, and
 /// the ownership transfer at the atomic metadata switch.
-pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
+pub unsafe fn reclaim(rel: &PgSearchRelation) {
     let index_oid = rel.oid();
     let current = relfilenumber(rel);
 
@@ -225,13 +224,11 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
     };
 
     let mut blocks = Vec::new();
-    let mut freed = 0;
     for file in mine {
         if file.0.relfilenumber != current {
             continue;
         }
         blocks.append(&mut file.0.blocks.lock());
-        freed += 1;
     }
     if !blocks.is_empty() {
         #[cfg(feature = "pg_test")]
@@ -253,13 +250,6 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
         });
         bman.fsm().extend(&mut bman, blocks.into_iter());
     }
-    if freed > 0 {
-        pgrx::debug1!(
-            "returned {freed} unpublished segment files of index {} to the FSM",
-            rel.oid().to_u32()
-        );
-    }
-    freed
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -337,7 +327,8 @@ mod tests {
         abandon_batch(&rel, 64);
         assert_eq!(relation_blocks(&rel) - blocks_before, 64);
         assert_eq!(allocated_blocks(rel.oid()), 64);
-        assert_eq!(reclaim(&rel), 1);
+        assert_eq!(pending(rel.oid()), 1);
+        reclaim(&rel);
         assert_eq!(free_blocks(&rel) - free_before, 64);
         assert_eq!(pending(rel.oid()), 0);
 
@@ -345,9 +336,11 @@ mod tests {
         abandon_batch(&rel, 64);
         assert_eq!(relation_blocks(&rel), blocks_before_reuse);
         assert_eq!(free_blocks(&rel), free_before);
-        assert_eq!(reclaim(&rel), 1);
+        assert_eq!(pending(rel.oid()), 1);
+        reclaim(&rel);
         assert_eq!(free_blocks(&rel) - free_before, 64);
-        assert_eq!(reclaim(&rel), 0);
+        assert_eq!(pending(rel.oid()), 0);
+        reclaim(&rel);
     }
 
     #[pg_test]
@@ -373,7 +366,8 @@ mod tests {
         });
         // Taken out of the registry before the FSM was touched: nothing returns them twice.
         assert_eq!(allocated_blocks(rel.oid()), 0);
-        assert_eq!(reclaim(&rel), 0);
+        assert_eq!(pending(rel.oid()), 0);
+        reclaim(&rel);
         assert_eq!(free_blocks(&rel), free_before);
         // Referenced by nothing, and once the allocating transaction has aborted and fallen
         // behind the sweep's horizon: the sweep's case. The pages carry this test's running
@@ -447,7 +441,8 @@ mod tests {
         .unwrap();
         assert_eq!(free_blocks(&rel), free_after_write.get());
         assert_eq!(allocated_blocks(rel.oid()) as i64, written.get());
-        assert_eq!(reclaim(&rel), 1);
+        assert_eq!(pending(rel.oid()), 1);
+        reclaim(&rel);
     }
 
     #[pg_test]
@@ -469,7 +464,8 @@ mod tests {
         let allocated = allocated_blocks(rel.oid());
         assert_eq!(allocated, data_blocks.get() + 1);
         assert_eq!(relation_blocks(&rel) - blocks_before, allocated as i64);
-        assert_eq!(reclaim(&rel), 1);
+        assert_eq!(pending(rel.oid()), 1);
+        reclaim(&rel);
         assert_eq!(free_blocks(&rel) - free_before, allocated as i64);
         assert_eq!(pending(rel.oid()), 0);
     }
@@ -499,10 +495,12 @@ mod tests {
             let tracked = pending(rel.oid());
             if published {
                 assert_eq!(tracked, 0);
-                assert_eq!(reclaim(&rel), 0);
+                assert_eq!(pending(rel.oid()), 0);
+                reclaim(&rel);
             } else {
                 assert!(tracked > 0);
-                assert_eq!(reclaim(&rel), tracked);
+                assert_eq!(pending(rel.oid()), tracked);
+                reclaim(&rel);
             }
             let count: i64 =
                 Spi::get_one("SELECT count(*) FROM unpublished_handoff WHERE title @@@ 'dragon'")
@@ -590,7 +588,8 @@ mod tests {
 
         let tracked = pending(rel.oid());
         assert!(tracked > 0, "the cancelled merge left output files tracked");
-        assert_eq!(reclaim(&rel), tracked);
+        assert_eq!(pending(rel.oid()), tracked);
+        reclaim(&rel);
         assert_eq!(pending(rel.oid()), 0);
         assert!(
             free_blocks(&rel) > free_before,

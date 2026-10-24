@@ -89,10 +89,13 @@ unsafe fn test_write_unpublished(index: PgRelation, bytes: i64) {
     writer.flush().unwrap();
 }
 
+/// Returns the registry's blocks for `index` and reports how many files it held.
 #[pg_extern]
 unsafe fn test_reclaim_unpublished(index: PgRelation) -> i64 {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    crate::postgres::storage::unpublished::reclaim(&index) as i64
+    let pending = crate::postgres::storage::unpublished::pending(index.oid()) as i64;
+    crate::postgres::storage::unpublished::reclaim(&index);
+    pending
 }
 
 #[pg_extern]

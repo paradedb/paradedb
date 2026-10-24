@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector `ORDER BY` queries no longer use geometry-based adaptive partition scanning. The stacked IVF router now always selects lists with Tantivy's `lists_to_open(k)` path (25% floor, ~2x member beam, capped at all lists), and the segment probe stops only on the work budget (`paradedb.vector_cluster_max_probe`) or when ranked clusters run out. Default routing for L2 and cosine indexes at 128 dimensions or fewer can therefore change recall and latency even if you never set a recall GUC. `paradedb.vector_router_recall_target` and `paradedb.vector_recall_target` remain accepted but are ignored until early-stop returns.

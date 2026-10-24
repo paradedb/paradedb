@@ -91,19 +91,24 @@ def latest_released_sql_version(sql_dir):
     return max(released_targets, key=parse_semver, default=None)
 
 
+def handle_latest_sql_release_command(_args, repo_root):
+    """Print the newest tagged migration target available to upgrade CI."""
+    version = latest_released_sql_version(repo_root / "pg_search" / "sql")
+    if version is None:
+        sys.exit("Could not find a released version in the checked-out SQL chain")
+    print(f"v{version}")
+
+
 def resolve_prev_version(repo_root, sql_dir, target_version, explicit_prev):
     """Determine the predecessor version to upgrade from."""
     if explicit_prev:
         return clean_version(explicit_prev)
 
     target_tuple = parse_semver(target_version)
-    # Tags can advance while an older PR still lacks the corresponding migration.
-    # Extend the checked-out SQL chain before considering repository-wide tags.
-    valid = [
-        v for v in get_existing_sql_targets(sql_dir) if parse_semver(v) < target_tuple
-    ]
-    if not valid:
-        valid = [v for v in get_git_tags() if parse_semver(v) < target_tuple]
+    candidates = set(get_git_tags())
+    candidates.update(get_existing_sql_targets(sql_dir))
+
+    valid = [v for v in candidates if parse_semver(v) < target_tuple]
     if valid:
         valid.sort(key=parse_semver)
         return valid[-1]
@@ -1452,6 +1457,10 @@ def build_parser():
         dest="command", required=True, help="Subcommand to execute"
     )
 
+    subparsers.add_parser(
+        "latest-sql-release", help="Print the newest tagged SQL migration target"
+    )
+
     sql_parser = subparsers.add_parser("sql", help="Assemble SQL migration scripts")
     add_common_args(sql_parser)
     sql_parser.add_argument(
@@ -1598,6 +1607,7 @@ def main():
     repo_root = Path(args.repo_root or default_root)
 
     commands = {
+        "latest-sql-release": handle_latest_sql_release_command,
         "sql": handle_sql_command,
         "changelog": handle_changelog_command,
         "all": handle_all_command,

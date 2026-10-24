@@ -1,16 +1,11 @@
 """Regression tests for release and upgrade-test version selection."""
 
-import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SPEC = importlib.util.spec_from_file_location(
-    "release", Path(__file__).with_name("release.py")
-)
-release = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(release)
+import release
 
 
 class UpgradeVersionSelectionTests(unittest.TestCase):
@@ -31,7 +26,12 @@ class UpgradeVersionSelectionTests(unittest.TestCase):
                     patch.object(release, "get_git_tags", return_value=tags),
                 ):
                     self.assertEqual(
-                        release.resolve_prev_version(root, sql_dir, "999.0.0", None),
+                        release.resolve_prev_version(
+                            root,
+                            sql_dir,
+                            "999.0.0",
+                            release.latest_released_sql_version(sql_dir),
+                        ),
                         "0.26.2",
                     )
                     self.assertEqual(
@@ -44,7 +44,12 @@ class UpgradeVersionSelectionTests(unittest.TestCase):
                 release, "get_git_tags", return_value=["0.26.2", "0.26.3"]
             ):
                 self.assertEqual(
-                    release.resolve_prev_version(root, sql_dir, "999.0.0", None),
+                    release.resolve_prev_version(
+                        root,
+                        sql_dir,
+                        "999.0.0",
+                        release.latest_released_sql_version(sql_dir),
+                    ),
                     "0.26.3",
                 )
                 self.assertEqual(release.latest_released_sql_version(sql_dir), "0.26.3")
@@ -59,6 +64,18 @@ class UpgradeVersionSelectionTests(unittest.TestCase):
                 release, "get_git_tags", return_value=["0.26.3", "0.28.0"]
             ):
                 self.assertEqual(release.latest_released_sql_version(sql_dir), "0.26.3")
+
+    def test_release_uses_newest_tag_before_migration_sync(self):
+        """Real releases still extend the latest release, even before its SQL sync."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pg_search--0.26.2--0.26.3.sql").touch()
+            with patch.object(
+                release, "get_git_tags", return_value=["0.26.3", "0.26.4"]
+            ):
+                self.assertEqual(
+                    release.resolve_prev_version(root, root, "0.27.0", None), "0.26.4"
+                )
 
     def test_explicit_predecessor_still_takes_priority(self):
         """Release callers can still choose a predecessor explicitly."""

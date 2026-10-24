@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792829719879,
+  "lastUpdate": 1792830824103,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -111828,6 +111828,52 @@ window.BENCHMARK_DATA = {
             "value": 2806.3114587487125,
             "unit": "median tps",
             "extra": "avg tps: 2772.6851290038644, max tps: 3192.930749916907, count: 59454"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792830812619,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1616.922689958186,
+            "unit": "median tps",
+            "extra": "avg tps: 1638.2017880286628, max tps: 1800.635322798835, count: 59429"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.798898151808522,
+            "unit": "median tps",
+            "extra": "avg tps: 3.046285549158465, max tps: 5.01686907174768, count: 59429"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 679.7939239778391,
+            "unit": "median tps",
+            "extra": "avg tps: 619.3382301880522, max tps: 1017.1024350548377, count: 59429"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2871.8372615128355,
+            "unit": "median tps",
+            "extra": "avg tps: 2773.890338410324, max tps: 3204.272680952686, count: 59429"
           }
         ]
       }

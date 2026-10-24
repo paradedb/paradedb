@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792860579734,
+  "lastUpdate": 1792860596954,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -32309,6 +32309,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.04029016518111,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "151375781+abelmarnk@users.noreply.github.com",
+            "name": "abelmarnk",
+            "username": "abelmarnk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0d10979c7f87b748cc1958134275b1574abf19b",
+          "message": "test: use a unique tiebreaker in generated_paging_small (#7014)\n\n# Ticket(s) Closed\n\n- Closes #6588\n\n## What\n\nEnsure `generated_paging_small` always uses `id` as its final sorting\ntiebreaker.\n\n## Why\n\nThe generated UUID values can repeat. Using UUID as the final tiebreaker\nallows PostgreSQL and ParadeDB to return tied rows in different valid\norders, causing a false test failure.\n\n## How\n\nMove `uuid` into the ordinary sorting-column list and retain the\nprimary-key `id` as the sole final tiebreaker.\n\n## Tests\n\n- `generated_paging_small` passed after the change.\n- Result: 1 passed, 0 failed.",
+          "timestamp": "2026-10-24T08:22:16-07:00",
+          "tree_id": "c22d0c35295e9a8195d16191c544b4fd02eb347e",
+          "url": "https://github.com/paradedb/paradedb/commit/e0d10979c7f87b748cc1958134275b1574abf19b"
+        },
+        "date": 1792860585669,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.74358022196337,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.34708030202172,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.576951178304324,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.87488651251132,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.51087226160255,
             "unit": "queries/s"
           }
         ]

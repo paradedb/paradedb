@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792828376434,
+  "lastUpdate": 1792828396779,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -335816,6 +335816,52 @@ window.BENCHMARK_DATA = {
             "value": 32.44102456487604,
             "unit": "median tps",
             "extra": "avg tps: 56.118812115840264, max tps: 701.0489857230081, count: 59333"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792828347948,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.39535256801343,
+            "unit": "median tps",
+            "extra": "avg tps: 57.52439472760081, max tps: 663.4752918382391, count: 59328"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.583626260501696,
+            "unit": "median tps",
+            "extra": "avg tps: 56.49847967403335, max tps: 696.1478707298014, count: 59328"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.69946243821108,
+            "unit": "median tps",
+            "extra": "avg tps: 59.703334524789135, max tps: 819.8115629843002, count: 59328"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.79434795862004,
+            "unit": "median tps",
+            "extra": "avg tps: 57.37085667910401, max tps: 713.8903653039014, count: 59328"
           }
         ]
       }

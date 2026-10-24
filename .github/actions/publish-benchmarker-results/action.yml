@@ -11,22 +11,6 @@ inputs:
   ref:
     description: "Git ref or commit benchmarked"
     required: true
-  image_tag:
-    description: "Image tag tested"
-    required: false
-    default: "paradedb-source:ci"
-  results_dir:
-    description: "Directory containing results json and html files"
-    required: false
-    default: "benchmarker/results"
-  metrics_file:
-    description: "Path to write extracted latency metrics json"
-    required: false
-    default: "benchmarker/benchmarker_metrics.json"
-  throughput_metrics_file:
-    description: "Path to write extracted QPS metrics json"
-    required: false
-    default: "benchmarker/benchmarker_throughput_metrics.json"
   github_app_client_id:
     description: "ParadeDB GitHub App client ID"
     required: true
@@ -77,16 +61,16 @@ runs:
         retention-days: 30
         name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.short_commit }}
         path: |
-          ${{ inputs.results_dir }}/*.json
-          ${{ inputs.results_dir }}/*.html
+          benchmarker/results/*.json
+          benchmarker/results/*.html
         if-no-files-found: warn
 
     - name: Extract tracked metrics
       shell: bash
       env:
-        RESULTS_DIR: ${{ inputs.results_dir }}
-        METRICS_FILE: ${{ inputs.metrics_file }}
-        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
+        RESULTS_DIR: benchmarker/results
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
+        THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -148,13 +132,13 @@ runs:
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
-      if: hashFiles(inputs.metrics_file) != ''
+      if: hashFiles('benchmarker/benchmarker_metrics.json') != ''
       continue-on-error: true
       uses: ./.github/actions/publish-benchmark-results
       with:
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
-        metrics_file: ${{ inputs.metrics_file }}
+        metrics_file: benchmarker/benchmarker_metrics.json
         github_token: ${{ steps.app-token.outputs.token }}
         pages_directory: benchmarker
         publish_baseline: ${{ inputs.publish_baseline }}
@@ -171,14 +155,14 @@ runs:
 
     - name: Publish QPS Metrics
       id: publish_throughput
-      if: hashFiles(inputs.throughput_metrics_file) != ''
+      if: hashFiles('benchmarker/benchmarker_throughput_metrics.json') != ''
       continue-on-error: true
       uses: ./.github/actions/publish-benchmark-results
       with:
         name: "benchmarker ${{ inputs.dataset }} (throughput)"
         ref: ${{ inputs.ref }}
         direction: bigger
-        metrics_file: ${{ inputs.throughput_metrics_file }}
+        metrics_file: benchmarker/benchmarker_throughput_metrics.json
         github_token: ${{ steps.app-token.outputs.token }}
         pages_directory: benchmarker
         publish_baseline: ${{ inputs.publish_baseline }}
@@ -196,7 +180,7 @@ runs:
     - name: Stage dashboards (HTML only) for gh-pages
       shell: bash
       env:
-        RESULTS_DIR: ${{ inputs.results_dir }}
+        RESULTS_DIR: benchmarker/results
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -228,8 +212,8 @@ runs:
         STEP_COMMIT_INFO_SHORT_COMMIT: ${{ inputs.short_commit }}
         PR_NUMBER: ${{ inputs.pr_number }}
         DATASET: ${{ inputs.dataset }}
-        METRICS_FILE: ${{ inputs.metrics_file }}
-        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
+        THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -280,7 +264,7 @@ runs:
     - name: Fail if no metrics were extracted
       shell: bash
       env:
-        METRICS_FILE: ${{ inputs.metrics_file }}
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
       run: |
         [ -f "${METRICS_FILE}" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
         n=$(jq 'length' "${METRICS_FILE}")

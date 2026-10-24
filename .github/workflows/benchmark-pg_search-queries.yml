@@ -309,7 +309,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
-          publish: ${{ env.PUBLISH_BASELINE }}
+          publish_baseline: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -339,7 +339,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
-          publish: ${{ env.PUBLISH_BASELINE }}
+          publish_baseline: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -369,7 +369,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
-          publish: ${{ env.PUBLISH_BASELINE }}
+          publish_baseline: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -427,7 +427,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
-          publish: ${{ env.PUBLISH_BASELINE }}
+          publish_baseline: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -479,7 +479,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
-          publish: ${{ env.PUBLISH_BASELINE }}
+          publish_baseline: ${{ env.PUBLISH_BASELINE }}
 
       # Renders the operating points the benchmark selected. The benchmark step measures recall
       # across each query's swept values and keeps the cheapest one reaching each target, writing

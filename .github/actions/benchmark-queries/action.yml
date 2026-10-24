@@ -24,7 +24,7 @@ inputs:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
     default: "true"
-  publish:
+  publish_baseline:
     description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
     required: false
     default: "false"
@@ -136,7 +136,7 @@ runs:
         ref: ${{ inputs.ref }}
         metrics_file: benchmarks/results.json
         github_token: ${{ steps.app-token.outputs.token }}
-        publish_baseline: ${{ inputs.publish }}
+        publish_baseline: ${{ inputs.publish_baseline }}
         pages_directory: benchmarks
         alert_threshold: ${{ inputs.alert_threshold }}
         comment_summary: ${{ github.event_name == 'pull_request' }}

@@ -199,7 +199,6 @@ jobs:
           dataset: ${{ env.DATASET }}
           short_commit: ${{ steps.build_image.outputs.short_commit }}
           ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           pr_number: ${{ github.event.pull_request.number }}
@@ -400,7 +399,6 @@ jobs:
           dataset: ${{ env.DATASET }}
           short_commit: ${{ steps.build_image.outputs.short_commit }}
           ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           pr_number: ${{ github.event.pull_request.number }}

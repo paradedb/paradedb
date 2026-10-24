@@ -139,7 +139,7 @@ runs:
         publish_baseline: ${{ inputs.publish }}
         pages_directory: benchmarks
         alert_threshold: ${{ inputs.alert_threshold }}
-        comment_always: ${{ github.event_name == 'pull_request' }}
+        comment_summary: ${{ github.event_name == 'pull_request' }}
 
     # The publish step above appends the current run to its local gh-pages clone, so the script
     # takes the second-to-last entry as the baseline.

@@ -29,12 +29,12 @@ inputs:
     description: "Regression threshold ratio"
     required: false
     default: "115%"
-  comment_on_alert:
-    description: "Whether to comment when a regression is detected"
+  comment_on_regression:
+    description: "Whether to post a regression warning when the threshold is exceeded"
     required: false
     default: "true"
-  comment_always:
-    description: "Whether to comment even without a regression"
+  comment_summary:
+    description: "Whether to post a comparison summary even without a regression"
     required: false
     default: "false"
 
@@ -69,6 +69,6 @@ runs:
         benchmark-data-dir-path: ${{ inputs.pages_directory }}
         auto-push: ${{ inputs.publish_baseline == 'true' }}
         alert-threshold: ${{ inputs.alert_threshold }}
-        comment-on-alert: ${{ inputs.comment_on_alert == 'true' }}
+        comment-on-alert: ${{ inputs.comment_on_regression == 'true' }}
         alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ inputs.comment_always == 'true' }}
+        comment-always: ${{ inputs.comment_summary == 'true' }}

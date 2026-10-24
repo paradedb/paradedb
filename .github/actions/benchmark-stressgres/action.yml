@@ -136,7 +136,7 @@ runs:
         github_token: ${{ steps.app-token.outputs.token }}
         publish_baseline: ${{ github.event_name != 'pull_request' }}
         pages_directory: stressgres
-        comment_always: ${{ github.event_name == 'pull_request' }}
+        comment_summary: ${{ github.event_name == 'pull_request' }}
 
     - name: Publish Other Metrics
       uses: ./.github/actions/publish-benchmark-results
@@ -148,7 +148,7 @@ runs:
         publish_baseline: ${{ github.event_name != 'pull_request' }}
         pages_directory: stressgres
         alert_threshold: "110%"
-        comment_always: ${{ github.event_name == 'pull_request' }}
+        comment_summary: ${{ github.event_name == 'pull_request' }}
 
     - name: Print Postgres Logs
       if: always()

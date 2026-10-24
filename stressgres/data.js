@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792858647380,
+  "lastUpdate": 1792858665259,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -359682,6 +359682,136 @@ window.BENCHMARK_DATA = {
             "value": 134.39062820407742,
             "unit": "median tps",
             "extra": "avg tps: 151.48546803151876, max tps: 345.65808615204435, count: 59116"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "a74b5bccd94a08b1a7a1d30fcd69b7af43643a75",
+          "message": "refactor: reuse merge candidate eligibility snapshot",
+          "timestamp": "2026-10-24T15:50:04Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a74b5bccd94a08b1a7a1d30fcd69b7af43643a75"
+        },
+        "date": 1792858619437,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 13.782905971072802,
+            "unit": "median tps",
+            "extra": "avg tps: 11.78344987509801, max tps: 15.21336405231316, count: 59133"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1.9036397954760653,
+            "unit": "median tps",
+            "extra": "avg tps: 1.90780454303648, max tps: 2.4084229931478434, count: 59133"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 134.1802690385192,
+            "unit": "median tps",
+            "extra": "avg tps: 150.9793088703977, max tps: 340.0762685463117, count: 59133"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 134.6493014133719,
+            "unit": "median tps",
+            "extra": "avg tps: 151.49731797371018, max tps: 386.6421676105396, count: 59133"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 151.0035288055514,
+            "unit": "median tps",
+            "extra": "avg tps: 164.52410783272288, max tps: 389.11058276754324, count: 59133"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 142.18348391181678,
+            "unit": "median tps",
+            "extra": "avg tps: 157.4706444347821, max tps: 375.8831633765231, count: 59133"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 132.28241652285828,
+            "unit": "median tps",
+            "extra": "avg tps: 150.10849941746275, max tps: 389.15312526814, count: 59133"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 137.36797882835552,
+            "unit": "median tps",
+            "extra": "avg tps: 158.64511800909213, max tps: 622.9400835990111, count: 59133"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 136.84920609571355,
+            "unit": "median tps",
+            "extra": "avg tps: 151.96003567948145, max tps: 322.84406376430775, count: 59133"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 131.5229552987525,
+            "unit": "median tps",
+            "extra": "avg tps: 152.63951834170055, max tps: 357.0403102211667, count: 59133"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 132.3916850281598,
+            "unit": "median tps",
+            "extra": "avg tps: 145.23776569115734, max tps: 560.0115931320316, count: 59133"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 135.29051128534743,
+            "unit": "median tps",
+            "extra": "avg tps: 150.23321528614878, max tps: 480.53679006347113, count: 59133"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 145.10545082998576,
+            "unit": "median tps",
+            "extra": "avg tps: 160.61815617870155, max tps: 357.91518940267423, count: 59133"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 133.26696474885082,
+            "unit": "median tps",
+            "extra": "avg tps: 149.27387649106603, max tps: 446.61135951352156, count: 59133"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 134.3033860590686,
+            "unit": "median tps",
+            "extra": "avg tps: 157.37232093744248, max tps: 382.90059123875403, count: 59133"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 131.10493730343188,
+            "unit": "median tps",
+            "extra": "avg tps: 147.82658415334794, max tps: 522.5962352184634, count: 59133"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 134.64057312944593,
+            "unit": "median tps",
+            "extra": "avg tps: 153.8437374582567, max tps: 393.6640255661983, count: 59133"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 138.304671092446,
+            "unit": "median tps",
+            "extra": "avg tps: 155.7180670782285, max tps: 372.1246444877468, count: 59133"
           }
         ]
       }

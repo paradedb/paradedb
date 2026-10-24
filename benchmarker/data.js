@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792803924537,
+  "lastUpdate": 1792803940681,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -31569,6 +31569,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 35.874118890616394,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "2312671669@qq.com",
+            "name": "Yanghanrui666",
+            "username": "Yanghanrui666"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "03ad842ae3cd25ace648a332414613f31cb00b4c",
+          "message": "fix: construct operator function expressions with makeFuncExpr (#6895)\n\n# Ticket(s) Closed\n\n- Closes #6893. Related:\nhttps://github.com/IvorySQL/IvorySQL/issues/845.\n\n## What\n\nReplace five exhaustive `FuncExpr` struct literals with\n`pg_sys::makeFuncExpr` in operator rewriting.\n\n## Why\n\nThe IvorySQL report shows E0063 missing-field errors because its\ngenerated bindings add fields to `FuncExpr`. Exhaustive literals couple\nthis code to the upstream PostgreSQL node layout. The same pattern\nremains on current main, although the affected code has moved.\n\n## How\n\nUse the existing server constructor, preserving function/result OIDs,\narguments, collations and coercion forms. The server initializes the\nnode tag, flags, location and server-specific fields. Internal runtime\nbuilders return the allocated pointer directly, avoiding a copy and\nsecond allocation. Includes a stability changelog fragment; no SQL\nschema changes.\n\n## Tests\n\nVerified against commit `430228459dcfd678eaf77bb05fcda1c2e3b48385` in\n[GitHub\nCI](https://github.com/paradedb/paradedb/actions/runs/39101248811):\n\n- All six PostgreSQL test jobs passed: PostgreSQL 15/16/17/18 system\narm64, PostgreSQL 18 system amd64, and PostgreSQL 18 pgrx arm64. This\nincludes integration and unit tests plus pgrx SQL regression tests.\n- The integration suites include\n`generic_plan_text_and_text_array_params_issue_3900` and\n`self_referencing_var`.\n- Both upgrade paths, documentation smoke tests, SchemaBot, Rust lint,\nformatting, Markdown, spelling and PR title checks passed.\n- `git diff --check` and `git show --check` passed. CLAassistant\nconfirms all committers have signed.\n\nLocal Rust/pgrx tests were not run because the local toolchain is\nunavailable. The original report does not specify pg_search/pgrx\nversions, and compilation against the affected IvorySQL headers remains\nunverified. This fixes the exhaustive-initializer pattern; it does not\nestablish full IvorySQL compatibility.\n\nMaintainer action: please add `Do Not Cherry Pick` to satisfy the\ncherry-pick-label check. No backport is requested; the contributor\ncannot apply labels (403).\n\nAssisted-by: OpenAI:GPT-6\nPercentage of AI-generated code: 100%\n\n---------\n\nCo-authored-by: Yanghanrui666 <283874577+Yanghanrui666@users.noreply.github.com>",
+          "timestamp": "2026-10-23T16:38:13-07:00",
+          "tree_id": "f034035eea5c8c86440e128a64385f165efe7962",
+          "url": "https://github.com/paradedb/paradedb/commit/03ad842ae3cd25ace648a332414613f31cb00b4c"
+        },
+        "date": 1792803929125,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.79417933587979,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.16645212128306,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.653274927229504,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.954764477144185,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.621995402268446,
             "unit": "queries/s"
           }
         ]

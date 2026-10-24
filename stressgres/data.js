@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792828416603,
+  "lastUpdate": 1792828435702,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -418390,6 +418390,88 @@ window.BENCHMARK_DATA = {
             "value": 647.5354317747112,
             "unit": "median tps",
             "extra": "avg tps: 648.4896019810074, max tps: 790.2468125455295, count: 55223"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792828345921,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 564.8512866007993,
+            "unit": "median tps",
+            "extra": "avg tps: 564.7548916418707, max tps: 603.0254429700948, count: 54636"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 530.7664013026281,
+            "unit": "median tps",
+            "extra": "avg tps: 530.2180004463177, max tps: 548.7603229923442, count: 54636"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 204.29353586899163,
+            "unit": "median tps",
+            "extra": "avg tps: 204.26464070762245, max tps: 211.10896631950567, count: 54636"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 577.9555792178353,
+            "unit": "median tps",
+            "extra": "avg tps: 578.3529686432197, max tps: 624.0667788138803, count: 54636"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 395.4358231533818,
+            "unit": "median tps",
+            "extra": "avg tps: 395.76253123337665, max tps: 430.70156854673877, count: 54636"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.780814613847546,
+            "unit": "median tps",
+            "extra": "avg tps: 14.789960401971946, max tps: 15.504393791707072, count: 54636"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 699.3887067853481,
+            "unit": "median tps",
+            "extra": "avg tps: 698.4075129751473, max tps: 739.3602729599829, count: 54636"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 717.2561781293184,
+            "unit": "median tps",
+            "extra": "avg tps: 716.4870401537174, max tps: 751.2516245866868, count: 54636"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 305.79734774229735,
+            "unit": "median tps",
+            "extra": "avg tps: 305.6715981259015, max tps: 318.68701337753686, count: 54636"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 616.5014115287527,
+            "unit": "median tps",
+            "extra": "avg tps: 615.5479263808108, max tps: 618.004659761498, count: 54636"
           }
         ]
       }

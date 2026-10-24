@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashSet;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::postgres::merge::{MergeMode, merge_index};
 use crate::postgres::rel::PgSearchRelation;
@@ -22,6 +23,7 @@ use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{IntoDatum, PgRelation, direct_function_call, pg_extern, pg_sys};
 use std::ffi::CStr;
+use tantivy::index::SegmentId;
 
 unsafe fn pause(ready_name: &CStr, gate_name: &CStr) {
     let ready = pg_sys::GetConfigOptionByName(ready_name.as_ptr(), std::ptr::null_mut(), true);
@@ -72,7 +74,8 @@ unsafe fn live_segments(metadata: &MetaPage) -> Vec<SegmentMetaEntry> {
 }
 
 /// Runs a foreground `merge_index` whose single layer admits every live segment, and returns how
-/// many segments it merged away. Zero means selection found no candidate.
+/// many of the segments live beforehand it consumed. A lone mutable segment converted to an
+/// immutable one counts as one; zero means selection found no candidate.
 #[pg_extern]
 unsafe fn test_merge_index(index: PgRelation) -> i64 {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
@@ -83,6 +86,7 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
         .map(|entry| entry.byte_size())
         .max()
         .expect("fixture must have segments");
+    let before: HashSet<SegmentId> = before.iter().map(SegmentMetaEntry::segment_id).collect();
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
     merge_index(
@@ -94,7 +98,11 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
         pg_sys::GetCurrentFullTransactionId(),
         pg_sys::ReadNextFullTransactionId(),
     );
-    before.len() as i64 - live_segments(&MetaPage::open(&index)).len() as i64
+    let after: HashSet<SegmentId> = live_segments(&MetaPage::open(&index))
+        .iter()
+        .map(SegmentMetaEntry::segment_id)
+        .collect();
+    before.difference(&after).count() as i64
 }
 
 #[pg_extern]

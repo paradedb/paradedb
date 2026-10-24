@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A search predicate that stays above a partitioned table's `Append`, such as an `OR` across a join or a `NOT` arm, no longer fails with `could not open file "pg_tblspc/0/..."`, and neither does a window function in a search query with `ORDER BY ... LIMIT` over a partitioned table. Each row is now matched against the index of its own partition. `paradedb.index_info` and `paradedb.schema` also work on a partitioned index with more than one level.

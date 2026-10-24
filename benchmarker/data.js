@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792880423176,
+  "lastUpdate": 1792882996958,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -26186,6 +26186,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.924,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae0f70b02002bb460b7569a3f62709e4ba3298c6",
+          "message": "refactor: Consolidate benchmark publishing, snapshots, and workload image builds (#6749)\n\n## What\n\nConsolidate benchmark result publishing and heap snapshot generation,\nbuild Antithesis and benchmarker workload images through the same source\nDockerfile, and rename the Hacker News benchmark dataset to\n`hackernews`.\n\n## Why\n\nThe benchmark suites duplicated gh-pages publishing, snapshot generation\nhad two entry points, and Antithesis compiled and packaged pg_search\nseparately despite needing the same commit-to-workload-image flow as\nbenchmarker.\n\n## How\n\n- Add `publish-benchmark-results`, used by benchmarker, queries, and\nStressgres. Preserve existing series names, history directories, metric\ndirections, thresholds, baseline policies, and comment behavior. All\nthree publishers now generate fresh ParadeDB GitHub App tokens before\npublishing. Keep k6 extraction/dashboard publishing, Stressgres CSV\nconversion, and query paired-bootstrap comparisons in their suite\nactions; the publisher leaves its local Pages clone available for\nbootstrap comparisons.\n- Extend `generate-benchmark-snapshots.yml` to select Stack Overflow,\nCohere, Stack Exchange, Wikipedia, or all. Native datasets retain\npgBackRest snapshots and size selection; benchmarker datasets retain\nDocker volume tar.zst archives and their existing S3 paths. Stop Docker\nPostgreSQL explicitly before archiving and reject selections with no\nmatching snapshot. Remove the separate benchmarker snapshot workflow.\n- Build pg_search inside `Dockerfile.source` for both benchmarker and\nAntithesis. `DST=true` selects the existing `dst` profile/features and\ntarget-scoped SanitizerCoverage flags, requires amd64, checks\ninstrumentation before stripping, splits debug symbols, and exposes the\nsame `/symbols` paths. Both modes check unresolved Rust symbols and\nsmoke-test extension loading with initdb. The released ParadeDB base\nsupplies the runtime extensions and backup tooling.\n- Build and push the Antithesis source image once, then reuse it for\nboth workload jobs. Remove the external .deb\ncompilation/packaging/artifact job and `Dockerfile.antithesis-18`,\nincluding its template/generator path.\n- Rename Hacker News workflow inputs, jobs, labels, dataset directories,\nand newly published results to `hackernews`. Retain the `hn-ci.tar.gz`\narchive key and historical Pages entries. The new\n`benchmark-benchmarker-hackernews` label is available.\n\n- Keep publisher inputs explicit for the suite, metrics, history\ndirectory, and baseline/comment policies. Use `publish_baseline`,\n`comment_summary`, and `comment_on_regression` consistently. Remove the\nunused Benchmarker image tag input and use fixed result paths matching\nthe existing defaults.\n- Use the setup action's `paradedb/benchmarker` repository default for\nevery dataset and snapshot job. Remove repository override inputs and\ndefault refs to `main`.\n\n- Make the `benchmarks` PR label run Stack Overflow, all five Cohere\nindex variants, all three Benchmarker datasets, and Stressgres. Keep\nindividual labels and manual selections unchanged; limit the Queries\nmatrix to two simultaneous jobs and retain the 24-hour pgvectorscale\ntimeout.\n\n## Tests\n\n- Actionlint passed for the affected benchmark/snapshot/Antithesis\nworkflows. Label-selection fixtures verified the all-benchmarks matrix,\nindividual labels, manual runs, baseline policies, and pgvectorscale\ntimeout.\n- Hadolint and Docker Buildx `--check` passed for the shared source\nDockerfile (release arm64 and Antithesis amd64 configurations).\n- Prettier, action YAML parsing, shell syntax, and `git diff --check`\npassed.\n- Executed the workflow's snapshot selector for eight valid/invalid\ndataset and size cases; verified matrix contents and rejection of\nunsupported sizes.\n- Compared publishing parameters before/after extraction for all three\nsuites, including TPS direction and per-suite baseline/alert policies.\n- Exercised the actual Dockerfile generator renderer with checked-in\nrelease checksums; all eight release Dockerfiles remained\nbyte-identical.\n- Full extension image compilation, S3 snapshot generation/restore,\nbenchmarks, and Antithesis runs have not been executed for this\nrefactor.\n\n## Rebase integration\n\nRebased onto main after #6758. Preserve the native Stack\nExchange/Wikipedia benchmarker loader and S3 configuration flow,\nincluding the dataset-source override and pre-only heap loading in the\nconsolidated snapshot workflow. The PlanetScale fork, Makefile\norchestration, and patch application are no longer used. Actionlint and\n`git diff --check` passed again after resolving conflicts.",
+          "timestamp": "2026-10-24T15:20:09-07:00",
+          "tree_id": "efa47b2e2152695446d3c174b09146b6c4a7ae4e",
+          "url": "https://github.com/paradedb/paradedb/commit/ae0f70b02002bb460b7569a3f62709e4ba3298c6"
+        },
+        "date": 1792882984343,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.29,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.66,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.515,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.982,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.433,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.871,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.416,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.078,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.46,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.188,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.068,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.141,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.951,
             "unit": "ms"
           }
         ]

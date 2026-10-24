@@ -274,7 +274,7 @@ fn flush_mutable_segments(
             let ctids = segment
                 .mutable_snapshot(indexrel)
                 .map_err(|error| anyhow::anyhow!("{error}"))?;
-            let ctids = ctids
+            let ctids: Vec<_> = ctids
                 .into_iter()
                 .enumerate()
                 .filter_map(|(i, ctid)| {
@@ -289,15 +289,50 @@ fn flush_mutable_segments(
             segment_ids.push(segment_id);
             live_ctids.insert(segment_id, ctids);
         }
-        let mut merger =
-            SearchIndexMerger::open(indexrel, MvccSatisfies::VacuumMerge { live_ctids })?;
-        if let Err(error) = merger.merge_segments(&segment_ids) {
-            // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
-            // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
-            // Check for interrupts here before `ambulkdelete`'s `.expect()` turns a cancellation
-            // into an internal error panic.
-            pgrx::check_for_interrupts!();
-            return Err(error);
+        let (empty_segment_ids, non_empty_segment_ids): (Vec<_>, Vec<_>) = segment_ids
+            .into_iter()
+            .partition(|segment_id| live_ctids[segment_id].is_empty());
+
+        if !empty_segment_ids.is_empty() {
+            let empty_live_ctids = empty_segment_ids
+                .iter()
+                .map(|segment_id| (*segment_id, Vec::new()))
+                .collect();
+            let mut merger = SearchIndexMerger::open(
+                indexrel,
+                MvccSatisfies::VacuumMerge {
+                    live_ctids: empty_live_ctids,
+                },
+            )?;
+            if let Err(error) = merger.merge_segments(&empty_segment_ids) {
+                // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
+                // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+                // Check for interrupts here before `ambulkdelete`'s `.expect()` turns a cancellation
+                // into an internal error panic.
+                pgrx::check_for_interrupts!();
+                return Err(error);
+            }
+        }
+
+        if !non_empty_segment_ids.is_empty() {
+            let non_empty_live_ctids = non_empty_segment_ids
+                .iter()
+                .map(|segment_id| (*segment_id, live_ctids[segment_id].clone()))
+                .collect();
+            let mut merger = SearchIndexMerger::open(
+                indexrel,
+                MvccSatisfies::VacuumMerge {
+                    live_ctids: non_empty_live_ctids,
+                },
+            )?;
+            if let Err(error) = merger.merge_segments(&non_empty_segment_ids) {
+                // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
+                // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+                // Check for interrupts here before `ambulkdelete`'s `.expect()` turns a cancellation
+                // into an internal error panic.
+                pgrx::check_for_interrupts!();
+                return Err(error);
+            }
         }
     }
     Ok(())

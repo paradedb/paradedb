@@ -15,15 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
 use crate::api::version::Version;
 use crate::gucs;
 use crate::index::kdtree::KdTree;
-use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats::partition_box;
-use crate::index::writer::index::{
-    DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
-};
+use crate::index::writer::index::{DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter};
 use crate::launch_parallel_process;
 use crate::parallel_worker::builder::ParallelProcessLauncher;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -35,11 +31,9 @@ use crate::postgres::build_partitioning::{PartitionField, plan_partition_boundar
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
-use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::ps_status::{
-    COMMITTING, FINALIZING, GARBAGE_COLLECTING, INDEXING, MERGING, set_ps_display_remove_suffix,
-    set_ps_display_suffix,
+    COMMITTING, FINALIZING, INDEXING, MERGING, set_ps_display_remove_suffix, set_ps_display_suffix,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
@@ -71,16 +65,12 @@ struct WorkerConfig {
     heaprelid: pg_sys::Oid,
     indexrelid: pg_sys::Oid,
     concurrent: u8,
-    _pad1: [u8; 7],
-    current_xid: pg_sys::FullTransactionId,
     need_wal: u8,
-    _pad2: [u8; 7],
-    next_xid: pg_sys::FullTransactionId,
+    _pad: [u8; 2],
 }
 
 // SAFETY: WorkerConfig is #[repr(C)] with explicit padding. All fields
-// are integer types (Oid = u32 wrapper, u8, FullTransactionId = u64
-// wrapper). Every bit pattern is valid.
+// are integer types (Oid = u32 wrapper, u8). Every bit pattern is valid.
 unsafe impl bytemuck::Zeroable for WorkerConfig {}
 unsafe impl bytemuck::Pod for WorkerConfig {}
 
@@ -89,19 +79,14 @@ impl WorkerConfig {
         heaprelid: pg_sys::Oid,
         indexrelid: pg_sys::Oid,
         concurrent: bool,
-        current_xid: pg_sys::FullTransactionId,
         need_wal: bool,
-        next_xid: pg_sys::FullTransactionId,
     ) -> Self {
         Self {
             heaprelid,
             indexrelid,
             concurrent: concurrent as u8,
-            _pad1: [0; 7],
-            current_xid,
             need_wal: need_wal as u8,
-            _pad2: [0; 7],
-            next_xid,
+            _pad: [0; 2],
         }
     }
 
@@ -145,7 +130,7 @@ impl ParallelStateType for WorkerCoordination {}
 // SharedFileSet is a foreign bindgen type that cannot implement Pod.
 // It is accessed through object_raw() instead of the typed object() path.
 
-const _: () = assert!(size_of::<WorkerConfig>() == 40);
+const _: () = assert!(size_of::<WorkerConfig>() == 12);
 const _: () = assert!(size_of::<WorkerCoordination>() == 48);
 
 impl WorkerCoordination {
@@ -452,8 +437,6 @@ impl<'a> BuildWorker<'a> {
                 &self.indexrel,
                 NonZeroUsize::new(per_worker_memory_budget)
                     .expect("per worker memory budget should be non-zero"),
-                self.config.current_xid,
-                self.config.next_xid,
                 worker_segment_target.max(1),
                 target_segment_count,
                 self.coordination,
@@ -494,9 +477,6 @@ impl<'a> BuildWorker<'a> {
                 pg_sys::UnregisterSnapshot(snapshot);
             }
             drained?;
-            // Vectors are clustered only during merges, so cluster eligible segments that
-            // didn't need merging to reach the target segment count.
-            build_state.cluster_flat_segments()?;
             Ok((reltuples as f64, build_state.nmerges))
         }
     }
@@ -772,8 +752,6 @@ struct WorkerBuildState<'a> {
     writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     per_row_context: PgMemoryContexts,
-    current_xid: pg_sys::FullTransactionId,
-    next_xid: pg_sys::FullTransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
     index_created_by_version: Option<Version>,
@@ -796,12 +774,9 @@ struct WorkerBuildState<'a> {
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
-    segment_ids: HashSet<SegmentId>,
     local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
     is_leader: bool,
-    // the first flushed segment's on-disk size, once observed. Segments are memory-budget
-    // bound, so one sample is representative; the partitioned drain re-applies it to each
-    // per-partition writer's fresh disk guard.
+    // The first final segment's on-disk size, reused by each partition writer's disk guard.
     sampled_segment_bytes: Option<u64>,
     // For a partitioned build: phase-1 routing and spill state. `None` on the regular path.
     partitioning: Option<PartitionSpill>,
@@ -826,8 +801,6 @@ impl<'a> WorkerBuildState<'a> {
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
         per_worker_memory_budget: NonZeroUsize,
-        current_xid: pg_sys::FullTransactionId,
-        next_xid: pg_sys::FullTransactionId,
         worker_segment_target: usize,
         target_segment_count: usize,
         coordination: &'a mut WorkerCoordination,
@@ -872,7 +845,7 @@ impl<'a> WorkerBuildState<'a> {
         let disk_guard = indexrel
             .is_create_index()
             .then(|| DiskSpaceGuard::new(indexrel));
-        let writer = SerialIndexWriter::open(indexrel, config.clone(), worker_number)?
+        let writer = SerialIndexWriter::for_build(indexrel, config.clone(), worker_number)?
             .with_disk_guard(disk_guard);
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
@@ -892,15 +865,12 @@ impl<'a> WorkerBuildState<'a> {
             indexrel: indexrel.clone(),
             heaprel: heaprel.clone(),
             index_created_by_version: created_by_version,
-            current_xid,
-            next_xid,
             worker_segment_target,
             target_segment_count,
             coordination,
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
-            segment_ids: Default::default(),
             local_tuple_done_count: 0,
             is_leader,
             sampled_segment_bytes: None,
@@ -914,12 +884,8 @@ impl<'a> WorkerBuildState<'a> {
         })
     }
 
-    /// After this worker flushes a segment, refresh its disk guard with a build-wide view: bump
-    /// the shared count of segments written across all workers, and tell the guard how many
-    /// segments the whole build still has to write. On the first flush, also hand the guard the
-    /// segment's on-disk size (segments are memory-budget bound, so one sample is representative).
+    /// Update the disk-space estimate from final segments written to the index relation.
     fn on_segment_flushed(&mut self, segment_id: SegmentId) {
-        self.segment_ids.insert(segment_id);
         let written = self.coordination.add_segments_written();
         let remaining = self.target_segment_count.saturating_sub(written);
 
@@ -950,27 +916,16 @@ impl<'a> WorkerBuildState<'a> {
         unsafe {
             set_ps_display_suffix(FINALIZING.as_ptr());
         }
-        let writer = self.writer.take().expect("writer should be set");
-        if let Some((segment_meta, _)) = writer.commit()? {
-            self.segment_ids.insert(segment_meta.id());
+        let writer = self.writer.as_mut().expect("writer should be set");
+        if let Some(segment_meta) = writer.finalize_nocommit()? {
             self.unmerged_metas.push(segment_meta);
         }
         self.try_merge(true)?;
-
-        unsafe { set_ps_display_remove_suffix() };
-        Ok(())
-    }
-
-    fn cluster_flat_segments(&mut self) -> anyhow::Result<()> {
-        if !self.indexrel.schema()?.has_vector_field() || self.segment_ids.is_empty() {
-            return Ok(());
+        for meta in std::mem::take(&mut self.unmerged_metas) {
+            self.persist_segments(&[meta])?;
         }
-        let flat_segments = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?
-            .flat_vector_segments(&self.segment_ids);
-        for segment_id in flat_segments {
-            check_for_interrupts!();
-            self.merge_now(&[segment_id])?;
-        }
+        self.writer.take();
+
         unsafe { set_ps_display_remove_suffix() };
         Ok(())
     }
@@ -979,7 +934,7 @@ impl<'a> WorkerBuildState<'a> {
     /// if we have created at least that many segments.
     fn try_merge(&mut self, is_last_merge: bool) -> anyhow::Result<()> {
         // which segments should me merge together? if there's not enough, return early
-        let segment_ids_to_merge = {
+        let segments_to_merge = {
             if self.unmerged_metas.is_empty() {
                 return Ok(());
             }
@@ -1033,58 +988,33 @@ impl<'a> WorkerBuildState<'a> {
             };
 
             self.unmerged_metas.sort_by_key(|entry| entry.max_doc());
-            self.unmerged_metas
-                .drain(..chunk_size)
-                .map(|entry| entry.id())
-                .collect::<Vec<_>>()
+            self.unmerged_metas.drain(..chunk_size).collect::<Vec<_>>()
         };
 
         pgrx::debug1!("try_merge: last merge {is_last_merge}");
-        self.merge_now(&segment_ids_to_merge)?;
+        self.persist_segments(&segments_to_merge)?;
         Ok(())
     }
 
-    /// Merge the given segments into a single segment and garbage collect the index, returning
-    /// the reclaimed space to the fsm. Split out of [`Self::try_merge`] so the partitioned
-    /// build can merge a partition's segments without the chunk accounting. Returns the merged
-    /// segment's meta, if the merge produced one.
-    fn merge_now(
-        &mut self,
-        segment_ids_to_merge: &[SegmentId],
-    ) -> anyhow::Result<Option<SegmentMeta>> {
-        pgrx::debug1!(
-            "do_merge: about to merge {} segments: {:?}",
-            segment_ids_to_merge.len(),
-            segment_ids_to_merge
-        );
-        let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
+    fn persist_segments(&mut self, segments: &[SegmentMeta]) -> anyhow::Result<()> {
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-        let merged = match merger.merge_segments(segment_ids_to_merge) {
-            Ok(merged) => merged,
+        let meta = match self
+            .writer
+            .as_mut()
+            .expect("writer should be set")
+            .persist_build_segments(segments)
+        {
+            Ok(meta) => meta,
             Err(error) => {
-                // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
-                // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
                 check_for_interrupts!();
                 return Err(error);
             }
         };
-        for segment_id in segment_ids_to_merge {
-            self.segment_ids.remove(segment_id);
+        if let Some(meta) = meta {
+            self.on_segment_flushed(meta.id());
+            self.nmerges += usize::from(segments.len() > 1);
         }
-        if let Some(meta) = &merged {
-            self.segment_ids.insert(meta.id());
-        }
-
-        // garbage collect the index, returning to the fsm
-        pgrx::debug1!("do_merge: garbage collecting");
-        unsafe {
-            set_ps_display_suffix(GARBAGE_COLLECTING.as_ptr());
-        };
-        unsafe { garbage_collect_index(&self.indexrel, self.current_xid, self.next_xid) };
-
-        self.nmerges += 1;
-
-        Ok(merged)
+        Ok(())
     }
 
     /// Estimates how many segments this worker will make if no merging happens.
@@ -1245,7 +1175,6 @@ impl<'a> WorkerBuildState<'a> {
                             set_ps_display_suffix(COMMITTING.as_ptr())
                         })?;
                     if let Some(segment_meta) = segment_meta {
-                        self.on_segment_flushed(segment_meta.id());
                         partition_metas.push(segment_meta);
                         unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
                     }
@@ -1258,8 +1187,6 @@ impl<'a> WorkerBuildState<'a> {
             drop(ctids);
             drop(sorter);
             self.finish_partition(&mut partition_metas)?;
-            // A partition merge leaves the status at garbage collecting while the drain goes on
-            // indexing the next partition.
             unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
         }
         pgrx::debug1!(
@@ -1301,21 +1228,14 @@ impl<'a> WorkerBuildState<'a> {
     fn finish_partition(&mut self, partition_metas: &mut Vec<SegmentMeta>) -> anyhow::Result<()> {
         let writer = self
             .writer
-            .take()
+            .as_mut()
             .expect("finish_partition: writer should be set");
-        if let Some((segment_meta, _)) = writer.commit()? {
-            self.on_segment_flushed(segment_meta.id());
+        if let Some(segment_meta) = writer.finalize_nocommit()? {
             partition_metas.push(segment_meta);
         }
-
-        if partition_metas.len() > 1 {
-            let ids = partition_metas
-                .iter()
-                .map(|meta| meta.id())
-                .collect::<Vec<_>>();
-            self.merge_now(&ids)?;
-        }
+        self.persist_segments(partition_metas)?;
         partition_metas.clear();
+        self.writer.take();
         Ok(())
     }
 
@@ -1325,7 +1245,7 @@ impl<'a> WorkerBuildState<'a> {
             .indexrel
             .is_create_index()
             .then(|| DiskSpaceGuard::new(&self.indexrel));
-        let mut writer = SerialIndexWriter::open(
+        let mut writer = SerialIndexWriter::for_build(
             &self.indexrel,
             self.writer_config.clone(),
             self.worker_number,
@@ -1410,7 +1330,6 @@ unsafe extern "C-unwind" fn build_callback(
     build_state.count_tuple_done();
 
     if let Some(segment_meta) = segment_meta {
-        build_state.on_segment_flushed(segment_meta.id());
         build_state.unmerged_metas.push(segment_meta);
         build_state
             .try_merge(false)
@@ -1453,9 +1372,7 @@ pub(super) fn build_index(
         heaprel.oid(),
         indexrel.oid(),
         concurrent,
-        unsafe { pg_sys::GetCurrentFullTransactionId() },
         indexrel.need_wal(),
-        unsafe { pg_sys::ReadNextFullTransactionId() },
     );
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
@@ -1595,14 +1512,13 @@ pub(super) fn build_index(
 pub(crate) mod plan {
     use super::*;
 
-    pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
-
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
     /// is greater than available parallelism, we use available parallelism.
     ///
-    /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
+    /// Round the participant count down to a divisor of the target segment count, including
+    /// the leader when it participates, so every participant has the same segment target.
     pub(super) fn create_index_nworkers(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
@@ -1635,19 +1551,6 @@ pub(crate) mod plan {
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
 
-        // For vector builds, beyond 4 workers there's no improvement to index build time:
-        // clustering dominates and parallelizes internally (rayon + BLAS threads), so
-        // parallelizing the heap scan/segment flushing isn't the bottleneck. Constrain to 4
-        // because fewer concurrent merges means less memory.
-        let maintenance_workers = if indexrel
-            .schema()
-            .is_ok_and(|schema| schema.has_vector_field())
-        {
-            maintenance_workers.min(MAX_VECTOR_BUILD_WORKERS)
-        } else {
-            maintenance_workers
-        };
-
         if maintenance_workers < 3 {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
@@ -1663,25 +1566,14 @@ pub(crate) mod plan {
             return 0;
         }
 
-        // Ensure that we never have more workers (including the leader) than the max allowed number of workers.
-        //
-        // We also want nworkers to be at most 1/2 of the target segment count. To illustrate why:
-        //
-        // Imagine we have 8 workers, a target segment count of 8, and a table size such that each worker produces 4 segments.
-        // In this scenario, each worker would do one big merge of all 4 segments at the very end, which means none of the
-        // merges would be able to reuse the FSM.
-        //
-        // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
-        // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done
-        // and once at the end. The merge at the end would be able to use the free space created by the first merge.
-        let max_workers = target_segment_count.div_ceil(2);
-        let mut nworkers = maintenance_workers.min(max_workers);
+        let leader = usize::from(unsafe { pg_sys::parallel_leader_participation });
+        let max_participants = (maintenance_workers + leader).min(target_segment_count);
+        let participants = (1..=max_participants)
+            .rev()
+            .find(|participants| target_segment_count.is_multiple_of(*participants))
+            .expect("one participant divides every segment target");
 
-        if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
-            nworkers -= 1;
-        }
-
-        nworkers
+        participants - leader
     }
 
     /// If we determine that the table is very small, we should just create a single segment
@@ -1783,6 +1675,94 @@ mod tests {
     fn cleanup_parallel_build_large_table() {
         Spi::run("DROP TABLE IF EXISTS parallel_build_large;")
             .expect("failed to cleanup parallel_build_large table");
+    }
+
+    #[pg_test]
+    fn test_build_recovers_after_temp_file_limit() {
+        Spi::run(
+            r#"
+            CREATE TABLE build_temp_limit (id bigint, data text);
+            INSERT INTO build_temp_limit SELECT i, 'searchable' FROM generate_series(1, 1000) i;
+            SET LOCAL max_parallel_maintenance_workers = 0;
+            SET LOCAL temp_file_limit = '0';
+            DO $$
+            BEGIN
+                CREATE INDEX build_temp_limit_idx ON build_temp_limit USING paradedb (id, data);
+                RAISE EXCEPTION 'build unexpectedly succeeded';
+            EXCEPTION WHEN configuration_limit_exceeded THEN
+                NULL;
+            END $$;
+            "#,
+        )
+        .unwrap();
+        assert!(
+            Spi::get_one::<bool>("SELECT to_regclass('build_temp_limit_idx') IS NULL")
+                .unwrap()
+                .unwrap()
+        );
+        assert_eq!(Spi::get_one::<i64>("SELECT count(*) FROM pg_ls_tmpdir() WHERE name LIKE 'pgsql_tmp' || pg_backend_pid() || '.%'").unwrap(), Some(0));
+        Spi::run("SET LOCAL temp_file_limit = '-1'; CREATE INDEX build_temp_limit_idx ON build_temp_limit USING paradedb (id, data);").unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM build_temp_limit WHERE data ||| 'searchable'"
+            )
+            .unwrap(),
+            Some(1000)
+        );
+    }
+
+    #[pg_test]
+    fn test_build_worker_count_balances_segment_targets() {
+        use crate::postgres::rel::PgSearchRelation;
+
+        setup_parallel_build_large_table();
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE parallel_build_large ADD COLUMN emb vector(3);").unwrap();
+        for indexed_fields in ["id, name", "id, name, emb vector_cosine_ops"] {
+            Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+            Spi::run(&format!("CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb ({indexed_fields}) WITH (target_segment_count = 8);")).unwrap();
+            let heap_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let index_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large_idx'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let heaprel = PgSearchRelation::open(heap_oid);
+            Spi::run("SET max_parallel_workers = 8;").unwrap();
+            for (target, available, without_leader, with_leader) in [
+                (1, 8, 0, 0),
+                (7, 4, 1, 0),
+                (7, 8, 7, 6),
+                (8, 0, 0, 0),
+                (8, 1, 1, 1),
+                (8, 2, 2, 1),
+                (8, 4, 4, 3),
+                (8, 6, 4, 3),
+                (8, 7, 4, 7),
+                (8, 8, 8, 7),
+                (12, 4, 4, 3),
+                (12, 5, 4, 5),
+                (12, 8, 6, 5),
+            ] {
+                Spi::run(&format!(
+                    "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
+                     SET max_parallel_maintenance_workers = {available};"
+                ))
+                .unwrap();
+                let indexrel = PgSearchRelation::open(index_oid);
+                for (leader, expected) in [(false, without_leader), (true, with_leader)] {
+                    Spi::run(&format!("SET parallel_leader_participation = {leader};")).unwrap();
+                    assert_eq!(
+                        super::plan::create_index_nworkers(&heaprel, &indexrel),
+                        expected,
+                        "fields={indexed_fields}, target={target}, available={available}, leader={leader}"
+                    );
+                }
+            }
+            drop(heaprel);
+            Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
+        }
     }
 
     /// Tests that parallel index building fails with insufficient memory.
@@ -1895,7 +1875,7 @@ mod tests {
             CREATE EXTENSION IF NOT EXISTS vector;
             SET maintenance_work_mem = '128MB';
             SET max_parallel_workers = 8;
-            SET paradedb.vector_clustering_threshold = 500;
+            SET paradedb.vector_clustering_threshold = 1;
             CREATE TABLE vector_build (
                 id BIGINT, tenant_id BIGINT, name TEXT, padding TEXT,
                 empty_emb vector(3), emb vector(3)
@@ -1915,6 +1895,8 @@ mod tests {
             (false, 0, 4, true),
             (false, 2, 4, true),
             (false, 2, 4, false),
+            (false, 8, 8, true),
+            (false, 8, 8, false),
             (true, 0, 4, true),
             (true, 2, 4, false),
         ] {

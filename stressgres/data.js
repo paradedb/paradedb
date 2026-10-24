@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792830824103,
+  "lastUpdate": 1792830846055,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -154424,6 +154424,106 @@ window.BENCHMARK_DATA = {
             "value": 53.15234375,
             "unit": "median mem",
             "extra": "avg mem: 51.36172365137333, max mem: 59.15234375, count: 59454"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792830835084,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.04888185902505511, max background_merging: 1.0, count: 59429"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655270282646683, max cpu: 9.638554, count: 59429"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.79251791002709, max mem: 26.79296875, count: 59429"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.917896920882429, max cpu: 28.514853, count: 59429"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 58.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.71683969789581, max mem: 58.72265625, count: 59429"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55788,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55507.514361675276, max block_count: 55788.0, count: 59429"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.40268219219573, max segment_count: 21.0, count: 59429"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.633678,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.08501183772646, max cpu: 33.939396, count: 59429"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 93.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.37161472355668, max mem: 93.71875, count: 59429"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.886359264422092, max cpu: 28.557264, count: 59429"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 62.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.13670251476552, max mem: 62.40625, count: 59429"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.856493020381377, max cpu: 28.263002, count: 59429"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 54.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.01555644392889, max mem: 58.98046875, count: 59429"
           }
         ]
       }

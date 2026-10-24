@@ -353,7 +353,7 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
     fixture.stage(&vacuum);
     let merger = fixture.actor(
         "selection",
-        format!("SELECT paradedb.test_merger_snapshot('{}')", fixture.index),
+        format!("SELECT paradedb.test_merge_index('{}')", fixture.index),
     );
     fixture.stage(&merger);
     fixture.release(&vacuum);
@@ -378,7 +378,7 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
     fixture.segments();
     assert!(
         fixture.value::<i64>(&format!(
-            "SELECT paradedb.test_merger_snapshot('{}')",
+            "SELECT paradedb.test_merge_index('{}')",
             fixture.index
         )) > 0
     );
@@ -430,6 +430,60 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
     fixture.release(&merger);
     merger.finish().1.unwrap();
     vacuum.finish().1.unwrap();
+}
+
+#[test]
+fn cancelled_foreground_merge_does_not_keep_inputs_reserved() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("merge_cleanup_cancelled_reservation", true);
+    fixture
+        .controller
+        .batch_execute(&format!(
+            "ALTER TABLE {} SET (autovacuum_enabled=false)",
+            fixture.table
+        ))
+        .unwrap();
+    fixture.segments();
+
+    // The production merge pause runs after add_segment_ids has reserved the inputs.
+    let inserter = fixture.actor(
+        "merge",
+        format!(
+            "INSERT INTO {} SELECT id, 'alpha beta' FROM generate_series(401,500) id",
+            fixture.table
+        ),
+    );
+    fixture.stage(&inserter);
+    let inserter_pid = inserter.pid;
+    assert!(
+        fixture.value::<i64>(&format!(
+            "SELECT count(*) FROM paradedb.merge_info('{}') WHERE pid={inserter_pid}",
+            fixture.index
+        )) > 0
+    );
+
+    fixture.cancel(&inserter, false);
+    let (mut inserter_client, result) = inserter.finish();
+    assert_error(result, "57014");
+    assert_eq!(
+        inserter_client
+            .query_one("SELECT pg_backend_pid()", &[])
+            .unwrap()
+            .get::<_, i32>(0),
+        inserter_pid
+    );
+
+    // Keep the cancelled session connected, and run no VACUUM or reservation GC before this
+    // assertion: either backend exit or GC could hide a stale MergeEntry.
+    assert!(
+        fixture.value::<i64>(&format!(
+            "SELECT paradedb.test_merge_index('{}')",
+            fixture.index
+        )) > 0,
+        "a cancelled merge must not keep its inputs reserved while its session remains connected"
+    );
+    fixture.assert_rows(200);
+    drop(inserter_client);
 }
 
 #[test]

@@ -512,7 +512,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 
 #[inline]
 #[allow(clippy::too_many_arguments)]
-unsafe fn merge_index(
+pub(crate) unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
@@ -528,6 +528,9 @@ unsafe fn merge_index(
     let metadata = MetaPage::open(indexrel);
     let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)
         .expect("should be able to open merger");
+
+    #[cfg(feature = "pg_test")]
+    crate::postgres::storage::coordination_test::selection_pause();
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining

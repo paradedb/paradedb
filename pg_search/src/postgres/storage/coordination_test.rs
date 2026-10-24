@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::directory::mvcc::MvccSatisfies;
 use crate::index::merge_policy::LayeredMergePolicy;
-use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+use crate::postgres::merge::merge_index;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{IntoDatum, PgRelation, direct_function_call, pg_extern, pg_sys};
 use std::ffi::CStr;
@@ -54,42 +54,48 @@ pub(crate) unsafe fn merge_pause() {
     pause(c"pg_search.test_merge_ready", c"pg_search.test_merge_gate");
 }
 
-#[pg_extern]
-unsafe fn test_merger_snapshot(index: PgRelation) -> i64 {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let metadata = MetaPage::open(&index);
-    let _merge_pins = metadata.pin_merge();
-    let merge_lock = metadata.acquire_merge_lock();
-    let merger = SearchIndexMerger::open(&index, MvccSatisfies::Mergeable).unwrap();
-    let layer_size = merger
-        .all_entries()
-        .values()
-        .map(|entry| entry.byte_size())
-        .max()
-        .expect("fixture must have segments");
+/// Runs inside `merge_index` after the merger loaded segment metadata and before selection.
+pub(crate) unsafe fn selection_pause() {
     pause(
         c"pg_search.test_selection_ready",
         c"pg_search.test_selection_gate",
     );
-    let mut policy = LayeredMergePolicy::new(vec![layer_size]);
-    policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-    let (candidates, _, _) = policy.simulate_supported(&merger).unwrap();
-    let Some(candidate) = candidates.into_iter().next() else {
-        return 0;
-    };
-    let mut merger = merger.adjust_pins(candidate.0.iter()).unwrap();
-    let entry = merge_lock
-        .merge_list()
-        .add_segment_ids(candidate.0.iter(), pg_sys::GetCurrentFullTransactionId())
-        .unwrap();
-    drop(merge_lock);
-    let result = merger.merge_segments(&candidate.0).unwrap();
+}
+
+unsafe fn live_segments(metadata: &MetaPage) -> Vec<SegmentMetaEntry> {
     metadata
-        .acquire_merge_lock()
-        .merge_list()
-        .remove_entry(entry)
-        .unwrap();
-    result.map(|meta| meta.max_doc() as i64).unwrap_or(0)
+        .segment_metas()
+        .list(None)
+        .into_iter()
+        .filter(|entry| entry.xmax() == pg_sys::InvalidTransactionId)
+        .collect()
+}
+
+/// Runs a foreground `merge_index` whose single layer admits every live segment, and returns how
+/// many segments it merged away. Zero means selection found no candidate.
+#[pg_extern]
+unsafe fn test_merge_index(index: PgRelation) -> i64 {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let metadata = MetaPage::open(&index);
+    let before = live_segments(&metadata);
+    let layer_size = before
+        .iter()
+        .map(|entry| entry.byte_size())
+        .max()
+        .expect("fixture must have segments");
+    let merge_pins = metadata.pin_merge();
+    let merge_lock = metadata.acquire_merge_lock();
+    merge_index(
+        &index,
+        LayeredMergePolicy::new(vec![layer_size]),
+        merge_lock,
+        merge_pins,
+        false,
+        false,
+        pg_sys::GetCurrentFullTransactionId(),
+        pg_sys::ReadNextFullTransactionId(),
+    );
+    before.len() as i64 - live_segments(&MetaPage::open(&index)).len() as i64
 }
 
 #[pg_extern]

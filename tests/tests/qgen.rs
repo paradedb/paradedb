@@ -739,7 +739,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"], 100),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity", "uuid"], vec!["id"], 100),
         gucs in any::<PgGucs>(),
     )| {
         qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(

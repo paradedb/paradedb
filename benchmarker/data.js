@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792799576368,
+  "lastUpdate": 1792800038962,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16216,6 +16216,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 188.31,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a18cdea2ffdd05959fee3d7f0f6e4d7769eb37e1",
+          "message": "ci: move SchemaBot into the repository with pg_query (#6719)\n\n## What\n\nMove SchemaBot into `schemabot/` as a Rust workspace member using pinned\npg_query 6.2.1 and the root lockfile. Generate head/base schemas with\n`cargo pgrx schema`, then use the head revision's binary to suggest\nmigrations and validate fragments. Remove the remote tool installation\nand Python regex checker.\n\n## Why\n\nKeep schema comparison and migration policy reviewable alongside\nextension changes. PostgreSQL parse trees handle quoting, SQL bodies,\ncomments, statement boundaries, and normalized syntax without regex\nsplitting.\n\n## How\n\nCompare normalized statement sets, preserve SQL for additions, and\nsynthesize supported DROP/REVOKE statements. Routine identity excludes\nparameter names, defaults, and output columns. Migration validation\naccepts named DROP parameters, optional IF EXISTS, and CREATE OR REPLACE\nfunctions, views, and aggregates. Missing-statement errors include the\nSQL.\n\nSupport plain aggregate removals/replacements, changed COMMENT ON\nstatements, and installation SELECT actions such as\npg_extension_config_dump. Strip generated preambles using scanner token\npositions while preserving statement contents. Unsupported\nremovals/replacements retain supported suggestions on stdout, report\nmanual work on stderr, and exit 2. Parse and I/O failures exit 1 and\nfail CI immediately. The check command takes base/head schemas,\nrecomputes the diff, and validates automatic suggestions and parsed\nmanual objects together, even when the suggested SQL is empty. CI uses\none check invocation, which prints suggestions and accepts zero\nfragments when schemas are unchanged. No sidecar, diff file, or\ndiff-status output is needed. Manual base-type and enum changes are\naccepted when a fragment contains an ALTER TYPE or DROP TYPE targeting\nthe same object (qualified and unqualified names can match; explicitly\nqualified schemas must agree); this checks object coverage, not\nmigration semantics. Replacement diagnostics show both definitions. Type\nreplacements are omitted from automatic suggestions so a manual ALTER\nTYPE remains possible.\n\nSchemaBot inherits workspace settings, lints, and license. The dedicated\nUbuntu 26 workflow builds/tests without a PostgreSQL server; workspace\nCI covers formatting and Clippy. Build prerequisites include libclang,\nwith no protoc requirement. Historical released SQL files remain\nunchanged. Keep the exact parser pin so grammar upgrades are deliberate.\n\n## Tests\n\n- 31 unit tests and four CLI integration tests pass locally in an\nisolated crate copy using Rust 1.99.1 and the repository dependency\nversions.\n- Regressions cover qualified/unqualified manual type coverage, quoted\nidentifiers, mismatched explicit schemas, config-dump filter changes,\nautomatic/manual validation together, released DROP syntax, and explicit\nreplacements.\n- Clippy with warnings denied, Rustfmt, Actionlint, and git diff --check\npass. Workspace checks and full head/base extension schema generation\nrun in CI.\n\nThis checks structural coverage, not catalog equivalence after migration\nexecution. pg_query 6.2.1 uses PostgreSQL 17 grammar. Function bodies\nare compared as text; base-type and enum replacements require manual\nSQL; other unsupported object changes, including domain replacements and\nordered-set aggregate removals, require extending SchemaBot. Dependency\nordering and migration execution still require review.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-23T15:32:01-07:00",
+          "tree_id": "dd3318fb2cfe4a942da76d8ac22c7640ed9e3ced",
+          "url": "https://github.com/paradedb/paradedb/commit/a18cdea2ffdd05959fee3d7f0f6e4d7769eb37e1"
+        },
+        "date": 1792800026593,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 94.147,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 328.43,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.104,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.008,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.774,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.516,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 146.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 209.526,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.568,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.474,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 190.394,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.242,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.714,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 182.958,
             "unit": "ms"
           }
         ]

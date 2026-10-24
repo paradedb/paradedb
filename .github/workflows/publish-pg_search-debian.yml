@@ -205,6 +205,11 @@ jobs:
         if: steps.guard.outputs.build == 'true'
         uses: actions/checkout@v7
 
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
+      - name: Configure RunsOn Caching
+        if: steps.guard.outputs.build == 'true'
+        uses: runs-on/action@v2
+
       # Used to upload the release to GitHub Releases
       - name: Configure GitHub CLI Repository
         if: steps.guard.outputs.build == 'true'

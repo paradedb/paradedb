@@ -3,12 +3,12 @@
 # Generate Benchmark Heap Snapshots
 #
 # Loads a dataset's heap (load-heap) and captures it as a pgBackRest snapshot (snapshot-heap),
-# uploading to s3://paradedb-ci-benchmarks/snapshots/{dataset}/{size}/. Runs on the same CI runners
+# uploading to s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/. Runs on the same CI runners
 # as the benchmark workflow, so the snapshot's Postgres data directory is platform-compatible with
 # the cluster that restores it. The benchmark workflow then just restore-heaps these.
 #
 # Prerequisite: each dataset's sampled source data must already be in the CI bucket at
-# s3://paradedb-ci-benchmarks/datasets/{dataset}/sampled/{size}/{csv|parquet}/.
+# s3://paradedb-benchmark/datasets/{dataset}/v1/sampled/{size}/{csv|parquet}/.
 
 name: Generate Benchmark Snapshots
 
@@ -76,7 +76,7 @@ jobs:
     env:
       pg_version: 18
       BACKREST_STANZA: bench
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_BUCKET: paradedb-benchmark
       BACKREST_REPO_PATH_PREFIX: /snapshots
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
@@ -116,7 +116,7 @@ jobs:
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
             --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
-            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}"
+            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}/v1"
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
@@ -125,7 +125,7 @@ jobs:
       - name: Clear existing snapshot
         run: |
           set -euo pipefail
-          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/${{ matrix.size }}/"
+          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/v1/${{ matrix.size }}/pg_backrest/"
           aws s3api list-multipart-uploads --bucket "${BACKREST_REPO_BUCKET}" --prefix "$prefix" \
             --query 'Uploads[].{Key:Key,UploadId:UploadId}' --output text 2>/dev/null \
             | while read -r key uid; do

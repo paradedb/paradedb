@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792858610610,
+  "lastUpdate": 1792858629363,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -177878,6 +177878,64 @@ window.BENCHMARK_DATA = {
             "value": 22.52870292607688,
             "unit": "median tps",
             "extra": "avg tps: 22.201896276456885, max tps: 35.318998011328496, count: 59315"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "a74b5bccd94a08b1a7a1d30fcd69b7af43643a75",
+          "message": "refactor: reuse merge candidate eligibility snapshot",
+          "timestamp": "2026-10-24T15:50:04Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a74b5bccd94a08b1a7a1d30fcd69b7af43643a75"
+        },
+        "date": 1792858581328,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 152.63156513342332,
+            "unit": "median tps",
+            "extra": "avg tps: 150.47743272106553, max tps: 160.23374970622143, count: 59312"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 505.99793216619474,
+            "unit": "median tps",
+            "extra": "avg tps: 533.00591790181, max tps: 4873.405446517927, count: 59312"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3507.055410009637,
+            "unit": "median tps",
+            "extra": "avg tps: 3525.5949716020173, max tps: 3718.566363558224, count: 59312"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 188.46056181342988,
+            "unit": "median tps",
+            "extra": "avg tps: 186.04847282665204, max tps: 199.95645548268953, count: 59312"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 274.0619225841268,
+            "unit": "median tps",
+            "extra": "avg tps: 373.36397996095207, max tps: 3323.888777964772, count: 118624"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.507594012680737,
+            "unit": "median tps",
+            "extra": "avg tps: 22.18038505535042, max tps: 34.19872640522994, count: 59312"
           }
         ]
       }

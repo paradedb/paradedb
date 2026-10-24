@@ -206,6 +206,13 @@ impl RelationBufferAccess {
                     extend_by_one_buffer(self.rel.as_ptr(), strategy, self.rel.fork_number());
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
+            } else if crate::gucs::recent_buffers()
+                && strategy.is_null()
+                && buffer_mode == pg_sys::ReadBufferMode::RBM_NORMAL
+                && (*(*self.rel.as_ptr()).rd_rel).relpersistence
+                    != pg_sys::RELPERSISTENCE_TEMP as std::ffi::c_char
+            {
+                super::recent_buffers::read(self.rel.as_ptr(), self.rel.fork_number(), blockno)
             } else {
                 pg_sys::ReadBufferExtended(
                     self.rel.as_ptr(),

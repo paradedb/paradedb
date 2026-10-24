@@ -56,6 +56,15 @@ runs:
           -c "DROP EXTENSION IF EXISTS pg_search;" \
           -c "CREATE EXTENSION pg_search;"
 
+    - name: Enable recent-buffer experiment for PR benchmarks
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+          -v ON_ERROR_STOP=1 -c "ALTER DATABASE postgres SET paradedb.recent_buffers = on;"
+        test "$(psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+          -v ON_ERROR_STOP=1 -Atc "SHOW paradedb.recent_buffers")" = on
+
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash

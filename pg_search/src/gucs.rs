@@ -384,7 +384,22 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+static RECENT_BUFFERS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+pub fn recent_buffers() -> bool {
+    RECENT_BUFFERS.get()
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.recent_buffers",
+        c"Cache buffer IDs for normal index reads",
+        c"Validate remembered buffer IDs before falling back to the shared buffer mapping table",
+        &RECENT_BUFFERS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 

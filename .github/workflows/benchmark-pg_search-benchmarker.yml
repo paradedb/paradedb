@@ -348,6 +348,15 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait --wait-timeout 300 paradedb
 
+      - name: Enable recent-buffer experiment for PR benchmarks
+        if: github.event_name == 'pull_request'
+        working-directory: benchmarker/datasets/_ci_config
+        run: |
+          docker exec paradedb psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
+            -c "ALTER DATABASE benchmark SET paradedb.recent_buffers = on;"
+          test "$(docker exec paradedb psql -X -U postgres -d benchmark \
+            -v ON_ERROR_STOP=1 -Atc "SHOW paradedb.recent_buffers")" = on
+
       - name: Run ${{ env.DATASET }} benchmark
         working-directory: benchmarker
         env:

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792828455035,
+  "lastUpdate": 1792829254040,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -476366,6 +476366,58 @@ window.BENCHMARK_DATA = {
             "value": 24.077128347537897,
             "unit": "median tps",
             "extra": "avg tps: 40.63923870822488, max tps: 576.4496170670257, count: 59240"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792829242881,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3952.671998387397,
+            "unit": "median tps",
+            "extra": "avg tps: 3943.1433804784892, max tps: 4499.112550049503, count: 59261"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4600.745674131342,
+            "unit": "median tps",
+            "extra": "avg tps: 4636.470876814758, max tps: 5206.791066423034, count: 59261"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.46981868829837,
+            "unit": "median tps",
+            "extra": "avg tps: 168.88195116164255, max tps: 2800.7662217409056, count: 59261"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.093647583632787,
+            "unit": "median tps",
+            "extra": "avg tps: 40.74269643907381, max tps: 563.3128865178514, count: 59261"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.961475511130498,
+            "unit": "median tps",
+            "extra": "avg tps: 40.893500737855256, max tps: 614.1403027731274, count: 59261"
           }
         ]
       }

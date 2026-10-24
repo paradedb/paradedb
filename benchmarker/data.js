@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792801271148,
+  "lastUpdate": 1792801905366,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -16315,6 +16315,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 182.958,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "35105117991f0ebde74c77d4e92a36fcd8c3fd59",
+          "message": "fix: gate comparison pushdown on collation semantics (#5871)\n\n# Ticket(s) Closed\n\n- Closes #5858\n\nSource change is 52 added and 17 removed lines across five files:\nopexpr.rs, aggregate_type.rs, build.rs, pushdown.rs and searchquery.rs.\nThe other 787 lines are the issue_5858 regress test and its expected\noutput. Case 1 from the 09-06 review is fixed in c2205a611; Cases 2 and\n3 reproduce on main at c807edea.\n\n## What\n\nGate comparison pushdown on the operator's input collation. Widened from\nthe original nondeterministic-equality scope per review.\n\n## Why\n\nTantivy compares text by its bytes and `try_build_pushdown_qual` never\nread `OpExpr::inputcollid()`, so two classes answered differently from\nPostgreSQL:\n\n- nondeterministic collation: `=`, `<>`, `IN` are byte exact and drop\nrows PostgreSQL equates\n- collation that is not byte-ordered: `<`, `>`, `<=`, `>=` range in the\nwrong order\n\n## How\n\n`TantivyOperatorExt::collation_operation` maps `=`/`<>` to\n`CollationOperation::Equality` and the four range operators to\n`Ordering`, covering the whole registered set in `opexpr.rs`. The gate\ncalls `collation_semantics::collation_supports()` inside the\n`lookup_operator` arm, where the operator is known.\n\nRemoves `is_nondeterministic_collation` from `catalog.rs`. It duplicated\n`collation_semantics` and failed open: a syscache miss or a null\nattribute both returned false and re-enabled the pushdown.\n\nDeterministic ICU keeps equality and `term_set` pushdown, losing only\nranges, since deterministic equality is byte equality.\n\n## Tests\n\n`issue_5858` now EXPLAINs and asserts rows for all 11 cases, covering\nnondeterministic `=`/`<>`/`IN`, deterministic ICU, `COLLATE \"C\"`, the\ndefault collation, and a non-collatable integer range. Reverted against\nmain it fails four ways: `=` 1 row instead of 2, `<>` 2 instead of 1,\n`IN` 2 instead of 3, `name_icu > 'B'` 3 instead of 2.\n\n337/337 on pg18, no existing golden changed. CI's default collation is\nbyte-ordered, so range pushdown there is unaffected.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-10-23T16:04:02-07:00",
+          "tree_id": "4bc1bf6bccfe4a691d783f7f3ae063929667e40b",
+          "url": "https://github.com/paradedb/paradedb/commit/35105117991f0ebde74c77d4e92a36fcd8c3fd59"
+        },
+        "date": 1792801893731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.201,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.468,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 346.286,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.284,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.856,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 182.299,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.313,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.868,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.578,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.36,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 196.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.7,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.736,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 186.612,
             "unit": "ms"
           }
         ]

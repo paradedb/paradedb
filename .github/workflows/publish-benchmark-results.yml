@@ -1,3 +1,8 @@
+# workflows/publish-benchmark-results.yml
+#
+# Publish Benchmark Results
+# Serialize gh-pages writes for staged Benchmarker, Queries, and Stressgres results.
+
 name: Publish Benchmark Results
 
 on:

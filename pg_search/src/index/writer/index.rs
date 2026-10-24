@@ -635,6 +635,8 @@ impl Mergeable for SearchIndexMerger {
             // We cannot call `check_for_interrupts!()` here because `merge_index` in
             // `postgres/merge.rs` relies on `merge_segments` returning `Err` so it can remove its
             // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+            // The block writers underneath do check for interrupts; an entry orphaned by such an
+            // error is retired by `MergeEntry::is_live` once its xmin is no longer in progress.
             writer.merge_foreground(segment_ids, true)?
         } else {
             // VACUUM must remove dead CTIDs before the heap can reuse their slots.
@@ -649,7 +651,6 @@ impl Mergeable for SearchIndexMerger {
             }
             None
         };
-
         if let Some(new_segment) = new_segment.as_ref() {
             // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.
             dst::observe!(|| {

@@ -5120,6 +5120,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "postcard",
+ "postgres",
  "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "prost 0.14.4",
  "rand 0.10.3",

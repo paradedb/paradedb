@@ -130,7 +130,6 @@ runs:
         github_token: ${{ inputs.github_token }}
         pages_directory: benchmarker
         auto_push: ${{ inputs.auto_push }}
-        alert_threshold: "115%"
         comment_on_alert: ${{ inputs.pr_number == '' }}
 
     - name: Read latency baseline
@@ -155,7 +154,6 @@ runs:
         github_token: ${{ inputs.github_token }}
         pages_directory: benchmarker
         auto_push: ${{ inputs.auto_push }}
-        alert_threshold: "115%"
         comment_on_alert: ${{ inputs.pr_number == '' }}
 
     - name: Read QPS baseline

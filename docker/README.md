@@ -9,7 +9,7 @@ There are two flavors of files generated:
 - `paradedb`: The default ParadeDB Docker image, published to `paradedb/paradedb`. Includes Barman Cloud which is used in our CNPG deployments.
 - `official`: The image for Docker Official Images which will be published to `paradedb` once approved by Docker. Includes only `pg_search` and its required `pgvector` dependency, initialized in `template1`, `paradedb`, and `POSTGRES_DB`.
 
-`paradedb` and `official` install Debian artifacts published to GitHub Releases and are generated from the template. `Dockerfile.source` is maintained separately and shared by benchmarker, Cloud test images, and Antithesis.
+`paradedb` and `official` install Debian artifacts published to GitHub Releases and are generated from the template. `Dockerfile.source` is maintained separately and shared by benchmarker, Cloud test images, and DST nightly runs (via Antithesis).
 
 ## Source Image
 

@@ -4,7 +4,7 @@
 # Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
 # This workflow is triggered manually via the GitHub Actions UI and releases the selected branch or tag.
 # Beta releases require an -rc.N version and create a prerelease without advancing the branch.
-# Stable tags trigger package publishing. Betas dispatch Debian publishing with pg_version.
+# Stable tags trigger package publishing. Betas pass pg_version to Debian and then Docker publishing.
 #
 # Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
 # version bumps, and release commits only run on the community repository.

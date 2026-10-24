@@ -261,15 +261,16 @@ def main():
         except ValueError as error:
             raise ValueError(f"{name}: {error}") from error
         for target, body in snippets.items():
-            if (
-                target == "sql"
-                and name == "reference__filtering__external-indexes__group-001"
-            ):
+            if target == "sql" and name in {
+                "reference__filtering__external-indexes__group-001",
+                "reference__filtering__external-indexes__group-002",
+            }:
+                fixture = "001" if name.endswith("001") else "012"
                 body = (
                     f"\\i {SCRIPT_DIR / 'bootstrap_code_snippet_tables.sql'}\n"
-                    + outside["reference/filtering/external-indexes.mdx::fence-001"][
-                        "body"
-                    ]
+                    + outside[
+                        f"reference/filtering/external-indexes.mdx::fence-{fixture}"
+                    ]["body"]
                     + body
                 )
             if target == "drizzle":

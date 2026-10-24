@@ -50,6 +50,7 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
     public DbSet<MockItem> MockItems => Set<MockItem>();
     public DbSet<ArrayDemo> ArrayDemo => Set<ArrayDemo>();
     public DbSet<MockItemGeo> MockItemsGeo => Set<MockItemGeo>();
+    public DbSet<MockItemPath> MockItemsPaths => Set<MockItemPath>();
     public DbSet<Order> Orders => Set<Order>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -94,6 +95,14 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
             entity.Property(item => item.Description).HasColumnName("description");
         });
 
+        modelBuilder.Entity<MockItemPath>(entity =>
+        {
+            entity.ToTable("mock_items_paths");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasColumnName("id");
+            entity.Property(item => item.Description).HasColumnName("description");
+        });
+
         // __PARADEDB_MODEL_SNIPPET__
     }
 }
@@ -127,5 +136,11 @@ public sealed class Order
 public sealed class MockItemGeo
 {
     public long Id { get; set; }
+    public string Description { get; set; } = "";
+}
+
+public sealed class MockItemPath
+{
+    public int Id { get; set; }
     public string Description { get; set; } = "";
 }

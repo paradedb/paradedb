@@ -193,11 +193,6 @@
         "reference/filtering/external-indexes.mdx::fence-009"
       ]
     },
-    "reference/filtering/external-indexes.mdx::fence-013": {
-      "setup": [
-        "reference/filtering/external-indexes.mdx::fence-012"
-      ]
-    },
     "reference/full-text/top-k.mdx::fence-023": {
       "warning": "ORDER BY columns cannot be pushed down to the index"
     },

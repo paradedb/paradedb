@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792802273619,
+  "lastUpdate": 1792803618801,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24899,6 +24899,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.924,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70983df4b7da9c410b5a6abd8dcc43a673a6191e",
+          "message": "ci: standardize RunsOn setup before cache and artifact operations (#7010)\n\n## What\n\nConfigure RunsOn immediately after checkout in all 23 Community RunsOn\njob definitions. Add the same comment above each setup step:\n\n```yaml\n# With extras=s3-cache, configure RunsOn before cache or artifact operations.\n```\n\nKeep the existing runner labels and cache backends. Eighteen jobs enable\n`extras=s3-cache`. The other five keep their existing backend.\n\n## Why\n\nEnterprise RC publishing failed in [this\nrun](https://github.com/paradedb/paradedb-enterprise/actions/runs/39522106754)\nbecause the Docker-test jobs downloaded artifacts before RunsOn setup.\nArtifact listing returned `Unexpected token 'O', \"Original A\"... is not\nvalid JSON`.\n\nThe failed runners used RunsOn v3.3.1. Versions before v3.4.0 require\nsetup before artifact operations with `extras=s3-cache`. [RunsOn\ndocuments the exact\nerror](https://runs-on.com/docs/performance/caching/actions/).\n\n## How\n\nKeep setup in the calling workflows, including the two Benchmarker jobs.\nRemove the nested setup from `build-paradedb-image` so each job runs it\nonce. Preserve the Debian publish job's existing build guard.\n\nThis can sync to Enterprise without changing RC versions or Dockerfile\ngeneration.\n\n## Tests\n\n- Prettier, actionlint, and `git diff --check` passed.\n- Audited workflows and local composite actions. All 23 RunsOn jobs have\nexactly one setup step immediately after checkout, before cache and\nartifact operations.\n- Verified all 23 setup steps have the comment.\n- Compared parsed workflows and confirmed all other settings and steps\nare unchanged.\n- Live publishing and the five newly added setup steps await CI\nvalidation.",
+          "timestamp": "2026-10-23T17:17:36-07:00",
+          "tree_id": "8524751a0839e3aaccbbf322c0c131266ad26b2c",
+          "url": "https://github.com/paradedb/paradedb/commit/70983df4b7da9c410b5a6abd8dcc43a673a6191e"
+        },
+        "date": 1792803606270,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.292,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.666,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.765,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.508,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.474,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.127,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 1.732,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.53,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.254,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.855,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.144,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.015,
             "unit": "ms"
           }
         ]

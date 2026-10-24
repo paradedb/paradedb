@@ -154,16 +154,21 @@ pub(crate) fn rebuild_missing_ffhelpers(
     ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
     context: LookupRebuildContext,
 ) -> Result<()> {
-    // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
-    // lines up by construction); they rebuild only on a worker whose fragment has that scan
-    // behind a network boundary.
+    // A helper from a lower lookup may cover only some columns of the same index. Decode
+    // placement can put different group keys on opposite sides of an aggregate or shuffle.
     let mut rebuild_indexes: HashSet<u32> = Default::default();
     for f in deferred_fields {
-        if f.rebuild.is_none() {
+        let Some(rebuild) = f.rebuild.as_ref() else {
             continue;
-        }
-        let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
-        if scan_is_elsewhere {
+        };
+        let has_column = ffhelpers
+            .get(&f.canonical.indexrelid)
+            .and_then(|helper| helper.field_layout())
+            .and_then(|fields| fields.get(f.canonical.ff_index))
+            .is_some_and(|field| {
+                matches!(field, WhichFastField::Named { name, .. } if name == &rebuild.field_name)
+            });
+        if !has_column {
             rebuild_indexes.insert(f.canonical.indexrelid);
         }
     }

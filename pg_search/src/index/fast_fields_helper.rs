@@ -129,6 +129,10 @@ impl FFHelper {
             .expect("FFHelper::empty() must not be used for column access")
     }
 
+    pub(crate) fn field_layout(&self) -> Option<&[WhichFastField]> {
+        self.0.as_ref().map(|inner| inner.columns.as_slice())
+    }
+
     fn searcher(&self) -> &Searcher {
         &self.inner().searcher
     }

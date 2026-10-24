@@ -154,7 +154,11 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
-    let writer_segment_ids = reader.segment_ids();
+    let mut writer_segment_ids = reader.segment_ids();
+    // The Vacuum reader intentionally excludes mutable segments so it cannot materialize
+    // historical heap tuples. Keep their frozen ids in the sentinel list; flush_mutable_segments
+    // processes them from their CTID lists below.
+    writer_segment_ids.extend(mutable_segments.iter().map(SegmentMetaEntry::segment_id));
 
     // Write out the list of segment ids we're about to operate on
     // Then acquire a `vacuum_sentinel` to notify concurrent backends that a vacuum is happening

@@ -546,6 +546,14 @@ impl MVCCDirectory {
 
     /// Returns false when the candidate must retain its inputs until VACUUM can clean them.
     pub fn prepare_mutable_segments(&self, segment_ids: &[SegmentId]) -> anyhow::Result<bool> {
+        if let MvccSatisfies::VacuumMerge { live_ctids } = &*self.mvcc_style
+            && segment_ids.iter().any(|id| live_ctids[id].is_empty())
+        {
+            // Tantivy cannot materialize an empty segment. Let VACUUM's CTID compaction retire
+            // these inputs directly instead of reaching index_memory_segment's non-empty assert.
+            return Ok(false);
+        }
+
         for segment_id in segment_ids {
             let entry = self.all_entries.lock().get(segment_id).cloned();
             if let Some(LoadedSegmentMetaEntry::Memory {
@@ -575,9 +583,20 @@ impl MVCCDirectory {
         let entries = self.all_entries();
         if segment_ids
             .iter()
-            .all(|id| live_ctids[id].len() == entries[id].num_docs())
+            .all(|id| !live_ctids[id].is_empty() && live_ctids[id].len() == entries[id].num_docs())
         {
             return Ok(false);
+        }
+
+        // Give VACUUM a chance to observe cancellation while preparing the replacement. Do this
+        // before allocating any linked-list pages: an interrupt during construction would leave
+        // pages unreachable because the new segment metadata is not published until below.
+        for id in segment_ids {
+            for i in 0..live_ctids[id].len() {
+                if i % 1024 == 0 {
+                    crate::postgres::utils::vacuum_delay_point();
+                }
+            }
         }
 
         let mut replacements = Vec::new();
@@ -590,7 +609,6 @@ impl MVCCDirectory {
             let (mut content, mut items) = SegmentMetaEntryMutable::create(&self.indexrel);
             content.frozen = true;
             for chunk in ctids.chunks(1024) {
-                crate::postgres::utils::vacuum_delay_point();
                 let additions = chunk
                     .iter()
                     .copied()

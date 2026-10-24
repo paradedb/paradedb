@@ -3,7 +3,7 @@ description: Publish prepared benchmark metrics to gh-pages and report regressio
 
 inputs:
   name:
-    description: "Benchmark suite name (preserve it to retain history)"
+    description: "Benchmark suite name"
     required: true
   metrics_file:
     description: "Prepared github-action-benchmark metrics JSON"
@@ -12,7 +12,7 @@ inputs:
     description: "Git ref or commit benchmarked"
     required: true
   github_token:
-    description: "GitHub token for publishing and comments"
+    description: "ParadeDB GitHub App installation token"
     required: true
   direction:
     description: "Metric direction: smaller or bigger"

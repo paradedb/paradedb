@@ -306,7 +306,8 @@ jobs:
           index: bm25
           size: 100k
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -335,7 +336,8 @@ jobs:
           index: bm25
           size: 1m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -364,7 +366,8 @@ jobs:
           index: bm25
           size: 20m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -421,7 +424,8 @@ jobs:
           alert_strategy: paired-bootstrap
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -472,7 +476,8 @@ jobs:
           alert_strategy: paired-bootstrap
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 

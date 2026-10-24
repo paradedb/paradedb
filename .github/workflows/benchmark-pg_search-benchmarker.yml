@@ -200,7 +200,8 @@ jobs:
           short_commit: ${{ steps.build_image.outputs.short_commit }}
           ref: ${{ steps.determine-ref.outputs.ref }}
           image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           pr_number: ${{ github.event.pull_request.number }}
           auto_push: ${{ github.ref == 'refs/heads/main' }}
 
@@ -400,7 +401,8 @@ jobs:
           short_commit: ${{ steps.build_image.outputs.short_commit }}
           ref: ${{ steps.determine-ref.outputs.ref }}
           image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           pr_number: ${{ github.event.pull_request.number }}
           auto_push: ${{ github.ref == 'refs/heads/main' }}
 

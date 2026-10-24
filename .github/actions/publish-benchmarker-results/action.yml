@@ -27,8 +27,11 @@ inputs:
     description: "Path to write extracted QPS metrics json"
     required: false
     default: "benchmarker/benchmarker_throughput_metrics.json"
-  github_token:
-    description: "GitHub token for publishing and comments"
+  github_app_client_id:
+    description: "ParadeDB GitHub App client ID"
+    required: true
+  github_app_private_key:
+    description: "ParadeDB GitHub App private key"
     required: true
   pr_number:
     description: "PR number to comment on (empty if not a PR)"
@@ -42,6 +45,31 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+      with:
+        client-id: ${{ inputs.github_app_client_id }}
+        private-key: ${{ inputs.github_app_private_key }}
+
+    - name: Wait for App Token to Become Usable
+      shell: bash
+      env:
+        APP_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        for attempt in $(seq 1 10); do
+          if git -c http.extraheader="$auth" ls-remote \
+              "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
+            echo "App token usable after ${attempt} attempt(s)"
+            exit 0
+          fi
+          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
+          sleep 5
+        done
+        echo "App token never became usable after 10 attempts" >&2
+        exit 1
+
     - name: Upload dashboards
       uses: actions/upload-artifact@v7
       with:
@@ -127,7 +155,7 @@ runs:
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
         metrics_file: ${{ inputs.metrics_file }}
-        github_token: ${{ inputs.github_token }}
+        github_token: ${{ steps.app-token.outputs.token }}
         pages_directory: benchmarker
         auto_push: ${{ inputs.auto_push }}
         comment_on_alert: ${{ inputs.pr_number == '' }}
@@ -151,7 +179,7 @@ runs:
         ref: ${{ inputs.ref }}
         direction: bigger
         metrics_file: ${{ inputs.throughput_metrics_file }}
-        github_token: ${{ inputs.github_token }}
+        github_token: ${{ steps.app-token.outputs.token }}
         pages_directory: benchmarker
         auto_push: ${{ inputs.auto_push }}
         comment_on_alert: ${{ inputs.pr_number == '' }}
@@ -183,7 +211,7 @@ runs:
       if: hashFiles('_ghpages_html/*.html') != ''
       uses: peaceiris/actions-gh-pages@v4
       with:
-        github_token: ${{ inputs.github_token }}
+        github_token: ${{ steps.app-token.outputs.token }}
         publish_dir: ./_ghpages_html
         destination_dir: benchmarker-runs/${{ inputs.short_commit }}/${{ inputs.dataset }}
         keep_files: true
@@ -195,7 +223,7 @@ runs:
       if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
         EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
         STEP_COMMIT_INFO_SHORT_COMMIT: ${{ inputs.short_commit }}
         PR_NUMBER: ${{ inputs.pr_number }}

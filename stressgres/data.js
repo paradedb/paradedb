@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792859758172,
+  "lastUpdate": 1792859775761,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -381912,6 +381912,124 @@ window.BENCHMARK_DATA = {
             "value": 20.176402590494735,
             "unit": "median tps",
             "extra": "avg tps: 25.970453289813108, max tps: 1732.9220531660485, count: 57410"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "a74b5bccd94a08b1a7a1d30fcd69b7af43643a75",
+          "message": "refactor: reuse merge candidate eligibility snapshot",
+          "timestamp": "2026-10-24T15:50:04Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a74b5bccd94a08b1a7a1d30fcd69b7af43643a75"
+        },
+        "date": 1792859751133,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 492.67378198392294,
+            "unit": "median tps",
+            "extra": "avg tps: 492.5534275064205, max tps: 497.06925827286, count: 57408"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 393.19926614330427,
+            "unit": "median tps",
+            "extra": "avg tps: 393.57323913147707, max tps: 407.1122855255252, count: 57408"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3694.3585216169563,
+            "unit": "median tps",
+            "extra": "avg tps: 3697.197172639631, max tps: 4259.124477991056, count: 57408"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 493.5025142889493,
+            "unit": "median tps",
+            "extra": "avg tps: 493.4817387211758, max tps: 497.1296309762153, count: 57408"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3749.9062416760494,
+            "unit": "median tps",
+            "extra": "avg tps: 3739.283860897662, max tps: 3763.732249496242, count: 57408"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3717.2176890345427,
+            "unit": "median tps",
+            "extra": "avg tps: 3716.9468102159008, max tps: 3866.370792225755, count: 57408"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 192.33594343656375,
+            "unit": "median tps",
+            "extra": "avg tps: 192.24091890808552, max tps: 192.9585840401437, count: 57408"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 381.4546344426671,
+            "unit": "median tps",
+            "extra": "avg tps: 381.4218616342146, max tps: 382.75004469458673, count: 57408"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 574.1091263451854,
+            "unit": "median tps",
+            "extra": "avg tps: 570.5920603772123, max tps: 580.116390521294, count: 57408"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 689.5850737813049,
+            "unit": "median tps",
+            "extra": "avg tps: 684.2149407976029, max tps: 692.1552873733111, count: 57408"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1500.6887525795787,
+            "unit": "median tps",
+            "extra": "avg tps: 1496.7796906103413, max tps: 1504.715793611559, count: 57408"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 510.2594415783474,
+            "unit": "median tps",
+            "extra": "avg tps: 510.275090601802, max tps: 516.1303967216519, count: 57408"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 623.2130429370616,
+            "unit": "median tps",
+            "extra": "avg tps: 621.8002506934739, max tps: 624.628859062496, count: 57408"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2535.110309321463,
+            "unit": "median tps",
+            "extra": "avg tps: 2531.9083542982357, max tps: 2558.6405877143907, count: 57408"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2106.5369282404517,
+            "unit": "median tps",
+            "extra": "avg tps: 2086.182229528835, max tps: 2121.0910839919843, count: 57408"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 67.03236467900642,
+            "unit": "median tps",
+            "extra": "avg tps: 78.73807449384766, max tps: 1642.3786241137313, count: 57408"
           }
         ]
       }

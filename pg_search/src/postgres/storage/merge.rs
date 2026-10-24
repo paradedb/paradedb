@@ -314,7 +314,9 @@ impl MergeList {
             .collect::<Vec<_>>();
         let segment_ids_list = LinkedBytesList::create_with_fsm(self.bman.buffer_access().rel());
         let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
-        segment_ids_list.writer().write(&segment_id_bytes)?;
+        let mut writer = segment_ids_list.writer();
+        writer.write(&segment_id_bytes)?;
+        writer.finalize_and_write()?;
 
         // fabricate and write the [`MergeEntry`] itself
         let merge_entry = MergeEntry {
@@ -367,6 +369,55 @@ mod tests {
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::metadata::MetaPage;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_merge_entry_reclaims_segment_id_pages() -> spi::Result<()> {
+        Spi::run("CREATE TABLE merge_list_reclaim_test (id SERIAL, data TEXT)")?;
+        Spi::run(
+            "CREATE INDEX merge_list_reclaim_test_idx ON merge_list_reclaim_test USING paradedb (id, data)",
+        )?;
+        let index_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'merge_list_reclaim_test_idx'::regclass::oid")?
+                .unwrap();
+
+        for count in [1, 1024] {
+            let indexrel = PgSearchRelation::open(index_oid);
+            let merge_lock = MetaPage::open(&indexrel).acquire_merge_lock();
+            let mut merge_list = merge_lock.merge_list();
+            let segment_ids = (0..count)
+                .map(|_| SegmentId::generate_random())
+                .collect::<Vec<_>>();
+            let entry = merge_list
+                .add_segment_ids(&segment_ids, pg_sys::GetCurrentFullTransactionId())
+                .unwrap();
+            assert_eq!(entry.segment_ids(&indexrel), segment_ids);
+
+            let list = LinkedBytesList::open(&indexrel, entry.segment_ids_start_blockno);
+            let mut expected_blocks = vec![entry.segment_ids_start_blockno];
+            let (mut blockno, header) = list.get_start_blockno();
+            drop(header);
+            while blockno != pg_sys::InvalidBlockNumber {
+                expected_blocks.push(blockno);
+                blockno = list.bman().get_buffer(blockno).page().next_blockno();
+            }
+            drop(list);
+            merge_list.remove_entry(entry).unwrap();
+            drop(merge_list);
+            drop(merge_lock);
+            drop(indexrel);
+
+            let blocks = expected_blocks
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            let reclaimed = Spi::get_one::<i64>(&format!(
+                "SELECT count(DISTINCT free_blockno) FROM paradedb.fsm_info('merge_list_reclaim_test_idx') WHERE free_blockno IN ({blocks})"
+            ))?.unwrap();
+            assert_eq!(reclaimed as usize, expected_blocks.len());
+        }
+        Ok(())
+    }
 
     #[pg_test]
     unsafe fn test_dead_pid_merge_entry_is_ignored_and_garbage_collected() -> spi::Result<()> {

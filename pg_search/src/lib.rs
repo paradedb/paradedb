@@ -149,6 +149,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     postgres::options::init();
     postgres::build_logging::init();
+    postgres::mutable_wakeup::init();
     gucs::init();
     // A term dictionary walk is one tantivy call that runs for seconds on a big segment, and
     // pg_search's own checks sit between segments.

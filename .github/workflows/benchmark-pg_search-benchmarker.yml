@@ -203,7 +203,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
+          publish_baseline: ${{ github.ref == 'refs/heads/main' }}
 
   benchmark-datasets:
     name: Benchmarker (${{ matrix.dataset }})
@@ -404,7 +404,7 @@ jobs:
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
+          publish_baseline: ${{ github.ref == 'refs/heads/main' }}
 
   notify-slack-on-failure:
     name: Notify Slack on Failure

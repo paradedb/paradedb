@@ -136,7 +136,7 @@ runs:
         ref: ${{ inputs.ref }}
         metrics_file: benchmarks/results.json
         github_token: ${{ steps.app-token.outputs.token }}
-        auto_push: ${{ inputs.publish }}
+        publish_baseline: ${{ inputs.publish }}
         pages_directory: benchmarks
         alert_threshold: ${{ inputs.alert_threshold }}
         comment_always: ${{ github.event_name == 'pull_request' }}

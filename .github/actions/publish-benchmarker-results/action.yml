@@ -37,8 +37,8 @@ inputs:
     description: "PR number to comment on (empty if not a PR)"
     required: false
     default: ""
-  auto_push:
-    description: "Whether to auto-push baseline metrics to gh-pages"
+  publish_baseline:
+    description: "Whether to publish baseline metrics to gh-pages"
     required: false
     default: "false"
 
@@ -157,7 +157,7 @@ runs:
         metrics_file: ${{ inputs.metrics_file }}
         github_token: ${{ steps.app-token.outputs.token }}
         pages_directory: benchmarker
-        auto_push: ${{ inputs.auto_push }}
+        publish_baseline: ${{ inputs.publish_baseline }}
         comment_on_alert: ${{ inputs.pr_number == '' }}
 
     - name: Read latency baseline
@@ -181,7 +181,7 @@ runs:
         metrics_file: ${{ inputs.throughput_metrics_file }}
         github_token: ${{ steps.app-token.outputs.token }}
         pages_directory: benchmarker
-        auto_push: ${{ inputs.auto_push }}
+        publish_baseline: ${{ inputs.publish_baseline }}
         comment_on_alert: ${{ inputs.pr_number == '' }}
 
     - name: Read QPS baseline

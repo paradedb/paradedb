@@ -134,7 +134,7 @@ runs:
         direction: bigger
         metrics_file: pg_search_tps.json
         github_token: ${{ steps.app-token.outputs.token }}
-        auto_push: ${{ github.event_name != 'pull_request' }}
+        publish_baseline: ${{ github.event_name != 'pull_request' }}
         pages_directory: stressgres
         comment_always: ${{ github.event_name == 'pull_request' }}
 
@@ -145,7 +145,7 @@ runs:
         ref: ${{ inputs.ref }}
         metrics_file: pg_search_other.json
         github_token: ${{ steps.app-token.outputs.token }}
-        auto_push: ${{ github.event_name != 'pull_request' }}
+        publish_baseline: ${{ github.event_name != 'pull_request' }}
         pages_directory: stressgres
         alert_threshold: "110%"
         comment_always: ${{ github.event_name == 'pull_request' }}

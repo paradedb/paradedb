@@ -21,7 +21,7 @@ inputs:
   pages_directory:
     description: "Metrics directory on gh-pages"
     required: true
-  auto_push:
+  publish_baseline:
     description: "Whether to write the baseline to gh-pages"
     required: false
     default: "false"
@@ -67,7 +67,7 @@ runs:
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         benchmark-data-dir-path: ${{ inputs.pages_directory }}
-        auto-push: ${{ inputs.auto_push == 'true' }}
+        auto-push: ${{ inputs.publish_baseline == 'true' }}
         alert-threshold: ${{ inputs.alert_threshold }}
         comment-on-alert: ${{ inputs.comment_on_alert == 'true' }}
         alert-comment-cc-users: "@${{ github.actor }}"

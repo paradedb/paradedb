@@ -966,6 +966,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         gucs.aggregate_custom_scan = true;
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
+        gucs.mpp_enabled = true;
 
         qgen_oracle!("qgen: generated_aggregate_join - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,

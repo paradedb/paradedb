@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792877727124,
+  "lastUpdate": 1792877742761,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -29568,6 +29568,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 379.2726962737263,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "114429499+ygxio@users.noreply.github.com",
+            "name": "yogesh",
+            "username": "ygxio"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad5ba343cf1d286cac9ede03e01656fc6508a4e3",
+          "message": "perf: optimised to use doc_count when count aggregate key matches with GROUP BY key (#6707)\n\n# Ticket(s) Closed\n\n- Closes #6705\n\n## What\n\n## Why\n\n`COUNT(col)` where `col` is the GROUP BY key ran a separate value_count\nsub-aggregation per bucket.\n\n## How\n\nReuse the bucket's `doc_count` instead (NULL-key bucket reports 0).\n\n## Tests\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-10-24T13:52:54-07:00",
+          "tree_id": "5f07e2e8edba3c13ea6207aa1f69d05cc4b5a66c",
+          "url": "https://github.com/paradedb/paradedb/commit/ad5ba343cf1d286cac9ede03e01656fc6508a4e3"
+        },
+        "date": 1792877729859,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 541.4104410673601,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 514.5591303266473,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 147.84551379932523,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 263.06253953601026,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 379.56913263855057,
             "unit": "queries/s"
           }
         ]

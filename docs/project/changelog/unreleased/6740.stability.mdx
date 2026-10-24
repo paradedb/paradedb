@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed delayed cancellation and termination during segment merges and made VACUUM's wait for mergers interruptible, while preserving foreground merging during that wait. VACUUM's buffer-pin waits support cancellation and `statement_timeout`, not `lock_timeout`.

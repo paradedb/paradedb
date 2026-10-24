@@ -52,6 +52,7 @@ struct UnpublishedFile {
 pub(crate) struct Allocation(Arc<UnpublishedFile>);
 
 impl Allocation {
+    /// Adds a block the file's writer reserved or wrote.
     pub(crate) fn record(&self, blockno: pg_sys::BlockNumber) {
         self.0.blocks.lock().push(blockno);
     }
@@ -81,9 +82,11 @@ pub(crate) fn track(rel: &PgSearchRelation) -> Allocation {
     allocation
 }
 
+/// The files a segment switch is about to publish, resolved ahead of the switch.
 pub(crate) struct Publication(Vec<Allocation>);
 
 impl Publication {
+    /// Forgets the files: once published they belong to the index, not to this process.
     pub(crate) fn publish(self) {
         UNPUBLISHED.lock().retain(|file| {
             !self
@@ -121,16 +124,6 @@ pub(crate) fn prepare_publication(
     Publication(files)
 }
 
-/// Number of unpublished files recorded for `index_oid`.
-#[cfg(any(test, feature = "pg_test"))]
-pub(crate) fn pending(index_oid: pg_sys::Oid) -> usize {
-    UNPUBLISHED
-        .lock()
-        .iter()
-        .filter(|file| file.0.index_oid == index_oid)
-        .count()
-}
-
 /// Runs `f` in a subtransaction and returns `rel`'s unpublished blocks to the FSM if it fails.
 ///
 /// On success the subtransaction is released and its locks pass to the parent. On an ERROR or
@@ -141,8 +134,8 @@ pub(crate) fn pending(index_oid: pg_sys::Oid) -> usize {
 /// A subtransaction's resource owner tracks only what was acquired under it, so every buffer
 /// pin, relation reference and snapshot `f` takes must be released before it returns, and `f`
 /// must not release one taken before the scope: either is an ERROR. In parallel mode, where
-/// subtransactions are not allowed, `f` runs directly and a failure leaves its blocks to the exit
-/// callback or `storage::sweep`.
+/// subtransactions are not allowed, `f` runs directly and a failure leaves its blocks to
+/// `storage::sweep`.
 pub(crate) unsafe fn reclaiming_on_error<T>(
     rel: &PgSearchRelation,
     f: impl FnOnce() -> anyhow::Result<T>,
@@ -250,6 +243,16 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) {
         });
         bman.fsm().extend(&mut bman, blocks.into_iter());
     }
+}
+
+/// Number of unpublished files recorded for `index_oid`.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) fn pending(index_oid: pg_sys::Oid) -> usize {
+    UNPUBLISHED
+        .lock()
+        .iter()
+        .filter(|file| file.0.index_oid == index_oid)
+        .count()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

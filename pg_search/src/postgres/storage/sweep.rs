@@ -172,32 +172,6 @@ pub(crate) unsafe fn reclaim_as_of(
     claimed.len()
 }
 
-/// Relation size minus the blocks accounted for. Zero means there is nothing to sweep.
-#[cfg(any(test, feature = "pg_test"))]
-pub(crate) unsafe fn unaccounted_blocks(indexrel: &PgSearchRelation) -> i64 {
-    let meta = MetaPage::open(indexrel);
-    let merge = MergeListSnapshot::take(indexrel, &meta);
-    let nblocks = relation_blocks(indexrel);
-    nblocks as i64 - accounted_blocks(indexrel, &meta, &merge, nblocks) as i64
-}
-
-/// Every block that is neither referenced nor held by the FSM, with its verdict. Read-only.
-#[cfg(any(test, feature = "pg_test"))]
-unsafe fn candidates(indexrel: &PgSearchRelation) -> Vec<Candidate> {
-    candidates_as_of(indexrel, sweep_horizon())
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-unsafe fn candidates_as_of(
-    indexrel: &PgSearchRelation,
-    horizon: pg_sys::TransactionId,
-) -> Vec<Candidate> {
-    let meta = MetaPage::open(indexrel);
-    let merge = MergeListSnapshot::take(indexrel, &meta);
-    let nblocks = relation_blocks(indexrel);
-    candidates_in(indexrel, &meta, &merge, nblocks, horizon).collect()
-}
-
 /// Stamps the candidate's page `FrozenTransactionId` if it still says what the verdict was
 /// based on, and reports whether it did. The cleanup lock is conditional: a page anyone else
 /// has pinned is in a writer's hands, whatever its stamp says. A registry return that got
@@ -545,8 +519,34 @@ unsafe fn visit_fsm(indexrel: &PgSearchRelation, meta: &MetaPage, set: &mut Bloc
 }
 
 // ---------------------------------------------------------
-// SQL, for the multi-session tests only
+// Test support
 // ---------------------------------------------------------
+
+/// Relation size minus the blocks accounted for. Zero means there is nothing to sweep.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) unsafe fn unaccounted_blocks(indexrel: &PgSearchRelation) -> i64 {
+    let meta = MetaPage::open(indexrel);
+    let merge = MergeListSnapshot::take(indexrel, &meta);
+    let nblocks = relation_blocks(indexrel);
+    nblocks as i64 - accounted_blocks(indexrel, &meta, &merge, nblocks) as i64
+}
+
+/// Every block that is neither referenced nor held by the FSM, with its verdict. Read-only.
+#[cfg(any(test, feature = "pg_test"))]
+unsafe fn candidates(indexrel: &PgSearchRelation) -> Vec<Candidate> {
+    candidates_as_of(indexrel, sweep_horizon())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+unsafe fn candidates_as_of(
+    indexrel: &PgSearchRelation,
+    horizon: pg_sys::TransactionId,
+) -> Vec<Candidate> {
+    let meta = MetaPage::open(indexrel);
+    let merge = MergeListSnapshot::take(indexrel, &meta);
+    let nblocks = relation_blocks(indexrel);
+    candidates_in(indexrel, &meta, &merge, nblocks, horizon).collect()
+}
 
 #[cfg(feature = "pg_test")]
 #[pgrx::pg_extern(name = "unaccounted_blocks")]
@@ -649,6 +649,7 @@ pub(crate) mod testing {
         pg_sys::TransactionId::from(pg_sys::ReadNextFullTransactionId().value as u32)
     }
 
+    /// Overwrites the allocation stamp of `blocks` with `xid`.
     pub(crate) unsafe fn stamp(
         indexrel: &PgSearchRelation,
         blocks: &[pg_sys::BlockNumber],
@@ -660,6 +661,7 @@ pub(crate) mod testing {
         }
     }
 
+    /// The allocation stamp of a written page.
     pub(crate) unsafe fn stamp_of(
         indexrel: &PgSearchRelation,
         blockno: pg_sys::BlockNumber,

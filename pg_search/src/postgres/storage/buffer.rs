@@ -855,6 +855,8 @@ impl BufferManager {
         }
     }
 
+    /// A manager whose allocations are recorded in `storage::unpublished` until the file they
+    /// belong to is published.
     pub(crate) fn new_tracked(rel: &PgSearchRelation) -> Self {
         let mut bman = Self::new(rel);
         bman.rbufacc.allocation = Some(super::unpublished::track(rel));

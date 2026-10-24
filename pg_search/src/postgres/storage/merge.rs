@@ -91,6 +91,7 @@ impl MergeLock {
         )
     }
 
+    /// Header block of the merge list, for readers that open it under this lock.
     pub(crate) fn merge_list_header_blockno(&self) -> pg_sys::BlockNumber {
         self.data.merge_list
     }

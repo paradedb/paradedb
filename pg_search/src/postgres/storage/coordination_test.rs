@@ -28,6 +28,7 @@ use std::io::Write;
 use tantivy::Directory;
 use tantivy::index::SegmentId;
 
+/// Raises an ERROR when the GUC `name` is `on`; tests inject failures at the call site.
 pub(crate) unsafe fn failpoint(name: &CStr) {
     let value = pg_sys::GetConfigOptionByName(name.as_ptr(), std::ptr::null_mut(), true);
     if !value.is_null() && CStr::from_ptr(value).to_bytes() == b"on" {
@@ -69,6 +70,7 @@ pub(crate) unsafe fn merge_pause() {
     pause(c"pg_search.test_merge_ready", c"pg_search.test_merge_gate");
 }
 
+/// Runs while a segment component writer holds reserved output pages.
 pub(crate) unsafe fn output_pause() {
     pause(
         c"pg_search.test_output_ready",

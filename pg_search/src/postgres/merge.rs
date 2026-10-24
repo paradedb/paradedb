@@ -293,6 +293,8 @@ fn backpressure(
     candidates
         .chunk_by(|(left, _), (right, _)| left == right)
         .filter(|layer| {
+            // Layer 0 converts mutable segments, so apply backpressure above two eligible inputs.
+            // Immutable layers allow a backlog proportional to the target segment count.
             let threshold = if layer[0].0 == 0 {
                 2
             } else {
@@ -345,7 +347,6 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
             .min_by_key(|(layer, _)| *layer)
             .map(|(_, candidate)| candidate);
         merge_policy.prefer_small_merges();
-        merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
         let (backpressure_candidates, _, _) = merge_policy.simulate_supported(&merger)?;
         let candidate = backpressure(
             &backpressure_candidates,

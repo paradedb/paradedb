@@ -154,37 +154,45 @@ impl LayeredMergePolicy {
     /// Each selection considers the full mergeable set minus unsupported segments, including
     /// supported segments that were not selected in an earlier iteration.
     /// Writes without merge candidates do not read vector components.
+    /// Leaves the eligible inputs intact so another layer order can reuse them.
     pub fn simulate_supported(
-        &mut self,
+        &self,
         merger: &SearchIndexMerger,
     ) -> tantivy::Result<(Vec<LayeredMergeCandidate>, u64, usize)> {
         self.simulate_with_validation(|candidates| merger.unsupported_vector_segments(candidates))
     }
 
     fn simulate_with_validation(
-        &mut self,
+        &self,
         mut unsupported: impl FnMut(
             &HashMap<SegmentId, SegmentMetaEntry>,
         ) -> tantivy::Result<HashSet<SegmentId>>,
     ) -> tantivy::Result<(Vec<LayeredMergeCandidate>, u64, usize)> {
-        let full_mergeable_set = self.mergeable_segments.clone();
+        let mut simulation = Self {
+            layer_sizes: self.layer_sizes.clone(),
+            min_merge_count: self.min_merge_count,
+            enable_logging: self.enable_logging,
+            mergeable_segments: HashMap::default(),
+            already_processed: AtomicBool::new(self.already_processed.load(Ordering::Relaxed)),
+        };
         let mut excluded = HashSet::default();
         loop {
-            self.mergeable_segments = full_mergeable_set
+            simulation.mergeable_segments = self
+                .mergeable_segments
                 .iter()
                 .filter(|(id, _)| !excluded.contains(*id))
                 .map(|(id, entry)| (*id, *entry))
                 .collect();
-            let (candidates, largest_layer_size) = self.simulate();
+            let (candidates, largest_layer_size) = simulation.simulate();
             if candidates.is_empty() {
                 return Ok((candidates, largest_layer_size, excluded.len()));
             }
-            let unsupported = unsupported(&self.mergeable_segments)?;
+            let unsupported = unsupported(&simulation.mergeable_segments)?;
             if unsupported.is_empty() {
                 return Ok((candidates, largest_layer_size, excluded.len()));
             }
             excluded.extend(unsupported);
-            self.already_processed.store(false, Ordering::Relaxed);
+            simulation.already_processed.store(false, Ordering::Relaxed);
         }
     }
 
@@ -638,7 +646,56 @@ pub(crate) mod tests {
                 .copied()
                 .collect::<HashSet<_>>(),
             supported
+                .into_iter()
+                .chain([unsupported_id])
+                .collect::<HashSet<_>>()
         );
+    }
+
+    #[pg_test]
+    fn merge_validation_reuses_inputs_across_layer_orders() {
+        let segments = vec![
+            create_segment_meta_entry(1200, 120, 0),
+            create_segment_meta_entry(500, 50, 0),
+            create_segment_meta_entry(460, 46, 0),
+            create_segment_meta_entry(440, 44, 0),
+        ];
+        let ids = segments
+            .iter()
+            .map(SegmentMetaEntry::segment_id)
+            .collect::<Vec<_>>();
+        for unsupported_id in [None, Some(ids[0]), Some(ids[3])] {
+            let mut policy = LayeredMergePolicy::new(vec![1000, 1500]);
+            policy.set_mergeable_segments_for_test(segments.clone());
+            let validate = |selected: &HashMap<SegmentId, SegmentMetaEntry>| {
+                Ok(unsupported_id
+                    .filter(|id| selected.contains_key(id))
+                    .into_iter()
+                    .collect::<HashSet<_>>())
+            };
+            let (large_first, _, _) = policy.simulate_with_validation(validate).unwrap();
+            policy.prefer_small_merges();
+            let (small_first, largest_layer, skipped) =
+                policy.simulate_with_validation(validate).unwrap();
+
+            policy.set_mergeable_segments_for_test(segments.clone());
+            let (reloaded, reloaded_largest, reloaded_skipped) =
+                policy.simulate_with_validation(validate).unwrap();
+            assert_eq!(largest_layer, reloaded_largest);
+            assert_eq!(skipped, reloaded_skipped);
+            let inputs = |candidates: Vec<LayeredMergeCandidate>| {
+                candidates
+                    .into_iter()
+                    .map(|(layer, candidate)| (layer, candidate.0))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(inputs(small_first), inputs(reloaded));
+            if unsupported_id.is_none() {
+                assert_eq!(inputs(large_first), vec![(1500, ids[..3].to_vec())]);
+                let (small_first, _, _) = policy.simulate_with_validation(validate).unwrap();
+                assert_eq!(inputs(small_first), vec![(1000, ids[1..].to_vec())]);
+            }
+        }
     }
 
     #[pg_test]

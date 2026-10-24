@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{HashMap, HashSet};
+use crate::api::HashSet;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, block_number_is_valid, bm25_max_free_space,
@@ -50,13 +50,28 @@ impl MergeLock {
     /// This is a blocking operation to acquire an exclusive lock on the merge lock buffer
     pub unsafe fn acquire(indexrel: &PgSearchRelation, block_number: pg_sys::BlockNumber) -> Self {
         let mut bman = BufferManager::new(indexrel);
-        let mut buffer = bman.get_buffer_mut(block_number);
+        let buffer = bman.get_buffer_mut(block_number);
+        Self::from_buffer(bman, buffer)
+    }
+
+    /// Like `acquire`, but first waits for every other pin on the merge page (`LockBufferForCleanup`).
+    pub unsafe fn acquire_for_cleanup(
+        indexrel: &PgSearchRelation,
+        block_number: pg_sys::BlockNumber,
+    ) -> Self {
+        let mut bman = BufferManager::new(indexrel);
+        let buffer = bman.get_buffer_for_cleanup(block_number);
+        Self::from_buffer(bman, buffer)
+    }
+
+    unsafe fn from_buffer(bman: BufferManager, mut buffer: BufferMut) -> Self {
         let mut page = buffer.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
 
         if !block_number_is_valid(metadata.merge_list) {
             metadata.merge_list =
-                LinkedItemList::<MergeEntry>::create_with_fsm(indexrel).get_header_blockno();
+                LinkedItemList::<MergeEntry>::create_with_fsm(bman.buffer_access().rel())
+                    .get_header_blockno();
         }
 
         MergeLock {
@@ -249,18 +264,25 @@ impl MVCCEntry for MergeEntry {
     }
 
     unsafe fn recyclable(&self, _: &mut BufferManager) -> bool {
-        unsafe {
-            let xmin_done = self.xmin != pg_sys::InvalidTransactionId
-                && !pg_sys::TransactionIdIsInProgress(self.xmin);
-            // a dead backend can't be holding a live merge, even if its xmin
-            // hasn't yet been retired from the procarray
-            let pid_dead = !pg_sys::IsBackendPid(self.pid);
-            xmin_done || pid_dead
-        }
+        !self.is_live()
     }
 }
 
 impl MergeEntry {
+    /// Whether the merge that wrote this entry is still running.
+    ///
+    /// `merge_index` removes its entry before returning, but an ERROR raised while writing the
+    /// output unwinds past that removal; the aborted xmin is then the only sign the inputs are
+    /// free. A dead backend can't be holding a live merge, even if its xmin hasn't yet been
+    /// retired from the procarray.
+    pub unsafe fn is_live(&self) -> bool {
+        unsafe {
+            let xmin_in_progress = self.xmin == pg_sys::InvalidTransactionId
+                || pg_sys::TransactionIdIsInProgress(self.xmin);
+            xmin_in_progress && pg_sys::IsBackendPid(self.pid)
+        }
+    }
+
     pub unsafe fn segment_ids(&self, indexrel: &PgSearchRelation) -> Vec<SegmentId> {
         let bytes = LinkedBytesList::open(indexrel, self.segment_ids_start_blockno);
         let bytes = bytes.read_all();
@@ -329,23 +351,16 @@ impl MergeList {
     }
 
     pub unsafe fn list_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
-        let mut pid_alive: HashMap<i32, bool> = HashMap::default();
-        Box::new(
-            self.entries
-                .list(None)
-                .into_iter()
-                // ignore entries whose backend is no longer live (likely canceled mid-merge);
-                .filter(move |entry| {
-                    *pid_alive
-                        .entry(entry.pid)
-                        .or_insert_with(|| unsafe { pg_sys::IsBackendPid(entry.pid) })
-                })
-                .flat_map(move |merge_entry| {
-                    merge_entry
-                        .segment_ids(self.bman.buffer_access().rel())
-                        .into_iter()
-                }),
-        )
+        self.entries
+            .list(None)
+            .into_iter()
+            // ignore entries whose merge is no longer live (canceled mid-merge or crashed)
+            .filter(|entry| unsafe { entry.is_live() })
+            .flat_map(move |merge_entry| {
+                merge_entry
+                    .segment_ids(self.bman.buffer_access().rel())
+                    .into_iter()
+            })
     }
 
     pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {

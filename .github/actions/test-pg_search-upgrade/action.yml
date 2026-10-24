@@ -37,7 +37,7 @@ runs:
           cp -R "$case_dir" "$SQL_DIR/"
         done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
-        echo "UPGRADE_CI_HELPERS_REF=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+        echo "UPGRADE_TARGET_REF=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
         # Preserve standalone helper SQL too: `git checkout <prior version>` below
         # replaces this action's directory with the prior version's contents,
@@ -124,26 +124,15 @@ runs:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: RUST_BACKTRACE=1 cargo pgrx stop "pg${INPUTS_PG_VERSION}"
 
-    - name: Fetch and Checkout PR Head (PR) or Pushed Commit (push)
+    - name: Restore Upgrade Target Checkout
       shell: bash
-      env:
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-        PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
       run: |
-        set -euo pipefail
         git checkout .
+        # Use the same tree as version discovery and the preserved SQL fixtures.
+        git checkout --detach "$UPGRADE_TARGET_REF"
 
-        if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-          git fetch --depth=1 --no-tags origin +"refs/pull/${PR_NUMBER}/head:""${PR_HEAD_REF}"
-          git checkout "${PR_HEAD_REF}"
-        else
-          # For push (and other non-PR events), use the exact commit that triggered the workflow
-          git fetch --depth=1 --no-tags origin "${GITHUB_SHA}":"commit-${GITHUB_SHA}"
-          git checkout "commit-${GITHUB_SHA}"
-        fi
-
-    # Must read the rev checked out above, not the `actions/checkout` merge ref
-    # at the top: they disagree whenever the base bumps pgrx after a PR is cut.
+    # The prior-release checkout replaced Cargo.toml, so read the restored target
+    # to install the cargo-pgrx version required by the build.
     - name: Extract pgrx Version
       id: pgrx
       shell: bash
@@ -168,7 +157,9 @@ runs:
       run: |
         SYNTHETIC_VERSION="999.0.0"
         ./scripts/release.sh set-version "$SYNTHETIC_VERSION" --skip-nix
-        ./scripts/release.sh sql "$SYNTHETIC_VERSION" --preserve-fragments
+        # Extend the actual chain tip, including a release commit whose tag is missing.
+        PREV_VERSION=$(./scripts/release.sh latest-sql-version)
+        ./scripts/release.sh sql "$SYNTHETIC_VERSION" --prev-version "$PREV_VERSION" --preserve-fragments
 
     - name: Compile & install pg_search
       working-directory: pg_search/
@@ -269,7 +260,7 @@ runs:
     - name: Restore CI Helpers
       if: always()
       shell: bash
-      run: git restore --source="$UPGRADE_CI_HELPERS_REF" -- .github
+      run: git restore --source="$UPGRADE_TARGET_REF" -- .github
 
     - name: Print the Postgres Logs
       if: always()

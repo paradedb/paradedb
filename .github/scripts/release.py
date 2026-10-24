@@ -85,6 +85,25 @@ def get_existing_sql_targets(sql_dir):
     return targets
 
 
+def latest_released_sql_version(sql_dir):
+    """Return the newest released version present in this checkout's SQL chain."""
+    released_targets = set(get_git_tags()) & set(get_existing_sql_targets(sql_dir))
+    return max(released_targets, key=parse_semver, default=None)
+
+
+def handle_latest_sql_version_command(args, repo_root):
+    """Print the migration tip, optionally restricted to tagged releases for discovery."""
+    sql_dir = repo_root / "pg_search" / "sql"
+    version = (
+        latest_released_sql_version(sql_dir)
+        if args.released
+        else max(get_existing_sql_targets(sql_dir), key=parse_semver, default=None)
+    )
+    if version is None:
+        sys.exit("Could not find a matching version in the checked-out SQL chain")
+    print(f"v{version}")
+
+
 def resolve_prev_version(repo_root, sql_dir, target_version, explicit_prev):
     """Determine the predecessor version to upgrade from."""
     if explicit_prev:
@@ -1443,6 +1462,13 @@ def build_parser():
         dest="command", required=True, help="Subcommand to execute"
     )
 
+    latest_sql_parser = subparsers.add_parser(
+        "latest-sql-version", help="Print the newest SQL migration target"
+    )
+    latest_sql_parser.add_argument(
+        "--released", action="store_true", help="Only consider tagged releases"
+    )
+
     sql_parser = subparsers.add_parser("sql", help="Assemble SQL migration scripts")
     add_common_args(sql_parser)
     sql_parser.add_argument(
@@ -1589,6 +1615,7 @@ def main():
     repo_root = Path(args.repo_root or default_root)
 
     commands = {
+        "latest-sql-version": handle_latest_sql_version_command,
         "sql": handle_sql_command,
         "changelog": handle_changelog_command,
         "all": handle_all_command,

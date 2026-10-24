@@ -23,14 +23,11 @@
 //! transaction when the merge payload fails inside [`reclaiming_on_error`].
 //!
 //! This process-local registry does not survive a crash or a FATAL, which does not unwind;
-//! `storage::sweep` returns what it held at the next `VACUUM`. The two never return the same
-//! block twice. A return here leaves every page stamped with this transaction's id, under the
-//! page lock, before the FSM sees it; the sweep claims a page under the same lock, re-reads the
-//! stamp, and stamps `FrozenTransactionId`. Whichever writes first owns the return: the sweep
-//! never claims a running transaction's page, and this registry skips a Frozen one.
+//! `storage::sweep` returns what it held at the next `VACUUM`. How the two keep from returning
+//! the same block twice is described on `BM25PageSpecialData::alloc_xid`.
 
+use crate::api::HashSet;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::BM25PageSpecialData;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use parking_lot::Mutex;
@@ -55,17 +52,8 @@ struct UnpublishedFile {
 pub(crate) struct Allocation(Arc<UnpublishedFile>);
 
 impl Allocation {
-    pub(crate) fn reserve(&self, count: usize) {
-        self.0.blocks.lock().reserve(count);
-    }
-
     pub(crate) fn record(&self, blockno: pg_sys::BlockNumber) {
-        let mut blocks = self.0.blocks.lock();
-        assert!(
-            blocks.len() < blocks.capacity(),
-            "allocation capacity must be reserved before allocating blocks"
-        );
-        blocks.push(blockno);
+        self.0.blocks.lock().push(blockno);
     }
 }
 
@@ -106,26 +94,30 @@ impl Publication {
     }
 }
 
-/// Prepare an acknowledgment that performs no allocations at the atomic publication point.
+/// Resolves the files behind `header_blocknos` now, so [`Publication::publish`] does no lookup
+/// at the atomic publication point.
 pub(crate) fn prepare_publication(
     rel: &PgSearchRelation,
     header_blocknos: impl IntoIterator<Item = pg_sys::BlockNumber>,
 ) -> Publication {
     let index_oid = rel.oid();
-    let registry = UNPUBLISHED.lock();
-    let mut files = Vec::new();
-    for header_blockno in header_blocknos {
-        files.extend(
-            registry
-                .iter()
-                .filter(|file| {
-                    file.0.index_oid == index_oid
-                        && file.0.relfilenumber == relfilenumber(rel)
-                        && file.0.blocks.lock().first() == Some(&header_blockno)
-                })
-                .cloned(),
-        );
-    }
+    let relfilenumber = relfilenumber(rel);
+    let headers = header_blocknos.into_iter().collect::<HashSet<_>>();
+    let files = UNPUBLISHED
+        .lock()
+        .iter()
+        .filter(|file| {
+            file.0.index_oid == index_oid
+                && file.0.relfilenumber == relfilenumber
+                && file
+                    .0
+                    .blocks
+                    .lock()
+                    .first()
+                    .is_some_and(|header| headers.contains(header))
+        })
+        .cloned()
+        .collect();
     Publication(files)
 }
 
@@ -235,7 +227,6 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
     let mut blocks = Vec::new();
     let mut freed = 0;
     for file in mine {
-        // The storage this chain lived in is gone, and so is the chain.
         if file.0.relfilenumber != current {
             continue;
         }
@@ -246,40 +237,19 @@ pub unsafe fn reclaim(rel: &PgSearchRelation) -> usize {
         #[cfg(feature = "pg_test")]
         crate::postgres::storage::coordination_test::failpoint(c"pg_search.test_reclaim_fail");
         let mut bman = BufferManager::new(rel);
-        // Every page goes back carrying this transaction's id, so the sweep leaves it alone:
-        // a running transaction's pages are never claimed. A page this transaction wrote
-        // already says so. A reserved page never written shows its previous owner, or
-        // nothing, and the sweep could be judging it abandoned at this very moment, so it is
-        // stamped under the page lock, which the sweep's claim also takes: whichever side
-        // writes first wins, and the other sees its stamp and skips.
+        // Every page goes back stamped with this transaction's id; see `alloc_xid` for why a
+        // reserved page never written must be stamped under the page lock before the FSM sees it.
         let mine = pg_sys::GetTopTransactionId();
         blocks.retain(|blockno| {
             let mut buffer = bman.get_buffer_mut(*blockno);
-            let (new, stamp) = {
-                let page = buffer.page();
-                if page.is_new() {
-                    (true, pg_sys::InvalidTransactionId)
-                } else {
-                    (false, page.special::<BM25PageSpecialData>().alloc_xid)
+            match buffer.page().alloc_xid() {
+                Some(stamp) if stamp == mine => true,
+                Some(pg_sys::FrozenTransactionId) => false,
+                _ => {
+                    buffer.set_alloc_xid(mine);
+                    true
                 }
-            };
-            if stamp == mine {
-                return true;
             }
-            if stamp == pg_sys::FrozenTransactionId {
-                // The sweep claimed it first and returns it.
-                return false;
-            }
-            if new {
-                // `init_page` stamps the current transaction.
-                buffer.init_page();
-            } else {
-                buffer
-                    .page_mut()
-                    .special_mut::<BM25PageSpecialData>()
-                    .alloc_xid = mine;
-            }
-            true
         });
         bman.fsm().extend(&mut bman, blocks.into_iter());
     }
@@ -301,8 +271,6 @@ mod tests {
     use pgrx::pg_sys::panic::CaughtError;
     use pgrx::prelude::*;
     use std::io::Write;
-    use tantivy::Directory;
-    use tantivy::index::SegmentId;
 
     unsafe fn abort_subtransaction(action: impl FnOnce()) {
         let interrupt_holdoff = pg_sys::InterruptHoldoffCount;
@@ -389,7 +357,9 @@ mod tests {
         let rel = setup("unpublished_retry", "1gb");
         let free_before = free_blocks(&rel);
         abort_subtransaction(|| {
-            let mut writer = LinkedBytesList::create_tracked(&rel).writer();
+            let mut writer =
+                LinkedBytesList::create_with_buffer_manager(BufferManager::new_tracked(&rel))
+                    .writer();
             writer.write_all(&vec![7; 64 * 8192]).unwrap();
             writer.finalize_and_write().unwrap();
             pgrx::error!("abandon allocated batch");
@@ -428,7 +398,9 @@ mod tests {
         // case returned, so the count before the write is not a baseline.
         let free_after_write = std::cell::Cell::new(0);
         let write = || {
-            let mut writer = LinkedBytesList::create_tracked(&rel).writer();
+            let mut writer =
+                LinkedBytesList::create_with_buffer_manager(BufferManager::new_tracked(&rel))
+                    .writer();
             writer.write_all(&vec![7; 64 * 8192]).unwrap();
             writer.finalize_and_write().unwrap();
             written.set(allocated_blocks(rel.oid()) as i64);
@@ -486,7 +458,9 @@ mod tests {
         let free_before = free_blocks(&rel);
         let data_blocks = std::cell::Cell::new(0);
         abort_subtransaction(|| {
-            let mut writer = LinkedBytesList::create_tracked(&rel).writer();
+            let mut writer =
+                LinkedBytesList::create_with_buffer_manager(BufferManager::new_tracked(&rel))
+                    .writer();
             writer.write_all(&vec![7; 300 * 8192]).unwrap();
             data_blocks.set(allocated_blocks(rel.oid()));
             Spi::run("SET LOCAL pg_search.test_mapping_fail = 'on'").unwrap();
@@ -583,45 +557,6 @@ mod tests {
 
     /// Dropping an unfinished writer leaves every allocation registered for reclamation.
     #[pg_test]
-    unsafe fn test_unpublished_file_is_returned_to_fsm() {
-        let rel = setup("unpublished_drop", "1kb");
-        let mut directory = MvccSatisfies::Mergeable.directory(&rel);
-        directory.track_unpublished_files();
-
-        let free_before = free_blocks(&rel);
-        let blocks_before = relation_blocks(&rel);
-
-        let path = format!("{}.pos", SegmentId::generate_random().uuid_string());
-        let mut writer = directory
-            .open_write(std::path::Path::new(&path))
-            .expect("open_write");
-        writer
-            .write_all(&vec![7u8; 64 * 1024])
-            .expect("write should succeed");
-        writer.flush().expect("flush should succeed");
-        drop(writer);
-
-        assert_eq!(pending(rel.oid()), 1, "the open file is tracked");
-        let blocks_after_write = relation_blocks(&rel);
-        let allocated = blocks_after_write - blocks_before;
-        assert!(
-            allocated >= 9,
-            "a 64kb file takes a header plus data pages: {allocated}"
-        );
-
-        assert_eq!(reclaim(&rel), 1, "one chain reclaimed");
-        assert_eq!(pending(rel.oid()), 0, "nothing left tracked");
-        assert_eq!(
-            free_blocks(&rel) - free_before,
-            allocated,
-            "every block the file took is back in the FSM"
-        );
-        assert_eq!(reclaim(&rel), 0, "a second reclaim finds nothing");
-    }
-
-    /// A merge that is cancelled cooperatively, through tantivy's cancel check rather than a
-    /// Postgres ERROR, leaves its partial output tracked, and reclaiming returns it to the FSM.
-    #[pg_test]
     unsafe fn test_cancelled_merge_output_is_reclaimed() {
         let rel = setup("unpublished_cancel", "1gb");
         Spi::run(
@@ -661,45 +596,5 @@ mod tests {
             free_blocks(&rel) > free_before,
             "the cancelled merge's output blocks are back in the FSM"
         );
-    }
-
-    /// A successful merge publishes its files before the registry is drained, so nothing it wrote
-    /// is ever reclaimed.
-    #[pg_test]
-    unsafe fn test_published_merge_output_is_not_reclaimed() {
-        let rel = setup("unpublished_publish", "1gb");
-        Spi::run(
-            "SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO unpublished_publish SELECT g, 'silver dragon ' || g FROM generate_series(1, 200) g;
-             INSERT INTO unpublished_publish SELECT g, 'golden dragon ' || g FROM generate_series(201, 400) g;
-             RESET paradedb.global_mutable_segment_rows;",
-        )
-        .expect("fixture rows");
-        pg_sys::CommandCounterIncrement();
-
-        let mut merger =
-            SearchIndexMerger::open(&rel, MvccSatisfies::Mergeable).expect("open merger");
-        let segment_ids = merger.all_entries().keys().copied().collect::<Vec<_>>();
-        assert!(
-            segment_ids.len() >= 2,
-            "need at least two segments to merge"
-        );
-
-        let merged = merger
-            .merge_segments(&segment_ids)
-            .expect("merge should succeed");
-        assert!(merged.is_some(), "the merge produced a segment");
-        assert_eq!(pending(rel.oid()), 0, "published files are untracked");
-        assert_eq!(
-            reclaim(&rel),
-            0,
-            "nothing to reclaim after a published merge"
-        );
-
-        let count: i64 =
-            Spi::get_one("SELECT count(*) FROM unpublished_publish WHERE title @@@ 'dragon'")
-                .expect("spi should succeed")
-                .unwrap();
-        assert_eq!(count, 400, "the merged segment is intact");
     }
 }

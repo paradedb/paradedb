@@ -94,9 +94,6 @@ impl RelationBufferAccess {
     ///
     /// The [`pg_sys::Page`] representation has not been initialized.  The caller must do this.
     pub fn new_buffer(&self) -> pg_sys::Buffer {
-        if let Some(allocation) = &self.allocation {
-            allocation.reserve(1);
-        }
         let buffer = self.get_buffer(
             pg_sys::InvalidBlockNumber,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
@@ -124,9 +121,6 @@ impl RelationBufferAccess {
                     let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
 
                     // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked...
-                    if let Some(allocation) = &allocation {
-                        allocation.reserve(many);
-                    }
                     let buffers = bulk_extend_relation(rel, many, fork, allocation.as_ref());
                     buffers.into_iter().take(many)
                 })
@@ -151,6 +145,8 @@ impl RelationBufferAccess {
         pg_buffer
     }
 
+    /// Retrieve an existing [`pg_sys::Buffer`] by its number.  The returned buffer is always pinned
+    /// and if `lock` is `Some`, it'll be locked with that lock level.
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> pg_sys::Buffer {
         self.get_buffer_extended(
             blockno,
@@ -301,6 +297,19 @@ impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for PinnedBuffers<I> {
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
+}
+
+/// The block numbers of pinned, unlocked buffers, unpinning each.
+pub(crate) fn release_blocknos(
+    buffers: impl Iterator<Item = pg_sys::Buffer>,
+) -> Vec<pg_sys::BlockNumber> {
+    buffers
+        .map(|pg_buffer| unsafe {
+            let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
+            pg_sys::ReleaseBuffer(pg_buffer);
+            blockno
+        })
+        .collect()
 }
 
 unsafe fn bulk_extend_relation(

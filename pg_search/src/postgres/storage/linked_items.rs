@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::buffer::{Buffer, BufferManager, BufferMut, init_new_buffer};
+use super::buffer::{Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
@@ -239,13 +239,29 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     /// a concurrent `atomically().commit()` cannot swap the list out and recycle its pages
     /// mid-walk.
     pub(crate) unsafe fn pages(&self) -> Vec<pg_sys::BlockNumber> {
-        let (_header_lock, mut blockno) = self.get_header_and_start_blockno();
-        let mut pages = vec![self.header_blockno];
-        while blockno != pg_sys::InvalidBlockNumber {
-            pages.push(blockno);
-            blockno = self.bman().get_buffer(blockno).page().next_blockno();
-        }
-        pages
+        let (_header_lock, start_blockno) = self.get_header_and_start_blockno();
+        std::iter::once(self.header_blockno)
+            .chain(self.bman().chain(start_blockno))
+            .collect()
+    }
+
+    /// Every entry, with a pin on each entry's pin-test block, the pin readers hold: garbage
+    /// collection skips a pinned entry, so the entries' blocks stay put while the caller works
+    /// through them. Drop the pins as soon as that is done.
+    pub(crate) unsafe fn list_pinned(&mut self) -> (Vec<T>, Vec<PinnedBuffer>)
+    where
+        T: MVCCEntry,
+    {
+        let mut entries = Vec::new();
+        let mut pins = Vec::new();
+        self.for_each(|bman, entry| {
+            let pintest = entry.pintest_blockno();
+            if pintest != pg_sys::InvalidBlockNumber {
+                pins.push(bman.pinned_buffer(pintest));
+            }
+            entries.push(entry);
+        });
+        (entries, pins)
     }
 
     /// Return the freeable blocks of this list, including the header block.
@@ -261,16 +277,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         bman: BufferManager,
         start_blockno: pg_sys::BlockNumber,
     ) -> impl Iterator<Item = pg_sys::BlockNumber> {
-        let mut blockno = start_blockno;
-        std::iter::from_fn(move || {
-            if blockno == pg_sys::InvalidBlockNumber {
-                return None;
-            }
-            let freeable_blockno = blockno;
-            let buffer = bman.get_buffer(blockno);
-            blockno = buffer.page().next_blockno();
-            Some(freeable_blockno)
-        })
+        bman.chain(start_blockno)
     }
 
     /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns

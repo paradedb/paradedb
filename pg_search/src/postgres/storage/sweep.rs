@@ -21,36 +21,15 @@
 //! A writer takes blocks from the FSM or by extending the relation, fills them, and links them
 //! into a segment entry last. An ERROR or a crash before that link leaves the blocks full of data
 //! with no owner. This module is VACUUM's answer, modelled on how heap and nbtree VACUUM treat
-//! pages left behind by a crashed extension: the page says who allocated it
-//! (`BM25PageSpecialData::alloc_xid`, the top-level transaction id written by
-//! `BufferMut::init_page`), the allocator's transaction state decides, and a page is freed only
-//! under a cleanup lock, so no writer is ever waited for.
+//! pages left behind by a crashed extension: the page says who allocated it (`alloc_xid` in
+//! [`crate::postgres::storage::block::BM25PageSpecialData`]), the allocator's transaction state
+//! decides, and a page is freed only under a cleanup lock, so no writer is ever waited for.
 //!
-//! VACUUM first totals the blocks every structure owns from their list headers
-//! (`LinkedListData::npages`) and the blocks the FSM holds. When the total equals the relation
-//! size nothing is missing and the walk below is skipped, as it is while a merge is writing
-//! output, since its unpublished blocks are the gap. Otherwise a block is a candidate when no
-//! segment, list, or FSM page references it and the FSM does not hold it. The structures are
-//! read before the FSM, so a block garbage collection moves from a dead segment into the FSM
-//! during the walk is seen in one place or the other.
-//!
-//! A candidate is judged by its stamp against the oldest transaction that was running when the
-//! sweep began. A stamp at or past that horizon belongs to a transaction that may publish the
-//! block before the sweep ends, so it waits for the next sweep. An older stamp belongs to a
-//! transaction that finished before the walk started: had it published, the walk would have
-//! found the block. An older stamp that aborted or crashed is freed, and a never written page
-//! is a crashed extension and is freed. An older stamp that committed is a block a write
-//! outside the merge path left behind, an INSERT flush that errored inside a subtransaction
-//! the application then committed; this module is about merges and leaves those blocks
-//! alone.
-//!
-//! A freed block is claimed under a conditional cleanup lock, its stamp re-read, and stamped
-//! `FrozenTransactionId` before it is returned. The process-local registry in
-//! `storage::unpublished` returns a page only after stamping it with its own running id under
-//! the same lock, and skips a Frozen one, so whichever side writes first owns the return and no
-//! block reaches the FSM twice. The cleanup lock is what makes a block in transit safe:
-//! `FreeSpaceManager::drain` and relation extension pin a block until its writer locks it, so a
-//! pinned block is never claimed, however stale its page.
+//! VACUUM first totals the blocks every [`Owner`] holds, from list headers that store their page
+//! count, plus the FSM's. When the total equals the relation size nothing is missing and the walk
+//! is skipped, as it is while a merge is writing output, since its unpublished blocks are the
+//! gap. Otherwise every referenced block is marked and each unmarked block is judged by its stamp
+//! against the oldest transaction running when the sweep began; see [`Verdict`].
 //!
 //! Reachability is not optional. Segment entries carry no creator id, so a segment published by
 //! a transaction that later rolled back stays linked and keeps serving. Its blocks carry an
@@ -58,30 +37,32 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, SegmentMetaEntry,
-    SegmentMetaEntryContent,
+    LinkedList, LinkedListData, MVCCEntry, MutableSegmentEntry, OwnedList, SegmentMetaEntry,
 };
-use crate::postgres::storage::buffer::{BufferManager, Page, PinnedBuffer};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::fsm::v2::{FsmBlock, V2FSM};
+use crate::postgres::storage::linked_bytes::LinkedBytesList;
+use crate::postgres::storage::linked_items::LinkedItemList;
 use crate::postgres::storage::merge::MergeEntry;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{check_for_interrupts, pg_sys};
 
-/// What the allocation stamp says about an unreferenced block.
+/// What the allocation stamp says about an unreferenced block. A stamp from a transaction that
+/// was running when the sweep began may still publish during the walk, so it waits; an older
+/// stamp belongs to a transaction that finished before the walk and would have been seen
+/// publishing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Verdict {
-    /// The allocating transaction was running when the sweep began, or began since, and may
-    /// still publish the block. Judged by a later sweep.
+enum Verdict {
+    /// Running when the sweep began, or begun since. Judged by a later sweep.
     Recent,
-    /// The allocating transaction is still running.
+    /// Still running.
     InProgress,
-    /// The allocating transaction committed before the sweep began without publishing. Only a
-    /// write outside the merge path does that, an INSERT flush that errored inside a
-    /// subtransaction the application committed. Kept and reported; not this module's leak.
+    /// Committed before the sweep began without publishing. Only a write outside the merge
+    /// path does that, an INSERT flush that errored inside a subtransaction the application
+    /// committed. Kept; not this module's leak.
     Committed,
-    /// The allocating transaction aborted or crashed. Freed.
+    /// Aborted or crashed. Freed.
     Abandoned,
     /// Written before pages carried a stamp. Kept.
     Unstamped,
@@ -120,41 +101,21 @@ impl Verdict {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Candidate {
-    pub blockno: pg_sys::BlockNumber,
-    pub alloc_xid: pg_sys::TransactionId,
-    pub verdict: Verdict,
+struct Candidate {
+    blockno: pg_sys::BlockNumber,
+    /// `None` for a page never written.
+    alloc_xid: Option<pg_sys::TransactionId>,
+    verdict: Verdict,
 }
 
-/// Relation size minus the blocks accounted for by structures and the FSM. Zero means there is
-/// nothing to sweep. Negative means something is counted twice, which the sweep tolerates by
-/// running anyway.
-#[cfg(any(test, feature = "pg_test"))]
-pub unsafe fn unaccounted_blocks(indexrel: &PgSearchRelation) -> i64 {
-    let (accounted, nblocks) = accounted_blocks(indexrel, false);
-    nblocks as i64 - accounted as i64
-}
-
-/// Every block that is neither referenced nor held by the FSM, with its verdict. Read-only.
-#[cfg(any(test, feature = "pg_test"))]
-pub unsafe fn candidates(indexrel: &PgSearchRelation) -> Vec<Candidate> {
-    candidates_as_of(indexrel, sweep_horizon())
-}
+// ---------------------------------------------------------
+// Entry points
+// ---------------------------------------------------------
 
 /// Frees every candidate whose verdict allows it and returns how many. Skips the walk entirely
 /// when the accounting says no block is missing, or when a merge is writing output.
 pub unsafe fn reclaim(indexrel: &PgSearchRelation) -> usize {
     reclaim_as_of(indexrel, sweep_horizon())
-}
-
-/// [`candidates`] judged against `horizon` instead of the oldest running transaction. A test
-/// runs inside one transaction and passes the next xid to stand for one that has finished.
-#[cfg(any(test, feature = "pg_test"))]
-pub(crate) unsafe fn candidates_as_of(
-    indexrel: &PgSearchRelation,
-    horizon: pg_sys::TransactionId,
-) -> Vec<Candidate> {
-    candidates_in(indexrel, relation_blocks(indexrel), horizon)
 }
 
 /// [`reclaim`] judged against `horizon` instead of the oldest running transaction. A test runs
@@ -163,7 +124,10 @@ pub(crate) unsafe fn reclaim_as_of(
     indexrel: &PgSearchRelation,
     horizon: pg_sys::TransactionId,
 ) -> usize {
-    let (accounted, nblocks) = accounted_blocks(indexrel, true);
+    let meta = MetaPage::open(indexrel);
+    let merge = MergeListSnapshot::take(indexrel, &meta);
+    let nblocks = relation_blocks(indexrel);
+    let accounted = accounted_blocks(indexrel, &meta, &merge, nblocks);
     if accounted == nblocks as u64 {
         return 0;
     }
@@ -173,8 +137,7 @@ pub(crate) unsafe fn reclaim_as_of(
             indexrel.name()
         );
     }
-    let meta = MetaPage::open(indexrel);
-    if merge_in_flight(indexrel, &meta) {
+    if merge.in_flight(indexrel) {
         pgrx::debug1!(
             "pg_search: index {} has a merge in flight; its output is the unaccounted space",
             indexrel.name()
@@ -182,27 +145,45 @@ pub(crate) unsafe fn reclaim_as_of(
         return 0;
     }
 
-    let freeable = candidates_in(indexrel, nblocks, horizon)
-        .into_iter()
-        .filter(|candidate| candidate.verdict.frees())
-        .collect::<Vec<_>>();
-    if freeable.is_empty() {
-        return 0;
-    }
-
     let mut bman = BufferManager::new(indexrel);
-    let mut claimed = Vec::new();
-    for candidate in freeable {
-        check_for_interrupts!();
-        if claim(&mut bman, &candidate) {
-            claimed.push(candidate.blockno);
-        }
+    let claimed = candidates_in(indexrel, &meta, &merge, nblocks, horizon)
+        .filter(|candidate| candidate.verdict.frees() && claim(&mut bman, candidate))
+        .map(|candidate| candidate.blockno)
+        .collect::<Vec<_>>();
+    if claimed.is_empty() {
+        return 0;
     }
     // Stamped before extended. A crash between the two leaves a Frozen page outside the FSM,
     // which the next sweep returns; the other order could leave an aborted stamp on a page the
     // FSM already hands out.
     bman.fsm().extend(&mut bman, claimed.iter().copied());
     claimed.len()
+}
+
+/// Relation size minus the blocks accounted for. Zero means there is nothing to sweep.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) unsafe fn unaccounted_blocks(indexrel: &PgSearchRelation) -> i64 {
+    let meta = MetaPage::open(indexrel);
+    let merge = MergeListSnapshot::take(indexrel, &meta);
+    let nblocks = relation_blocks(indexrel);
+    nblocks as i64 - accounted_blocks(indexrel, &meta, &merge, nblocks) as i64
+}
+
+/// Every block that is neither referenced nor held by the FSM, with its verdict. Read-only.
+#[cfg(any(test, feature = "pg_test"))]
+unsafe fn candidates(indexrel: &PgSearchRelation) -> Vec<Candidate> {
+    candidates_as_of(indexrel, sweep_horizon())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+unsafe fn candidates_as_of(
+    indexrel: &PgSearchRelation,
+    horizon: pg_sys::TransactionId,
+) -> Vec<Candidate> {
+    let meta = MetaPage::open(indexrel);
+    let merge = MergeListSnapshot::take(indexrel, &meta);
+    let nblocks = relation_blocks(indexrel);
+    candidates_in(indexrel, &meta, &merge, nblocks, horizon).collect()
 }
 
 /// Stamps the candidate's page `FrozenTransactionId` if it still says what the verdict was
@@ -213,23 +194,12 @@ unsafe fn claim(bman: &mut BufferManager, candidate: &Candidate) -> bool {
     let Some(mut buffer) = bman.get_buffer_for_cleanup_conditional(candidate.blockno) else {
         return false;
     };
-    let (empty, alloc_xid) = {
-        let page = buffer.page();
-        page_stamp(&page)
-    };
-    if empty != (candidate.verdict == Verdict::Empty) || alloc_xid != candidate.alloc_xid {
+    if buffer.page().alloc_xid() != candidate.alloc_xid {
         return false;
     }
-    if candidate.verdict == Verdict::Freed {
-        return true;
+    if candidate.verdict != Verdict::Freed {
+        buffer.set_alloc_xid(pg_sys::FrozenTransactionId);
     }
-    if empty {
-        buffer.init_page();
-    }
-    buffer
-        .page_mut()
-        .special_mut::<BM25PageSpecialData>()
-        .alloc_xid = pg_sys::FrozenTransactionId;
     true
 }
 
@@ -239,63 +209,44 @@ unsafe fn sweep_horizon() -> pg_sys::TransactionId {
     pg_sys::GetOldestActiveTransactionId()
 }
 
-/// Whether a merge is writing output. Its blocks are unaccounted until it publishes, so the
-/// count gate cannot close and a walk would read every block for nothing.
-unsafe fn merge_in_flight(indexrel: &PgSearchRelation, meta: &MetaPage) -> bool {
-    let (entries, _) = merge_list_snapshot(indexrel, meta);
-    let mut bman = BufferManager::new(indexrel);
-    entries.iter().any(|entry| !entry.recyclable(&mut bman))
-}
-
 unsafe fn relation_blocks(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
     pg_sys::RelationGetNumberOfBlocksInFork(indexrel.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
 }
 
 unsafe fn candidates_in(
     indexrel: &PgSearchRelation,
+    meta: &MetaPage,
+    merge: &MergeListSnapshot,
     nblocks: pg_sys::BlockNumber,
     horizon: pg_sys::TransactionId,
-) -> Vec<Candidate> {
-    let keep = referenced_or_free(indexrel, nblocks);
+) -> impl Iterator<Item = Candidate> + use<> {
+    let keep = referenced_or_free(indexrel, meta, merge, nblocks);
     let bman = BufferManager::new(indexrel);
     let oldest_clog_xid = oldest_clog_xid();
-
     (0..nblocks)
-        .filter(|blockno| !keep.contains(*blockno))
-        .map(|blockno| {
+        .filter(move |blockno| !keep.contains(*blockno))
+        .map(move |blockno| {
             check_for_interrupts!();
-            let buffer = bman.get_buffer(blockno);
-            let (empty, alloc_xid) = page_stamp(&buffer.page());
+            let alloc_xid = bman.get_buffer(blockno).page().alloc_xid();
             Candidate {
                 blockno,
                 alloc_xid,
-                verdict: verdict(alloc_xid, empty, horizon, oldest_clog_xid),
+                verdict: verdict(alloc_xid, horizon, oldest_clog_xid),
             }
         })
-        .collect()
-}
-
-/// Whether the page was never written, and its stamp if it was.
-fn page_stamp(page: &Page<'_>) -> (bool, pg_sys::TransactionId) {
-    if page.is_new() {
-        (true, pg_sys::InvalidTransactionId)
-    } else {
-        (false, page.special::<BM25PageSpecialData>().alloc_xid)
-    }
 }
 
 /// PostgreSQL's rule from `HeapTupleSatisfiesVacuum`, behind the sweep's horizon: ask the proc
 /// array before the commit log, and treat "neither running nor committed" as aborted, because
 /// a crashed transaction never wrote its abort record.
 unsafe fn verdict(
-    xid: pg_sys::TransactionId,
-    empty: bool,
+    alloc_xid: Option<pg_sys::TransactionId>,
     horizon: pg_sys::TransactionId,
     oldest_clog_xid: pg_sys::TransactionId,
 ) -> Verdict {
-    if empty {
+    let Some(xid) = alloc_xid else {
         return Verdict::Empty;
-    }
+    };
     if xid == pg_sys::FrozenTransactionId {
         return Verdict::Freed;
     }
@@ -357,148 +308,202 @@ impl BlockSet {
     fn contains(&self, blockno: pg_sys::BlockNumber) -> bool {
         blockno < self.nblocks && self.words[(blockno / 64) as usize] & (1 << (blockno % 64)) != 0
     }
-
-    fn extend_from(&mut self, other: &BlockSet) {
-        for (word, bits) in self.words.iter_mut().zip(&other.words) {
-            *word |= bits;
-        }
-    }
 }
 
 // ---------------------------------------------------------
-// Counting: headers only
+// Ownership: who holds blocks, counted from headers or walked
 // ---------------------------------------------------------
 
-/// Blocks every structure owns plus blocks the FSM holds or occupies, from list headers and
-/// the FSM pages alone, with the relation size they are compared against. No mapping page or
-/// data page is read for a list whose header carries its count; a list without one is walked,
-/// and with `backfill` its header is updated so the next count is a single read.
-pub unsafe fn accounted_blocks(
+/// Something that owns blocks. [`owners`] lists them in the order the mark pass must read them.
+enum Owner {
+    /// A chain of pages from a metadata-page root, through `next_blockno`.
+    Chain(pg_sys::BlockNumber),
+    /// A bytes list, by its header.
+    Bytes(pg_sys::BlockNumber),
+    /// A list of segment entries, each owning lists of its own.
+    Segments(LinkedItemList<SegmentMetaEntry>),
+    /// Pages already read.
+    Pages(Vec<pg_sys::BlockNumber>),
+}
+
+/// Every owner, lists before the FSM, which [`visit_fsm`] reads separately and last. A block
+/// garbage collection moves from a dead segment's entry into the FSM mid-walk is then seen in
+/// one place or the other; read the FSM first and a block freed between the two reads would be
+/// in neither.
+unsafe fn owners(
     indexrel: &PgSearchRelation,
-    backfill: bool,
-) -> (u64, pg_sys::BlockNumber) {
-    let meta = MetaPage::open(indexrel);
-    // Opening the metadata page and taking the merge lock create their lists on first use, so
-    // the relation size is read only once both have run.
-    let (segment_id_lists, merge_list_pages) = merge_list_blocks(indexrel, &meta);
-    let nblocks = relation_blocks(indexrel);
-    let bman = BufferManager::new(indexrel);
-    let mut walked = BlockSet::new(nblocks);
-    let mut total = 0u64;
-
-    for blockno in meta.fixed_blocks() {
-        total += chain_len(&bman, &mut walked, blockno);
-    }
-    V2FSM::open(meta.fsm()).visit(&bman, |block| match block {
-        FsmBlock::Page(blockno) => {
-            let new = walked.insert(blockno);
-            total += new as u64;
-            new
-        }
-        FsmBlock::Free(_) => {
-            total += 1;
-            true
-        }
-    });
-
-    total += bytes_list_pages(indexrel, meta.schema_bytes().header_blockno, backfill);
-    total += bytes_list_pages(indexrel, meta.settings_bytes().header_blockno, backfill);
-
-    total += segment_entries_pages(indexrel, meta.segment_metas(), backfill);
+    meta: &MetaPage,
+    merge: &MergeListSnapshot,
+) -> Vec<Owner> {
+    let mut owners = meta.fixed_blocks().map(Owner::Chain).collect::<Vec<_>>();
+    owners.push(Owner::Bytes(meta.schema_bytes().header_blockno));
+    owners.push(Owner::Bytes(meta.settings_bytes().header_blockno));
+    owners.push(Owner::Segments(meta.segment_metas()));
     if let Some(garbage) = meta.segment_metas_garbage() {
-        total += segment_entries_pages(indexrel, garbage, backfill);
+        owners.push(Owner::Segments(garbage));
     }
-
-    for header in segment_id_lists {
-        total += bytes_list_pages(indexrel, header, backfill);
-    }
-    total += merge_list_pages.len() as u64;
-
-    (total, nblocks)
+    owners.extend(
+        merge
+            .entries
+            .iter()
+            .map(|entry| Owner::Bytes(entry.segment_ids_start_blockno)),
+    );
+    owners.push(Owner::Pages(merge.pages.clone()));
+    let _ = indexrel;
+    owners
 }
 
-/// The segment-id list of every merge entry, and the pages of the merge list itself, read
-/// under the merge lock. The lock is an exclusive content lock on the merge-lock block, so it
-/// is released before the fixed chains, which include that block, are read.
-unsafe fn merge_list_blocks(
-    indexrel: &PgSearchRelation,
-    meta: &MetaPage,
-) -> (Vec<pg_sys::BlockNumber>, Vec<pg_sys::BlockNumber>) {
-    let (entries, pages) = merge_list_snapshot(indexrel, meta);
-    let segment_id_lists = entries
-        .iter()
-        .map(|entry| entry.segment_ids_start_blockno)
-        .collect();
-    (segment_id_lists, pages)
+/// The merge list's entries and pages, read under the merge lock and kept after it. The lock is
+/// an exclusive content lock on the merge-lock block, one of the metadata page's fixed chains,
+/// so it must be released before those are read.
+struct MergeListSnapshot {
+    entries: Vec<MergeEntry>,
+    pages: Vec<pg_sys::BlockNumber>,
 }
 
-/// The merge list's entries and pages, read under the merge lock and returned without it.
-unsafe fn merge_list_snapshot(
-    indexrel: &PgSearchRelation,
-    meta: &MetaPage,
-) -> (Vec<MergeEntry>, Vec<pg_sys::BlockNumber>) {
-    let merge_lock = meta.acquire_merge_lock();
-    let merge_list =
-        LinkedItemList::<MergeEntry>::open(indexrel, merge_lock.merge_list_header_blockno());
-    (merge_list.list(None), merge_list.pages())
-}
-
-unsafe fn chain_len(
-    bman: &BufferManager,
-    walked: &mut BlockSet,
-    start: pg_sys::BlockNumber,
-) -> u64 {
-    let mut len = 0;
-    let mut blockno = start;
-    while blockno != pg_sys::InvalidBlockNumber && walked.insert(blockno) {
-        len += 1;
-        blockno = bman.get_buffer(blockno).page().next_blockno();
-    }
-    len
-}
-
-/// Every block of a bytes list. `freeable_blocks` reaches data pages through the mapping
-/// pages, which a list written without a writer (schema, settings) does not have; those are
-/// walked through `next_blockno` from the start page instead.
-unsafe fn bytes_list_blocks(
-    indexrel: &PgSearchRelation,
-    header_blockno: pg_sys::BlockNumber,
-) -> Vec<pg_sys::BlockNumber> {
-    let list = LinkedBytesList::open(indexrel, header_blockno);
-    let data = list.get_linked_list_data();
-    if data.blocklist_start != pg_sys::InvalidBlockNumber {
-        return list.freeable_blocks().collect();
-    }
-    let bman = BufferManager::new(indexrel);
-    let mut blocks = Vec::new();
-    for start in [header_blockno, data.start_blockno] {
-        let mut blockno = start;
-        while blockno != pg_sys::InvalidBlockNumber && !blocks.contains(&blockno) {
-            blocks.push(blockno);
-            blockno = bman.get_buffer(blockno).page().next_blockno();
+impl MergeListSnapshot {
+    unsafe fn take(indexrel: &PgSearchRelation, meta: &MetaPage) -> Self {
+        let merge_lock = meta.acquire_merge_lock();
+        let list =
+            LinkedItemList::<MergeEntry>::open(indexrel, merge_lock.merge_list_header_blockno());
+        Self {
+            entries: list.list(None),
+            pages: list.pages(),
         }
     }
-    blocks
+
+    /// Whether a merge is writing output. Its blocks are unaccounted until it publishes, so the
+    /// count gate cannot close and a walk would read every block for nothing.
+    unsafe fn in_flight(&self, indexrel: &PgSearchRelation) -> bool {
+        let mut bman = BufferManager::new(indexrel);
+        self.entries
+            .iter()
+            .any(|entry| !entry.recyclable(&mut bman))
+    }
 }
 
+/// Blocks every owner holds plus blocks the FSM holds or occupies, from list headers and the
+/// FSM pages alone, for the count gate. No data page is read for a list whose header carries its
+/// count; a list without one is walked and its header updated so the next count is one read.
+///
+/// The relation size is read by the caller after `MetaPage::open` and the merge-list snapshot,
+/// since both create their lists lazily on first use.
+unsafe fn accounted_blocks(
+    indexrel: &PgSearchRelation,
+    meta: &MetaPage,
+    merge: &MergeListSnapshot,
+    nblocks: pg_sys::BlockNumber,
+) -> u64 {
+    let bman = BufferManager::new(indexrel);
+    let mut seen = BlockSet::new(nblocks);
+    let mut total = 0;
+    for owner in owners(indexrel, meta, merge) {
+        total += count_owner(indexrel, &bman, &mut seen, owner);
+    }
+    let fsm = visit_fsm(indexrel, meta, &mut seen);
+    total + fsm.pages + fsm.free
+}
+
+/// Every block some owner references plus every block the FSM holds or occupies.
+unsafe fn referenced_or_free(
+    indexrel: &PgSearchRelation,
+    meta: &MetaPage,
+    merge: &MergeListSnapshot,
+    nblocks: pg_sys::BlockNumber,
+) -> BlockSet {
+    let bman = BufferManager::new(indexrel);
+    let mut keep = BlockSet::new(nblocks);
+    for owner in owners(indexrel, meta, merge) {
+        mark_owner(indexrel, &bman, &mut keep, owner);
+    }
+    visit_fsm(indexrel, meta, &mut keep);
+    keep
+}
+
+unsafe fn count_owner(
+    indexrel: &PgSearchRelation,
+    bman: &BufferManager,
+    seen: &mut BlockSet,
+    owner: Owner,
+) -> u64 {
+    match owner {
+        Owner::Chain(start) => bman.chain(start).take_while(|b| seen.insert(*b)).count() as u64,
+        Owner::Bytes(header) => bytes_list_pages(indexrel, header),
+        Owner::Segments(mut list) => {
+            let (entries, _pins) = list.list_pinned();
+            let files: u64 = entries
+                .iter()
+                .flat_map(SegmentMetaEntry::owned_lists)
+                .map(|owned| match owned {
+                    OwnedList::Bytes(header) => bytes_list_pages(indexrel, header),
+                    OwnedList::Items(header) => {
+                        LinkedItemList::<MutableSegmentEntry>::open(indexrel, header)
+                            .pages()
+                            .len() as u64
+                    }
+                })
+                .sum();
+            files + list.pages().len() as u64
+        }
+        Owner::Pages(pages) => pages.len() as u64,
+    }
+}
+
+unsafe fn mark_owner(
+    indexrel: &PgSearchRelation,
+    bman: &BufferManager,
+    keep: &mut BlockSet,
+    owner: Owner,
+) {
+    match owner {
+        Owner::Chain(start) => bman
+            .chain(start)
+            .take_while(|b| keep.insert(*b))
+            .for_each(drop),
+        Owner::Bytes(header) => {
+            for blockno in LinkedBytesList::open(indexrel, header).freeable_blocks() {
+                keep.insert(blockno);
+            }
+        }
+        Owner::Segments(mut list) => {
+            let (entries, pins) = list.list_pinned();
+            for entry in &entries {
+                for blockno in entry.freeable_blocks(indexrel) {
+                    keep.insert(blockno);
+                }
+            }
+            drop(pins);
+            for blockno in list.pages() {
+                keep.insert(blockno);
+            }
+        }
+        Owner::Pages(pages) => {
+            for blockno in pages {
+                keep.insert(blockno);
+            }
+        }
+    }
+}
+
+/// A bytes list's page count from its header, or from a walk when the header carries none,
+/// which then backfills the header. Only `finalize_and_write` keeps the count current, and
+/// only it writes a mapping; a list written without one (schema, settings) is short and is
+/// walked every time.
 unsafe fn bytes_list_pages(
     indexrel: &PgSearchRelation,
     header_blockno: pg_sys::BlockNumber,
-    backfill: bool,
 ) -> u64 {
     let list = LinkedBytesList::open(indexrel, header_blockno);
     let data = list.get_linked_list_data();
-    // Only `finalize_and_write` keeps the count current, and only it writes a mapping. A list
-    // written without one (schema, settings) is short and is walked every time.
     let finalized = data.blocklist_start != pg_sys::InvalidBlockNumber;
     if finalized && data.npages != 0 {
         return data.npages as u64;
     }
-    let npages = bytes_list_blocks(indexrel, header_blockno).len() as u32;
-    if backfill && finalized {
+    let npages = list.freeable_blocks().count() as u32;
+    if finalized {
         let mut bman = BufferManager::new(indexrel);
-        let mut header = bman.get_buffer_mut(header_blockno);
-        header
+        // The header carries the block-list directory after its struct; `pd_lower` must stay.
+        bman.get_buffer_mut(header_blockno)
             .page_mut()
             .contents_mut_in_place::<LinkedListData>()
             .npages = npages;
@@ -506,165 +511,29 @@ unsafe fn bytes_list_pages(
     npages as u64
 }
 
-/// Pins each entry's pintest block while the header lock is held, the same pin readers hold:
-/// garbage collection skips a pinned entry, so its files stay put while they are counted or
-/// walked.
-unsafe fn pinned_entries(
-    list: &mut LinkedItemList<SegmentMetaEntry>,
-) -> (Vec<SegmentMetaEntry>, Vec<PinnedBuffer>) {
-    let mut entries = Vec::new();
-    let mut pins = Vec::new();
-    list.for_each(|bman, entry| {
-        let pintest = entry.pintest_blockno();
-        if pintest != pg_sys::InvalidBlockNumber {
-            pins.push(bman.pinned_buffer(pintest));
-        }
-        entries.push(entry);
-    });
-    (entries, pins)
+struct FsmVisit {
+    /// Pages the FSM occupies, not seen before.
+    pages: u64,
+    /// Blocks the FSM holds as free, not seen before.
+    free: u64,
 }
 
-/// The same ownership `SegmentMetaEntry::freeable_blocks` frees: an orphaned-delete clone owns
-/// only its delete file, the rest of its files belong to the live entry.
-unsafe fn segment_entries_pages(
-    indexrel: &PgSearchRelation,
-    mut list: LinkedItemList<SegmentMetaEntry>,
-    backfill: bool,
-) -> u64 {
-    let (entries, pins) = pinned_entries(&mut list);
-    let mut total = 0u64;
-    for entry in &entries {
-        match &entry.content {
-            SegmentMetaEntryContent::Immutable(content) if entry.is_orphaned_delete() => {
-                let delete = content.delete.as_ref().unwrap().file_entry.starting_block;
-                total += bytes_list_pages(indexrel, delete, backfill);
-            }
-            SegmentMetaEntryContent::Immutable(content) => {
-                for (file_entry, _) in content.file_entries() {
-                    total += bytes_list_pages(indexrel, file_entry.starting_block, backfill);
-                }
-            }
-            SegmentMetaEntryContent::Mutable(content) => {
-                total += content.open(indexrel).pages().len() as u64;
-            }
-        }
-    }
-    drop(pins);
-    total + list.pages().len() as u64
-}
-
-// ---------------------------------------------------------
-// Marking: the full walk, only when the count says blocks are missing
-// ---------------------------------------------------------
-
-/// Every block some structure references, plus every block the FSM holds or occupies.
-///
-/// Each structure is read under its own locks, so the result is a union of per-structure
-/// snapshots. That only ever over-approximates what to keep: a block that moves from a segment
-/// into the FSM during the walk is seen by at least one of the two, and a block the FSM hands
-/// out during the walk is kept because of what its page still says, see `verdict`.
-unsafe fn referenced_or_free(
-    indexrel: &PgSearchRelation,
-    nblocks: pg_sys::BlockNumber,
-) -> BlockSet {
-    let meta = MetaPage::open(indexrel);
+/// Adds the FSM's pages and the blocks it holds to `set`.
+unsafe fn visit_fsm(indexrel: &PgSearchRelation, meta: &MetaPage, set: &mut BlockSet) -> FsmVisit {
     let bman = BufferManager::new(indexrel);
-    let mut keep = BlockSet::new(nblocks);
-    // Chains are followed through `next_blockno` on pages read without a lock on the whole
-    // chain, so a page recycled mid-walk can point anywhere. This set stops a chain at the first
-    // page seen twice; `keep` cannot serve, since the legacy marks below pre-fill it.
-    let mut walked = BlockSet::new(nblocks);
-
-    for blockno in meta.fixed_blocks() {
-        mark_chain(&bman, &mut keep, &mut walked, blockno);
-    }
-    // Legacy layout: the first six blocks had fixed roles before the metadata page named them.
-    for blockno in 0..=6 {
-        keep.insert(blockno);
-    }
-
-    for header in [
-        meta.schema_bytes().header_blockno,
-        meta.settings_bytes().header_blockno,
-    ] {
-        for blockno in bytes_list_blocks(indexrel, header) {
-            keep.insert(blockno);
-        }
-    }
-
-    mark_segment_entries(indexrel, &mut keep, meta.segment_metas());
-    if let Some(garbage) = meta.segment_metas_garbage() {
-        mark_segment_entries(indexrel, &mut keep, garbage);
-    }
-
-    let (segment_id_lists, merge_list_pages) = merge_list_blocks(indexrel, &meta);
-    for header in segment_id_lists {
-        mark_bytes_list(&mut keep, LinkedBytesList::open(indexrel, header));
-    }
-    for blockno in merge_list_pages {
-        keep.insert(blockno);
-    }
-
-    // Last, after every list. A block garbage collection frees between two of these reads moves
-    // from a dead segment's entry into the FSM, and the entry was read first; read the FSM first
-    // and a block freed between the two reads would be in neither.
-    keep.extend_from(&fsm_blocks(indexrel, &meta, nblocks));
-
-    keep
-}
-
-/// Blocks the FSM holds as free and the pages it occupies.
-unsafe fn fsm_blocks(
-    indexrel: &PgSearchRelation,
-    meta: &MetaPage,
-    nblocks: pg_sys::BlockNumber,
-) -> BlockSet {
-    let bman = BufferManager::new(indexrel);
-    let mut blocks = BlockSet::new(nblocks);
+    let mut visit = FsmVisit { pages: 0, free: 0 };
     V2FSM::open(meta.fsm()).visit(&bman, |block| match block {
-        FsmBlock::Page(blockno) => blocks.insert(blockno),
+        FsmBlock::Page(blockno) => {
+            let new = set.insert(blockno);
+            visit.pages += new as u64;
+            new
+        }
         FsmBlock::Free(blockno) => {
-            blocks.insert(blockno);
+            visit.free += set.insert(blockno) as u64;
             true
         }
     });
-    blocks
-}
-
-unsafe fn mark_chain(
-    bman: &BufferManager,
-    keep: &mut BlockSet,
-    walked: &mut BlockSet,
-    start: pg_sys::BlockNumber,
-) {
-    let mut blockno = start;
-    while blockno != pg_sys::InvalidBlockNumber && walked.insert(blockno) {
-        keep.insert(blockno);
-        blockno = bman.get_buffer(blockno).page().next_blockno();
-    }
-}
-
-fn mark_bytes_list(keep: &mut BlockSet, list: LinkedBytesList) {
-    for blockno in list.freeable_blocks() {
-        keep.insert(blockno);
-    }
-}
-
-unsafe fn mark_segment_entries(
-    indexrel: &PgSearchRelation,
-    keep: &mut BlockSet,
-    mut list: LinkedItemList<SegmentMetaEntry>,
-) {
-    let (entries, pins) = pinned_entries(&mut list);
-    for entry in &entries {
-        for blockno in entry.freeable_blocks(indexrel) {
-            keep.insert(blockno);
-        }
-    }
-    drop(pins);
-    for blockno in list.pages() {
-        keep.insert(blockno);
-    }
+    visit
 }
 
 // ---------------------------------------------------------
@@ -694,101 +563,54 @@ unsafe fn unreferenced_blocks(
     pgrx::iter::TableIterator::new(candidates(&index).into_iter().map(|candidate| {
         (
             candidate.blockno as i64,
-            candidate.alloc_xid,
+            candidate.alloc_xid.unwrap_or(pg_sys::InvalidTransactionId),
             candidate.verdict.as_str().to_string(),
         )
     }))
 }
 
-/// Per-structure counts next to a full walk of the same structure, to find where the header
+/// Each owner's counted pages next to a walk of the same owner, to find where the header
 /// counts and reality disagree.
 #[cfg(any(test, feature = "pg_test"))]
 pub(crate) unsafe fn accounting_report(indexrel: &PgSearchRelation) -> String {
     use std::fmt::Write;
-    let nblocks = relation_blocks(indexrel);
     let meta = MetaPage::open(indexrel);
+    let merge = MergeListSnapshot::take(indexrel, &meta);
+    let nblocks = relation_blocks(indexrel);
     let bman = BufferManager::new(indexrel);
-    let mut out = String::new();
-    writeln!(out, "nblocks={nblocks}").unwrap();
-    let mut walked = BlockSet::new(nblocks);
-    for blockno in meta.fixed_blocks() {
-        let n = chain_len(&bman, &mut walked, blockno);
-        writeln!(out, "fixed {blockno}: chain {n}").unwrap();
-    }
-    let (mut pages, mut free, mut dup) = (0u64, 0u64, 0u64);
+    let mut out = format!("nblocks={nblocks}\n");
     let mut seen = BlockSet::new(nblocks);
-    V2FSM::open(meta.fsm()).visit(&bman, |block| match block {
-        FsmBlock::Page(b) => {
-            let new = walked.insert(b);
-            pages += new as u64;
-            new
-        }
-        FsmBlock::Free(b) => {
-            free += 1;
-            if !seen.insert(b) {
-                dup += 1;
-                writeln!(out, "fsm free duplicate or out of range: {b}").unwrap();
-            }
-            true
-        }
-    });
-    writeln!(out, "fsm pages={pages} free={free} dup={dup}").unwrap();
-    let bytes = |name: &str, header: pg_sys::BlockNumber| -> String {
-        let list = LinkedBytesList::open(indexrel, header);
-        let npages = list.get_linked_list_data().npages;
-        let walked = bytes_list_blocks(indexrel, header).len();
-        format!("{name} header={header} npages={npages} walked={walked}\n")
-    };
-    out.push_str(&bytes("schema", meta.schema_bytes().header_blockno));
-    out.push_str(&bytes("settings", meta.settings_bytes().header_blockno));
-    let mut metas = meta.segment_metas();
-    let (entries, _pins) = pinned_entries(&mut metas);
-    for entry in &entries {
-        match &entry.content {
-            SegmentMetaEntryContent::Immutable(content) => {
-                for (file_entry, component) in content.file_entries() {
-                    out.push_str(&bytes(
-                        &format!("{} {component:?}", entry.segment_id()),
-                        file_entry.starting_block,
-                    ));
-                }
-            }
-            SegmentMetaEntryContent::Mutable(content) => {
-                let list = content.open(indexrel);
-                writeln!(
-                    out,
-                    "{} mutable header={} pages={}",
-                    entry.segment_id(),
-                    content.header_block,
-                    list.pages().len()
-                )
-                .unwrap();
-            }
-        }
-    }
-    writeln!(out, "metas pages={:?}", metas.pages()).unwrap();
-    if let Some(garbage) = meta.segment_metas_garbage() {
-        writeln!(out, "garbage pages={:?}", garbage.pages()).unwrap();
-    }
-    let (segment_id_lists, merge_list_pages) = merge_list_blocks(indexrel, &meta);
-    writeln!(
-        out,
-        "merge entries={} pages={:?}",
-        segment_id_lists.len(),
-        merge_list_pages
-    )
-    .unwrap();
-    for candidate in candidates(indexrel) {
-        let buffer = bman.get_buffer(candidate.blockno);
-        let page = buffer.page();
-        let data = page.contents::<LinkedListData>();
+    let mut marked = BlockSet::new(nblocks);
+    let mut marked_so_far = 0;
+    for (counted, walked) in owners(indexrel, &meta, &merge)
+        .into_iter()
+        .zip(owners(indexrel, &meta, &merge))
+    {
+        let name = match &counted {
+            Owner::Chain(start) => format!("chain {start}"),
+            Owner::Bytes(header) => format!("bytes list {header}"),
+            Owner::Segments(list) => format!("segment entries {}", list.header_blockno),
+            Owner::Pages(pages) => format!("pages {pages:?}"),
+        };
+        let count = count_owner(indexrel, &bman, &mut seen, counted);
+        mark_owner(indexrel, &bman, &mut marked, walked);
+        let now = marked
+            .words
+            .iter()
+            .map(|w| w.count_ones() as u64)
+            .sum::<u64>();
         writeln!(
             out,
-            "candidate {candidate:?} next={} pd_lower={} as_list={data:?}",
-            page.next_blockno(),
-            page.header().pd_lower
+            "{name}: counted {count} walked {}",
+            now - marked_so_far
         )
         .unwrap();
+        marked_so_far = now;
+    }
+    let fsm = visit_fsm(indexrel, &meta, &mut seen);
+    writeln!(out, "fsm pages={} free={}", fsm.pages, fsm.free).unwrap();
+    for candidate in candidates(indexrel) {
+        writeln!(out, "candidate {candidate:?}").unwrap();
     }
     out
 }
@@ -823,10 +645,7 @@ pub(crate) mod testing {
     ) {
         let mut bman = BufferManager::new(indexrel);
         for blockno in blocks {
-            bman.get_buffer_mut(*blockno)
-                .page_mut()
-                .special_mut::<BM25PageSpecialData>()
-                .alloc_xid = xid;
+            bman.get_buffer_mut(*blockno).set_alloc_xid(xid);
         }
     }
 
@@ -837,8 +656,8 @@ pub(crate) mod testing {
         BufferManager::new(indexrel)
             .get_buffer(blockno)
             .page()
-            .special::<BM25PageSpecialData>()
-            .alloc_xid
+            .alloc_xid()
+            .expect("stamp of a written page")
     }
 }
 
@@ -980,10 +799,10 @@ mod tests {
         )
         .unwrap()
         .unwrap() as u32;
-        if committed < pg_sys::FirstNormalTransactionId.into_inner() {
-            // Frozen by a VACUUM of the catalog; no committed id to borrow.
-            return;
-        }
+        assert!(
+            committed >= pg_sys::FirstNormalTransactionId.into_inner(),
+            "pg_extension row is frozen; borrow a committed id elsewhere"
+        );
         stamp(&indexrel, &blocks, pg_sys::TransactionId::from(committed));
 
         let found = candidates(&indexrel);
@@ -1056,15 +875,13 @@ mod tests {
         // Every component file of every immutable segment is a finalized list with a header.
         let headers = {
             let mut metas = MetaPage::open(&indexrel).segment_metas();
-            let (entries, _pins) = pinned_entries(&mut metas);
+            let (entries, _pins) = metas.list_pinned();
             entries
                 .iter()
-                .flat_map(|entry| match &entry.content {
-                    SegmentMetaEntryContent::Immutable(content) => content
-                        .file_entries()
-                        .map(|(file_entry, _)| file_entry.starting_block)
-                        .collect::<Vec<_>>(),
-                    SegmentMetaEntryContent::Mutable(_) => Vec::new(),
+                .flat_map(SegmentMetaEntry::owned_lists)
+                .filter_map(|owned| match owned {
+                    OwnedList::Bytes(header) => Some(header),
+                    OwnedList::Items(_) => None,
                 })
                 .collect::<Vec<_>>()
         };
@@ -1084,10 +901,7 @@ mod tests {
             if buffer.page().is_new() {
                 continue;
             }
-            buffer
-                .page_mut()
-                .special_mut::<BM25PageSpecialData>()
-                .alloc_xid = pg_sys::InvalidTransactionId;
+            buffer.set_alloc_xid(pg_sys::InvalidTransactionId);
         }
         for header in &headers {
             bman.get_buffer_mut(*header)
@@ -1110,7 +924,7 @@ mod tests {
         let indexrel = test_index("sweep_rollback");
         let segment_blocks = |indexrel: &PgSearchRelation| -> Vec<pg_sys::BlockNumber> {
             let mut metas = MetaPage::open(indexrel).segment_metas();
-            let (entries, _pins) = pinned_entries(&mut metas);
+            let (entries, _pins) = metas.list_pinned();
             entries
                 .iter()
                 .flat_map(|entry| entry.freeable_blocks(indexrel))

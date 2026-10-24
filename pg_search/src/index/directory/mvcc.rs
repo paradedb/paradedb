@@ -406,8 +406,7 @@ pub struct MVCCDirectory {
     readers: Arc<Mutex<HashMap<PathBuf, Arc<dyn FileHandle>>>>,
     new_files: Arc<Mutex<HashMap<PathBuf, AtomicFileEntry>>>,
 
-    /// Record each file this directory writes in [`unpublished`] until it is published, so a
-    /// merge that stops early can return the file's blocks to the FSM. Set by the merger only.
+    /// See [`Self::track_unpublished_files`].
     track_unpublished: bool,
 
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
@@ -458,6 +457,14 @@ impl MVCCDirectory {
     /// handing the directory to tantivy: the clones it makes inherit the setting.
     pub fn track_unpublished_files(&mut self) {
         self.track_unpublished = true;
+    }
+
+    fn component_buffer_manager(&self) -> BufferManager {
+        if self.track_unpublished {
+            BufferManager::new_tracked(&self.indexrel)
+        } else {
+            BufferManager::new(&self.indexrel)
+        }
     }
 
     /// Take over this directory's pins on the segments it loaded. See [`SegmentPins`].
@@ -753,8 +760,7 @@ impl Directory for MVCCDirectory {
 
     /// Returns a segment writer that implements std::io::Write
     fn open_write_inner(&self, path: &Path) -> result::Result<InnerWritePtr, OpenWriteError> {
-        let writer =
-            unsafe { SegmentComponentWriter::new(&self.indexrel, path, self.track_unpublished) };
+        let writer = unsafe { SegmentComponentWriter::new(self.component_buffer_manager(), path) };
         let file_entry = writer.file_entry();
         self.new_files
             .lock()

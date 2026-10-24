@@ -51,12 +51,18 @@ pub(crate) const CTID_MAP_EXT: &str = "ctid_map";
 #[derive(Clone, Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
-    /// Transaction that allocated this page, written by `BufferMut::init_page`.
+    /// The top-level transaction that allocated this page, written by `BufferMut::init_page`.
+    /// `InvalidTransactionId` on a page written before stamping existed.
     ///
-    /// `InvalidTransactionId` on pages written before stamping existed or by a parallel worker
-    /// without an xid, `FrozenTransactionId` once `storage::sweep` has returned the page to the
-    /// free space map. Nothing on the read path looks at it; see `storage::sweep` for the one
-    /// consumer.
+    /// This is how an unreferenced block is judged and how its return to the free space map is
+    /// claimed. `storage::sweep` frees an unreferenced block whose stamp names a transaction that
+    /// finished without publishing; before returning it, under the page lock, it re-reads the
+    /// stamp and writes `FrozenTransactionId`. `storage::unpublished` returns a block the same
+    /// backend allocated; before returning a page the backend never wrote, under the page lock, it
+    /// writes its own running id, and it skips a page already Frozen. The sweep never claims a
+    /// running transaction's page, so whichever side writes first owns the return and no block
+    /// reaches the FSM twice. Once a block is in the FSM the stamp means nothing; the FSM is
+    /// read before any block is judged.
     pub alloc_xid: pg_sys::TransactionId,
 }
 
@@ -788,29 +794,52 @@ impl SegmentMetaEntry {
         iter
     }
 
-    pub fn freeable_blocks<'a>(
-        &'a self,
-        indexrel: &'a PgSearchRelation,
-    ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'a {
-        let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = match self.content {
+    /// The lists this entry owns: every component file of an immutable segment, or the one
+    /// content list of a mutable one. An orphaned delete owns only the old delete file.
+    pub fn owned_lists(&self) -> impl Iterator<Item = OwnedList> + '_ {
+        let iter: Box<dyn Iterator<Item = OwnedList>> = match self.content {
             SegmentMetaEntryContent::Immutable(ref content) if self.is_orphaned_delete() => {
-                // This is a "fake" `DeleteEntry`: free the blocks for the old `DeleteEntry` only
+                // This is a "fake" `DeleteEntry`: only the old `DeleteEntry`'s file is this entry's
                 let block = content.delete.as_ref().unwrap().file_entry.starting_block;
-                Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
+                Box::new(std::iter::once(OwnedList::Bytes(block)))
             }
-            SegmentMetaEntryContent::Immutable(ref content) => {
-                // Free all files.
-                Box::new(content.file_entries().flat_map(move |(file_entry, _)| {
-                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
-                }))
-            }
+            SegmentMetaEntryContent::Immutable(ref content) => Box::new(
+                content
+                    .file_entries()
+                    .map(|(file_entry, _)| OwnedList::Bytes(file_entry.starting_block)),
+            ),
             SegmentMetaEntryContent::Mutable(ref content) => {
-                // Free the content list.
-                Box::new(content.open(indexrel).freeable_blocks())
+                Box::new(std::iter::once(OwnedList::Items(content.header_block)))
             }
         };
         iter
     }
+
+    pub fn freeable_blocks<'a>(
+        &'a self,
+        indexrel: &'a PgSearchRelation,
+    ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'a {
+        self.owned_lists().flat_map(move |list| {
+            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = match list {
+                OwnedList::Bytes(header) => {
+                    Box::new(LinkedBytesList::open(indexrel, header).freeable_blocks())
+                }
+                OwnedList::Items(header) => Box::new(
+                    LinkedItemList::<MutableSegmentEntry>::open(indexrel, header).freeable_blocks(),
+                ),
+            };
+            iter
+        })
+    }
+}
+
+/// A block list a segment entry owns, by its header block.
+#[derive(Debug, Clone, Copy)]
+pub enum OwnedList {
+    /// A finalized `LinkedBytesList`: one component file.
+    Bytes(pg_sys::BlockNumber),
+    /// A `LinkedItemList`: a mutable segment's content.
+    Items(pg_sys::BlockNumber),
 }
 
 // ---------------------------------------------------------

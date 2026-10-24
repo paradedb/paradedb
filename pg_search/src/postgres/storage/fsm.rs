@@ -20,6 +20,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::v1::V1FSM;
 use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::utils::release_blocknos;
 use pgrx::iter::TableIterator;
 use pgrx::{PgRelation, name, pg_extern, pg_sys};
 
@@ -721,10 +722,6 @@ pub mod v2 {
         ) -> impl Iterator<Item = pg_sys::Buffer> + 'static {
             let current_xid = super::recycling_horizon().value;
 
-            if let Some(allocation) = &bman.buffer_access().allocation {
-                allocation.reserve(many);
-            }
-
             let mut xid = current_xid;
             let mut blocks: Vec<pg_sys::Buffer> = Vec::with_capacity(many);
             let mut unlinked_heads = Vec::new();
@@ -1182,18 +1179,7 @@ pub mod v2 {
         use crate::postgres::storage::buffer::BufferManager;
         use crate::postgres::storage::fsm::FreeSpaceManager;
         use crate::postgres::storage::metadata::MetaPage;
-        use crate::postgres::storage::utils::MAX_BUFFERS_TO_EXTEND_BY;
-
-        /// Block numbers of drained buffers, with the pins released.
-        fn blocknos(buffers: impl Iterator<Item = pg_sys::Buffer>) -> Vec<pg_sys::BlockNumber> {
-            buffers
-                .map(|pg_buffer| unsafe {
-                    let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
-                    pg_sys::ReleaseBuffer(pg_buffer);
-                    blockno
-                })
-                .collect()
-        }
+        use crate::postgres::storage::utils::{MAX_BUFFERS_TO_EXTEND_BY, release_blocknos};
 
         /// Drains up to `n` blocks the way `BufferManager::new_buffers` does, a chunk at a time,
         /// so a large drain never holds more than a chunk of pins.
@@ -1206,7 +1192,7 @@ pub mod v2 {
             while drained.len() < n {
                 let before = drained.len();
                 let chunk = (n - before).min(MAX_BUFFERS_TO_EXTEND_BY);
-                drained.extend(blocknos(fsm.drain(bman, chunk)));
+                drained.extend(release_blocknos(fsm.drain(bman, chunk)));
                 if drained.len() == before {
                     break;
                 }
@@ -1346,7 +1332,8 @@ pub mod v2 {
             let future_xid = pg_sys::FullTransactionId {
                 value: current_xid.value + 1,
             };
-            fsm.extend_with_when_recyclable(&mut bman, future_xid, 0..3);
+            let blocks = fresh_blocks(&mut bman, 3);
+            fsm.extend_with_when_recyclable(&mut bman, future_xid, blocks.into_iter());
             assert!(
                 drain_blocknos(&mut fsm, &mut bman, 1).is_empty(),
                 "fsm should not find future transactions"
@@ -1891,13 +1878,8 @@ pub fn convert_v1_to_v2(bman1: &mut BufferManager, mut v1: V1FSM, mut v2: V2FSM)
 
     let mut bman2 = bman1.clone();
     loop {
-        let mut drained = v1
-            .drain(bman1, 1000)
-            .map(|pg_buffer| unsafe {
-                let blockno = pg_sys::BufferGetBlockNumber(pg_buffer);
-                pg_sys::ReleaseBuffer(pg_buffer);
-                blockno
-            })
+        let mut drained = release_blocknos(v1.drain(bman1, 1000))
+            .into_iter()
             .peekable();
         if drained.peek().is_some() {
             v2.extend_with_when_recyclable(&mut bman2, when_recyclable, drained);

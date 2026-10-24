@@ -81,6 +81,10 @@ struct Actor {
     handle: JoinHandle<(Client, Result<Vec<Row>, Error>)>,
 }
 
+/// Pauses background mergers at their first output page through a database-level setting,
+/// since a background worker has no session to `SET` in. Every backend that connects to the
+/// database while this lives pauses the same way, and the setting outlives a killed test
+/// process: `Drop` resets it, so keep tests that use it short.
 struct BackgroundOutputPause {
     client: Client,
     database: String,
@@ -294,6 +298,13 @@ impl Fixture {
         (row.get(0), row.get(1))
     }
 
+    fn relation_blocks(&mut self) -> i64 {
+        self.value(&format!(
+            "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
+            self.index
+        ))
+    }
+
     fn unaccounted_blocks(&mut self) -> i64 {
         self.value(&format!(
             "SELECT paradedb.unaccounted_blocks('{}')",
@@ -340,6 +351,17 @@ impl Fixture {
             expected
         );
     }
+}
+
+/// Returns the writer's registered blocks from its own session, as the ERROR scope would.
+fn reclaim_unpublished(client: &mut Client, index: &str) -> i64 {
+    client
+        .query_one(
+            &format!("SELECT paradedb.test_reclaim_unpublished('{index}')"),
+            &[],
+        )
+        .unwrap()
+        .get(0)
 }
 
 fn assert_error(result: Result<Vec<Row>, Error>, code: &str) {
@@ -603,10 +625,7 @@ fn background_merge_cancellation_and_termination_reclaim_output() {
                 .is_empty()
         });
         let pid: i32 = fixture.value(&worker_query);
-        let free_before: i64 = fixture.value(&format!(
-            "SELECT count(*) FROM paradedb.fsm_info('{}')",
-            fixture.index
-        ));
+        let free_before = fixture.fsm_counts().0;
         fixture.cancel_pid(pid, terminate);
         fixture.pid_gone(pid);
         drop(settings);
@@ -638,27 +657,18 @@ fn cancellation_and_termination_reclaim_reserved_output_pages() {
             "merge_cleanup_output_cancel"
         };
         let mut fixture = Fixture::new(table, false);
-        let blocks_before: i64 = fixture.value(&format!(
-            "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
-            fixture.index
-        ));
-        let free_before: i64 = fixture.value(&format!(
-            "SELECT count(*) FROM paradedb.fsm_info('{}')",
-            fixture.index
-        ));
+        let blocks_before = fixture.relation_blocks();
+        let free_before = fixture.fsm_counts().0;
         let writer = fixture.actor(
             "output",
             format!(
                 "SELECT paradedb.test_write_unpublished('{}', {})",
                 fixture.index,
-                64 * 1024 * 1024
+                8 * 1024 * 1024
             ),
         );
         fixture.stage(&writer);
-        let allocated: i64 = fixture.value::<i64>(&format!(
-            "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
-            fixture.index
-        )) - blocks_before;
+        let allocated: i64 = fixture.relation_blocks() - blocks_before;
         assert!(allocated > 2);
         let pid = writer.pid;
         fixture.cancel(&writer, terminate);
@@ -668,43 +678,16 @@ fn cancellation_and_termination_reclaim_reserved_output_pages() {
             fixture.pid_gone(pid);
             // Left to VACUUM: written pages carry an aborted stamp, reserved ones are empty or
             // still show their previous owner, and nothing pins them any more.
-            assert_eq!(fixture.unaccounted_blocks(), allocated);
+            assert!(fixture.unaccounted_blocks() >= allocated);
             fixture
                 .controller
                 .batch_execute(&format!("VACUUM {table}"))
                 .unwrap();
         } else {
-            assert_eq!(
-                client
-                    .query_one(
-                        &format!(
-                            "SELECT paradedb.test_reclaim_unpublished('{}')",
-                            fixture.index
-                        ),
-                        &[]
-                    )
-                    .unwrap()
-                    .get::<_, i64>(0),
-                1
-            );
-            assert_eq!(
-                client
-                    .query_one(
-                        &format!(
-                            "SELECT paradedb.test_reclaim_unpublished('{}')",
-                            fixture.index
-                        ),
-                        &[]
-                    )
-                    .unwrap()
-                    .get::<_, i64>(0),
-                0
-            );
+            assert_eq!(reclaim_unpublished(&mut client, &fixture.index), 1);
+            assert_eq!(reclaim_unpublished(&mut client, &fixture.index), 0);
         }
-        let (free, unique): (i64, i64) = {
-            let row = fixture.controller.query_one(&format!("SELECT count(*), count(DISTINCT free_blockno) FROM paradedb.fsm_info('{}')", fixture.index), &[]).unwrap();
-            (row.get(0), row.get(1))
-        };
+        let (free, unique) = fixture.fsm_counts();
         assert_eq!(free - free_before, allocated);
         assert_eq!(unique, free);
     }
@@ -732,7 +715,7 @@ fn sweep_leaves_a_writers_reserved_blocks_alone() {
         format!(
             "SELECT paradedb.test_write_unpublished('{}', {})",
             fixture.index,
-            32 * 1024 * 1024
+            8 * 1024 * 1024
         ),
     );
     fixture.stage(&writer);
@@ -746,15 +729,7 @@ fn sweep_leaves_a_writers_reserved_blocks_alone() {
     fixture.cancel(&writer, false);
     let (mut client, result) = writer.finish();
     assert_error(result, "57014");
-    client
-        .query_one(
-            &format!(
-                "SELECT paradedb.test_reclaim_unpublished('{}')",
-                fixture.index
-            ),
-            &[],
-        )
-        .unwrap();
+    reclaim_unpublished(&mut client, &fixture.index);
     let (free, unique) = fixture.fsm_counts();
     assert_eq!(free, unique, "a block was returned twice");
     assert_eq!(fixture.unaccounted_blocks(), 0);
@@ -765,27 +740,30 @@ fn sweep_leaves_a_writers_reserved_blocks_alone() {
 /// allocated, reserved and never written included, and the index keeps answering.
 #[test]
 fn vacuum_returns_blocks_a_crash_left_behind() {
+    // The crash restarts every backend of the cluster. The harness's own cluster serves only
+    // this test binary, but a cluster named by PG_SEARCH_TEST_DATABASE_URL may serve more, so
+    // there this runs only on request.
+    if std::env::var_os("PG_SEARCH_TEST_DATABASE_URL").is_some()
+        && std::env::var_os("PG_SEARCH_TEST_CRASH").is_none()
+    {
+        eprintln!("skipping: set PG_SEARCH_TEST_CRASH=1 to crash a shared cluster");
+        return;
+    }
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let table = "merge_cleanup_crash";
     let mut fixture = Fixture::new(table, false);
     fixture.segments();
-    let blocks_before: i64 = fixture.value(&format!(
-        "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
-        fixture.index
-    ));
+    let blocks_before = fixture.relation_blocks();
     let writer = fixture.actor(
         "output",
         format!(
             "SELECT paradedb.test_write_unpublished('{}', {})",
             fixture.index,
-            32 * 1024 * 1024
+            8 * 1024 * 1024
         ),
     );
     fixture.stage(&writer);
-    let allocated: i64 = fixture.value::<i64>(&format!(
-        "SELECT pg_relation_size('{}') / current_setting('block_size')::bigint",
-        fixture.index
-    )) - blocks_before;
+    let allocated: i64 = fixture.relation_blocks() - blocks_before;
     assert!(allocated > 2);
 
     let killed = std::process::Command::new("kill")

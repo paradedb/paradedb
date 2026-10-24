@@ -609,7 +609,7 @@ unsafe fn merge_index(
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);
 
-        // Return private output allocations after a cooperative stop, before releasing the pins.
+        // Return private output allocations after a cooperative stop.
         unpublished::reclaim(indexrel);
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock

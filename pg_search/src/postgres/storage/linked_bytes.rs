@@ -217,22 +217,13 @@ impl LinkedBytesListWriter {
             header_page
                 .special_mut::<BM25PageSpecialData>()
                 .next_blockno = overflow;
-            npages += chain_len(&self.list.bman, blockno) + chain_len(&self.list.bman, overflow);
+            npages += (self.list.bman.chain(blockno).count()
+                + self.list.bman.chain(overflow).count()) as u32;
         }
         // `finish` appended the directory after the header struct; `pd_lower` must stay put.
         header_page.contents_mut_in_place::<LinkedListData>().npages = npages;
         Ok(self.list)
     }
-}
-
-fn chain_len(bman: &BufferManager, start: pg_sys::BlockNumber) -> u32 {
-    let mut len = 0;
-    let mut blockno = start;
-    while blockno != pg_sys::InvalidBlockNumber {
-        len += 1;
-        blockno = bman.get_buffer(blockno).page().next_blockno();
-    }
-    len
 }
 
 impl Write for LinkedBytesListWriter {
@@ -344,11 +335,7 @@ impl LinkedBytesList {
         Self::create_with_buffer_manager(BufferManager::new(rel))
     }
 
-    pub(crate) fn create_tracked(rel: &PgSearchRelation) -> Self {
-        Self::create_with_buffer_manager(BufferManager::new_tracked(rel))
-    }
-
-    fn create_with_buffer_manager(mut bman: BufferManager) -> Self {
+    pub(crate) fn create_with_buffer_manager(mut bman: BufferManager) -> Self {
         let mut buffers = bman.new_buffers(2);
 
         let mut header_buffer = buffers.next().unwrap();
@@ -421,33 +408,28 @@ impl LinkedBytesList {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
 
-        let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
-        let mut header_blockno = self.header_blockno;
-        let header_bman = self.bman.clone();
+        let data = self.get_linked_list_data();
+        let blocklist_blockno = data.blocklist_start;
+        // A list written without a writer (schema, settings) has no mapping; its data pages are
+        // reached from the start page instead.
+        let data_pages: Box<dyn Iterator<Item = pg_sys::BlockNumber>> =
+            if blocklist_blockno == pg_sys::InvalidBlockNumber {
+                Box::new(self.bman.chain(data.start_blockno))
+            } else {
+                Box::new(
+                    self.blocklist_reader
+                        .take()
+                        .map(Mutex::into_inner)
+                        .unwrap_or_else(|| blocklist::reader::BlockList::new(blocklist_blockno))
+                        .into_blocks(&self.bman),
+                )
+            };
         // iterate the BlockList contents -- this is every block used by this LinkedBytesList
-        self.blocklist_reader
-            .take()
-            .map(Mutex::into_inner)
-            .unwrap_or_else(|| blocklist::reader::BlockList::new(blocklist_blockno))
-            .into_blocks(&self.bman)
-            .chain(std::iter::from_fn(move || {
-                if header_blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-                let blockno = header_blockno;
-                header_blockno = header_bman.get_buffer(blockno).page().next_blockno();
-                Some(blockno)
-            }))
+        data_pages
+            // the header and any directory overflow pages chained after it
+            .chain(self.bman.chain(self.header_blockno))
             // the BlockList itself consumes one or more blocks -- make sure to include them too
-            .chain(std::iter::from_fn(move || {
-                if blocklist_blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-                let blockno = blocklist_blockno;
-                let buffer = self.bman.get_buffer(blockno);
-                blocklist_blockno = buffer.page().next_blockno();
-                Some(blockno)
-            }))
+            .chain(self.bman.chain(blocklist_blockno))
     }
 
     /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the

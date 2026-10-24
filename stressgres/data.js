@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792829276024,
+  "lastUpdate": 1792829435265,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -458464,6 +458464,58 @@ window.BENCHMARK_DATA = {
             "value": 38.90676372632571,
             "unit": "median tps",
             "extra": "avg tps: 60.764341765587794, max tps: 583.1262958577607, count: 58733"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "88bd07bf6121039cab01e2294c8dd3a4fae42b4f",
+          "message": "fix: construct operator function expressions with makeFuncExpr and add regression coverage (#7009)\n\nAdds only the regression tests missing from #6895, which has merged into\nmain.\n\nThe tests force generic plans to exercise runtime FuncExpr construction\nacross text and text-array operators, field-bound and whole-row parsing,\nfuzzy RHS casts, and classified pdb.query parameters. Each prepared\nstatement runs with two values and verifies generic plan reuse.\n\nThe regression test commit is unchanged by the rebase. The previous\nlocal pg_regress validation used PostgreSQL 18.6 with the released\nParadeDB 0.26.3 image. CI validation of this branch is pending.",
+          "timestamp": "2026-10-24T01:23:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/88bd07bf6121039cab01e2294c8dd3a4fae42b4f"
+        },
+        "date": 1792829423769,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.827493073783394,
+            "unit": "median tps",
+            "extra": "avg tps: 58.288697002251354, max tps: 538.2706988429927, count: 58732"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.509856682002475,
+            "unit": "median tps",
+            "extra": "avg tps: 32.47930089993815, max tps: 377.9865974592235, count: 58732"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 73.01576404235334,
+            "unit": "median tps",
+            "extra": "avg tps: 134.13473283442244, max tps: 1211.692889700093, count: 58732"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.54900328903177,
+            "unit": "median tps",
+            "extra": "avg tps: 31.274694631322056, max tps: 279.2701951146352, count: 58732"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.934399480891535,
+            "unit": "median tps",
+            "extra": "avg tps: 60.82705429977425, max tps: 547.1107617556079, count: 58732"
           }
         ]
       }

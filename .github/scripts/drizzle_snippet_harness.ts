@@ -74,6 +74,16 @@ const mockItemsGeo = definePgTable("mock_items_geo", {
   })("location"),
 });
 
+const mockItemsPaths = definePgTable("mock_items_paths", {
+  id: pgInteger("id"),
+  description: pgText("description"),
+  path: pgCustomType({
+    dataType() {
+      return "ltree";
+    },
+  })("path"),
+});
+
 async function verifyDocsIndexes() {
   if (docsIndexes.length) {
     const { generateDrizzleJson, generateMigration } =

@@ -116,11 +116,8 @@ unsafe fn test_vacuum_active(index: PgRelation) -> bool {
 #[pg_extern]
 unsafe fn test_live_docs(index: PgRelation) -> i64 {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    MetaPage::open(&index)
-        .segment_metas()
-        .list(None)
-        .into_iter()
-        .filter(|entry| entry.xmax() == pg_sys::InvalidTransactionId)
+    live_segments(&MetaPage::open(&index))
+        .iter()
         .map(|entry| entry.num_docs() as i64)
         .sum()
 }

@@ -511,7 +511,6 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 #[inline]
-#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,

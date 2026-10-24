@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Removed `paradedb.vector_router_recall_target` and `paradedb.vector_recall_target`. Tantivy's geometry-based adaptive partition scanning is gone; vector probes stop on the work budget (`paradedb.vector_cluster_max_probe`) or when ranked clusters run out. Setting either GUC is now an unrecognized-configuration error.

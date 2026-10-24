@@ -15,13 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::pg_sys;
+use pgrx::{PgMemoryContexts, pg_sys};
 use std::cell::RefCell;
 
 #[derive(Default)]
 struct RecentBuffers {
     key: Option<[u32; 4]>,
-    buffers: Vec<pg_sys::Buffer>,
+    context: pg_sys::MemoryContext,
+    buffers: &'static mut [pg_sys::Buffer],
 }
 
 thread_local! {
@@ -61,9 +62,20 @@ pub(super) unsafe fn read(
             let blocks = pg_sys::RelationGetNumberOfBlocksInFork(rel, fork) as usize;
             // Bound backend-local hints to 16 MiB; larger block numbers use normal reads.
             let capacity = (blocks + blocks / 8 + 1024).min(4 * 1024 * 1024);
-            cache.buffers.clear();
-            cache.buffers.reserve_exact(capacity);
-            cache.buffers.resize(capacity, pg_sys::InvalidBuffer as _);
+            if cache.context.is_null() {
+                cache.context = pg_sys::AllocSetContextCreateExtended(
+                    pg_sys::CacheMemoryContext,
+                    c"pg_search recent buffers".as_ptr(),
+                    pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
+                );
+            }
+            // Detach the old allocation before resetting, including on allocation failure.
+            cache.key = None;
+            cache.buffers = &mut [];
+            pg_sys::MemoryContextReset(cache.context);
+            cache.buffers = PgMemoryContexts::For(cache.context).palloc0_slice(capacity);
             cache.key = Some(key);
         }
         let slot = cache.buffers.get_mut(block as usize);
@@ -143,6 +155,20 @@ mod tests {
         let first = access.get_buffer(0, None);
         pg_sys::ReleaseBuffer(first);
         assert_eq!(RECENT.with_borrow(|cache| cache.buffers[0]), first);
+        let hint_bytes = RECENT.with_borrow(|cache| {
+            assert_eq!(
+                pg_sys::GetMemoryChunkContext(cache.buffers.as_ptr().cast_mut().cast()),
+                cache.context
+            );
+            std::mem::size_of_val(cache.buffers) as i64
+        });
+        let context_bytes = Spi::get_one::<i64>(
+            "SELECT sum(used_bytes)::bigint FROM pg_backend_memory_contexts
+             WHERE name = 'pg_search recent buffers' AND parent = 'CacheMemoryContext'",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(context_bytes >= hint_bytes);
         let relation_counts = || {
             let stats = (*a.as_ptr()).pgstat_info;
             assert!(!stats.is_null());
@@ -190,5 +216,19 @@ mod tests {
         assert_eq!(pg_sys::BufferGetBlockNumber(bypassed), 0);
         assert_eq!(RECENT.with_borrow(|cache| cache.key), key);
         pg_sys::ReleaseBuffer(bypassed);
+        Spi::run("SET paradedb.recent_buffers = on").unwrap();
+        let other_access = RelationBufferAccess::open(&b);
+        for _ in 0..10 {
+            pg_sys::ReleaseBuffer(access.get_buffer(0, None));
+            pg_sys::ReleaseBuffer(other_access.get_buffer(0, None));
+        }
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT sum(used_bytes)::bigint FROM pg_backend_memory_contexts
+                 WHERE name = 'pg_search recent buffers' AND parent = 'CacheMemoryContext'",
+            )
+            .unwrap(),
+            Some(context_bytes)
+        );
     }
 }

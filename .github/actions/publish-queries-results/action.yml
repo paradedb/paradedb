@@ -52,24 +52,22 @@ runs:
       run: rm -rf ./benchmark-data-repository
 
     - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      id: metrics
+      uses: ./.github/actions/publish-benchmark-metrics
       with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-queries
         name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ inputs.size }} rows)"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
-        output-file-path: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        auto-push: ${{ inputs.publish }}
-        benchmark-data-dir-path: benchmarks
-        alert-threshold: ${{ inputs.alert_threshold }}
-        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ github.event_name == 'pull_request' }}
+        output_file: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
+        github_token: ${{ inputs.github_token }}
+        auto_push: ${{ inputs.publish }}
+        data_directory: benchmarks
+        alert_threshold: ${{ inputs.alert_threshold }}
+        comment_on_alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        comment_always: ${{ github.event_name == 'pull_request' }}
 
-    # The publish step above appends the current run to its local gh-pages clone, so the script
-    # takes the second-to-last entry as the baseline.
+    # The wrapper preserves the original comparison even when retrying a completed push.
     - name: Compare Against Baseline (Paired Bootstrap)
       if: inputs.alert_strategy == 'paired-bootstrap'
       id: paired_bootstrap
@@ -81,7 +79,7 @@ runs:
       run: |
         python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
           --results "$RESULTS_FILE" \
-          --data-js benchmark-data-repository/benchmarks/data.js \
+          --data-js "${{ steps.metrics.outputs.comparison_file }}" \
           --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ inputs.size }} rows)" \
           --out benchmark-alert.md
 

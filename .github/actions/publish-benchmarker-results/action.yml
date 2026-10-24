@@ -102,21 +102,19 @@ runs:
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
       if: hashFiles('benchmarker/benchmarker_metrics.json') != ''
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: ./.github/actions/publish-benchmark-metrics
       with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-latency
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
-        output-file-path: benchmarker/benchmarker_metrics.json
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        benchmark-data-dir-path: benchmarker
-        auto-push: ${{ inputs.auto_push == 'true' }}
-        alert-threshold: "115%"
-        comment-on-alert: ${{ inputs.pr_number == '' }}
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: false
+        output_file: benchmarker/benchmarker_metrics.json
+        github_token: ${{ inputs.github_token }}
+        data_directory: benchmarker
+        auto_push: ${{ inputs.auto_push == 'true' }}
+        alert_threshold: "115%"
+        comment_on_alert: ${{ inputs.pr_number == '' }}
+        comment_always: false
 
     - name: Read Latency Baseline
       if: inputs.pr_number != '' && steps.publish_latency.outcome == 'success'
@@ -124,27 +122,25 @@ runs:
       env:
         DATASET: ${{ inputs.dataset }}
       run: |
-        sed '1s/^window.BENCHMARK_DATA = //' benchmark-data-repository/benchmarker/data.js |
+        sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_latency.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (latency)" '.entries[$suite][-2] // {}' > _latency_baseline.json
 
     - name: Publish QPS Metrics
       id: publish_throughput
       if: hashFiles('benchmarker/benchmarker_throughput_metrics.json') != ''
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: ./.github/actions/publish-benchmark-metrics
       with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-throughput
         name: "benchmarker ${{ inputs.dataset }} (throughput)"
         ref: ${{ inputs.ref }}
         tool: customBiggerIsBetter
-        output-file-path: benchmarker/benchmarker_throughput_metrics.json
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        benchmark-data-dir-path: benchmarker
-        auto-push: ${{ inputs.auto_push == 'true' }}
-        alert-threshold: "115%"
-        comment-on-alert: ${{ inputs.pr_number == '' }}
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: false
+        output_file: benchmarker/benchmarker_throughput_metrics.json
+        github_token: ${{ inputs.github_token }}
+        data_directory: benchmarker
+        auto_push: ${{ inputs.auto_push == 'true' }}
+        alert_threshold: "115%"
+        comment_on_alert: ${{ inputs.pr_number == '' }}
+        comment_always: false
 
     - name: Read QPS Baseline
       if: inputs.pr_number != '' && steps.publish_throughput.outcome == 'success'
@@ -152,7 +148,7 @@ runs:
       env:
         DATASET: ${{ inputs.dataset }}
       run: |
-        sed '1s/^window.BENCHMARK_DATA = //' benchmark-data-repository/benchmarker/data.js |
+        sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_throughput.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (throughput)" '.entries[$suite][-2] // {}' > _throughput_baseline.json
 
     - name: Stage Dashboards (HTML Only) for gh-pages

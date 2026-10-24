@@ -29,11 +29,6 @@ on:
         required: false
         type: string
         default: "18"
-      test_extension:
-        description: "Whether to test the PostgreSQL 18 extension image."
-        required: false
-        type: boolean
-        default: true
       ref:
         required: true
         type: string
@@ -454,7 +449,8 @@ jobs:
   # runnable-image job above.
   test-extension-image:
     name: Test Extension Image Build (${{ matrix.arch }})
-    if: toJSON(inputs.test_extension) != 'false'
+    # Beta releases publish runnable images only.
+    if: ${{ !contains(toJSON(github.event.inputs), '-rc.') && !contains(inputs.ref || github.ref, '-rc.') }}
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}

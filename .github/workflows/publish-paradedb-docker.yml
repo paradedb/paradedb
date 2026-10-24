@@ -223,7 +223,6 @@ jobs:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
       dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
       pg_version: ${{ contains(fromJSON(needs.set-matrix.outputs.matrix), 18) && '18' || format('{0}', fromJSON(needs.set-matrix.outputs.matrix)[0]) }}
-      test_extension: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 

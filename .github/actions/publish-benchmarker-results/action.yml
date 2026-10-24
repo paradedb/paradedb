@@ -102,19 +102,16 @@ runs:
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
       if: hashFiles('benchmarker/benchmarker_metrics.json') != ''
-      uses: ./.github/actions/publish-benchmark-metrics
+      uses: ./.github/actions/publish-benchmark-results
       with:
         publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-latency
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output_file: benchmarker/benchmarker_metrics.json
+        metrics_file: benchmarker/benchmarker_metrics.json
         github_token: ${{ inputs.github_token }}
-        data_directory: benchmarker
-        auto_push: ${{ inputs.auto_push == 'true' }}
-        alert_threshold: "115%"
-        comment_on_alert: ${{ inputs.pr_number == '' }}
-        comment_always: false
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
 
     - name: Read Latency Baseline
       if: inputs.pr_number != '' && steps.publish_latency.outcome == 'success'
@@ -128,19 +125,17 @@ runs:
     - name: Publish QPS Metrics
       id: publish_throughput
       if: hashFiles('benchmarker/benchmarker_throughput_metrics.json') != ''
-      uses: ./.github/actions/publish-benchmark-metrics
+      uses: ./.github/actions/publish-benchmark-results
       with:
         publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-throughput
         name: "benchmarker ${{ inputs.dataset }} (throughput)"
         ref: ${{ inputs.ref }}
-        tool: customBiggerIsBetter
-        output_file: benchmarker/benchmarker_throughput_metrics.json
+        direction: bigger
+        metrics_file: benchmarker/benchmarker_throughput_metrics.json
         github_token: ${{ inputs.github_token }}
-        data_directory: benchmarker
-        auto_push: ${{ inputs.auto_push == 'true' }}
-        alert_threshold: "115%"
-        comment_on_alert: ${{ inputs.pr_number == '' }}
-        comment_always: false
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
 
     - name: Read QPS Baseline
       if: inputs.pr_number != '' && steps.publish_throughput.outcome == 'success'
@@ -169,7 +164,7 @@ runs:
       if: hashFiles('_ghpages_html/*.html') != ''
       uses: peaceiris/actions-gh-pages@v4
       with:
-        github_token: ${{ steps.app-token.outputs.token }}
+        github_token: ${{ inputs.github_token }}
         publish_dir: ./_ghpages_html
         destination_dir: benchmarker-runs/${{ inputs.ref }}/${{ inputs.dataset }}
         keep_files: true
@@ -181,7 +176,7 @@ runs:
       if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        GH_TOKEN: ${{ inputs.github_token }}
         EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
         COMMIT_SHA: ${{ inputs.ref }}
         PR_NUMBER: ${{ inputs.pr_number }}

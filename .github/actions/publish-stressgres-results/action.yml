@@ -15,42 +15,30 @@ inputs:
 runs:
   using: composite
   steps:
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
-
     - name: Publish TPS Metrics
-      uses: ./.github/actions/publish-benchmark-metrics
+      uses: ./.github/actions/publish-benchmark-results
       with:
         publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-tps
         name: "pg_search ${{ inputs.test_file }} Performance - TPS"
         ref: ${{ inputs.ref }}
-        tool: customBiggerIsBetter
-        output_file: pg_search_tps.json
+        direction: bigger
+        metrics_file: pg_search_tps.json
         github_token: ${{ inputs.github_token }}
-        auto_push: ${{ github.event_name != 'pull_request' }}
-        data_directory: stressgres
-        alert_threshold: "115%"
-        comment_on_alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
-        comment_always: ${{ github.event_name == 'pull_request' }}
-
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
+        publish_baseline: ${{ github.event_name != 'pull_request' }}
+        pages_directory: stressgres
+        comment_on_regression: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        comment_summary: ${{ github.event_name == 'pull_request' }}
 
     - name: Publish Other Metrics
-      uses: ./.github/actions/publish-benchmark-metrics
+      uses: ./.github/actions/publish-benchmark-results
       with:
         publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-other
         name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
         ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output_file: pg_search_other.json
+        metrics_file: pg_search_other.json
         github_token: ${{ inputs.github_token }}
-        auto_push: ${{ github.event_name != 'pull_request' }}
-        data_directory: stressgres
+        publish_baseline: ${{ github.event_name != 'pull_request' }}
+        pages_directory: stressgres
         alert_threshold: "110%"
-        comment_on_alert: true
-        comment_always: ${{ github.event_name == 'pull_request' }}
+        comment_on_regression: true
+        comment_summary: ${{ github.event_name == 'pull_request' }}

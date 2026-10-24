@@ -203,7 +203,7 @@ jobs:
           metadata: >-
             {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
-             "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
+             "publish_baseline":"${{ github.ref == 'refs/heads/main' }}"}
 
   benchmark-datasets:
     name: Benchmarker (${{ matrix.dataset }})
@@ -402,7 +402,7 @@ jobs:
           metadata: >-
             {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
-             "auto_push":"${{ github.ref == 'refs/heads/main' }}"}
+             "publish_baseline":"${{ github.ref == 'refs/heads/main' }}"}
 
   publish-results:
     name: Publish Benchmark Results

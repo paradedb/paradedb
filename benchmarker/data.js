@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792850455671,
+  "lastUpdate": 1792850473870,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -28580,6 +28580,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 378.10466992226924,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "185c60945a3d0a60280482cacd67d795022bd865",
+          "message": "fix: make merges and VACUUM's merger wait interruptible (#6740)\n\n## Summary\n\nMake segment merges and VACUUM's wait for mergers interruptible. No\non-disk format or merge-policy change.\n\nStacked: reclaiming the output of a merge that stops early is #6981,\nwhich builds on this branch.\n\n## Problem\n\nA merger holds a shared buffer content lock for the entire merge.\nContent locks are LWLocks, so interrupts are deferred while it is held:\na cancel or SIGTERM stops the merge only at tantivy's next\n`wants_cancel()` poll, the writer-level interrupt check between polls\nnever fires, and the ERROR is raised only after the lock is released.\nVACUUM's wait for the exclusive content lock cannot be cancelled at all.\n\nA heavyweight page lock instead (an earlier revision of this PR) queues\nnew mergers behind a waiting VACUUM, which stops foreground\nbackpressure. Dropping the coordination is not an option: VACUUM must\nwait for admitted mergers before selecting segments, and its final\nreader/merger barrier must survive.\n\n## Coordination objects\n\n| Object | Who holds it | What it protects |\n|---|---|---|\n| **MergeLock**, the merge page's exclusive content lock | Mergers\nduring selection and completion; VACUUM during setup | Candidate\nselection, input reservations, and the handoff to VACUUM's exclusion\nlist. Not held across the merge payload. |\n| **Merge-page pin** | Each admitted merger, through completion | VACUUM\nwaits for admitted mergers before selecting its segments. |\n| **Cleanup-page pin** | Scans and mergers | VACUUM's final barrier\nwaits for readers and mergers with an old cached view. |\n| **VACUUM exclusion list and sentinel pin** | VACUUM | The list holds\nthe segment IDs selected for vacuuming. While the sentinel is pinned,\nnew mergers must exclude those IDs. |\n\nVACUUM takes each barrier with `LockBufferForCleanup`, which releases\nthe content lock while waiting for pins to drain. The wait shows as\n`BufferPin` and honours cancellation and `statement_timeout`, not\n`lock_timeout`.\n\n## Sequence\n\n1. **Merger admission:** pin both pages, then take MergeLock, exclude\ninputs reserved by other mergers or listed by an active VACUUM, select\ncandidates, record reservations. The backpressure check reads segment\nmetas before the pins, as on main.\n2. **Merge payload:** release MergeLock, merge holding only the pins,\npublish, reacquire MergeLock to remove reservations, release the pins.\n3. **VACUUM starts:** signal background mergers to yield between\ncandidates, then wait for the merge page. New mergers are admitted\nduring that wait, as with main's shared LWLock, so foreground\nbackpressure proceeds.\n4. **VACUUM selects segments:** keep MergeLock while freezing mutable\nsegments, reading the IDs to vacuum, writing the exclusion list, and\npinning the sentinel. Releasing MergeLock earlier would let a merger\nselect inputs before the list is active.\n5. **VACUUM works:** mark deletions and flush mutable segments without\nMergeLock. New mergers exclude the listed IDs.\n6. **VACUUM finishes:** if anything was deleted, wait for the cleanup\npage, then bump the epoch and release the sentinel. A merger that cached\nmetadata before the list went inactive is still waited for.\n\nThe VACUUM signal is only polled between candidates; it does not stop a\nrunning candidate and foreground backpressure ignores it.\n\nA merger's reservation ends with its transaction. Without the content\nlock, the interrupt checks in the block writers can raise an ERROR\nbetween `add_segment_ids` and `remove_entry`, so `list_segment_ids` now\nskips entries whose xmin is no longer in progress, as `recyclable`\nalready did, instead of only entries whose backend is gone.\n\n`MergeStyle::Insert` carries the transaction ids a foreground merge\npublishes under, and `merge_index` takes a `MergeMode` instead of two\nbooleans. No behaviour change.\n\n## Validation\n\nThe multi-session tests in `pg_search/tests/merge_cleanup.rs` (`cargo\ntest -p pg_search --test merge_cleanup`) cover: a merger ERROR or\ntermination releasing both barriers, cancellation and\n`statement_timeout` of VACUUM's pin wait, a newcomer admitted while\nVACUUM waits, the exclusion-list handoff with a positive control that\nthe same selection merges when no VACUUM list is active, the reader\nbarrier, foreground INSERT merging while VACUUM waits, and a cancelled\nforeground merge not keeping its inputs reserved while its session stays\nconnected. The handoff test drives the real `merge_index` through\n`paradedb.test_merge_index` and a selection pause inside `merge_index`.\nThe pg_test `merger_pins_preserve_both_barriers_without_content_locks`\nchecks the pins hold no content lock and leave `InterruptHoldoffCount`\nat zero.\n\nThe multi-session target uses pgrx's test server by default, which\ninstalls the extension into that server; set\n`PG_SEARCH_TEST_DATABASE_URL` to run against a private database.\n`postgres` is a dev-dependency because `pgrx-tests` depends on it\nwithout re-exporting its client types.\n\nThe multi-session suite and the pg_tests under `postgres::merge`,\n`postgres::insert`, `storage::merge` and `storage::metadata` were run\nlocally on this revision.\n`cancelled_foreground_merge_does_not_keep_inputs_reserved` fails with\nthe `is_live` change reverted and passes with it.\n\n## Limits\n\n- Output written before a merge stops early is leaked, as on main. #6981\nreclaims it.\n- The barrier protocol changed from a content lock to pins, so a backend\nstill running the previous shared library is not waited for by a VACUUM\nrunning this one. Restart the server after upgrading the library, as for\nevery pg_search release.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-24T18:48:22+05:30",
+          "tree_id": "b45b8e7c1498eb137ee73c6dbcbf57a6aee7666c",
+          "url": "https://github.com/paradedb/paradedb/commit/185c60945a3d0a60280482cacd67d795022bd865"
+        },
+        "date": 1792850461971,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 538.7157519511023,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 515.5755698950337,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 145.6777740823294,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 260.3555076867184,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 379.45702330031037,
             "unit": "queries/s"
           }
         ]

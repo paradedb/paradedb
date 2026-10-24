@@ -23,7 +23,7 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
-    types: [labeled] # Opt in with `benchmark-benchmarker` (all) or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
+    types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
       dataset:
@@ -70,7 +70,7 @@ jobs:
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hackernews' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews'))
+      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews'))
     env:
       DATASET: hackernews
       # Keep the existing archive key; the loader extracts into datasets/${DATASET}.
@@ -80,13 +80,14 @@ jobs:
     steps:
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews')
+        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           gh pr edit "${PR_NUMBER}" \
             --repo "${GITHUB_REPOSITORY}" \
+            --remove-label benchmarks \
             --remove-label benchmark-benchmarker \
             --remove-label benchmark-benchmarker-hackernews || true
 
@@ -216,7 +217,7 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
+      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
     strategy:
       fail-fast: false
       matrix:
@@ -246,6 +247,7 @@ jobs:
         run: |
           gh pr edit "${PR_NUMBER}" \
             --repo "${GITHUB_REPOSITORY}" \
+            --remove-label benchmarks \
             --remove-label benchmark-benchmarker \
             --remove-label "benchmark-benchmarker-${DATASET}" || true
 

@@ -70,7 +70,8 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
-          extra_packages: libopenblas-dev clang lld llvm diffutils
+          # pg-schema-diff's postgres-parser build downloads PostgreSQL source with wget.
+          extra_packages: libopenblas-dev clang lld llvm diffutils wget
 
       - name: Install pg-schema-diff
         run: cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force

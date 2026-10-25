@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792915857261,
+  "lastUpdate": 1792915873991,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -472812,6 +472812,94 @@ window.BENCHMARK_DATA = {
             "value": 47.62109375,
             "unit": "median mem",
             "extra": "avg mem: 48.17278796821335, max mem: 55.62109375, count: 58814"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1792915863061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 27.921875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 31.037891787080323, max partition_index_size:MB: 45.7109375, count: 58825"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.357664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.098800333243812, max cpu: 33.0546, count: 58825"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.04487469453888, max mem: 56.55078125, count: 58825"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.79717285158094, max cpu: 37.55501, count: 58825"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 52.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.99437227741181, max mem: 62.34765625, count: 58825"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.519089,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.974234209717917, max cpu: 23.821339, count: 58825"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 42.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.31953237887803, max mem: 42.2265625, count: 58825"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.517885,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.801632214583478, max cpu: 37.55501, count: 58825"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.06753207341691, max mem: 62.42578125, count: 58825"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.357664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.734117608414337, max cpu: 33.366436, count: 58825"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 48.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.849014290267746, max mem: 56.20703125, count: 58825"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792914802268,
+  "lastUpdate": 1792914820090,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -178082,6 +178082,64 @@ window.BENCHMARK_DATA = {
             "value": 22.507594012680737,
             "unit": "median tps",
             "extra": "avg tps: 22.18038505535042, max tps: 34.19872640522994, count: 59312"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1792914748035,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 140.3029142326912,
+            "unit": "median tps",
+            "extra": "avg tps: 138.7231557270555, max tps: 146.20695435388728, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 511.20466883099596,
+            "unit": "median tps",
+            "extra": "avg tps: 546.3534521141108, max tps: 6171.079438909242, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 807.0179878437302,
+            "unit": "median tps",
+            "extra": "avg tps: 784.4866119077295, max tps: 1235.8854371665566, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 176.73029713095542,
+            "unit": "median tps",
+            "extra": "avg tps: 174.53539194032527, max tps: 189.19642323977283, count: 59304"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 243.02534662770523,
+            "unit": "median tps",
+            "extra": "avg tps: 309.8941586706059, max tps: 1502.7503831763495, count: 118608"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.06544970028478,
+            "unit": "median tps",
+            "extra": "avg tps: 21.79093107481674, max tps: 33.83490191938632, count: 59304"
           }
         ]
       }

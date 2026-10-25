@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792917409509,
+  "lastUpdate": 1792917428904,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -154716,6 +154716,106 @@ window.BENCHMARK_DATA = {
             "value": 42.7578125,
             "unit": "median mem",
             "extra": "avg mem: 42.74989825043329, max mem: 42.7578125, count: 59429"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1792917417233,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.04876119302497812, max background_merging: 1.0, count: 59412"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.690498276479536, max cpu: 9.628887, count: 59412"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.00345173060577, max mem: 27.00390625, count: 59412"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.944964410221545, max cpu: 28.138742, count: 59412"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 54.875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.851356312697774, max mem: 59.15234375, count: 59412"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 63780,
+            "unit": "median block_count",
+            "extra": "avg block_count: 63534.26491281223, max block_count: 63780.0, count: 59412"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.357856998586144, max segment_count: 21.0, count: 59412"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.587223,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.05937390598397, max cpu: 33.939396, count: 59412"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 93.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 89.36180197445381, max mem: 95.61328125, count: 59412"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5307904479090375, max cpu: 28.152493, count: 59412"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 62.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.014372491037165, max mem: 62.64453125, count: 59412"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.794253752060718, max cpu: 32.925037, count: 59412"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 55.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.080579457327644, max mem: 59.14453125, count: 59412"
           }
         ]
       }

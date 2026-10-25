@@ -1,0 +1,238 @@
+name: Generate HN Embeddings
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Prepare requests, advance paid Batch jobs, or assemble a completed cache."
+        type: choice
+        options: [prepare, advance, assemble]
+        default: prepare
+      preparation:
+        description: "Immutable cache name under hn/v1/embedding-cache/. Reuse it to resume."
+        type: string
+        default: initial
+        required: true
+      max_active:
+        description: "Maximum concurrent batches for this cache."
+        type: number
+        default: 4
+      max_pending_tokens:
+        description: "Token queue budget for this cache; leave room for other project usage."
+        type: number
+        default: 20000000
+      max_seconds:
+        description: "Advance for up to this many seconds (0 = one pass, maximum 18000)."
+        type: number
+        default: 18000
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hn-v1-embedding-generation
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: ${{ inputs.action }} HN embeddings
+    timeout-minutes: 360
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu26-full-arm64
+      - volume=${{ inputs.action == 'assemble' && '600gb' || '100gb' }}
+    env:
+      PREPARATION: ${{ inputs.preparation }}
+      MAX_ACTIVE: ${{ inputs.max_active }}
+      MAX_PENDING_TOKENS: ${{ inputs.max_pending_tokens }}
+      MAX_SECONDS: ${{ inputs.max_seconds }}
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Preparation Dependencies
+        run: python -m pip install duckdb==1.4.3 pyarrow==21.0.0 tiktoken==0.12.0 openai==3.31.0 httpx2==2.13.1
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Validate Inputs
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", os.environ["PREPARATION"]):
+              raise ValueError("Invalid preparation name")
+          if not 0 <= int(os.environ["MAX_SECONDS"]) <= 18000:
+              raise ValueError("max_seconds must be between 0 and 18000")
+          if min(int(os.environ["MAX_ACTIVE"]), int(os.environ["MAX_PENDING_TOKENS"])) < 1:
+              raise ValueError("Queue limits must be positive")
+          config = tomllib.loads(Path("benchmarks/datasets/hn/prepare.toml").read_text())
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write(f"WORK={os.environ['RUNNER_TEMP']}/hn-embeddings\n")
+              stream.write(f"SOURCE_URI={config['source']}\n")
+              stream.write(f"DATASET_PREFIX={config['artifact_prefix']}\n")
+              stream.write(f"CACHE_PREFIX={config['artifact_prefix']}/embedding-cache/{os.environ['PREPARATION']}\n")
+          PY
+
+      - name: Verify Artifact Read and Write Access
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "benchmarks/scripts")
+          from embed_hn import Store
+
+          probe = f"preflight/{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}.json"
+          expected = {"run_id": os.environ["GITHUB_RUN_ID"], "commit": os.environ["GITHUB_SHA"]}
+          for prefix in (os.environ["DATASET_PREFIX"], os.environ["CACHE_PREFIX"]):
+              store = Store(Path(os.environ["WORK"]) / "preflight", prefix)
+              store.save(probe, expected)
+              actual = json.loads(store.fetch(probe, refresh=True).read_text())
+              if actual != expected:
+                  raise ValueError(f"Artifact read/write verification failed for {prefix}")
+              print(f"Verified artifact read/write access: {prefix}")
+          PY
+
+      - name: Check for Existing Request Plan
+        if: inputs.action == 'prepare'
+        run: |
+          python - <<'PYTHON'
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "benchmarks/scripts")
+          from embed_hn import Store
+
+          store = Store(Path(os.environ["WORK"]) / "cache", os.environ["CACHE_PREFIX"])
+          if store.fetch("plan.json", optional=True):
+              print("Plan already exists; use advance with this preparation name.")
+              with open(os.environ["GITHUB_ENV"], "a") as stream:
+                  stream.write("PREPARED=true\n")
+          PYTHON
+
+      - name: Download and Extract Source
+        if: inputs.action == 'assemble' || (inputs.action == 'prepare' && env.PREPARED != 'true')
+        run: |
+          set -euo pipefail
+          mkdir -p "${WORK}"
+          aws s3 cp "${SOURCE_URI}" "${WORK}/source.tar.gz" --only-show-errors
+          python - <<'PY'
+          import os
+          import shutil
+          import sys
+          import tarfile
+          from pathlib import Path, PurePosixPath
+          sys.path.insert(0, "benchmarks/scripts")
+          from prepare_hn import file_digest
+          from plan_hn_embeddings import write_json
+
+          root = Path(os.environ["WORK"])
+          members = []
+          with tarfile.open(root / "source.tar.gz", "r|gz") as archive:
+              for member in archive:
+                  if member.isfile() and PurePosixPath(member.name).name == "data.csv":
+                      members.append(member.name)
+                      if len(members) != 1:
+                          raise ValueError("Archive contains multiple data.csv files")
+                      with archive.extractfile(member) as source, (root / "data.csv").open("wb") as output:
+                          shutil.copyfileobj(source, output)
+          if len(members) != 1:
+              raise ValueError("Archive contains no data.csv")
+          write_json(root / "source.json", {
+              "archive_uri": os.environ["SOURCE_URI"],
+              "archive_sha256": file_digest(root / "source.tar.gz"),
+              "archive_member": members[0],
+              "csv_sha256": file_digest(root / "data.csv"),
+              "archive_verified": True,
+          })
+          PY
+
+      - name: Prepare and Publish Requests
+        if: inputs.action == 'prepare' && env.PREPARED != 'true'
+        run: |
+          set -euo pipefail
+          python benchmarks/scripts/prepare_hn.py \
+            --source "${WORK}/data.csv" --output "${WORK}/profile" \
+            --workers 4 --memory-limit 4GB
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "benchmarks/scripts")
+          from plan_hn_embeddings import write_json
+
+          root = Path(os.environ["WORK"])
+          source = json.loads((root / "source.json").read_text())
+          path = root / "profile/manifest.json"
+          profile = json.loads(path.read_text())
+          if profile["source"]["csv_sha256"] != source["csv_sha256"]:
+              raise ValueError("Profile does not match the archived CSV")
+          profile["source"].update(source)
+          write_json(path, profile)
+          PY
+          python benchmarks/scripts/plan_hn_embeddings.py \
+            --source "${WORK}/data.csv" --profile "${WORK}/profile/manifest.json" \
+            --output "${WORK}/cache"
+          python benchmarks/scripts/embed_hn.py publish \
+            --directory "${WORK}/cache" --s3-prefix "${CACHE_PREFIX}"
+
+      - name: Submit and Collect Embedding Batches
+        if: inputs.action == 'advance'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          : "${OPENAI_API_KEY:?Set the OPENAI_API_KEY repository or organization secret}"
+          python benchmarks/scripts/embed_hn.py advance \
+            --directory "${WORK}/cache" --s3-prefix "${CACHE_PREFIX}" \
+            --max-active "${MAX_ACTIVE}" --max-pending-tokens "${MAX_PENDING_TOKENS}" \
+            --max-seconds "${MAX_SECONDS}"
+
+      - name: Assemble and Publish Corpus and Queries
+        if: inputs.action == 'assemble'
+        run: |
+          set -euo pipefail
+          python benchmarks/scripts/assemble_hn.py assemble \
+            --source "${WORK}/data.csv" --cache-directory "${WORK}/cache" \
+            --cache-s3-prefix "${CACHE_PREFIX}" --output "${WORK}/dataset" \
+            --sizes full --workers 4 --memory-limit 4GB
+          python benchmarks/scripts/assemble_hn.py publish \
+            --output "${WORK}/dataset" --s3-prefix "${DATASET_PREFIX}"
+
+      - name: Summarize Progress
+        if: always() && env.CACHE_PREFIX != ''
+        run: |
+          {
+            echo "Embedding cache: \`${CACHE_PREFIX}\`"
+            echo
+            if [ -f "${WORK}/dataset/manifest.json" ]; then
+              echo "Corpus and query files assembled locally. Check the publication step for S3 success."
+              echo "Dataset destination: \`${DATASET_PREFIX}\`. Ground truth and snapshots remain separate steps."
+            elif [ -f "${WORK}/cache/embeddings.json" ]; then
+              echo "Embedding cache complete. Use assemble to build and publish corpus/query files."
+            else
+              echo "Reuse this preparation name with advance to collect or resume jobs."
+              echo "The cache is complete only once embeddings.json has been published."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

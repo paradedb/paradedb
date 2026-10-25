@@ -660,4 +660,289 @@ LIMIT 5;
      :             PgSearchScan: table=p, segments=2, lazy_sort=20, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
+-- ============================================================
+-- Test 7: MPP range co-partitioned RankJoinExec
+-- - Single-stage co-partitioned 2-way and 3-way joins use RankJoinExec(mode=Partitioned)
+--   under DistributedExec.
+-- - Multi-key 3-way joins that cannot co-partition into a single stage still use
+--   RankJoinExec, falling back to mode=CollectLeft (single partition).
+-- ============================================================
+DROP INDEX rj_users_bm25, rj_posts_bm25, rj_comments_bm25;
+ALTER TABLE rj_comments ADD COLUMN user_id INT;
+UPDATE rj_comments c SET user_id = p.user_id FROM rj_posts p WHERE c.post_id = p.id;
+ANALYZE rj_users, rj_posts, rj_comments;
+SET max_parallel_maintenance_workers = 0;
+CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation)
+WITH (target_segment_count = 3, partition_by = 'id');
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views)
+WITH (target_segment_count = 3, partition_by = 'user_id,id');
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, user_id, body, upvotes)
+WITH (target_segment_count = 3, partition_by = 'user_id,post_id');
+WARNING:  only 0 parallel workers were available for index build
+SET paradedb.enable_range_partitioned_join = on;
+SET paradedb.enable_rank_join = on;
+SET paradedb.rank_join_min_rows = 0;
+SET paradedb.mpp_min_rows = 0;
+SET max_parallel_workers_per_gather = 3;
+SET max_parallel_workers = 8;
+SET min_parallel_table_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+-- 7a: 2-way range co-partitioned single-sided RankJoinExec -> DistributedExec with mode=Partitioned
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Limit: 5
+   Order By: p.views desc nulls last, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, views@3 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [views@3 DESC NULLS LAST, id@1 ASC NULLS LAST, id@4 ASC NULLS LAST], fetch=5
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
+     :   │ LocalLimitExec: fetch=5
+     :   │   VisibilityFilterExec: tables=[u, p]
+     :   │     ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, views@4 as views, id@5 as id]
+     :   │       RankJoinExec: mode=Partitioned, on=[(id@1, user_id@1)], order=[views@4 DESC NULLS LAST, id@1 ASC NULLS LAST, id@5 ASC NULLS LAST]
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=1}, partition=id[-∞..25), lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :   │           t1: PgSearchScan: table=u, segments={partial=1, included=1, pruned=1}, partition=id[25..∞), lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=user_id[-∞..25), lazy_sort=20, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :   │           t1: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=user_id[25..∞), lazy_sort=20, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(23 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id | views 
+------+------+-------
+   32 |   83 |   149
+   44 |   49 |   147
+    4 |   79 |   137
+   28 |   11 |   133
+   38 |   41 |   123
+(5 rows)
+
+-- 7b: 2-way range co-partitioned disjunctive (OR) two-sided score RankJoinExec -> DistributedExec with mode=Partitioned
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     : │   SortPreservingMergeExec: [pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], fetch=5
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
+     :   │ LocalLimitExec: fetch=5
+     :   │   VisibilityFilterExec: tables=[u, p]
+     :   │     ProjectionExec: expr=[pdb.score(u)@0 as pdb.score(u), ctid_0@1 as ctid_0, id@2 as id, pdb.score(p)@3 as pdb.score(p), ctid_1@4 as ctid_1, id@6 as id]
+     :   │       RankJoinExec: mode=Partitioned, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@6 ASC NULLS LAST]
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=1}, partition=id[-∞..25), lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :   │           t1: PgSearchScan: table=u, segments={partial=1, included=1, pruned=1}, partition=id[25..∞), lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=user_id[-∞..25), lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :   │           t1: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=user_id[25..∞), lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(24 rows)
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    2 |   43
+    4 |   29
+    4 |   79
+    6 |   65
+    8 |    1
+(5 rows)
+
+-- 7c: 3-way range co-partitioned join on shared key (user_id) -> DistributedExec with mode=Partitioned
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON u.id = c.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER c
+   Join Cond: u.id = c.user_id, u.id = p.user_id
+   Limit: 5
+   Order By: u.reputation desc nulls last, u.id asc, p.id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, id@6 as col_3, reputation@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@5 as ctid_2]
+     : │   SortPreservingMergeExec: [reputation@2 DESC NULLS LAST, id@1 ASC NULLS LAST, id@4 ASC NULLS LAST, id@6 ASC NULLS LAST], fetch=5
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
+     :   │ LocalLimitExec: fetch=5
+     :   │   VisibilityFilterExec: tables=[u, p, c]
+     :   │     ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id, ctid_2@5 as ctid_2, id@7 as id]
+     :   │       RankJoinExec: mode=Partitioned, on=[(id@1, user_id@1)], order=[reputation@2 DESC NULLS LAST, id@1 ASC NULLS LAST, id@4 ASC NULLS LAST, id@7 ASC NULLS LAST]
+     :   │         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@5 as id]
+     :   │           RankJoinExec: mode=Partitioned, on=[(id@1, user_id@1)], order=[reputation@2 DESC NULLS LAST]
+     :   │             DistributedLeafExec:
+     :   │               t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=1}, partition=id[-∞..25), lazy_sort=19, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :   │               t1: PgSearchScan: table=u, segments={partial=1, included=1, pruned=1}, partition=id[25..∞), lazy_sort=19, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :   │             DistributedLeafExec:
+     :   │               t0: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=user_id[-∞..25), lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :   │               t1: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=user_id[25..∞), lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=c, segments={partial=2, included=0, pruned=1}, partition=user_id[-∞..25), lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+     :   │           t1: PgSearchScan: table=c, segments={partial=2, included=1, pruned=0}, partition=user_id[25..∞), lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(28 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON u.id = c.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | reputation 
+------+------+------+------------
+    8 |    1 |   50 |         76
+    8 |    1 |  150 |         76
+   16 |   95 |   54 |         72
+   24 |   89 |   58 |         68
+   32 |   83 |   62 |         64
+(5 rows)
+
+-- 7d: 3-way join on different keys (u.id = p.user_id and p.id = c.post_id) cannot co-partition
+-- in a single stage -> still plans RankJoinExec, falling back to mode=CollectLeft (1 partition)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER c
+   Join Cond: p.id = c.post_id, u.id = p.user_id
+   Limit: 5
+   Order By: u.reputation desc nulls last, u.id asc, p.id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, id@6 as col_3, reputation@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@5 as ctid_2]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p, c]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id, ctid_2@5 as ctid_2, id@7 as id]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@4, post_id@1)], order=[reputation@2 DESC NULLS LAST, id@1 ASC NULLS LAST, id@4 ASC NULLS LAST, id@7 ASC NULLS LAST]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, reputation@2 as reputation, ctid_1@3 as ctid_1, id@4 as id]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@1, user_id@2)], order=[reputation@2 DESC NULLS LAST]
+     :               CooperativeExec
+     :                 PgSearchScan: table=u, segments=3, lazy_sort=19, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=3, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=3, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"helpful","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | reputation 
+------+------+------+------------
+   16 |   95 |   54 |         72
+   32 |   83 |   62 |         64
+   48 |   71 |   70 |         56
+    2 |   43 |   22 |         54
+    2 |   43 |  122 |         54
+(5 rows)
+
+-- Verify identical results for 7a, 7b, 7c with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+SELECT u.id AS u_id, p.id AS p_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id | views 
+------+------+-------
+   32 |   83 |   149
+   44 |   49 |   147
+    4 |   79 |   137
+   28 |   11 |   133
+   38 |   41 |   123
+(5 rows)
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    2 |   43
+    4 |   29
+    4 |   79
+    6 |   65
+    8 |    1
+(5 rows)
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON u.id = c.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+ u_id | p_id | c_id | reputation 
+------+------+------+------------
+    8 |    1 |   50 |         76
+    8 |    1 |  150 |         76
+   16 |   95 |   54 |         72
+   24 |   89 |   58 |         68
+   32 |   83 |   62 |         64
+(5 rows)
+
 DROP TABLE rj_comments, rj_posts, rj_users;

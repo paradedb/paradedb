@@ -85,14 +85,22 @@
 //! `ScanMode::Tagged` subtree so `HashJoinExec` (or a single-sided `NRJN` join) still evaluates
 //! the boolean tag filter.
 //!
-//! # Optimizer Rule Ordering
+//! # Optimizer Rule Ordering & MPP Co-Partitioning
 //!
 //! In `build_base_session` (`pg_search/src/postgres/customscan/joinscan/scan_state.rs`),
 //! `RankJoinRule` is registered in the physical optimizer pipeline:
 //! - *after* `LateMaterializationRule` and `RangeCoPartitionedJoinRule`, so deferred column
-//!   decode nodes (`TantivyDecodeExec`) and range-partitioned join modes are already placed;
+//!   decode nodes (`TantivyDecodeExec`) and range-partitioned join modes are already placed.
+//!   Because `RankJoinExec` requires in-memory `DynamicFilterPhysicalExpr` RPC channels within
+//!   each task and cross-stage dynamic filters are not yet supported (TODO:
+//!   <https://github.com/paradedb/paradedb/issues/5559>), `subtree_join_partition_mode`
+//!   selects `PartitionMode::Partitioned` (preserving `RangePartitioned` leaf scans for single-stage
+//!   MPP execution) iff every `HashJoinExec` in the subtree was range co-partitioned on the same
+//!   partition count (`> 1`); otherwise it falls back to `PartitionMode::CollectLeft` and collapses
+//!   leaf scans to a single `Shared` partition;
 //! - *before* `EnsureRequirements`, so `EnforceSorting` sees that `RankJoinExec` satisfies the
-//!   `SortExec(fetch=K)` ordering and replaces `SortExec(fetch=K)` with `GlobalLimitExec(fetch=K)`;
+//!   `SortExec(fetch=K)` ordering and replaces `SortExec(fetch=K)` with `GlobalLimitExec(fetch=K)`
+//!   (or `SortPreservingMergeExec(fetch=K)` over `LocalLimitExec(fetch=K)` when `Partitioned`);
 //! - *before* `FilterPushdown` (post-optimization phase), so
 //!   `RankJoinExec::gather_filters_for_pushdown` can push its `DynamicFilterPhysicalExpr`
 //!   (`RankLookupPhysicalExpr`) down through `ProjectionExec` and nested `RankJoinExec`s to leaf
@@ -119,10 +127,13 @@ use datafusion::physical_plan::joins::utils::JoinFilter;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
-use datafusion::physical_plan::{ExecutionPlan, replace_children_if_necessary};
+use datafusion::physical_plan::{
+    ExecutionPlan, ExecutionPlanProperties, Partitioning, replace_children_if_necessary,
+};
 
 use crate::api::{FieldName, OrderByFeature, OrderByInfo, SortDirection};
 use crate::postgres::customscan::joinscan::ScoreColumn;
+use crate::postgres::customscan::joinscan::range_partitioning_rule::is_hash_join_range_co_partitioned;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::query::SearchQueryInput;
 use crate::scan::ScanMode;
@@ -435,6 +446,18 @@ pub(crate) struct DecomposedJoinScore {
 /// both unconditionally). If the tagless candidate is rejected by `try_rewrite_scored_branch`
 /// (e.g. single-sided `NRJN` join or failed gate), falls back to the original `ScanMode::Tagged`
 /// subtree so the `JoinFilter` is never lost.
+///
+/// TODO: Reorder joins based on rank / score correlation rather than relying solely on the
+/// selectivity-driven join tree topology chosen by PostgreSQL (`collect_join_sources_join_rel`).
+/// In multi-way joins:
+/// - For single-sided (`NRJN`) sorts (`A JOIN B JOIN C` sorted by `C`), if PostgreSQL groups the
+///   two unscored relations first as `(A JOIN B) JOIN C`, `try_rewrite_unscored_branch` rejects the
+///   rewrite because the unscored side is a `HashJoinExec` rather than a single leaf scan, whereas
+///   reordering to `((C JOIN B) JOIN A)` places the sorted leaf `C` at the base of a left-deep
+///   `RankJoinExec` chain that probes `B` and `A` via `RA`.
+/// - For multi-sided scored joins, ordering joins by score contribution / rank correlation and
+///   fanout (rather than pure filter selectivity) would tighten the top-K threshold earlier and
+///   reduce wasted `SA` window expansions and `RA` point lookups.
 fn try_rewrite_under_sort(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
@@ -444,10 +467,12 @@ fn try_rewrite_under_sort(
     let mut eager_fields = Vec::new();
     let mut rewritten_with_stats = None;
     if let Some(tagless_node) = try_elide_disjunctive_tags(node)? {
+        let join_mode = subtree_join_partition_mode(&tagless_node)?;
         rewritten_with_stats = try_rewrite_scored_branch(
             &tagless_node,
             required_ordering,
             min_rows,
+            join_mode,
             FieldSortPolicy::Allowed,
             BranchLevel::RootJoin,
             &mut eager_fields,
@@ -455,10 +480,12 @@ fn try_rewrite_under_sort(
     }
     if rewritten_with_stats.is_none() {
         eager_fields.clear();
+        let join_mode = subtree_join_partition_mode(node)?;
         rewritten_with_stats = try_rewrite_scored_branch(
             node,
             required_ordering,
             min_rows,
+            join_mode,
             FieldSortPolicy::Allowed,
             BranchLevel::RootJoin,
             &mut eager_fields,
@@ -472,6 +499,57 @@ fn try_rewrite_under_sort(
     let rewritten =
         crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
     Ok(Some(rewritten))
+}
+
+/// Returns `PartitionMode::Partitioned` iff every `HashJoinExec` in `node` is range
+/// co-partitioned on the same partition count (`> 1`), with no `CoalescePartitionsExec`
+/// inside `node` and all leaf `PgSearchScanPlan`s matching that range partition count.
+/// When satisfied, the entire rank-join subtree executes within a single MPP stage without
+/// cross-stage dynamic filters. Otherwise returns `PartitionMode::CollectLeft`.
+///
+/// TODO: Support cross-stage dynamic filters for full MPP `RankJoinExec` execution across
+/// non-co-partitioned stages: <https://github.com/paradedb/paradedb/issues/5559>.
+fn subtree_join_partition_mode(node: &Arc<dyn ExecutionPlan>) -> Result<PartitionMode> {
+    let mut expected_partitions: Option<usize> = None;
+    let mut all_co_partitioned = true;
+    node.apply(|plan| {
+        if plan.is::<CoalescePartitionsExec>() {
+            all_co_partitioned = false;
+            return Ok(TreeNodeRecursion::Stop);
+        }
+        if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
+            if !is_hash_join_range_co_partitioned(join)? {
+                all_co_partitioned = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            let part_count = join.left().output_partitioning().partition_count();
+            if expected_partitions
+                .replace(part_count)
+                .is_some_and(|prev| prev != part_count)
+            {
+                all_co_partitioned = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        } else if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+            let partitioning = scan.properties().output_partitioning();
+            let part_count = partitioning.partition_count();
+            if !matches!(partitioning, Partitioning::Range(_))
+                || part_count <= 1
+                || expected_partitions
+                    .replace(part_count)
+                    .is_some_and(|prev| prev != part_count)
+            {
+                all_co_partitioned = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    if all_co_partitioned && expected_partitions.is_some_and(|n| n > 1) {
+        Ok(PartitionMode::Partitioned)
+    } else {
+        Ok(PartitionMode::CollectLeft)
+    }
 }
 
 /// Checks whether the join subtree rooted under `node` has a root `HashJoinExec` whose `filter`
@@ -782,6 +860,7 @@ fn try_rewrite_scored_branch(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
     min_rows: usize,
+    join_mode: PartitionMode,
     field_sort_policy: FieldSortPolicy,
     level: BranchLevel,
     eager_fields: &mut Vec<PhysicalDeferredField>,
@@ -791,6 +870,7 @@ fn try_rewrite_scored_branch(
             node.children()[0],
             &child_ordering,
             min_rows,
+            join_mode,
             field_sort_policy,
             level,
             eager_fields,
@@ -811,6 +891,7 @@ fn try_rewrite_scored_branch(
         return Ok(try_rewrite_scored_leaf(
             scan,
             &required_ordering[0],
+            join_mode,
             field_sort_policy,
         ));
     }
@@ -871,6 +952,7 @@ fn try_rewrite_scored_branch(
             join.left(),
             &left_ordering,
             min_rows,
+            join_mode,
             child_field_sort_policy,
             BranchLevel::ChildBranch,
             eager_fields,
@@ -878,7 +960,7 @@ fn try_rewrite_scored_branch(
     } else {
         let left_keys: Vec<Arc<dyn PhysicalExpr>> =
             join.on().iter().map(|(l, _)| Arc::clone(l)).collect();
-        try_rewrite_unscored_branch(join.left(), &left_keys)?
+        try_rewrite_unscored_branch(join.left(), &left_keys, join_mode)?
     }) else {
         return Ok(None);
     };
@@ -892,6 +974,7 @@ fn try_rewrite_scored_branch(
             join.right(),
             &right_ordering,
             min_rows,
+            join_mode,
             child_field_sort_policy,
             BranchLevel::ChildBranch,
             eager_fields,
@@ -899,7 +982,7 @@ fn try_rewrite_scored_branch(
     } else {
         let right_keys: Vec<Arc<dyn PhysicalExpr>> =
             join.on().iter().map(|(_, r)| Arc::clone(r)).collect();
-        try_rewrite_unscored_branch(join.right(), &right_keys)?
+        try_rewrite_unscored_branch(join.right(), &right_keys, join_mode)?
     }) else {
         return Ok(None);
     };
@@ -918,7 +1001,7 @@ fn try_rewrite_scored_branch(
         join.on().to_vec(),
         join.filter().cloned(),
         join.projection.as_deref().map(<[usize]>::to_vec),
-        PartitionMode::CollectLeft,
+        join_mode,
         join.null_equality(),
         RankJoinSortExprs {
             left: decomposed.left_sort_expr,
@@ -953,6 +1036,7 @@ fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
 fn try_rewrite_unscored_branch(
     node: &Arc<dyn ExecutionPlan>,
     parent_keys: &[Arc<dyn PhysicalExpr>],
+    join_mode: PartitionMode,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
         let child_keys: Option<Vec<_>> = parent_keys
@@ -966,7 +1050,8 @@ fn try_rewrite_unscored_branch(
         let Some(child_keys) = child_keys else {
             return Ok(None);
         };
-        let Some((new_child, stats)) = try_rewrite_unscored_branch(proj.input(), &child_keys)?
+        let Some((new_child, stats)) =
+            try_rewrite_unscored_branch(proj.input(), &child_keys, join_mode)?
         else {
             return Ok(None);
         };
@@ -975,7 +1060,7 @@ fn try_rewrite_unscored_branch(
     }
     if is_passthrough_node(node) {
         let Some((new_child, stats)) =
-            try_rewrite_unscored_branch(node.children()[0], parent_keys)?
+            try_rewrite_unscored_branch(node.children()[0], parent_keys, join_mode)?
         else {
             return Ok(None);
         };
@@ -1024,12 +1109,13 @@ fn try_rewrite_unscored_branch(
             right_keys.extend(shifted_parent_keys);
         }
 
-        let Some((new_left, left_stats)) = try_rewrite_unscored_branch(join.left(), &left_keys)?
+        let Some((new_left, left_stats)) =
+            try_rewrite_unscored_branch(join.left(), &left_keys, join_mode)?
         else {
             return Ok(None);
         };
         let Some((new_right, right_stats)) =
-            try_rewrite_unscored_branch(join.right(), &right_keys)?
+            try_rewrite_unscored_branch(join.right(), &right_keys, join_mode)?
         else {
             return Ok(None);
         };
@@ -1057,7 +1143,7 @@ fn try_rewrite_unscored_branch(
             join.on().to_vec(),
             join.filter().cloned(),
             join.projection.as_deref().map(<[usize]>::to_vec),
-            PartitionMode::CollectLeft,
+            join_mode,
             join.null_equality(),
             RankJoinSortExprs {
                 left: dummy_zero.clone(),
@@ -1090,19 +1176,24 @@ fn try_rewrite_unscored_branch(
         score_min: 0.0,
         score_max: 0.0,
     };
-    let configured_scan = scan.clone().with_lazy_sort(LazySortConfig {
-        orderby_info: None,
-        ordering: None,
-        initial_window: 0.0,
-        shared_threshold: SharedThresholdMode::Disabled,
-        telemetry: None,
-    });
+    let configured_scan = configure_leaf_lazy_sort(
+        scan,
+        LazySortConfig {
+            orderby_info: None,
+            ordering: None,
+            initial_window: 0.0,
+            shared_threshold: SharedThresholdMode::Disabled,
+            telemetry: None,
+        },
+        join_mode,
+    );
     Ok(Some((Arc::new(configured_scan), stats)))
 }
 
 fn try_rewrite_scored_leaf(
     scan: &PgSearchScanPlan,
     required_sort: &PhysicalSortExpr,
+    join_mode: PartitionMode,
     field_sort_policy: FieldSortPolicy,
 ) -> Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)> {
     let order_by = resolve_scan_order_by(scan, required_sort, field_sort_policy)?;
@@ -1139,14 +1230,30 @@ fn try_rewrite_scored_leaf(
     // Placeholder `initial_window: 1.0` marks this leaf as `SA`; `try_rewrite_under_sort`
     // replaces it with the final selectivity-scaled window once the full join tree's
     // `SubtreeScoreStats` has been computed.
-    let configured_scan = scan.clone().with_lazy_sort(LazySortConfig {
-        orderby_info: Some(vec![order_by]),
-        ordering: LexOrdering::new(vec![required_sort.clone()]),
-        initial_window: 1.0,
-        shared_threshold: SharedThresholdMode::Disabled,
-        telemetry: None,
-    });
+    let configured_scan = configure_leaf_lazy_sort(
+        scan,
+        LazySortConfig {
+            orderby_info: Some(vec![order_by]),
+            ordering: LexOrdering::new(vec![required_sort.clone()]),
+            initial_window: 1.0,
+            shared_threshold: SharedThresholdMode::Disabled,
+            telemetry: None,
+        },
+        join_mode,
+    );
     Some((Arc::new(configured_scan), stats))
+}
+
+fn configure_leaf_lazy_sort(
+    scan: &PgSearchScanPlan,
+    lazy_sort: LazySortConfig,
+    join_mode: PartitionMode,
+) -> PgSearchScanPlan {
+    let mut cloned = scan.clone();
+    if join_mode != PartitionMode::Partitioned {
+        cloned = cloned.into_single_shared_partition();
+    }
+    cloned.with_lazy_sort(lazy_sort)
 }
 
 fn resolve_scan_order_by(

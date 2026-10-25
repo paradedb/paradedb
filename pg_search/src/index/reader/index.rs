@@ -271,10 +271,19 @@ fn probe_stats_to_segment_info(
 
 /// Base filter applied to a segment during a Random Access (`RA`) point lookup.
 pub(crate) enum RaBaseFilter {
-    /// Base query is `AllQuery` (every live document matches with base score `0.0`).
+    /// Base query is `AllQuery` and the segment is unconstrained by partition bounds
+    /// (every live document matches with base score `0.0`).
     MatchAll,
-    /// Base query restricts matching documents (and contributes `base_scorer.score()` when `need_scores`).
-    Filtered(Arc<LazyWeight>),
+    /// Segment requires evaluating `weight` (either a non-`All` base query, a `partially_included`
+    /// segment's `partition_bounds` range filter, or their conjunction).
+    /// `contributes_score` is `true` only when the underlying base query itself contributes a
+    /// BM25 score (`!unconstrained_is_match_all && need_scores`); it is `false` when `weight`
+    /// only enforces `partition_bounds` on an `AllQuery` base scan so the range filter's
+    /// non-scoring `ConstScorer` (`1.0`) is never added to the document score.
+    Filtered {
+        weight: Arc<LazyWeight>,
+        contributes_score: bool,
+    },
 }
 
 /// Reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
@@ -1714,24 +1723,34 @@ impl SearchIndexReader {
         let unconstrained = if unconstrained_is_match_all {
             RaBaseFilter::MatchAll
         } else {
-            RaBaseFilter::Filtered(Arc::new(LazyWeight::new(
-                self.query().box_clone(),
-                self.need_scores,
-                self.searcher.clone(),
-            )))
+            RaBaseFilter::Filtered {
+                weight: Arc::new(LazyWeight::new(
+                    self.query().box_clone(),
+                    self.need_scores,
+                    self.searcher.clone(),
+                )),
+                contributes_score: self.need_scores,
+            }
         };
         let constrained = range_target.map(|(segments, partition_bounds)| {
             let range_query = Box::new(ConstScoreQuery::new(
                 self.make_query(partition_bounds, None),
                 0.0,
             ));
-            let weight = match &unconstrained {
-                RaBaseFilter::MatchAll => {
-                    Arc::new(LazyWeight::new(range_query, false, self.searcher.clone()))
-                }
-                RaBaseFilter::Filtered(base_weight) => Arc::new(base_weight.and_query(range_query)),
+            let filter = match &unconstrained {
+                RaBaseFilter::MatchAll => RaBaseFilter::Filtered {
+                    weight: Arc::new(LazyWeight::new(range_query, false, self.searcher.clone())),
+                    contributes_score: false,
+                },
+                RaBaseFilter::Filtered {
+                    weight: base_weight,
+                    contributes_score,
+                } => RaBaseFilter::Filtered {
+                    weight: Arc::new(base_weight.and_query(range_query)),
+                    contributes_score: *contributes_score,
+                },
             };
-            (segments.clone(), RaBaseFilter::Filtered(weight))
+            (segments.clone(), filter)
         });
         let disjunct_weight = self
             .need_scores
@@ -1861,11 +1880,14 @@ impl SearchIndexReader {
                     results,
                 );
             }
-            RaBaseFilter::Filtered(base_weight) => {
+            RaBaseFilter::Filtered {
+                weight: base_weight,
+                contributes_score,
+            } => {
                 // When `base_weight` is the sole score source, push `threshold` directly into its
                 // `PruningScorer` (Block-Max WAND).
                 if disjunct_weight.is_none()
-                    && self.need_scores
+                    && *contributes_score
                     && let Some(threshold) = score_threshold
                 {
                     let mut pruning_scorer = base_weight
@@ -1892,7 +1914,7 @@ impl SearchIndexReader {
                         segment_ord,
                         segment_reader,
                         base_scorer.as_mut(),
-                        self.need_scores,
+                        *contributes_score,
                         lookup_weight,
                         disjunct_weight,
                         score_threshold,
@@ -2021,9 +2043,6 @@ impl SearchIndexReader {
     ///
     /// Fully included segments evaluate against the unconstrained base query, while partially
     /// included segments also evaluate `partition_bounds`.
-    ///
-    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
-    /// execution; this entry point is wired up for future range-partitioned rank joins.
     pub(crate) fn search_top_k_unordered_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,
@@ -2090,9 +2109,6 @@ impl SearchIndexReader {
     ///
     /// Fully included segments evaluate against the unconstrained base query, while partially
     /// included segments also evaluate `partition_bounds`.
-    ///
-    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
-    /// execution; this entry point is wired up for future range-partitioned rank joins.
     pub(crate) fn search_top_k_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,

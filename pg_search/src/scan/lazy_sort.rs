@@ -186,6 +186,13 @@ impl std::fmt::Debug for LazySortConfig {
 }
 
 /// Tracks the expanding window `[offset .. offset + limit)` across iterative Top-K pulls.
+///
+/// TODO: Make Sorted Access (`SA`) truly lazy/incremental across pulls instead of re-executing
+/// `search_top_k_in_segments` (or `search_top_k_segments_with_range_filter`) from scratch with an
+/// increasing `offset` on each retry. Re-running `TopDocs` with `offset + limit` re-traverses and
+/// re-scores all `offset` previously emitted documents on every pull; maintaining stateful
+/// per-segment cursors or passing the last emitted `(sort_key, DocAddress)` bound into the
+/// collector would allow each pull to collect only `limit` new documents.
 enum WindowStep {
     FirstPull,
     Retry { chunk_size: usize },

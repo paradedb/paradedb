@@ -490,6 +490,12 @@ unsafe fn wrap_with_mark_filter(
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.
 /// Supports extracting inner equi-joins between base relations and returns the accumulated plan and join keys.
+///
+/// TODO: `cheapest_total_path` orders joins purely by cardinality / filter selectivity without
+/// considering `ORDER BY` rank or score correlation. For `RankJoinExec` (`pg_search/src/scan/rank_join_rule.rs`),
+/// join order should also account for rank / score correlation (e.g. placing the primary `SA`-sorted
+/// relation at the base of a left-deep join chain so unscored relations remain single leaf `RA` probes,
+/// and joining high-score-swing / low-fanout relations first).
 unsafe fn collect_join_sources_join_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,

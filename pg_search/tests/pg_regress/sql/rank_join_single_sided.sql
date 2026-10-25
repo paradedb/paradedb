@@ -327,4 +327,132 @@ WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
 ORDER BY p.views DESC NULLS LAST
 LIMIT 5;
 
+-- ============================================================
+-- Test 7: MPP range co-partitioned RankJoinExec
+-- - Single-stage co-partitioned 2-way and 3-way joins use RankJoinExec(mode=Partitioned)
+--   under DistributedExec.
+-- - Multi-key 3-way joins that cannot co-partition into a single stage still use
+--   RankJoinExec, falling back to mode=CollectLeft (single partition).
+-- ============================================================
+DROP INDEX rj_users_bm25, rj_posts_bm25, rj_comments_bm25;
+
+ALTER TABLE rj_comments ADD COLUMN user_id INT;
+UPDATE rj_comments c SET user_id = p.user_id FROM rj_posts p WHERE c.post_id = p.id;
+ANALYZE rj_users, rj_posts, rj_comments;
+
+SET max_parallel_maintenance_workers = 0;
+
+CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation)
+WITH (target_segment_count = 3, partition_by = 'id');
+
+CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views)
+WITH (target_segment_count = 3, partition_by = 'user_id,id');
+
+CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, user_id, body, upvotes)
+WITH (target_segment_count = 3, partition_by = 'user_id,post_id');
+
+SET paradedb.enable_range_partitioned_join = on;
+SET paradedb.enable_rank_join = on;
+SET paradedb.rank_join_min_rows = 0;
+SET paradedb.mpp_min_rows = 0;
+SET max_parallel_workers_per_gather = 3;
+SET max_parallel_workers = 8;
+SET min_parallel_table_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+
+-- 7a: 2-way range co-partitioned single-sided RankJoinExec -> DistributedExec with mode=Partitioned
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- 7b: 2-way range co-partitioned disjunctive (OR) two-sided score RankJoinExec -> DistributedExec with mode=Partitioned
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- 7c: 3-way range co-partitioned join on shared key (user_id) -> DistributedExec with mode=Partitioned
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON u.id = c.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON u.id = c.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
+-- 7d: 3-way join on different keys (u.id = p.user_id and p.id = c.post_id) cannot co-partition
+-- in a single stage -> still plans RankJoinExec, falling back to mode=CollectLeft (1 partition)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON p.id = c.post_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
+-- Verify identical results for 7a, 7b, 7c with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+
+SELECT u.id AS u_id, p.id AS p_id, p.views
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+JOIN rj_comments c ON u.id = c.user_id
+WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25' AND c.body @@@ 'helpful'
+ORDER BY u.reputation DESC NULLS LAST, u.id ASC, p.id ASC, c.id ASC
+LIMIT 5;
+
 DROP TABLE rj_comments, rj_posts, rj_users;

@@ -412,6 +412,69 @@ impl PgSearchRelation {
         }
     }
 
+    /// Authorize a direct index read which does not go through the SQL planner.
+    ///
+    /// Require table-level SELECT, rather than a grant on any one column: arbitrary
+    /// query strings and index expressions can depend on columns other than the
+    /// aggregation's output fields. These APIs cannot apply row security policies,
+    /// so fail closed when RLS applies to the effective caller. MVCC visibility is
+    /// not a substitute for either of these checks.
+    ///
+    /// Keep the returned heap relation alive until the read finishes to hold its
+    /// AccessShareLock, including while checking permissions and RLS.
+    pub fn check_standalone_index_read(&self) -> PgSearchRelation {
+        unsafe {
+            if self.rd_index.is_null() {
+                pgrx::error!("Expected to receive an index argument.");
+            }
+            let heap = Self::with_lock((*self.rd_index).indrelid, pg_sys::AccessShareLock as _);
+            let user = pg_sys::GetUserId();
+            let namespace = (*heap.rd_rel).relnamespace;
+
+            // OID/regclass arguments do not necessarily perform name resolution,
+            // so explicitly check schema USAGE even for numeric index arguments.
+            #[cfg(feature = "pg15")]
+            let schema_acl = pg_sys::pg_namespace_aclcheck(namespace, user, pg_sys::ACL_USAGE);
+            #[cfg(not(feature = "pg15"))]
+            let schema_acl = pg_sys::object_aclcheck(
+                pg_sys::NamespaceRelationId,
+                namespace,
+                user,
+                pg_sys::ACL_USAGE,
+            );
+            if schema_acl != pg_sys::AclResult::ACLCHECK_OK {
+                pg_sys::aclcheck_error(
+                    schema_acl,
+                    pg_sys::ObjectType::OBJECT_SCHEMA,
+                    pg_sys::get_namespace_name(namespace),
+                );
+            }
+
+            let table_acl = pg_sys::pg_class_aclcheck(heap.oid(), user, pg_sys::ACL_SELECT);
+            if table_acl != pg_sys::AclResult::ACLCHECK_OK {
+                pg_sys::aclcheck_error(
+                    table_acl,
+                    pg_sys::ObjectType::OBJECT_TABLE,
+                    pg_sys::get_rel_name(heap.oid()),
+                );
+            }
+
+            // noError=true still reports RLS_ENABLED when row_security=off; that
+            // GUC must not become a way to bypass this guard. GetUserId (rather
+            // than the session user) also respects SET ROLE and SECURITY DEFINER.
+            if pg_sys::check_enable_rls(heap.oid(), user, true)
+                == pg_sys::CheckEnableRlsResult::RLS_ENABLED as i32
+            {
+                pg_sys::ereport!(
+                    ERROR,
+                    pgrx::PgSqlErrorCode::ERRCODE_INSUFFICIENT_PRIVILEGE,
+                    "direct index reads are not supported when row-level security applies"
+                );
+            }
+            heap
+        }
+    }
+
     pub fn indices(
         &self,
         lockmode: pg_sys::LOCKMODE,

@@ -317,6 +317,7 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let _heap = index.check_standalone_index_read();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
         return Ok(TableIterator::new(Vec::new()));
@@ -1708,6 +1709,7 @@ pub mod pdb {
         >,
     > {
         let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+        let _heap = index_rel.check_standalone_index_read();
         let index_kind = IndexKind::for_index(index_rel.clone())?;
 
         let mut results = Vec::new();

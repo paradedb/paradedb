@@ -93,6 +93,7 @@ fn aggregate_impl(
         .unwrap_or_else(|_| pgrx::error!("bucket_limit must be <= {}", u32::MAX));
 
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
+    let _heap = relation.check_standalone_index_read();
 
     // Validate aggregation fields exist and are supported before executing.
     // This path bypasses the planner, so we validate here directly.

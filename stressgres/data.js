@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792914781455,
+  "lastUpdate": 1792914802268,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -355998,6 +355998,160 @@ window.BENCHMARK_DATA = {
             "value": 21.53125,
             "unit": "median mem",
             "extra": "avg mem: 21.47834612588503, max mem: 21.53125, count: 59320"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1792914768757,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.154848,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.146726451310432, max cpu: 46.444122, count: 59310"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.707969382271116, max mem: 61.52734375, count: 59310"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.401894321447717, max cpu: 4.712813, count: 59310"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 20.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.58490768841679, max mem: 20.65625, count: 59310"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.717729577190293, max cpu: 9.425626, count: 59310"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 28.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.645620468723656, max mem: 28.65625, count: 59310"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 11865,
+            "unit": "median pages",
+            "extra": "avg pages: 10363.631950767156, max pages: 16909.0, count: 59310"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 92.6953125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 80.9658746153684, max relation_size:MB: 132.1015625, count: 59310"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.41266228292025, max segment_count: 42.0, count: 59310"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.008418792145216, max cpu: 4.7105007, count: 59310"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 20.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.391455382734783, max mem: 20.40625, count: 59310"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.154848,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.23339906610483, max cpu: 41.79971, count: 59310"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 50.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.310601013214466, max mem: 62.48046875, count: 59310"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.14408650449471, max cpu: 46.444122, count: 59310"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 45.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.59205900406761, max mem: 57.06640625, count: 59310"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 93.20753860473633,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 198.98117257483068, max replication_lag:MB: 977.9860687255859, count: 59310"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.210092471141735, max cpu: 41.79971, count: 59310"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 50.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.6541934723276, max mem: 62.453125, count: 59310"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.311348,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.244667599459266, max cpu: 32.684826, count: 59310"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 20.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.7830409738029, max mem: 20.82421875, count: 59310"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.302325,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.234329478634837, max cpu: 32.98969, count: 59310"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 20.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.783197395042993, max mem: 20.82421875, count: 59310"
           }
         ]
       }

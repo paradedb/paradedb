@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792915873991,
+  "lastUpdate": 1792916051765,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -382552,6 +382552,124 @@ window.BENCHMARK_DATA = {
             "value": 67.03236467900642,
             "unit": "median tps",
             "extra": "avg tps: 78.73807449384766, max tps: 1642.3786241137313, count: 57408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1792916040278,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 497.6294565045189,
+            "unit": "median tps",
+            "extra": "avg tps: 496.9259938864425, max tps: 499.0432299604702, count: 57414"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 462.8245481448473,
+            "unit": "median tps",
+            "extra": "avg tps: 462.1836128366438, max tps: 463.82163942543485, count: 57414"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3802.2417944171866,
+            "unit": "median tps",
+            "extra": "avg tps: 3802.1288655981843, max tps: 4094.2954181938308, count: 57414"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 493.7184013604764,
+            "unit": "median tps",
+            "extra": "avg tps: 493.18487164494366, max tps: 496.25595475250606, count: 57414"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3319.9413990540547,
+            "unit": "median tps",
+            "extra": "avg tps: 3326.6815091130384, max tps: 3463.502557140083, count: 57414"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3296.1700832675524,
+            "unit": "median tps",
+            "extra": "avg tps: 3273.66618697936, max tps: 3312.7782655940664, count: 57414"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 200.38411163276876,
+            "unit": "median tps",
+            "extra": "avg tps: 200.2583866683203, max tps: 200.59986846195133, count: 57414"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 364.9935606747275,
+            "unit": "median tps",
+            "extra": "avg tps: 364.5964928816187, max tps: 365.30652701364636, count: 57414"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 584.5382084938133,
+            "unit": "median tps",
+            "extra": "avg tps: 583.1701306610387, max tps: 587.1619667960261, count: 57414"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 683.960198303691,
+            "unit": "median tps",
+            "extra": "avg tps: 682.1173071926958, max tps: 686.1054238352062, count: 57414"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1422.4135214481084,
+            "unit": "median tps",
+            "extra": "avg tps: 1422.1396741510202, max tps: 1434.8381872345426, count: 57414"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 509.8786011586599,
+            "unit": "median tps",
+            "extra": "avg tps: 509.5917522651299, max tps: 514.2112776158516, count: 57414"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 621.3803516158027,
+            "unit": "median tps",
+            "extra": "avg tps: 619.6127724605602, max tps: 622.6735679941823, count: 57414"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2411.3513615140782,
+            "unit": "median tps",
+            "extra": "avg tps: 2403.697616616631, max tps: 2419.4410050021897, count: 57414"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1864.9737371761737,
+            "unit": "median tps",
+            "extra": "avg tps: 1864.3688780234895, max tps: 1938.097565046393, count: 57414"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 33.71753948267199,
+            "unit": "median tps",
+            "extra": "avg tps: 63.23023623628531, max tps: 1528.4513577997636, count: 57414"
           }
         ]
       }

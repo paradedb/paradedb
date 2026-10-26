@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793036921353,
+  "lastUpdate": 1793039592469,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -17404,6 +17404,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 189.099,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ujjawalpathak6@gmail.com",
+            "name": "Kumar Ujjawal",
+            "username": "kumarUjjawal"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7826a75a757cd7c9f4e537de76b1584691eceb5d",
+          "message": "fix: normalize unfielded numeric query literals (#7025)\n\n# Ticket(s) Closed\n\n- Closes #6997\n\n## What\n\nApply NUMERIC conversion to unfielded query literals in `pdb.parse`.\n\n## Why\n\nAn unfielded query such as `pdb.parse('123')` could match `1.23` in a\n`NUMERIC(10,2)` column because Tantivy parsed the literal as its stored\ninteger. Bytes-backed NUMERIC fields could similarly match raw Base64\ninput.\n\n## How\n\nExpand each unfielded literal across indexed fields and reuse the\nexisting NUMERIC rewrite helpers for each field's scale and storage\nformat. Use Tantivy's public AST APIs to retain mixed-type fallback,\nconjunctions, boosts, and lenient parsing. Preserve the distinction\nbetween invalid input and a valid numeric equality that cannot match.\n\nExtend the existing `parse.sql` regression suite with mixed text/NUMERIC\nsearches, scale boundaries, invalid input, unindexed fields, aliases,\nstopwords, and score checks.\n\n## Tests\n\nValidated on PostgreSQL 17:\n\n- Consolidated `parse` regression suite and 10 related numeric,\ndatetime, and tokenizer suites.\n- 380 comparisons against PostgreSQL equality, 320 mixed-type parser\ncomparisons, and 32 Numeric64-only Boolean checks in additional SQL\nprobes; score parity also checked.\n- Existing `numeric_phrase_rewrite_uses_physical_representation`\nPostgreSQL unit test.\n- `cargo clippy -p pg_search --no-default-features --features pg17\n--all-targets -- -D warnings --no-deps`.\n- `cargo fmt --all -- --check`.",
+          "timestamp": "2026-10-26T10:05:25-07:00",
+          "tree_id": "1344154109a189b05a9a56b2ee630b365cfa59f2",
+          "url": "https://github.com/paradedb/paradedb/commit/7826a75a757cd7c9f4e537de76b1584691eceb5d"
+        },
+        "date": 1793039578410,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.091,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 331.687,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.06,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 183.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.482,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 147.551,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 209.053,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.419,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.539,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.871,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 14.834,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 81.561,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 184.096,
             "unit": "ms"
           }
         ]

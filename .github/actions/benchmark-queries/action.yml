@@ -9,7 +9,7 @@ inputs:
     description: "Size label for pre-sampled dataset, e.g. '100k', '1m', '20m'"
     required: true
   index:
-    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25, hnsw, ivfflat"
+    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25"
     required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
@@ -31,21 +31,9 @@ inputs:
   alert_threshold:
     description: >-
       Ratio of current to baseline value above which github-action-benchmark alerts,
-      e.g. "115%". Callers using the paired-bootstrap strategy should loosen this into a
-      catastrophic-regression backstop, since the comparison script owns real alerting.
+      e.g. "115%".
     required: false
     default: "115%"
-  alert_strategy:
-    description: >-
-      How regressions are detected. "point-ratio": only the alert_threshold point comparison.
-      "paired-bootstrap": percentile series whose runs published per-query samples alert when the
-      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x -- pairing cancels
-      cross-query latency variance, so this is both less noisy and more sensitive than a point
-      comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
-      p99 series stay charted but never alert; a single-run p99 cannot evidence a regression.
-    required: false
-    default: "point-ratio"
-
 runs:
   using: "composite"
   steps:
@@ -140,29 +128,3 @@ runs:
         pages_directory: benchmarks
         alert_threshold: ${{ inputs.alert_threshold }}
         comment_summary: ${{ github.event_name == 'pull_request' }}
-
-    # The publish step above appends the current run to its local gh-pages clone, so the script
-    # takes the second-to-last entry as the baseline.
-    - name: Compare Against Baseline (Paired Bootstrap)
-      if: inputs.alert_strategy == 'paired-bootstrap'
-      id: paired_bootstrap
-      shell: bash
-      env:
-        INPUTS_DATASET: ${{ inputs.dataset }}
-        INPUTS_INDEX: ${{ inputs.index }}
-      run: |
-        python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
-          --results benchmarks/results.json \
-          --data-js benchmark-data-repository/benchmarks/data.js \
-          --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ env.ROWS_LABEL }} rows)" \
-          --out benchmark-alert.md
-
-    - name: Comment on Alert (Paired Bootstrap)
-      if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
-      run: |
-        printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
-        gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-          -F body=@benchmark-alert.md

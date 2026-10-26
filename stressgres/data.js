@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793002294360,
+  "lastUpdate": 1793002312461,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -421432,6 +421432,88 @@ window.BENCHMARK_DATA = {
             "value": 629.9412257094516,
             "unit": "median tps",
             "extra": "avg tps: 626.2140525418688, max tps: 657.4028356902476, count: 55272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1793002263938,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 568.1598262596627,
+            "unit": "median tps",
+            "extra": "avg tps: 568.2942651803403, max tps: 616.1372910691442, count: 55273"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 525.8782512755812,
+            "unit": "median tps",
+            "extra": "avg tps: 525.8244911822655, max tps: 562.2011667289648, count: 55273"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 205.39466057435934,
+            "unit": "median tps",
+            "extra": "avg tps: 205.32666066843007, max tps: 216.5098481180622, count: 55273"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 581.8075350678585,
+            "unit": "median tps",
+            "extra": "avg tps: 581.5820177574342, max tps: 609.8271788290599, count: 55273"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 396.2439016700112,
+            "unit": "median tps",
+            "extra": "avg tps: 396.3258872622263, max tps: 435.0948208626307, count: 55273"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.664540593227626,
+            "unit": "median tps",
+            "extra": "avg tps: 14.680182761649265, max tps: 16.051357816333677, count: 55273"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 694.2494963768548,
+            "unit": "median tps",
+            "extra": "avg tps: 694.038730409994, max tps: 727.1664040242256, count: 55273"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 713.2309423770439,
+            "unit": "median tps",
+            "extra": "avg tps: 712.6574369539863, max tps: 739.0854133800461, count: 55273"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 314.19591899354083,
+            "unit": "median tps",
+            "extra": "avg tps: 313.4888687097662, max tps: 323.4927548370846, count: 55273"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 612.8813304146413,
+            "unit": "median tps",
+            "extra": "avg tps: 610.5183503652053, max tps: 614.8420145251292, count: 55273"
           }
         ]
       }

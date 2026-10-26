@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793052472597,
+  "lastUpdate": 1793052490450,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -34381,6 +34381,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) QPS",
             "value": 37.757755429265465,
+            "unit": "queries/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 ×\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8–26), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T13:40:00-07:00",
+          "tree_id": "00dc6e81bfa08b7e4c160607d727f4fd99b237a2",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793052477941,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.00572667366473,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.169016630988324,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.58176673812678,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.061135392608243,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.21029112254764,
             "unit": "queries/s"
           }
         ]

@@ -880,7 +880,9 @@ impl CustomScan for BaseScan {
         unsafe fn query_tree_needs_const_projections(mut root: *mut pg_sys::PlannerInfo) -> bool {
             while !root.is_null() {
                 if let Some(parse) = (*root).parse.as_ref() {
-                    if !parse.targetList.is_null() && parse.targetList.maybe_needs_const_projections() {
+                    if !parse.targetList.is_null()
+                        && parse.targetList.maybe_needs_const_projections()
+                    {
                         return true;
                     }
                 }
@@ -1529,12 +1531,16 @@ impl CustomScan for BaseScan {
                         if !candidate_list.is_null() {
                             let list = PgList::<pg_sys::TargetEntry>::from_pg(candidate_list);
                             for te in list.iter_ptr() {
-                                let func_vars_at_level =
-                                    pullout_funcexprs(te.cast(), &funcoids, rti, builder.args().root);
+                                let func_vars_at_level = pullout_funcexprs(
+                                    te.cast(),
+                                    &funcoids,
+                                    rti,
+                                    builder.args().root,
+                                );
                                 for (funcexpr, var, attname) in func_vars_at_level {
                                     if !tlist.is_empty() {
-                                        let te_copy =
-                                            pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
+                                        let te_copy = pg_sys::copyObjectImpl(te.cast())
+                                            .cast::<pg_sys::TargetEntry>();
                                         (*te_copy).resno = (tlist.len() + 1) as _;
                                         (*te_copy).expr = funcexpr.cast();
                                         tlist.push(te_copy);

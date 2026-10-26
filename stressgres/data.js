@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793002275333,
+  "lastUpdate": 1793002294360,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -225256,6 +225256,124 @@ window.BENCHMARK_DATA = {
             "value": 44.63671875,
             "unit": "median mem",
             "extra": "avg mem: 44.818480440821865, max mem: 48.63671875, count: 59304"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1793002282758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.43489,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.148256382831317, max cpu: 28.68526, count: 59300"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 46.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.52424595541737, max mem: 46.5390625, count: 59300"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.64558969900771, max cpu: 28.388369, count: 59300"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.32275710107504, max mem: 32.33203125, count: 59300"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.846876336893034, max cpu: 19.161678, count: 59300"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 51.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.766517179595276, max mem: 53.05078125, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 19612,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19709.604401349072, max block_count: 37600.0, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5488062754620566, max cpu: 4.712813, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.461661572512647, max mem: 28.5078125, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.99741989881956, max segment_count: 39.0, count: 59300"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.402546,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.908429056107153, max cpu: 26.751593, count: 59300"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 46.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.62761033674115, max mem: 46.62890625, count: 59300"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7832584,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.904350726017437, max cpu: 28.785606, count: 118600"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.54564924114671, max mem: 59.55859375, count: 118600"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.411765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.048874911553444, max cpu: 23.517885, count: 59300"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 43.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.922342169055646, max mem: 47.72265625, count: 59300"
           }
         ]
       }

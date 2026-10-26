@@ -71,6 +71,10 @@ pub extern "C-unwind" fn amrescan(
     _norderbys: ::std::os::raw::c_int,
 ) {
     fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
+        // a null key matches no rows
+        if (key.sk_flags as u32 & pg_sys::SK_ISNULL) != 0 {
+            return SearchQueryInput::Empty;
+        }
         let strategy =
             ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized");
         let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;

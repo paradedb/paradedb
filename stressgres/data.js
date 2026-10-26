@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793002371255,
+  "lastUpdate": 1793003189740,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -481006,6 +481006,58 @@ window.BENCHMARK_DATA = {
             "value": 24.10075145277611,
             "unit": "median tps",
             "extra": "avg tps: 41.03021041314703, max tps: 609.001938320778, count: 59267"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1793003178115,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3883.3194730359373,
+            "unit": "median tps",
+            "extra": "avg tps: 3872.5825510227396, max tps: 4491.415381333196, count: 59253"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4589.121118298661,
+            "unit": "median tps",
+            "extra": "avg tps: 4622.135551824846, max tps: 5897.063973257856, count: 59253"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.28133099127133,
+            "unit": "median tps",
+            "extra": "avg tps: 166.99739092292242, max tps: 3060.5297665733947, count: 59253"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.989701564396206,
+            "unit": "median tps",
+            "extra": "avg tps: 40.44541873536988, max tps: 584.1438173591898, count: 59253"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.040641340391673,
+            "unit": "median tps",
+            "extra": "avg tps: 40.862885489164796, max tps: 587.1459107027484, count: 59253"
           }
         ]
       }

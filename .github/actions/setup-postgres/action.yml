@@ -2,12 +2,16 @@ name: Set Up PostgreSQL
 description: Set up system or pgrx-managed PostgreSQL with the required pgvector dependency
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being built"
+    required: false
+    default: "."
   pg_impl:
     description: "PostgreSQL installation: system or pgrx"
     required: false
     default: "system"
   initialize_pgrx:
-    description: "Initialize cargo-pgrx for PostgreSQL; requires cargo-pgrx to be installed first"
+    description: "Initialize cargo-pgrx for PostgreSQL. Install cargo-pgrx first."
     required: false
     default: "true"
   pgrx_cache_hit:
@@ -30,7 +34,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Configure PGDG APT repository
+    - name: Configure PGDG APT Repository
       if: inputs.pg_impl == 'system'
       shell: bash
       run: |
@@ -53,6 +57,7 @@ runs:
           ${{ inputs.extra_packages }}
 
     - name: Initialize pgrx-managed PostgreSQL
+      working-directory: ${{ inputs.source_directory }}
       if: inputs.pg_impl == 'pgrx' && inputs.initialize_pgrx == 'true'
       shell: bash
       env:
@@ -63,7 +68,7 @@ runs:
         if [ "$PGRX_CACHE_HIT" != 'true' ]; then
           cargo pgrx init "--pg${INPUTS_PG_VERSION}=download" --configure-flag="--without-readline"
         else
-          # Only compiled binaries are cached; recreate pgrx config and database state.
+          # Only compiled binaries are cached. Recreate the pgrx config and database state.
           configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
           test -x "${configs[0]}"
           cargo pgrx init "--pg${INPUTS_PG_VERSION}=${configs[0]}"
@@ -90,6 +95,7 @@ runs:
         echo "pg_config=$PG_CONFIG" >> "$GITHUB_OUTPUT"
 
     - name: Initialize pgrx for System PostgreSQL
+      working-directory: ${{ inputs.source_directory }}
       if: inputs.pg_impl == 'system' && inputs.initialize_pgrx == 'true'
       shell: bash
       env:

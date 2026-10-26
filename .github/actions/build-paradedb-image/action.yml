@@ -39,9 +39,9 @@ inputs:
     default: "true"
 
 outputs:
-  short_commit:
-    description: "Short commit SHA of pg_search ref"
-    value: ${{ steps.commit_info.outputs.short_commit }}
+  commit_sha:
+    description: "Commit SHA of pg_search ref"
+    value: ${{ steps.commit_info.outputs.commit_sha }}
 
 runs:
   using: composite
@@ -54,16 +54,16 @@ runs:
         persist-credentials: false
         fetch-depth: 0
 
-    - name: Derive Short Commit
+    - name: Resolve Benchmark Commit
       id: commit_info
       shell: bash
       working-directory: pg_search_source
-      run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Set Up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
-    - name: Build ParadeDB Image
+    - name: Build ParadeDB Image from Source
       uses: docker/build-push-action@v7
       with:
         context: pg_search_source

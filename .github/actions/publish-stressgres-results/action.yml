@@ -1,0 +1,44 @@
+name: Publish Stressgres Results
+description: Publish Stressgres benchmark results to gh-pages
+
+inputs:
+  test_file:
+    description: "Stressgres scenario file (e.g. single-node-planner-paths.toml)"
+    required: true
+  ref:
+    description: "Full SHA of the commit benchmarked"
+    required: true
+  github_token:
+    description: "GitHub token for publishing and comments"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish TPS Metrics
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-tps
+        name: "pg_search ${{ inputs.test_file }} Performance - TPS"
+        ref: ${{ inputs.ref }}
+        direction: bigger
+        metrics_file: pg_search_tps.json
+        github_token: ${{ inputs.github_token }}
+        publish_baseline: ${{ github.event_name != 'pull_request' }}
+        pages_directory: stressgres
+        comment_on_regression: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        comment_summary: ${{ github.event_name == 'pull_request' }}
+
+    - name: Publish Other Metrics
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-other
+        name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
+        ref: ${{ inputs.ref }}
+        metrics_file: pg_search_other.json
+        github_token: ${{ inputs.github_token }}
+        publish_baseline: ${{ github.event_name != 'pull_request' }}
+        pages_directory: stressgres
+        alert_threshold: "110%"
+        comment_on_regression: true
+        comment_summary: ${{ github.event_name == 'pull_request' }}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793003209982,
+  "lastUpdate": 1793003359501,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -462684,6 +462684,58 @@ window.BENCHMARK_DATA = {
             "value": 35.39540993686666,
             "unit": "median tps",
             "extra": "avg tps: 53.33256276926679, max tps: 567.4718512616503, count: 58825"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Sunny-200",
+            "username": "Sunny-200",
+            "email": "157952521+Sunny-200@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1b30ad1b40cfcd754a8c66f91aaba57986f12172",
+          "message": "feat(pg_search): deprecate in-index ltree support in favor of GiST bitmap intersection (#6093) (#6877)\n\n# Ticket(s) Closed\n\n- Closes #6093\n\n## What\n\nDefines the deprecation window for in-index `ltree` support and\nestablishes the transition path to standard PostgreSQL `ltree` GiST\nindexes via Bitmap Intersection (#6088).\n\n## Why\n\n- **Broader Operator Coverage**: Built-in facet pushdown only supports\n`<@`. An external GiST index covers all `gist_ltree_ops` operators:\n`<@`, `@>`, `~`, `?`, and `@`.\n- **Vanilla PostgreSQL Semantics**: Users retain standard PostgreSQL\n`ltree` indexes and native dump/restore compatibility.\n- **Reduces Code Surface**: Paves the way for removing internal Tantivy\nfacet-to-path encodings, fast-field string decoding, and aggregate\nadapters in a future release.\n\n## How\n\n1. **Benchmark Suite**: Added `benchmarks/ltree_benchmark.sql` comparing\nin-index facet pushdown vs. GiST bitmap intersection across 100k rows\nacross 4 selectivity regimes.\n2. **Deprecation Warning**: Emits a create-time `warning!` during\n`validate_index_config` when an index is created with an `ltree` field.\n3. **Documentation**: Added an `ltree` GiST guide in\n`docs/reference/filtering/external-indexes.mdx` with execution plan\nexamples.\n4. **Tests**: Added integration tests in `tests/tests/ltree.rs` for GiST\n`<@`, `~`, and `@>` operators and updated regression `.out` golden\nfiles.\n5. **Changelog Fragment**: Added\n`docs/project/changelog/unreleased/6093.breaking.mdx`.\n\n---------\n\nCo-authored-by: Mahesh Reddy <sunnyyeruva8@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-24T23:30:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1b30ad1b40cfcd754a8c66f91aaba57986f12172"
+        },
+        "date": 1793003347722,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.58885426654007,
+            "unit": "median tps",
+            "extra": "avg tps: 57.23075087324582, max tps: 539.3319873320695, count: 58742"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.44614779187238,
+            "unit": "median tps",
+            "extra": "avg tps: 32.18413192306366, max tps: 373.4256498442705, count: 58742"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.50497415851744,
+            "unit": "median tps",
+            "extra": "avg tps: 129.8788079823381, max tps: 1086.6715165420155, count: 58742"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.44421124036085,
+            "unit": "median tps",
+            "extra": "avg tps: 30.97888985412804, max tps: 277.22046795227743, count: 58742"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.914812017897034,
+            "unit": "median tps",
+            "extra": "avg tps: 60.602764131527614, max tps: 550.3649375625502, count: 58742"
           }
         ]
       }

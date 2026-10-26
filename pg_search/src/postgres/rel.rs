@@ -440,7 +440,7 @@ impl PgSearchRelation {
                 pg_sys::NamespaceRelationId,
                 namespace,
                 user,
-                pg_sys::ACL_USAGE,
+                pg_sys::ACL_USAGE as _,
             );
             if schema_acl != pg_sys::AclResult::ACLCHECK_OK {
                 pg_sys::aclcheck_error(
@@ -450,7 +450,7 @@ impl PgSearchRelation {
                 );
             }
 
-            let table_acl = pg_sys::pg_class_aclcheck(heap.oid(), user, pg_sys::ACL_SELECT);
+            let table_acl = pg_sys::pg_class_aclcheck(heap.oid(), user, pg_sys::ACL_SELECT as _);
             if table_acl != pg_sys::AclResult::ACLCHECK_OK {
                 pg_sys::aclcheck_error(
                     table_acl,

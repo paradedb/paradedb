@@ -89,9 +89,13 @@ runs:
     - name: Upload Query Benchmark Results
       if: always()
       uses: actions/upload-artifact@v7
+      env:
+        DATASET: ${{ inputs.dataset }}
+        INDEX: ${{ inputs.index }}
+        SIZE: ${{ inputs.size }}
       with:
         name: query-benchmark-${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}-${{ github.run_attempt }}
-        path: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
+        path: ${{ inputs.source_directory }}/benchmarks/results_${{ env.DATASET }}_${{ env.INDEX }}_${{ env.SIZE }}.json
         retention-days: 1 # Fallback if publishing fails
         if-no-files-found: warn
 

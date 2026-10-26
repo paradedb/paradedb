@@ -877,6 +877,22 @@ impl CustomScan for BaseScan {
     }
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        unsafe fn query_tree_needs_const_projections(mut root: *mut pg_sys::PlannerInfo) -> bool {
+            while !root.is_null() {
+                if let Some(parse) = (*root).parse.as_ref() {
+                    if !parse.targetList.is_null() && parse.targetList.maybe_needs_const_projections() {
+                        return true;
+                    }
+                }
+                if !(*root).processed_tlist.is_null()
+                    && (*root).processed_tlist.maybe_needs_const_projections()
+                {
+                    return true;
+                }
+                root = (*root).parent_root;
+            }
+            false
+        }
         let paths = (|| unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
             let rel = builder.args().rel;
@@ -933,9 +949,9 @@ impl CustomScan for BaseScan {
 
             let root = builder.args().root;
 
-            // quick look at the target list to see if we might need to do our const projections
-            let target_list = (*(*builder.args().root).parse).targetList;
-            let maybe_needs_const_projections = target_list.maybe_needs_const_projections();
+            // quick look at the target list (and any parent query roots, e.g. under row-level security)
+            // to see if we might need to do our const projections for scores or snippets
+            let maybe_needs_const_projections = unsafe { query_tree_needs_const_projections(root) };
 
             //
             // look for quals we can support.  we do this first so that we can get out early if this
@@ -1494,6 +1510,41 @@ impl CustomScan for BaseScan {
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
                     attname_lookup.insert((rti as Varno, (*var).varattno), attname);
+                }
+            }
+
+            // If this scan is planned under a parent query (e.g. Row-Level Security policy or subquery)
+            // and the parent query projects score or snippet functions, pull them in so the scan emits them.
+            if attname_lookup.is_empty() {
+                let mut current_root = (*builder.args().root).parent_root;
+                while !current_root.is_null() {
+                    let parent_processed = (*current_root).processed_tlist;
+                    let parent_target = if let Some(p) = (*current_root).parse.as_ref() {
+                        p.targetList
+                    } else {
+                        std::ptr::null_mut()
+                    };
+
+                    for candidate_list in [parent_processed, parent_target] {
+                        if !candidate_list.is_null() {
+                            let list = PgList::<pg_sys::TargetEntry>::from_pg(candidate_list);
+                            for te in list.iter_ptr() {
+                                let func_vars_at_level =
+                                    pullout_funcexprs(te.cast(), &funcoids, rti, builder.args().root);
+                                for (funcexpr, var, attname) in func_vars_at_level {
+                                    if !tlist.is_empty() {
+                                        let te_copy =
+                                            pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
+                                        (*te_copy).resno = (tlist.len() + 1) as _;
+                                        (*te_copy).expr = funcexpr.cast();
+                                        tlist.push(te_copy);
+                                    }
+                                    attname_lookup.insert((rti as Varno, (*var).varattno), attname);
+                                }
+                            }
+                        }
+                    }
+                    current_root = (*current_root).parent_root;
                 }
             }
 

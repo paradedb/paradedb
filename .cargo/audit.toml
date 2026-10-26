@@ -5,6 +5,20 @@ ignore = [
   # Optional dependency of rust_decimal that we never enable, so it is in
   # Cargo.lock but unreachable from `cargo tree -i` on any target.
   "RUSTSEC-2026-0235",
+
+  # zstd 0.13 / zstd-safe 7. The fixes are in zstd 0.14.3 / zstd-safe 8.2,
+  # which needs arrow 60 (datafusion fork), new tantivy and opencc-jieba-rs
+  # fork revs, and an include-flate release. Our dependents only use the bulk
+  # API, `stream::read::Decoder`, and `stream::write::Encoder::new`, none of
+  # which reach the affected code. Drop these once zstd 0.13 leaves Cargo.lock.
+  #
+  # `stream::raw::{Encoder,Decoder}::with_context`: never called.
+  "RUSTSEC-2026-0391",
+  # `DCtx::decompress_stream` into a `Vec`: only via `stream::write::Decoder`,
+  # which nothing uses.
+  "RUSTSEC-2026-0403",
+  # `Seekable::decompress`: the `seekable` feature is not enabled.
+  "RUSTSEC-2026-0398",
 ]
 
 # Unmaintained crates are warnings, not failures.

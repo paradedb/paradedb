@@ -1103,6 +1103,7 @@ impl CustomScan for BaseScan {
             // not just those in the target list. To avoid execution-time surprises, the "planned"
             // fast fields must be a superset of the fast fields which are extracted from the
             // execution-time target list: see `assign_exec_method` for more info.
+            let target_list = (*(*builder.args().root).parse).targetList;
             custom_private.set_planned_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
                     target_list,

@@ -542,3 +542,405 @@ WHERE id @@@ pdb.parse('price:[1e100 TO *]') ORDER BY id;
 (1 row)
 
 DROP TABLE numeric_literal_limits;
+-- Unfielded literals must use the NUMERIC value, not its scaled integer or byte encoding.
+CREATE TABLE unfielded_numeric (
+    id INT PRIMARY KEY,
+    description TEXT,
+    fixed_precision NUMERIC(10,2),
+    arbitrary_precision NUMERIC
+);
+INSERT INTO unfielded_numeric VALUES
+    (1, 'alpha', 1.23, 5),
+    (2, 'beta', 123, 123),
+    (3, 'gamma', 0.01, 7);
+CREATE INDEX unfielded_numeric_idx ON unfielded_numeric
+USING bm25 (id, description, fixed_precision, arbitrary_precision);
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('1.23') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123', lenient => true) ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('1.23', lenient => true) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('5') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- Field-qualified parsing and the other all-fields entry points agree.
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('fixed_precision:123 OR arbitrary_precision:123') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE fixed_precision @@@ pdb.parse_with_field('1.23') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE unfielded_numeric @@@ pdb.parse('1.23') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- A text match remains valid even though numeric fields cannot parse the same input.
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('alpha') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123 AND beta') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123 OR beta') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123 beta', conjunction_mode => true) ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123 AND beta', lenient => true) ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('1.23^2') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('beta AND -1.23') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+-- Raw Base64 must not match NumericBytes zero, but can still match text.
+INSERT INTO unfielded_numeric VALUES
+    (4, 'delta', 0, 0),
+    (5, 'gA== 123', NULL, NULL),
+    (6, 'alpha beta', NULL, NULL);
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('"gA=="') ORDER BY id;
+ id 
+----
+  5
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('"gA=="', lenient => true) ORDER BY id;
+ id 
+----
+  5
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('123') ORDER BY id;
+ id 
+----
+  2
+  5
+(2 rows)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('"alpha beta"') ORDER BY id;
+ id 
+----
+  6
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('"alpha beta"~1') ORDER BY id;
+ id 
+----
+  6
+(1 row)
+
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('"alpha be"*') ORDER BY id;
+ id 
+----
+  6
+(1 row)
+
+-- Explicitly invalid fields and malformed syntax must still fail in strict mode.
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('fixed_precision:alpha OR alpha') ORDER BY id;
+ERROR:  invalid NUMERIC value 'alpha' for field 'fixed_precision'
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('missing:123 OR alpha') ORDER BY id;
+ERROR:  could not parse query string 'missing:123 OR alpha'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('alpha AND (') ORDER BY id;
+ERROR:  could not parse query string 'alpha AND ('.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+SELECT id FROM unfielded_numeric
+WHERE id @@@ pdb.parse('fixed_precision:alpha OR alpha', lenient => true) ORDER BY id;
+ id 
+----
+  1
+  6
+(2 rows)
+
+DROP TABLE unfielded_numeric;
+-- Each field needs its own scale. NUMERIC(30,2) also exercises typmod-constrained bytes.
+CREATE TABLE unfielded_numeric_scales (
+    id INT PRIMARY KEY,
+    cents NUMERIC(10,2),
+    mills NUMERIC(10,3),
+    hundreds NUMERIC(18,-2),
+    wide NUMERIC(30,2)
+);
+INSERT INTO unfielded_numeric_scales VALUES
+    (11, 1.23, 0.123, 123400, 9),
+    (12, 123, 1.23, 1000, 123),
+    (13, 'NaN', 'NaN', 'NaN', 'NaN'),
+    (14, 0, 0, 0, 0);
+CREATE INDEX unfielded_numeric_scales_idx ON unfielded_numeric_scales
+USING bm25 (id, cents, mills, hundreds, wide);
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('1.23') ORDER BY id;
+ id 
+----
+ 11
+ 12
+(2 rows)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('0.123') ORDER BY id;
+ id 
+----
+ 11
+(1 row)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('1234') ORDER BY id;
+ id 
+----
+(0 rows)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('123400') ORDER BY id;
+ id 
+----
+ 11
+(1 row)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('9') ORDER BY id;
+ id 
+----
+ 11
+(1 row)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('9223372036854775807') ORDER BY id;
+ id 
+----
+(0 rows)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('NaN') ORDER BY id;
+ id 
+----
+ 13
+(1 row)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('0') ORDER BY id;
+ id 
+----
+ 14
+(1 row)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('"gA=="', lenient => true) ORDER BY id;
+ id 
+----
+(0 rows)
+
+-- A valid but unrepresentable equality must not disappear from an AND.
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('0.0001 AND id:11') ORDER BY id;
+ id 
+----
+(0 rows)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('0.0001 AND id:11', lenient => true) ORDER BY id;
+ id 
+----
+(0 rows)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('id:11 AND -0.0001') ORDER BY id;
+ id 
+----
+ 11
+(1 row)
+
+-- With no compatible field, strict parsing still reports an error. Lenient parsing drops it.
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('invalid') ORDER BY id;
+ERROR:  no indexed field can parse literal 'invalid'
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('invalid AND id:11', lenient => true) ORDER BY id;
+ id 
+----
+ 11
+(1 row)
+
+-- PostgreSQL rejects '.', so it must not become a NumericBytes zero term.
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('"."') ORDER BY id;
+ERROR:  no indexed field can parse literal '.'
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('"." AND id:14', lenient => true) ORDER BY id;
+ id 
+----
+ 14
+(1 row)
+
+-- Tantivy does not trim empty clauses under Boost; an invalid boosted literal stays false.
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('("gA==")^2 AND id:14', lenient => true) ORDER BY id;
+ id 
+----
+(0 rows)
+
+-- A valid out-of-domain equality stays false instead of being discarded in lenient mode.
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('1e100 AND id:14', lenient => true) ORDER BY id;
+ id 
+----
+(0 rows)
+
+-- Quote unfielded negatives so '-' is part of the number, not the exclusion operator.
+INSERT INTO unfielded_numeric_scales VALUES (15, -1.23, -0.123, -1000, -100);
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('"-1.23"') ORDER BY id;
+ id 
+----
+ 15
+(1 row)
+
+SELECT id FROM unfielded_numeric_scales
+WHERE id @@@ pdb.parse('"-100"') ORDER BY id;
+ id 
+----
+ 15
+(1 row)
+
+DROP TABLE unfielded_numeric_scales;
+-- Unindexed NUMERIC fields must not turn a discarded literal into an empty equality.
+CREATE TABLE unfielded_numeric_unindexed (id INT PRIMARY KEY, amount NUMERIC(10,2));
+INSERT INTO unfielded_numeric_unindexed VALUES (1, 1.23);
+CREATE INDEX ON unfielded_numeric_unindexed USING bm25 (id, amount)
+WITH (numeric_fields = '{"amount":{"indexed":false,"fast":true}}');
+SELECT id FROM unfielded_numeric_unindexed
+WHERE id @@@ pdb.parse('1.234 AND id:1', lenient => true) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric_unindexed
+WHERE id @@@ pdb.parse('1.234') ORDER BY id;
+ERROR:  could not parse query string '1.234'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+DROP TABLE unfielded_numeric_unindexed;
+-- Expansion preserves aliased tokenizers, stopword removal, and score boosts.
+CREATE TABLE unfielded_numeric_tokenizer (id INT PRIMARY KEY, amount NUMERIC(10,2), title TEXT);
+INSERT INTO unfielded_numeric_tokenizer VALUES (1, 1.23, 'the alpha'), (2, 123, 'the beta');
+CREATE INDEX ON unfielded_numeric_tokenizer USING bm25 (
+    id, amount, (title::pdb.simple('alias=words', 'stopwords_language=english'))
+);
+SELECT id FROM unfielded_numeric_tokenizer
+WHERE id @@@ pdb.parse('alpha') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric_tokenizer
+WHERE id @@@ pdb.parse('words:alpha') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric_tokenizer
+WHERE id @@@ pdb.parse('the') ORDER BY id;
+ERROR:  no indexed field can parse literal 'the'
+SELECT id FROM unfielded_numeric_tokenizer
+WHERE id @@@ pdb.parse('the AND alpha', lenient => true) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric_tokenizer
+WHERE id @@@ pdb.parse('the AND 1.23', lenient => true) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT
+    (SELECT paradedb.score(id) FROM unfielded_numeric_tokenizer WHERE id @@@ pdb.parse('1.23^2')) =
+    2 * (SELECT paradedb.score(id) FROM unfielded_numeric_tokenizer WHERE id @@@ pdb.parse('1.23'))
+    AS doubled_score;
+ doubled_score 
+---------------
+ t
+(1 row)
+
+DROP TABLE unfielded_numeric_tokenizer;

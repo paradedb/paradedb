@@ -50,7 +50,7 @@ use tantivy::query::{
     Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
     TermSetQuery,
 };
-use tantivy::query_grammar::{self, UserInputAst, UserInputBound, UserInputLeaf};
+use tantivy::query_grammar::{self, UserInputAst, UserInputBound, UserInputLeaf, UserInputLiteral};
 use tantivy::schema::FieldType;
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
@@ -2286,13 +2286,13 @@ pub(super) fn parse_tantivy_query(
 ) -> anyhow::Result<Box<dyn Query>> {
     if lenient {
         let (mut ast, _) = query_grammar::parse_query_lenient(query_string);
-        rewrite_field_literals(&mut ast, schema, index_created_by_version, lenient)?;
+        rewrite_field_literals(&mut ast, parser, schema, index_created_by_version, lenient)?;
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
         Ok(parsed_query)
     } else {
         let mut ast = query_grammar::parse_query(query_string)
             .map_err(|_| QueryError::GrammarParseError(query_string.to_string()))?;
-        rewrite_field_literals(&mut ast, schema, index_created_by_version, lenient)?;
+        rewrite_field_literals(&mut ast, parser, schema, index_created_by_version, lenient)?;
         let parsed_query = parser
             .build_query_from_user_input_ast(ast)
             .map_err(|err| QueryError::ParseError(err, query_string.to_string()))?;
@@ -2301,9 +2301,10 @@ pub(super) fn parse_tantivy_query(
 }
 
 /// Walks the parsed user query AST and rewrites logical Postgres values to their physical Tantivy
-/// representation. Invalid NUMERIC phrases return an error unless parsing is lenient.
+/// representation. Invalid field-qualified NUMERIC phrases fail unless parsing is lenient.
 fn rewrite_field_literals(
     ast: &mut UserInputAst,
+    parser: &QueryParser,
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     lenient: bool,
@@ -2311,20 +2312,90 @@ fn rewrite_field_literals(
     match ast {
         UserInputAst::Clause(children) => {
             for (_, child) in children {
-                rewrite_field_literals(child, schema, index_created_by_version, lenient)?;
+                rewrite_field_literals(child, parser, schema, index_created_by_version, lenient)?;
             }
         }
         UserInputAst::Boost(inner, _) => {
-            rewrite_field_literals(inner, schema, index_created_by_version, lenient)?;
+            rewrite_field_literals(inner, parser, schema, index_created_by_version, lenient)?;
         }
         UserInputAst::Leaf(leaf) => {
-            if !rewrite_leaf(leaf, schema, index_created_by_version, lenient)? {
+            if let UserInputLeaf::Literal(literal) = leaf.as_ref()
+                && literal.field_name.is_none()
+                && schema.fields().any(|(_, entry)| {
+                    entry.is_indexed()
+                        && schema
+                            .search_field(entry.name())
+                            .is_some_and(|field| field.field_type().is_numeric())
+                })
+            {
+                *ast = rewrite_unfielded_literal(
+                    literal,
+                    parser,
+                    schema,
+                    index_created_by_version,
+                    lenient,
+                )?;
+            } else if !rewrite_leaf(leaf, schema, index_created_by_version, lenient)? {
                 // Tantivy trims empty clauses for invalid literals in lenient mode.
-                *ast = UserInputAst::Clause(Vec::new());
+                *ast = UserInputAst::empty_query();
             }
         }
     }
     Ok(())
+}
+
+/// Unfielded literals search indexed schema fields, just like the parser's default fields.
+/// Convert NUMERIC values separately for each field's scale and storage representation.
+fn rewrite_unfielded_literal(
+    literal: &UserInputLiteral,
+    parser: &QueryParser,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lenient: bool,
+) -> anyhow::Result<UserInputAst> {
+    let mut alternatives = Vec::new();
+    let mut first_error = None;
+    for (_, entry) in schema.fields().filter(|(_, entry)| entry.is_indexed()) {
+        let mut field_literal = literal.clone();
+        field_literal.field_name = Some(entry.name().to_owned());
+        let mut leaf = UserInputLeaf::Literal(field_literal);
+        if schema
+            .search_field(entry.name())
+            .is_some_and(|field| field.field_type().is_numeric())
+            && let Err(error) = rewrite_leaf(&mut leaf, schema, index_created_by_version, false)
+        {
+            first_error.get_or_insert(error);
+            continue;
+        }
+
+        let ast = UserInputAst::from(leaf);
+        // Tantivy ignores a field's parse error when another default field produces a term.
+        // Validate each alternative before making it explicit, so text such as "shoes" does
+        // not fail just because the index also contains integer, NUMERIC, or date fields.
+        match parser.build_query_from_user_input_ast(ast.clone()) {
+            Ok(query) if !query.is::<EmptyQuery>() => alternatives.push(ast),
+            Ok(_) => (), // Tokenizers can remove every token, e.g. stop words.
+            Err(error) => {
+                first_error.get_or_insert_with(|| error.into());
+            }
+        }
+    }
+    if alternatives.is_empty()
+        && !lenient
+        && let Some(error) = first_error
+    {
+        return Err(error.context(format!(
+            "no indexed field can parse literal '{}'",
+            literal.phrase
+        )));
+    }
+    // An impossible NUMERIC equality remains an empty Set, not an empty Clause. Tantivy
+    // trims empty clauses, which would otherwise drop an unsatisfiable operand of AND.
+    Ok(if alternatives.is_empty() {
+        UserInputAst::empty_query()
+    } else {
+        UserInputAst::or(alternatives)
+    })
 }
 
 /// Returns false when lenient parsing must discard the leaf.

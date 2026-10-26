@@ -6,7 +6,7 @@ canonical: https://www.paradedb.com/docs/reference/sql-functions
 
 This page lists the callable, user-facing SQL functions and function-like casts that make up ParadeDB's SQL API. It intentionally omits planner support functions, type input/output functions such as `pdb.simple_in`, and generated cast helper names. Use the casts documented here instead of calling those helpers directly.
 
-Most new queries should use the `pdb` schema. A smaller set of operational and lower-level functions lives in the `paradedb` schema.
+Search queries use the `pdb` schema. Tokenizer utilities and operational functions also live in the `paradedb` schema.
 
 ## Query Builders
 
@@ -79,30 +79,22 @@ These functions are placeholders that ParadeDB's custom scan resolves during que
 
 ## Aggregates
 
-| Function             | Signature                                                                                                                                                                                                            | Use                                                                                               | Reference                                                                 |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `pdb.agg`            | `pdb.agg(agg jsonb) -> jsonb`                                                                                                                                                                                        | Execute an Elasticsearch-compatible aggregate inside ParadeDB's aggregate scan.                   | [Aggregate Syntax](/reference/aggregates/overview)                        |
-| `pdb.agg`            | `pdb.agg(agg jsonb, visibility text) -> jsonb`                                                                                                                                                                       | Choose `transaction`, `raw`, or `threshold` visibility. Omitting visibility uses `transaction`.   | [Aggregate Syntax](/reference/aggregates/overview)                        |
-| `pdb.agg`            | `pdb.agg(agg jsonb, solve_mvcc bool) -> jsonb`                                                                                                                                                                       | Deprecated compatibility overload. `true` means `transaction` and `false` means `raw`.            | [Aggregate Syntax](/reference/aggregates/overview)                        |
-| `pdb.combine_agg`    | `pdb.combine_agg(agg jsonb) -> jsonb`                                                                                                                                                                                | Combine grouped facets using `pdb.combine_agg(pdb.agg(...)) OVER ()`.                             | [Facets with GROUP BY](/reference/aggregates/facets#facets-with-group-by) |
-| `paradedb.aggregate` | `paradedb.aggregate(index regclass, query searchqueryinput, agg json, solve_mvcc bool default null, memory_limit bigint default 500000000, bucket_limit bigint default null, visibility text default null) -> jsonb` | Execute an aggregate directly against an index. Prefer `visibility` over deprecated `solve_mvcc`. | [Aggregate Syntax](/reference/aggregates/overview)                        |
+| Function          | Signature                                      | Use                                                                                             | Reference                                                                 |
+| ----------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `pdb.agg`         | `pdb.agg(agg jsonb) -> jsonb`                  | Execute an Elasticsearch-compatible aggregate inside ParadeDB's aggregate scan.                 | [Aggregate Syntax](/reference/aggregates/overview)                        |
+| `pdb.agg`         | `pdb.agg(agg jsonb, visibility text) -> jsonb` | Choose `transaction`, `raw`, or `threshold` visibility. Omitting visibility uses `transaction`. | [Aggregate Syntax](/reference/aggregates/overview)                        |
+| `pdb.agg`         | `pdb.agg(agg jsonb, solve_mvcc bool) -> jsonb` | Deprecated compatibility overload. `true` means `transaction` and `false` means `raw`.          | [Aggregate Syntax](/reference/aggregates/overview)                        |
+| `pdb.combine_agg` | `pdb.combine_agg(agg jsonb) -> jsonb`          | Combine grouped facets using `pdb.combine_agg(pdb.agg(...)) OVER ()`.                           | [Facets with GROUP BY](/reference/aggregates/facets#facets-with-group-by) |
 
 Supported aggregate JSON shapes are documented under [Aggregates](/reference/aggregates/overview), including [terms](/reference/aggregates/bucket/terms), [range](/reference/aggregates/bucket/range), [histogram](/reference/aggregates/bucket/histogram), [date histogram](/reference/aggregates/bucket/datehistogram), [filters](/reference/aggregates/bucket/filters), [sum](/reference/aggregates/metrics/sum), [average](/reference/aggregates/metrics/average), [min/max](/reference/aggregates/metrics/minmax), [count](/reference/aggregates/metrics/count), [stats](/reference/aggregates/metrics/stats), [percentiles](/reference/aggregates/metrics/percentiles), [cardinality](/reference/aggregates/metrics/cardinality), and [top hits](/reference/aggregates/metrics/tophits).
 
-## Index Configuration and Tokenizers
+## Tokenizer Utilities
 
-| Function              | Signature                                                                                                                                                                                                                                                                                                                                                                                                                | Use                                                                  | Reference                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------ |
-| `paradedb.field`      | `paradedb.field(name text, indexed bool default null, stored bool default null, fast bool default null, fieldnorms bool default null, record text default null, expand_dots bool default null, tokenizer jsonb default null, normalizer text default null, alias text default null) -> jsonb`                                                                                                                            | Build JSON field configuration for index options.                    | [Create Index](/reference/indexing/create-index) |
-| `paradedb.tokenizer`  | `paradedb.tokenizer(name text, remove_long int default 255, lowercase bool default true, min_gram int default null, max_gram int default null, prefix_only bool default null, language text default null, pattern text default null, stemmer text default null, stopwords_language text default null, stopwords_languages text[] default null, stopwords text[] default null, ascii_folding bool default null) -> jsonb` | Build JSON tokenizer configuration for index options or `pdb.match`. | [Tokenizers](/reference/tokenizers/overview)     |
-| `paradedb.tokenize`   | `paradedb.tokenize(tokenizer_setting jsonb, input_text text) -> table(token text, position int)`                                                                                                                                                                                                                                                                                                                         | Preview tokenizer output for a tokenizer configuration.              | [Tokenizers](/reference/tokenizers/overview)     |
-| `paradedb.tokenizers` | `paradedb.tokenizers() -> table(tokenizer text)`                                                                                                                                                                                                                                                                                                                                                                         | List tokenizer names available to `paradedb.tokenizer`.              | [Tokenizers](/reference/tokenizers/overview)     |
-
-<Note>
-  The `fast` parameter on `paradedb.field` is a compatibility name for columnar
-  storage. New index definitions should use tokenizer casts with the `columnar`
-  option where text or JSON fields need columnar storage.
-</Note>
+| Function              | Signature                                                                                                                                                                                                                                                                                                                                                                                                                | Use                                                                        | Reference                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------- |
+| `paradedb.tokenizer`  | `paradedb.tokenizer(name text, remove_long int default 255, lowercase bool default true, min_gram int default null, max_gram int default null, prefix_only bool default null, language text default null, pattern text default null, stemmer text default null, stopwords_language text default null, stopwords_languages text[] default null, stopwords text[] default null, ascii_folding bool default null) -> jsonb` | Build JSON tokenizer configuration for `pdb.match` or `paradedb.tokenize`. | [Tokenizers](/reference/tokenizers/overview) |
+| `paradedb.tokenize`   | `paradedb.tokenize(tokenizer_setting jsonb, input_text text) -> table(token text, position int)`                                                                                                                                                                                                                                                                                                                         | Preview tokenizer output for a tokenizer configuration.                    | [Tokenizers](/reference/tokenizers/overview) |
+| `paradedb.tokenizers` | `paradedb.tokenizers() -> table(tokenizer text)`                                                                                                                                                                                                                                                                                                                                                                         | List tokenizer names available to `paradedb.tokenizer`.                    | [Tokenizers](/reference/tokenizers/overview) |
 
 ParadeDB also generates cast-support helpers such as `pdb.tokenize_simple`, `pdb.tokenize_icu`, `pdb.tokenize_ngram`, and `pdb.tokenize_edge_ngram`. Prefer tokenizer casts or `paradedb.tokenize(...)`; the generated helper names are part of the cast implementation.
 
@@ -135,33 +127,9 @@ ParadeDB also generates cast-support helpers such as `pdb.tokenize_simple`, `pdb
 
 Related views:
 
-| View                        | Use                                                                      |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `pdb.index_layer_info`      | Show index segments grouped into foreground and background merge layers. |
-| `paradedb.index_layer_info` | Deprecated compatibility view; use `pdb.index_layer_info`.               |
-
-## Lower-Level SearchQueryInput Builders
-
-The `paradedb` schema exposes lower-level builders that return `searchqueryinput` directly. They are useful for compatibility and generated SQL, but new hand-written queries should usually prefer `pdb.*` query builders plus `@@@`.
-
-| Function                         | Signature                                                                                                                                                                                                                                                 | Use                                                                                     |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `paradedb.all`                   | `paradedb.all()`                                                                                                                                                                                                                                          | Lower-level match-all query.                                                            |
-| `paradedb.empty`                 | `paradedb.empty()`                                                                                                                                                                                                                                        | Lower-level match-none query.                                                           |
-| `paradedb.parse`                 | `paradedb.parse(query_string text, lenient bool default null, conjunction_mode bool default null)`                                                                                                                                                        | Lower-level parser query.                                                               |
-| `paradedb.boolean`               | `paradedb.boolean(must searchqueryinput default null, should searchqueryinput default null, must_not searchqueryinput default null, minimum_should_match bigint default null)`                                                                            | Compose one Boolean query from optional clauses.                                        |
-| `paradedb.boolean`               | `paradedb.boolean(must searchqueryinput[] default array[]::searchqueryinput[], should searchqueryinput[] default array[]::searchqueryinput[], must_not searchqueryinput[] default array[]::searchqueryinput[], minimum_should_match bigint default null)` | Compose one Boolean query from clause arrays.                                           |
-| `paradedb.boost`                 | `paradedb.boost(factor float4, query searchqueryinput)`                                                                                                                                                                                                   | Lower-level score boost wrapper.                                                        |
-| `paradedb.const_score`           | `paradedb.const_score(score float4, query searchqueryinput)`                                                                                                                                                                                              | Lower-level constant score wrapper.                                                     |
-| `paradedb.disjunction_max`       | `paradedb.disjunction_max(disjuncts searchqueryinput[], tie_breaker float4 default null)`                                                                                                                                                                 | Prefer the best scoring subquery, with optional tie breaking.                           |
-| `paradedb.term`                  | `paradedb.term(field fieldname, value supported_scalar)`                                                                                                                                                                                                  | Lower-level fielded exact-value query.                                                  |
-| `paradedb.term_set`              | `paradedb.term_set(terms searchqueryinput[])`                                                                                                                                                                                                             | Lower-level set query composed from fielded term queries.                               |
-| `paradedb.to_search_query_input` | `paradedb.to_search_query_input(field fieldname, query pdb.query)`                                                                                                                                                                                        | Convert a `pdb.query` into a fielded `searchqueryinput`.                                |
-| `paradedb.with_index`            | `paradedb.with_index(index regclass, query searchqueryinput)`                                                                                                                                                                                             | Attach a specific index to a `searchqueryinput` for generated or sequential-scan plans. |
-| `paradedb.term_with_operator`    | `paradedb.term_with_operator(field fieldname, operator text, value anyelement)`                                                                                                                                                                           | Build a fielded comparison query for planner rewrites.                                  |
-| `paradedb.terms_with_operator`   | `paradedb.terms_with_operator(field fieldname, operator text, value anyelement, conjunction_mode bool)`                                                                                                                                                   | Build array comparison queries for planner rewrites.                                    |
-
-Most `pdb.*` query builders that target a single field also have a generated `paradedb.*(field fieldname, ...) -> searchqueryinput` counterpart. That includes `parse_with_field`, `match`, `match_disjunction`, `match_conjunction`, `exists`, `fuzzy_term`, `term`, `term_set`, `range`, `range_term`, `phrase`, `phrase_array`, `phrase_prefix`, `regex`, `regex_phrase`, `proximity`, and `proximity_in_order`.
+| View                   | Use                                                                      |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `pdb.index_layer_info` | Show index segments grouped into foreground and background merge layers. |
 
 ## Tokenizer Casts
 
@@ -184,18 +152,10 @@ Tokenizer configuration is usually expressed through casts when creating an inde
 | `::pdb.chinese_compatible` | Chinese-compatible tokenizer.                                               | [Chinese Compatible](/reference/tokenizers/available-tokenizers/chinese-compatible) |
 | `::pdb.alias(...)`         | Assign an indexed expression a queryable field name.                        | [Indexing Expressions](/reference/indexing/indexing-expressions)                    |
 
-## Compatibility and Internal Functions
+## Deprecated Maintenance Functions
 
-Older `paradedb.*` scoring and highlighting names remain for backwards compatibility. Prefer `pdb.score`, `pdb.snippet`, `pdb.snippets`, and `pdb.snippet_positions`.
-
-| Deprecated name              | Replacement             |
-| ---------------------------- | ----------------------- |
-| `paradedb.score`             | `pdb.score`             |
-| `paradedb.snippet`           | `pdb.snippet`           |
-| `paradedb.snippets`          | `pdb.snippets`          |
-| `paradedb.snippet_positions` | `pdb.snippet_positions` |
-| `paradedb.is_merging`        | `paradedb.merge_info`   |
-| `paradedb.validate_checksum` | `pdb.verify_index`      |
-| `paradedb.force_merge`       | `VACUUM`                |
-
-Generated type I/O functions, cast helpers, and planner support functions are implementation details. They may appear in `\df` output, but they are not part of the recommended SQL surface.
+| Deprecated name              | Replacement           |
+| ---------------------------- | --------------------- |
+| `paradedb.is_merging`        | `paradedb.merge_info` |
+| `paradedb.validate_checksum` | `pdb.verify_index`    |
+| `paradedb.force_merge`       | `VACUUM`              |

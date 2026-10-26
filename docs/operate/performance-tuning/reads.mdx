@@ -100,13 +100,13 @@ note are:
 
 Setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` triggers an autovacuum for every `100000` row updates. As a general rule of thumb, we recommend autovacuuming at least once every `100000` single-row updates, and running a manual `VACUUM` immediately after large bulk loads.
 
-We also generally recommend `vacuum_index_cleanup = on` for frequently updated tables with a ParadeDB index. By default, Postgres can skip removing dead index entries when fewer than 2% of heap pages contain dead entries. ParadeDB needs cleanup well below this threshold for optimal query performance; this setting forces dead index entry removal during vacuum:
+We also generally recommend `vacuum_index_cleanup = on` for frequently updated tables with a ParadeDB index. By default, Postgres can skip removing dead index entries when fewer than 2% of heap pages contain dead entries. ParadeDB needs cleanup well below this threshold for optimal query performance. This setting forces dead index entry removal during vacuum:
 
 ```sql
 ALTER TABLE mock_items SET (vacuum_index_cleanup = on);
 ```
 
-This must be applied per table; it is not a database-wide setting.
+This must be applied per table. It is not a database-wide setting.
 
 ## Adjusting Target Segment Count
 

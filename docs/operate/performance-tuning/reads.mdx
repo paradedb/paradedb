@@ -77,6 +77,26 @@ You can also inspect `EXPLAIN ANALYZE` output to see how much heap visibility wo
 - On `ParadeDB Aggregate Scan`, check the `Visibility` section (`Segments Skipped` vs `Segments Checked`, and `Blocks Requiring Checks` vs `Blocks Total`).
 - On `ParadeDB Base Scan`, check `Heap Fetches` (and `Invisible Tuples` under `EXPLAIN (ANALYZE, VERBOSE)`).
 
+### Enabling Index Cleanup
+
+If index cleanup is being skipped and dead entries are accumulating in a ParadeDB index, set `vacuum_index_cleanup = on` to enable cleanup by default for both autovacuum and manual `VACUUM` on that table:
+
+```sql
+ALTER TABLE mock_items SET (vacuum_index_cleanup = on);
+```
+
+Postgres defaults to [`vacuum_index_cleanup = auto`](https://www.postgresql.org/docs/current/sql-createtable.html#RELOPTION-VACUUM-INDEX-CLEANUP), which can skip index cleanup when relatively few dead tuples are present. A vacuum can therefore run without marking dead entries as deleted in the ParadeDB index. Setting `on` prevents this automatic skipping, at the cost of additional index cleanup work. Set this option on the underlying table, not the index.
+
+For a manual vacuum, explicitly request index cleanup:
+
+```sql
+VACUUM (INDEX_CLEANUP ON) mock_items;
+```
+
+The command's `INDEX_CLEANUP` option overrides the table setting. Postgres' transaction ID wraparound failsafe can still skip index cleanup even with `ON`.
+
+Index cleanup marks entries for tuples that Postgres considers removable as deleted. Reclaiming their space depends on [segment merging](/operate/performance-tuning/writes), so a completed vacuum does not guarantee immediate compaction of every segment.
+
 ### Tuning Autovacuum
 
 Postgres can be configured to automatically vacuum a table when a certain number of rows have been modified or inserted. Autovacuum settings can be set globally in `postgresql.conf` or for a specific table:

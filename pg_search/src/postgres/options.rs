@@ -235,7 +235,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -363,6 +363,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
+            optname: "boundary_epsilon".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, boundary_epsilon) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
             optname: "partition_by".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, partition_by_offset) as i32,
@@ -465,6 +472,10 @@ impl BM25IndexOptions {
     /// Returns the fraction of vectors sampled for IVF training.
     pub fn training_sample_ratio(&self) -> f32 {
         self.options_data().training_sample_ratio()
+    }
+
+    pub fn boundary_epsilon(&self) -> f32 {
+        self.options_data().boundary_epsilon as f32
     }
 
     /// Returns the sort_by configuration.
@@ -813,6 +824,7 @@ struct BM25IndexOptionsData {
     search_tokenizer_offset: i32,
     max_leaf_size: i32,
     training_sample_ratio: f64,
+    boundary_epsilon: f64,
     partition_by_offset: i32,
 }
 
@@ -835,6 +847,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     search_tokenizer_offset: 0,
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
+    boundary_epsilon: 0.0,
     partition_by_offset: 0,
 };
 
@@ -1140,6 +1153,16 @@ pub unsafe fn init() {
         DEFAULT_TRAINING_SAMPLE_RATIO,
         0.000001,
         1.0,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_real_reloption(
+        RELOPT_KIND_PDB,
+        "boundary_epsilon".as_pg_cstr(),
+        "Maximum relative distance gap for a second IVF posting; zero disables replication"
+            .as_pg_cstr(),
+        0.0,
+        0.0,
+        100.0,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

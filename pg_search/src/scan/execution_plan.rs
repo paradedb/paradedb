@@ -1688,8 +1688,12 @@ pub(crate) fn pg_search_scan_desired_task_count(
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
     let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
-    let partition_count = NonZeroUsize::new(partition_count)?;
-    // `maximum` rather than `desired`: `partition_count` is already clamped to the number
+    let Some(partition_count) = NonZeroUsize::new(partition_count) else {
+        return Some(datafusion::common::plan_err!(
+            "PgSearchScanPlan has invalid partition count of 0"
+        ));
+    };
+    // `max` rather than `soft`: `partition_count` is already clamped to the number
     // of physical index segments (when range partitioning is off). A single segment cannot
     // be concurrently scanned by multiple workers, so scaling the stage past it would just
     // starve tasks with useless setup work (like building empty hash tables) for zero rows.

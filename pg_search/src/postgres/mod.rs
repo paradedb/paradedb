@@ -716,6 +716,15 @@ pub struct ParallelScanState {
     /// once, after joining the workers, and folds it into its own sticky flag.
     spilled: AtomicU32,
 
+    /// Set by the leader at MPP launch when query instrumentation (`EXPLAIN ANALYZE`) is active.
+    /// Producer fragments only collect and send `TaskMetrics` when this is non-zero.
+    collect_metrics: AtomicU32,
+
+    /// Set by the leader once the root consumer stage (`Stage 0`) has dropped its output stream,
+    /// so producer fragments waiting in `run_execute_task_loop` on unrequested partitions unwind
+    /// cleanly instead of hanging at teardown.
+    query_done: AtomicU32,
+
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
@@ -769,6 +778,8 @@ impl ParallelScanState {
         self.query = 0;
         self.query_len = 0;
         self.spilled.store(0, Ordering::Relaxed);
+        self.collect_metrics.store(0, Ordering::Relaxed);
+        self.query_done.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -783,6 +794,23 @@ impl ParallelScanState {
 
     pub fn did_spill(&self) -> bool {
         self.spilled.load(Ordering::Relaxed) != 0
+    }
+
+    pub fn set_collect_metrics(&self, collect: bool) {
+        self.collect_metrics
+            .store(u32::from(collect), Ordering::Relaxed);
+    }
+
+    pub fn collect_metrics(&self) -> bool {
+        self.collect_metrics.load(Ordering::Relaxed) != 0
+    }
+
+    pub fn mark_query_done(&self) {
+        self.query_done.store(1, Ordering::Release);
+    }
+
+    pub fn is_query_done(&self) -> bool {
+        self.query_done.load(Ordering::Acquire) != 0
     }
 
     pub fn publish_bitmap_handle(&mut self, handle: Option<SharedBitmapHandle>) {

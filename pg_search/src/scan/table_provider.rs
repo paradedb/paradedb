@@ -870,7 +870,7 @@ impl PgSearchTableProvider {
         let target_partitions = state.config().target_partitions();
         if self.range_split_points.is_some() {
             debug_assert!(
-                target_partitions > 1,
+                target_partitions > 1 || crate::gucs::mpp_local_partitions() > 0,
                 "PgSearchTableProvider: range partitioning is configured but target_partitions <= 1; range partitioning requires MPP execution",
             );
             debug_assert!(

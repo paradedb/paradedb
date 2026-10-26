@@ -295,7 +295,7 @@ END
 FROM mpp_ws_join_insert_out;
 DEALLOCATE mpp_ws_prepared_join_insert;
 RESET plan_cache_mode;
--- Four segments per index, cap of 2 (per_gather = 2): more tasks than workers.
+-- Four segments per index, cap of 2 (per_gather = 1 + leader): more tasks than workers.
 -- The launch must clamp to the cap and the extra tasks multiplex onto the two
 -- producers (dispatch::push_owned_tasks), returning the same results as serial.
 CREATE TABLE mpp_ws4_users    (id bigserial PRIMARY KEY, name text, age int);
@@ -338,7 +338,7 @@ BEGIN
     PERFORM set_config('max_parallel_workers_per_gather', '0', false);
     EXECUTE q INTO serial_cnt, serial_sum;
 
-    PERFORM set_config('max_parallel_workers_per_gather', '2', false);
+    PERFORM set_config('max_parallel_workers_per_gather', '1', false);
     FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF) ' || q LOOP
         IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
             launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;

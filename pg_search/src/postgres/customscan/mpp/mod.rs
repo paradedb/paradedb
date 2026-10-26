@@ -20,7 +20,8 @@
 //! Hash-partitions every table by the join key and shuffles intermediate rows between
 //! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
 //! Guarded by PostgreSQL's own parallelism budget: active iff
-//! `min(max_parallel_workers_per_gather, max_parallel_workers) >= 2` producers (#5667); the
+//! `min(max_parallel_workers_per_gather, max_parallel_workers) >= 1` background worker
+//! (plus the participating leader = `>= 2` total producers, #5667); the
 //! plan-first launch spawns only as many as the plan's task fragments can occupy.
 //!
 //! The transport lives in `datafusion_distributed::shm`. Deadlock avoidance is a

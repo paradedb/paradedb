@@ -72,6 +72,11 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     pub fn projection_info(&self) -> *mut pg_sys::ProjectionInfo {
         self.csstate.ss.ps.ps_ProjInfo
     }
+
+    #[inline(always)]
+    pub fn is_instrumented(&self) -> bool {
+        !self.csstate.ss.ps.instrument.is_null()
+    }
 }
 
 pub struct CustomScanStateBuilder<CS: CustomScan, P: From<*mut pg_sys::List>> {

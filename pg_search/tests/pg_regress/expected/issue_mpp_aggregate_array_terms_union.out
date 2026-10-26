@@ -237,15 +237,15 @@ WHERE p.title ||| 'rust'
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 3 ── tasks=2, partitions=3
+     :   ┌───── Stage 3 ── tasks=2, partitions=4
      :   │ ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0]
      :   │   AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
-     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __pdb_k1@1, __grouping_id@2], 6), input_partitions=1
+     :     ┌───── Stage 2 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __pdb_k1@1, __grouping_id@2], 8), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, NULL as __pdb_k1), (NULL as __pdb_k0, country@1 as __pdb_k1)], aggr=[count(1) as __pdb_m0]
      :     │     TantivyDecodeExec: decode=[category]
      :     │       TantivyFetchExec: fetch=[category]
@@ -295,20 +295,20 @@ WHERE p.title ||| 'rust'
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 5] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : │   [Stage 5] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 5 ── tasks=3, partitions=9
+     :   ┌───── Stage 5 ── tasks=4, partitions=16
      :   │ ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0]
-     :   │   DistributedUnionExec: t0:[c0(0/2)] t1:[c0(1/2)] t2:[c1]
+     :   │   DistributedUnionExec: t0:[c0(0/2)] t1:[c0(1/2)] t2:[c1(0/2)] t3:[c1(1/2)]
      :   │     ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 3 WHEN 0 THEN 1 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
      :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
-     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   │     ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, 2 as __grouping_id, __pdb_m0@1 as __pdb_m0]
      :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k1@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
-     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 6), input_partitions=1
+     :     ┌───── Stage 2 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 8), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :     │     TantivyDecodeExec: decode=[category]
      :     │       TantivyFetchExec: fetch=[category]
@@ -325,8 +325,8 @@ WHERE p.title ||| 'rust'
      :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
-     :     ┌───── Stage 4 ── tasks=2, partitions=3
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 3), input_partitions=1
+     :     ┌───── Stage 4 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 8), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
      :     │     UnnestExec
      :     │       ProjectionExec: expr=[tags@0 as a_1_tags]
@@ -402,6 +402,111 @@ WHERE p.title ||| 'rust'
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
+     : │   [Stage 7] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 7 ── tasks=4, partitions=16
+     :   │ ProjectionExec: expr=[__grouping_id@3 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_k2@2 as __pdb_k2, __pdb_m0@4 as __pdb_m0]
+     :   │   DistributedUnionExec: t0:[c0(0/2)] t1:[c0(1/2)] t2:[c1] t3:[c2]
+     :   │     ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, NULL as __pdb_k2, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 7 WHEN 0 THEN 3 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, NULL as __pdb_k2, 5 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k1@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+     :   │     ProjectionExec: expr=[NULL as __pdb_k0, NULL as __pdb_k1, __pdb_k2@0 as __pdb_k2, 6 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k2@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
+     :   │         [Stage 6] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 8), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :     │     TantivyDecodeExec: decode=[category]
+     :     │       TantivyFetchExec: fetch=[category]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 4 ── tasks=2, partitions=4
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 4), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[tags@0 as a_1_tags]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 3] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 3 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 6 ── tasks=2, partitions=4
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 4), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
+     :     │     UnnestExec
+     :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]
+     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
+     :     │           CoalescePartitionsExec
+     :     │             [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 5 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       └──────────────────────────────────────────────────
+(76 rows)
+
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c3_categories' AS categories_match,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c3_author_tags' AS author_tags_match,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}')::text = :'c3_keywords' AS keywords_match
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+ categories_match | author_tags_match | keywords_match 
+------------------+-------------------+----------------
+ t                | t                 | t
+(1 row)
+
+-- C4: three union children on two tasks: a child with no task share of its
+-- own is packed into another child's slot.
+SET max_parallel_workers_per_gather TO 2;
+EXPLAIN (COSTS OFF)
+SELECT
+    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
+    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags,
+    pdb.agg('{"terms": {"field": "keywords", "size": 10}}') AS keywords
+FROM mpp_arr_posts p
+JOIN mpp_arr_authors a ON p.author_id = a.id
+WHERE p.title ||| 'rust'
+  AND a.id @@@ pdb.all();
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
+   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"tags"}}), pdb.agg({"terms":{"size":10,"field":"keywords"}})
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
      : │   [Stage 7] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 7 ── tasks=3, partitions=9
@@ -455,111 +560,6 @@ WHERE p.title ||| 'rust'
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 6 ── tasks=2, partitions=3
      :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 3), input_partitions=1
-     :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
-     :     │     UnnestExec
-     :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]
-     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
-     :     │           CoalescePartitionsExec
-     :     │             [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :     │           DistributedLeafExec:
-     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 5 ── tasks=2, partitions=4
-     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
-     :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       └──────────────────────────────────────────────────
-(76 rows)
-
-SELECT
-    pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c3_categories' AS categories_match,
-    pdb.agg('{"terms": {"field": "tags", "size": 10}}')::text = :'c3_author_tags' AS author_tags_match,
-    pdb.agg('{"terms": {"field": "keywords", "size": 10}}')::text = :'c3_keywords' AS keywords_match
-FROM mpp_arr_posts p
-JOIN mpp_arr_authors a ON p.author_id = a.id
-WHERE p.title ||| 'rust'
-  AND a.id @@@ pdb.all();
- categories_match | author_tags_match | keywords_match 
-------------------+-------------------+----------------
- t                | t                 | t
-(1 row)
-
--- C4: three union children on two tasks: a child with no task share of its
--- own is packed into another child's slot.
-SET max_parallel_workers_per_gather TO 2;
-EXPLAIN (COSTS OFF)
-SELECT
-    pdb.agg('{"terms": {"field": "category", "size": 10}}') AS categories,
-    pdb.agg('{"terms": {"field": "tags", "size": 10}}') AS author_tags,
-    pdb.agg('{"terms": {"field": "keywords", "size": 10}}') AS keywords
-FROM mpp_arr_posts p
-JOIN mpp_arr_authors a ON p.author_id = a.id
-WHERE p.title ||| 'rust'
-  AND a.id @@@ pdb.all();
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Backend: DataFusion
-   Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
-   Aggregates: pdb.agg({"terms":{"size":10,"field":"category"}}), pdb.agg({"terms":{"size":10,"field":"tags"}}), pdb.agg({"terms":{"size":10,"field":"keywords"}})
-   DataFusion Physical Plan: 
-     : ┌───── DistributedExec
-     : │ CoalescePartitionsExec
-     : │   [Stage 7] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
-     : └──────────────────────────────────────────────────
-     :   ┌───── Stage 7 ── tasks=2, partitions=8
-     :   │ ProjectionExec: expr=[__grouping_id@3 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_k2@2 as __pdb_k2, __pdb_m0@4 as __pdb_m0]
-     :   │   DistributedUnionExec: t0:[c0, c2] t1:[c1]
-     :   │     ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, NULL as __pdb_k2, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 7 WHEN 0 THEN 3 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
-     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
-     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=2, input_tasks=2
-     :   │     ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, NULL as __pdb_k2, 5 as __grouping_id, __pdb_m0@1 as __pdb_m0]
-     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k1@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
-     :   │         [Stage 4] => NetworkShuffleExec: output_partitions=2, input_tasks=2
-     :   │     ProjectionExec: expr=[NULL as __pdb_k0, NULL as __pdb_k1, __pdb_k2@0 as __pdb_k2, 6 as __grouping_id, __pdb_m0@1 as __pdb_m0]
-     :   │       AggregateExec: mode=FinalPartitioned, gby=[__pdb_k2@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
-     :   │         [Stage 6] => NetworkShuffleExec: output_partitions=2, input_tasks=2
-     :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=2, partitions=2
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 2), input_partitions=1
-     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (category@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
-     :     │     TantivyDecodeExec: decode=[category]
-     :     │       TantivyFetchExec: fetch=[category]
-     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
-     :     │           CoalescePartitionsExec
-     :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :     │           DistributedLeafExec:
-     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=2, partitions=4
-     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
-     :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       └──────────────────────────────────────────────────
-     :     ┌───── Stage 4 ── tasks=2, partitions=2
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 2), input_partitions=1
-     :     │   AggregateExec: mode=Partial, gby=[a_1_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
-     :     │     UnnestExec
-     :     │       ProjectionExec: expr=[tags@0 as a_1_tags]
-     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
-     :     │           CoalescePartitionsExec
-     :     │             [Stage 3] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :     │           DistributedLeafExec:
-     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 3 ── tasks=2, partitions=4
-     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
-     :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       └──────────────────────────────────────────────────
-     :     ┌───── Stage 6 ── tasks=2, partitions=2
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 2), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
      :     │     UnnestExec
      :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]

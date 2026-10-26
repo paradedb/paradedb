@@ -564,7 +564,7 @@ SELECT plan_contains(
     'TopK') AS topk_plan;
  parallel_plan | topk_plan 
 ---------------+-----------
- t             | t
+ f             | t
 (1 row)
 
 SELECT check_range_order('range_segments', 'nr', 'ASC', 5, 0);

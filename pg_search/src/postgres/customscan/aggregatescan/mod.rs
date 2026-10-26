@@ -1219,6 +1219,9 @@ impl CustomScan for AggregateScan {
         // query so blocked producers stop).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
+            if let Some(leader) = df_state.mpp.leader_mut() {
+                leader.finish_leader_fragments(df_state.runtime.as_ref());
+            }
             // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
             // early-terminated query the rings still hold data the leader will never read; a
             // worker's bounded metrics send spins on the full ring until the leader frees slots.
@@ -1242,13 +1245,7 @@ impl CustomScan for AggregateScan {
                 let _ = finish.recv();
             }
             // Must come after the join; see `warn_if_spilled`.
-            warn_if_spilled(
-                &df_state.spilled,
-                df_state
-                    .mpp
-                    .leader()
-                    .and_then(|leader| leader.finish.as_ref()),
-            );
+            warn_if_spilled(&df_state.spilled, df_state.mpp.leader());
         }
     }
 
@@ -1350,6 +1347,9 @@ impl AggregateScan {
     /// `end_custom_scan` and before a rescan relaunches a fresh worker set.
     fn finish_mpp_execution(df_state: &mut scan_state::DataFusionAggState) {
         df_state.stream = None;
+        if let Some(leader) = df_state.mpp.leader_mut() {
+            leader.finish_leader_fragments(df_state.runtime.as_ref());
+        }
         if let Some(leader) = df_state.mpp.leader()
             && let Some(plan) = df_state.physical_plan.as_ref()
         {
@@ -1358,10 +1358,8 @@ impl AggregateScan {
                 &leader.session.mesh,
             );
         }
-        let finish = match df_state.mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            None => None,
-        };
+        let mut leader = df_state.mpp.take_leader();
+        let finish = leader.as_mut().and_then(|l| l.finish.take());
         // Drop order: the physical plan and session hold a mesh reference, so both
         // must go before the DSM is destroyed below, and the stream must go before
         // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
@@ -1374,8 +1372,15 @@ impl AggregateScan {
             // is what orders its store before this load. `recv` is idempotent, so the
             // one inside `wait_for_finish` returns at once.
             let _ = finish.recv();
-            crate::postgres::customscan::mpp::glue::record_worker_spill(&df_state.spilled, &finish);
+            if let Some(ref leader) = leader {
+                crate::postgres::customscan::mpp::glue::record_worker_spill(
+                    &df_state.spilled,
+                    leader,
+                );
+            }
             finish.wait_for_finish();
+        } else if let Some(ref leader) = leader {
+            crate::postgres::customscan::mpp::glue::record_worker_spill(&df_state.spilled, leader);
         }
     }
 
@@ -2272,6 +2277,8 @@ impl AggregateScan {
             let is_mpp = mpp_pending;
             let plan_ctx = if is_mpp {
                 Self::build_mpp_session_context(None)
+                    .with_distributed_metrics_collection(state.is_instrumented())
+                    .expect("with_distributed_metrics_collection")
             } else {
                 create_aggregate_session_context()
             };
@@ -2327,7 +2334,8 @@ impl AggregateScan {
                 .expect("DataFusion state must be initialized");
             let (ctx, physical_plan) = if is_mpp {
                 match leader {
-                    Some(leader) => {
+                    Some(mut leader) => {
+                        leader.spawn_leader_fragments(create_aggregate_session_context(), &runtime);
                         let source =
                             crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                         let exec_ctx =

@@ -101,7 +101,11 @@ pub(crate) fn max_producer_task_count(stages: &[StageEntry]) -> usize {
 /// below that there is no data parallelism, so execution runs serially and plain EXPLAIN
 /// must render the serial shape rather than a cap-sized distributed plan.
 pub(crate) fn stages_have_data_parallelism(stages: &[StageEntry]) -> bool {
-    max_producer_task_count(stages) >= 2
+    match max_producer_task_count(stages) {
+        0 => false,
+        1 => crate::gucs::mpp_local_partitions() > 0,
+        _ => true,
+    }
 }
 
 /// Convenience wrapper over [`stages_have_data_parallelism`] for a finished physical plan.

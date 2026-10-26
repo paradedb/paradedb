@@ -333,15 +333,15 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
-           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   ┌───── Stage 3 ── tasks=2, partitions=4
            :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=1
+           :     ┌───── Stage 2 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([title@0], 8), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
            :     │       CoalescePartitionsExec
@@ -390,28 +390,28 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 4 ── tasks=2, partitions=3
+     :   ┌───── Stage 4 ── tasks=2, partitions=4
      :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[]
-     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 3 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
+     :     ┌───── Stage 3 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([title@0], 8), input_partitions=4
      :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
      :     │     TantivyDecodeExec: decode=[title]
      :     │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
-     :     │         [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-     :     │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+     :     │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=2, partitions=6
-     :       │ RepartitionExec: partitioning=Hash([id@1], 6), input_partitions=1
+     :       ┌───── Stage 1 ── tasks=2, partitions=8
+     :       │ RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
      :       │   DistributedLeafExec:
      :       │     t0: PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       │     t1: PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       └──────────────────────────────────────────────────
-     :       ┌───── Stage 2 ── tasks=2, partitions=6
-     :       │ RepartitionExec: partitioning=Hash([file_id@0], 6), input_partitions=1
+     :       ┌───── Stage 2 ── tasks=2, partitions=8
+     :       │ RepartitionExec: partitioning=Hash([file_id@0], 8), input_partitions=1
      :       │   DistributedLeafExec:
      :       │     t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
      :       │     t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
@@ -459,15 +459,15 @@ WHERE f.content ||| 'Section';
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 3 ── tasks=2, partitions=3
+     :   ┌───── Stage 3 ── tasks=2, partitions=4
      :   │ ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
      :   │   AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
-     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 6), input_partitions=1
+     :     ┌───── Stage 2 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 8), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
      :     │       CoalescePartitionsExec
@@ -516,15 +516,15 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : ┌───── DistributedExec
                  : │ CoalescePartitionsExec
-                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
                  : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 3 ── tasks=2, partitions=3
+                 :   ┌───── Stage 3 ── tasks=2, partitions=4
                  :   │ ProjectionExec: expr=[title@0 as title, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0]
                  :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
-                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
                  :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 2 ── tasks=2, partitions=6
-                 :     │ RepartitionExec: partitioning=Hash([title@0, __pdb_k0@1, __grouping_id@2], 6), input_partitions=1
+                 :     ┌───── Stage 2 ── tasks=2, partitions=8
+                 :     │ RepartitionExec: partitioning=Hash([title@0, __pdb_k0@1, __grouping_id@2], 8), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[(title@0 as title, NULL as __pdb_k0), (title@0 as title, title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@0)], projection=[title@0]
                  :     │       CoalescePartitionsExec

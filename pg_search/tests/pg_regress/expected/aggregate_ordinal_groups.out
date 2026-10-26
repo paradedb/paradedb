@@ -480,14 +480,14 @@ ORDER BY category;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ CoalescePartitionsExec
-           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=12, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 2 ── tasks=3, partitions=3
+           :   ┌───── Stage 2 ── tasks=3, partitions=4
            :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
-           :   │   [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+           :   │   [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=3, partitions=9
-           :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=1
+           :     ┌───── Stage 1 ── tasks=3, partitions=12
+           :     │ RepartitionExec: partitioning=Hash([category@0], 12), input_partitions=1
            :     │   TantivyDecodeExec: decode=[category]
            :     │     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
            :     │       TantivyFetchExec: fetch=[category]
@@ -532,7 +532,7 @@ ORDER BY p.category;
            : ┌───── DistributedExec
            : │ CoalescePartitionsExec
            : │   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
-           : │     RepartitionExec: partitioning=Hash([category@0], 3), input_partitions=1
+           : │     RepartitionExec: partitioning=Hash([category@0], 4), input_partitions=1
            : │       TantivyDecodeExec: decode=[category]
            : │         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
            : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, stars@2]

@@ -1158,6 +1158,12 @@ impl JoinScan {
     /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().datafusion_stream = None;
+        {
+            let cs = state.custom_state_mut();
+            if let Some(leader) = cs.mpp.leader_mut() {
+                leader.finish_leader_fragments(cs.runtime.as_ref());
+            }
+        }
         if let Some(leader) = state.custom_state().mpp.leader()
             && let Some(plan) = state.custom_state().physical_plan.as_ref()
         {
@@ -1166,11 +1172,9 @@ impl JoinScan {
                 &leader.session.mesh,
             );
         }
-        let finish = match state.custom_state_mut().mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            None => None,
-        };
-        if finish.is_some() {
+        let mut leader = state.custom_state_mut().mpp.take_leader();
+        let finish = leader.as_mut().and_then(|l| l.finish.take());
+        if leader.is_some() {
             let cs = state.custom_state_mut();
             cs.current_batch = None;
             cs.physical_plan = None;
@@ -1181,8 +1185,12 @@ impl JoinScan {
             // is what orders its store before this load. `recv` is idempotent, so the
             // one inside `wait_for_finish` returns at once.
             let _ = finish.recv();
-            record_worker_spill(&state.custom_state().spilled, &finish);
+            if let Some(ref leader) = leader {
+                record_worker_spill(&state.custom_state().spilled, leader);
+            }
             finish.wait_for_finish();
+        } else if let Some(ref leader) = leader {
+            record_worker_spill(&state.custom_state().spilled, leader);
         }
     }
 }
@@ -1708,6 +1716,7 @@ impl CustomScan for JoinScan {
                 Self::maybe_solve_and_rebake(state);
 
                 let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .unwrap();
                 let mut join_clause = state.custom_state().join_clause.clone();
@@ -1806,6 +1815,8 @@ impl CustomScan for JoinScan {
                 // concerns; the exec session below carries them once the workers are committed.
                 let plan_ctx = if mpp_pending {
                     Self::build_mpp_session_context(None)
+                        .with_distributed_metrics_collection(state.is_instrumented())
+                        .expect("with_distributed_metrics_collection")
                 } else {
                     create_datafusion_session_context()
                 };
@@ -1818,7 +1829,11 @@ impl CustomScan for JoinScan {
                 // replan serially.
                 let (ctx, plan) = if mpp_pending {
                     match Self::launch_mpp(state, &plan) {
-                        Some(leader) => {
+                        Some(mut leader) => {
+                            leader.spawn_leader_fragments(
+                                create_datafusion_session_context(),
+                                &runtime,
+                            );
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
                                 &leader.session.mesh,
@@ -2027,6 +2042,12 @@ impl CustomScan for JoinScan {
         // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
         // already reached EOF.
         state.custom_state_mut().datafusion_stream = None;
+        {
+            let cs = state.custom_state_mut();
+            if let Some(leader) = cs.mpp.leader_mut() {
+                leader.finish_leader_fragments(cs.runtime.as_ref());
+            }
+        }
 
         // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
         // early-terminated query the rings still hold data the leader will never read; a worker's
@@ -2051,10 +2072,7 @@ impl CustomScan for JoinScan {
         }
         // Must come after the join; see `warn_if_spilled`.
         let cs = state.custom_state();
-        warn_if_spilled(
-            &cs.spilled,
-            cs.mpp.leader().and_then(|leader| leader.finish.as_ref()),
-        );
+        warn_if_spilled(&cs.spilled, cs.mpp.leader());
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {

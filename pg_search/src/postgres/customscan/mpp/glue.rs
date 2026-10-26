@@ -44,21 +44,22 @@ use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
 use crate::parallel_worker::builder::ParallelProcessFinish;
 use crate::postgres::customscan::mpp::pg_seams::{PgInterrupt, PgWakeup, pack_receiver};
 
-/// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
-/// Below that, `build_mpp_session_context` still clamps `target_partitions` to 2 and the mesh
-/// wouldn't have a queue for the second partition. Single source of truth so [`mpp_is_active`]
-/// and the launch's clamp floor don't drift on the threshold.
-pub const MIN_TOTAL_WORKER_COUNT: u32 = 3;
+/// Minimum total participating procs for MPP: leader (proc 0, consumer + producer) plus at
+/// least 1 background worker (= 2 total producers). Below that, `build_mpp_session_context`
+/// still clamps `target_partitions` to 2 and there would be no data parallelism. Single
+/// source of truth so [`mpp_is_active`] and the launch's clamp floor don't drift on the
+/// threshold.
+pub const MIN_TOTAL_WORKER_COUNT: u32 = 2;
 
-/// True iff PostgreSQL's parallelism budget allows at least `MIN_TOTAL_WORKER_COUNT - 1`
-/// producer workers. There is no MPP-specific worker GUC (#5667):
-/// `max_parallel_workers_per_gather` caps the per-query width — the same knob that caps
-/// ordinary parallel scans, matching core PG's `compute_parallel_worker` convention — and
-/// `max_parallel_workers` is the cluster-wide pool. Setting
-/// `max_parallel_workers_per_gather` below 2 (or 0, PG's own parallelism-disable convention)
+/// True iff PostgreSQL's parallelism budget allows at least `MIN_TOTAL_WORKER_COUNT`
+/// participating producers (leader + background workers). There is no MPP-specific worker
+/// GUC (#5667): `max_parallel_workers_per_gather` caps the background workers per query
+/// (matching core PG's `compute_parallel_worker` convention), `max_parallel_workers` is the
+/// cluster-wide pool, and the leader participates alongside them. Setting
+/// `max_parallel_workers_per_gather = 0` (PG's own parallelism-disable convention)
 /// disables MPP. Customscan path-builders gate `parallel_workers` on this.
 pub fn mpp_is_active() -> bool {
-    producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT - 1
+    crate::gucs::mpp_local_partitions() > 0 || producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT
 }
 
 /// Whether PostgreSQL judged the entire statement safe to execute while parallel mode is active.
@@ -91,16 +92,22 @@ pub fn estimate_dsm_size(n_procs: u32, payload_len: usize) -> Result<usize, Stri
     shm::dsm_region_bytes(n_procs, mpp_queue_size(), payload_len).map_err(|e| e.to_string())
 }
 
-/// Maximum number of producer workers a launch may spawn:
-/// `min(max_parallel_workers_per_gather, max_parallel_workers)` (#5667). Also the planner's
-/// `target_partitions` ceiling. The plan-first launch spawns
-/// `clamp(max_stage_task_count, MIN_TOTAL_WORKER_COUNT - 1, this)` producers, so the cap only
-/// bounds — the plan's task fragments decide the actual width. When [`mpp_is_active`] holds
-/// this is `>= MIN_TOTAL_WORKER_COUNT - 1`.
+/// Maximum number of participating producers (leader + background workers):
+/// `1 + min(max_parallel_workers_per_gather, max_parallel_workers)` when PG's background
+/// worker cap is positive, or `0` when parallel workers are disabled (#5667). Also the
+/// planner's `target_partitions` ceiling. The plan-first launch spawns
+/// `clamp(max_stage_task_count, MIN_TOTAL_WORKER_COUNT, this) - 1` background workers
+/// alongside the participating leader, so the cap only bounds: the plan's task fragments
+/// decide the actual width. When [`mpp_is_active`] holds this is `>= MIN_TOTAL_WORKER_COUNT`.
 pub fn producer_worker_cap() -> u32 {
+    let local_partitions = crate::gucs::mpp_local_partitions();
+    if local_partitions > 0 {
+        return local_partitions as u32;
+    }
     let max_per_gather = unsafe { pg_sys::max_parallel_workers_per_gather };
     let max_workers = unsafe { pg_sys::max_parallel_workers };
-    max_per_gather.min(max_workers).max(0) as u32
+    let bg_cap = max_per_gather.min(max_workers).max(0) as u32;
+    if bg_cap == 0 { 0 } else { bg_cap + 1 }
 }
 
 /// Leader-observable per-phase timing of an MPP launch, in microseconds. Populated so
@@ -147,6 +154,67 @@ impl MppLaunchTiming {
     }
 }
 
+/// Owns the heap-allocated mesh and scan-state buffers when `paradedb.mpp_local_partitions > 0`
+/// runs MPP inside the leader process without a PostgreSQL `dsm_segment`.
+pub struct LocalMppDsm {
+    mesh_ptr: *mut u8,
+    mesh_layout: std::alloc::Layout,
+    scan_ptr: *mut u8,
+    scan_layout: std::alloc::Layout,
+    mesh: Arc<MppMesh>,
+}
+
+// SAFETY: accessed only through atomic ring operations and `ParallelScanState` atomics.
+unsafe impl Send for LocalMppDsm {}
+unsafe impl Sync for LocalMppDsm {}
+
+impl LocalMppDsm {
+    /// # Safety
+    /// `mesh_ptr` and `scan_ptr` must have been allocated with `mesh_layout` and `scan_layout`
+    /// via [`alloc_local_dsm_region`].
+    pub unsafe fn new(
+        mesh_ptr: *mut u8,
+        mesh_layout: std::alloc::Layout,
+        scan_ptr: *mut u8,
+        scan_layout: std::alloc::Layout,
+        mesh: Arc<MppMesh>,
+    ) -> Self {
+        Self {
+            mesh_ptr,
+            mesh_layout,
+            scan_ptr,
+            scan_layout,
+            mesh,
+        }
+    }
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body does not touch
+// Postgres FFI: it only flips atomic detach flags on `self.mesh` (so dropping the `mesh` field
+// afterwards does not touch the ring headers) and frees the two Rust heap buffers, which must
+// happen on unwind as well to avoid use-after-free or leaking heap memory in the backend.
+impl Drop for LocalMppDsm {
+    fn drop(&mut self) {
+        self.mesh.mark_detached();
+        unsafe {
+            std::alloc::dealloc(self.mesh_ptr, self.mesh_layout);
+            std::alloc::dealloc(self.scan_ptr, self.scan_layout);
+        }
+    }
+}
+
+/// Allocate a 64-byte aligned zeroed heap buffer standing in for a DSM region when
+/// `paradedb.mpp_local_partitions > 0`.
+pub fn alloc_local_dsm_region(bytes: usize) -> (*mut u8, std::alloc::Layout) {
+    let layout = std::alloc::Layout::from_size_align(bytes.max(64), 64)
+        .expect("mpp: local dsm region layout");
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+    if ptr.is_null() {
+        pgrx::error!("mpp: failed to allocate local DSM buffer of {bytes} bytes");
+    }
+    (ptr, layout)
+}
+
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
 /// state and consults it during `exec_custom_scan`.
 pub struct MppLeaderState {
@@ -159,6 +227,18 @@ pub struct MppLeaderState {
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
     pub timing: MppLaunchTiming,
+    /// Shared `ParallelScanState` pointer in DSM, used by the leader's own producer fragments.
+    pub parallel_state: *mut crate::postgres::ParallelScanState,
+    /// Number of scan sources in `parallel_state`.
+    pub plan_sources_count: usize,
+    /// Cancellation token for the leader's producer fragment task.
+    pub leader_token: tokio_util::sync::CancellationToken,
+    /// Handle to the leader's producer fragment task (`proc 0`) spawned on the scan's runtime.
+    pub leader_task:
+        Option<tokio::task::JoinHandle<Result<(), datafusion::common::DataFusionError>>>,
+    /// Heap-backed DSM buffers when running in single-process `paradedb.mpp_local_partitions` mode.
+    /// Declared last so `session` and `leader_task` drop before the backing memory is freed.
+    pub local_dsm: Option<LocalMppDsm>,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
@@ -222,6 +302,11 @@ pub unsafe fn leader_setup(
         session,
         finish: None,
         timing: MppLaunchTiming::default(),
+        parallel_state: std::ptr::null_mut(),
+        plan_sources_count: 0,
+        leader_token: tokio_util::sync::CancellationToken::new(),
+        leader_task: None,
+        local_dsm: None,
     })
 }
 
@@ -254,6 +339,15 @@ impl MppLeaderState {
                 Some(mark_mesh_detached_on_dsm_detach),
                 pg_sys::Datum::from(mesh_ptr as *mut c_void),
             );
+        }
+    }
+
+    /// Whether any producer fragment (leader or worker) marked `ParallelScanState` as spilled.
+    pub fn did_spill(&self) -> bool {
+        if !self.parallel_state.is_null() {
+            unsafe { (*self.parallel_state).did_spill() }
+        } else {
+            false
         }
     }
 }
@@ -295,10 +389,11 @@ mod tests {
             .unwrap()
         };
 
-        assert_eq!(attach.outbound_senders().len(), launched_procs as usize);
-        assert!(attach.outbound_senders()[0].is_none());
+        let worker = attach.worker.as_ref().expect("leader worker session");
+        assert_eq!(worker.outbound_senders().len(), launched_procs as usize);
+        assert!(worker.outbound_senders()[0].is_none());
         assert_eq!(
-            attach.outbound_senders().iter().flatten().count(),
+            worker.outbound_senders().iter().flatten().count(),
             (launched_procs - 1) as usize
         );
     }
@@ -452,23 +547,30 @@ pub fn drain_worker_metrics(
     let mut rx = mesh.take_task_metrics_receiver()?;
     let mut got = crate::api::HashSet::default();
     for _ in 0..100 {
-        let _ = mesh.try_drain_pass();
-        while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
-            // The frames carry proto metrics; the store holds the decoded in-memory form the rewrite
-            // reads. A frame that fails to decode is still counted so the wait doesn't spin.
-            if let Ok(metrics) = datafusion_distributed::decode_task_metrics(metrics) {
-                store.insert(
-                    TaskKey {
-                        query_id,
-                        stage_id: stage_id as usize,
-                        task_number: task_number as usize,
-                    },
-                    metrics,
-                );
+        loop {
+            let _ = mesh.try_drain_pass();
+            let mut made_progress = false;
+            while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
+                made_progress = true;
+                // The frames carry proto metrics; the store holds the decoded in-memory form the rewrite
+                // reads. A frame that fails to decode is still counted so the wait doesn't spin.
+                if let Ok(metrics) = datafusion_distributed::decode_task_metrics(metrics) {
+                    store.insert(
+                        TaskKey {
+                            query_id,
+                            stage_id: stage_id as usize,
+                            task_number: task_number as usize,
+                        },
+                        metrics,
+                    );
+                }
+                got.insert((stage_id, task_number));
             }
-            got.insert((stage_id, task_number));
+            if !made_progress || got.len() >= expected {
+                break;
+            }
         }
-        if got.len() >= expected {
+        if got.len() >= expected || mesh.all_remote_producers_detached() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -499,22 +601,22 @@ fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
     }
 }
 
-/// Folds the workers' DSM spill flag into the leader's own flag. Call it before the
+/// Folds the shared `ParallelScanState` spill flag into the leader's own flag. Call it before the
 /// leader finishes (and so destroys) a launch whose flag `warn_if_spilled` will not see,
 /// such as a relaunch on rescan.
-pub fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish) {
-    if mpp_did_spill(finish) {
+pub fn record_worker_spill(spilled: &AtomicBool, leader: &MppLeaderState) {
+    if leader.did_spill() || leader.finish.as_ref().is_some_and(mpp_did_spill) {
         spilled.store(true, Ordering::Relaxed);
     }
 }
 
 /// Emits the spill warning, once per scan node per `ExecutorRun`. `spilled_locally` is
-/// the leader's own flag, sticky across rescans; the worker flag lives in the DSM behind
-/// `finish`, so this must run after the workers are joined. Before the join a worker can
-/// still be executing (an early-terminated `LIMIT` query, for one) and spill after the
-/// load, and the join is also what orders a worker's relaxed store before this load.
-pub fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
-    if spilled_locally.load(Ordering::Relaxed) || finish.is_some_and(mpp_did_spill) {
+/// the leader's own flag, sticky across rescans; the worker/fragment flag lives in
+/// `ParallelScanState`, so this must run after the workers and leader fragments are joined.
+pub fn warn_if_spilled(spilled_locally: &AtomicBool, leader: Option<&MppLeaderState>) {
+    let mpp_spilled =
+        leader.is_some_and(|l| l.did_spill() || l.finish.as_ref().is_some_and(mpp_did_spill));
+    if spilled_locally.load(Ordering::Relaxed) || mpp_spilled {
         pgrx::warning!(
             "query exceeded work_mem and spilled to disk; consider raising work_mem \
              for better performance (paradedb.spill_to_disk allowed it to complete \

@@ -391,15 +391,15 @@ LIMIT 1;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ SortPreservingMergeExec: [agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], fetch=1
-           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=2
+           :   ┌───── Stage 3 ── tasks=2, partitions=3
            :   │ SortExec: TopK(fetch=1), expr=[agg_0@1 DESC NULLS LAST, researcher_id@0 DESC], preserve_partitioning=[true]
            :   │   AggregateExec: mode=FinalPartitioned, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
-           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=4
-           :     │ RepartitionExec: partitioning=Hash([researcher_id@0], 4), input_partitions=1
+           :     ┌───── Stage 2 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([researcher_id@0], 6), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[researcher_id@0 as researcher_id], aggr=[max(w_0.item_date) as agg_0]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@0, researcher_id@0)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[researcher_id@2, item_date@3]
            :     │       CoalescePartitionsExec

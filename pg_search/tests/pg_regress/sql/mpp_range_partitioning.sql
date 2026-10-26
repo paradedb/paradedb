@@ -18,6 +18,7 @@
 -- 10. Three-table join prioritizing lower join over upper join.
 -- 11. Broadcast-aware join deferral across three tables (0 network shuffles).
 -- 12. Broadcast-aware join deferral with asymmetric unpartitioned dimension table.
+-- 13. Forced single-process MPP and range co-partitioning via paradedb.mpp_local_partitions.
 --
 -- Note on hash_join_single_partition_threshold[_rows] GUCs:
 -- In production, DataFusion defaults to broadcasting (CollectLeft) tables below
@@ -705,6 +706,88 @@ ORDER BY c.category_id, p.post_id
 LIMIT 5;
 
 RESET paradedb.hash_join_single_partition_threshold_rows;
+
+-- =====================================================================
+-- Scenario 13: Forced single-process MPP and range co-partitioning via
+-- paradedb.mpp_local_partitions.
+--
+-- Even when max_parallel_workers_per_gather = 0 (disabling Postgres parallel
+-- mode) and paradedb.mpp_min_rows = 500000 (above table row counts), setting
+-- paradedb.mpp_local_partitions = 4 forces both MPP (DistributedExec +
+-- NetworkShuffleExec) and range co-partitioning to run with 4 partitions
+-- inside the leader process over its self DsmMpscRing, without overriding
+-- paradedb.hash_join_single_partition_threshold_rows.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.mpp_min_rows = 500000;
+SET paradedb.mpp_local_partitions = 4;
+
+-- AggregateScan: 4 range partitions on mpp_rp_orders (target_segment_count = 8)
+-- joined with mpp_rp_customers inside the single leader process.
+SET paradedb.hash_join_single_partition_threshold_rows = 0;
+SET paradedb.hash_join_single_partition_threshold = 0;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.customer_id, count(*) AS cnt
+FROM mpp_rp_orders o
+JOIN mpp_rp_customers c ON o.customer_id = c.customer_id
+WHERE o.order_title @@@ 'order'
+GROUP BY o.customer_id
+ORDER BY o.customer_id
+LIMIT 5;
+
+SELECT o.customer_id, count(*) AS cnt
+FROM mpp_rp_orders o
+JOIN mpp_rp_customers c ON o.customer_id = c.customer_id
+WHERE o.order_title @@@ 'order'
+GROUP BY o.customer_id
+ORDER BY o.customer_id
+LIMIT 5;
+
+RESET paradedb.hash_join_single_partition_threshold_rows;
+RESET paradedb.hash_join_single_partition_threshold;
+
+-- JoinScan: 2-table physical range co-partitioned join (0 network shuffles
+-- between posts and users) inside the leader process.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT u.user_name, p.title
+FROM mpp_rp_users u
+JOIN mpp_rp_posts p ON u.user_id = p.user_id
+WHERE p.title @@@ 'post'
+ORDER BY u.user_id, p.post_id
+LIMIT 5;
+
+SELECT u.user_name, p.title
+FROM mpp_rp_users u
+JOIN mpp_rp_posts p ON u.user_id = p.user_id
+WHERE p.title @@@ 'post'
+ORDER BY u.user_id, p.post_id
+LIMIT 5;
+
+-- Asymmetric join respects hash_join_single_partition_threshold_rows (not
+-- overridden by mpp_local_partitions): under default threshold, categories
+-- broadcasts (CollectLeft) without stamping posts on topic_id.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+RESET paradedb.mpp_local_partitions;
+RESET paradedb.mpp_min_rows;
+RESET max_parallel_workers_per_gather;
 
 -- =====================================================================
 -- Cleanup

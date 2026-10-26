@@ -263,6 +263,11 @@ static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024)
 /// otherwise wait forever. `0` disables the guard.
 static MPP_REQUEST_TIMEOUT: GucSetting<i32> = GucSetting::<i32>::new(300);
 
+/// When > 0, forces `datafusion-distributed` (MPP) and range co-partitioning with `N`
+/// partitions to execute entirely inside the Postgres leader process (`proc 0`, `0`
+/// background workers) over its own DSM ring buffer, for profiling and debugging.
+static MPP_LOCAL_PARTITIONS: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
@@ -990,6 +995,19 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_S,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_local_partitions",
+        c"Force single-process MPP execution with N local partitions in the leader",
+        c"When > 0, forces datafusion-distributed (MPP) and range co-partitioning with N \
+          partitions to execute entirely inside the Postgres leader process (0 background \
+          workers), serializing frames over the leader's DSM MPSC ring. 0 disables the override.",
+        &MPP_LOCAL_PARTITIONS,
+        0,
+        64,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 /// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.
@@ -1259,6 +1277,10 @@ pub fn mpp_queue_size() -> usize {
 
 pub fn mpp_request_timeout_secs() -> i32 {
     MPP_REQUEST_TIMEOUT.get()
+}
+
+pub fn mpp_local_partitions() -> usize {
+    MPP_LOCAL_PARTITIONS.get().max(0) as usize
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

@@ -107,16 +107,16 @@ enum MppAttachOutcome {
 }
 
 fn mpp_attach_outcome(
-    requested_producers: u32,
-    attached_producers: u32,
+    requested_bg_workers: u32,
+    attached_bg_workers: u32,
 ) -> Result<MppAttachOutcome, String> {
-    if attached_producers > requested_producers {
+    if attached_bg_workers > requested_bg_workers {
         return Err(format!(
-            "mpp: {attached_producers} workers attached after requesting {requested_producers}"
+            "mpp: {attached_bg_workers} workers attached after requesting {requested_bg_workers}"
         ));
     }
 
-    if attached_producers < MIN_TOTAL_WORKER_COUNT - 1 {
+    if attached_bg_workers + 1 < MIN_TOTAL_WORKER_COUNT {
         Ok(MppAttachOutcome::SerialFallback)
     } else {
         Ok(MppAttachOutcome::Parallel)
@@ -306,6 +306,9 @@ impl MppLifecycle {
 /// sources, so `Unknown` marks a placeholder; silently serializing a big query would cost far
 /// more than a wasted launch.
 pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
+    if crate::gucs::mpp_local_partitions() > 0 {
+        return false;
+    }
     gated_by_min_rows(
         crate::gucs::mpp_min_rows() as u64,
         sources
@@ -318,7 +321,7 @@ pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a Sc
 /// (#6157), PG's worker budget admits producers, and the query clears the size gate (#5784).
 /// Shared by launch preparation and the plain-EXPLAIN plan rebuild so both agree.
 pub(crate) fn mpp_eligible(parallel_mode_ok: bool, plan: &RelNode) -> bool {
-    parallel_mode_ok
+    (parallel_mode_ok || crate::gucs::mpp_local_partitions() > 0)
         && mpp_is_active()
         && !mpp_gated_by_min_rows(plan.sources().into_iter().map(|s| &s.scan_info))
 }
@@ -362,23 +365,20 @@ fn launch_mpp(
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
     let stages = collect_stages(physical);
+    let collect_metrics = physical
+        .downcast_ref::<datafusion_distributed::DistributedExec>()
+        .is_some_and(|d| d.metrics_store().is_some());
 
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
     // counts (#5657). The producer floor keeps the mesh-width invariant; see
     // [`MIN_TOTAL_WORKER_COUNT`]. Same gate as plain EXPLAIN (#5784).
     if !stages_have_data_parallelism(&stages) {
         // 0: nothing to distribute. 1: no data parallelism — every 1-task stage lands on
-        // proc 1 (`proc_for_task`), leaving the second (floor) producer idle. Run serially.
+        // proc 0 (`proc_for_task`), leaving the second (floor) producer idle. Run serially.
         // This also keeps `producer_count <= max_tasks`, so every launched proc owns at
         // least one fragment of the widest stage.
         return None;
     }
-    let max_tasks = max_producer_task_count(&stages);
-    let cap = producer_worker_cap();
-    let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
-
-    // The finished physical stages determine the stage sizing list, so build the real payload
-    // before sizing DSM. A failure is a codec bug, and no workers have been started at this point.
     let t_payload = std::time::Instant::now();
     let payload = match dispatch_payload_from_stages(&stages) {
         Ok(p) => p,
@@ -386,8 +386,66 @@ fn launch_mpp(
     };
     timing.payload_us = t_payload.elapsed().as_micros() as u64;
 
+    if crate::gucs::mpp_local_partitions() > 0 {
+        let t_prepare = std::time::Instant::now();
+        let region_bytes = match estimate_dsm_size(1, payload.len()) {
+            Ok(sz) => sz,
+            Err(e) => {
+                pgrx::warning!("mpp: estimate_dsm failed: {e}; running serially");
+                return None;
+            }
+        };
+        let scan_size = ParallelScanState::size_of(&args.all_nsegments(), false, false);
+        let (mesh_ptr, mesh_layout) =
+            crate::postgres::customscan::mpp::glue::alloc_local_dsm_region(region_bytes);
+        let (scan_raw, scan_layout) =
+            crate::postgres::customscan::mpp::glue::alloc_local_dsm_region(scan_size.max(8));
+        let scan_ptr = scan_raw as *mut ParallelScanState;
+        unsafe {
+            (*scan_ptr).create_and_populate(args);
+            (*scan_ptr).set_collect_metrics(collect_metrics);
+        }
+        let plan_sources_count = unsafe { (*scan_ptr).source_count() };
+        timing.prepare_us = t_prepare.elapsed().as_micros() as u64;
+        timing.workers = 1;
+
+        crate::mpp_log!("launch: spawning 1 producer (local partitions)");
+        crate::scan::execution_plan::stamp_parallel_state(physical, scan_ptr);
+
+        let t_setup = std::time::Instant::now();
+        let mut leader = match unsafe { leader_setup(mesh_ptr as *mut c_void, 1, payload) } {
+            Ok(l) => l,
+            Err(e) => {
+                unsafe {
+                    std::alloc::dealloc(mesh_ptr, mesh_layout);
+                    std::alloc::dealloc(scan_raw, scan_layout);
+                }
+                pgrx::error!("mpp: leader_setup failed: {e}");
+            }
+        };
+        timing.leader_setup_us = t_setup.elapsed().as_micros() as u64;
+        leader.timing = timing;
+        leader.parallel_state = scan_ptr;
+        leader.plan_sources_count = plan_sources_count;
+        leader.local_dsm = Some(unsafe {
+            crate::postgres::customscan::mpp::glue::LocalMppDsm::new(
+                mesh_ptr,
+                mesh_layout,
+                scan_raw,
+                scan_layout,
+                std::sync::Arc::clone(&leader.session.mesh),
+            )
+        });
+        return Some(leader);
+    }
+
+    let max_tasks = max_producer_task_count(&stages);
+    let cap = producer_worker_cap();
+    let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT, cap);
+    let requested_bg_workers = producer_count - 1;
+
     let t_prepare = std::time::Instant::now();
-    let region_bytes = match estimate_dsm_size(producer_count + 1, payload.len()) {
+    let region_bytes = match estimate_dsm_size(producer_count, payload.len()) {
         Ok(sz) => sz,
         Err(e) => {
             pgrx::warning!("mpp: estimate_dsm failed: {e}; running serially");
@@ -411,7 +469,7 @@ fn launch_mpp(
         process,
         worker_entrypoint,
         WorkerStyle::Query,
-        producer_count as usize,
+        requested_bg_workers as usize,
         MPP_MQ_SIZE,
     )?;
 
@@ -420,7 +478,11 @@ fn launch_mpp(
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),
     };
-    unsafe { (*scan_ptr).create_and_populate(args) };
+    unsafe {
+        (*scan_ptr).create_and_populate(args);
+        (*scan_ptr).set_collect_metrics(collect_metrics);
+    }
+    let plan_sources_count = unsafe { (*scan_ptr).source_count() };
 
     timing.prepare_us = t_prepare.elapsed().as_micros() as u64;
 
@@ -433,12 +495,13 @@ fn launch_mpp(
     let t_attach = std::time::Instant::now();
     let finish = attach.wait_for_attach()?;
     timing.attach_us = t_attach.elapsed().as_micros() as u64;
-    let launched = finish.launched_workers() as u32;
-    timing.workers = launched;
+    let launched_bg_workers = finish.launched_workers() as u32;
+    let attached_producers = launched_bg_workers + 1;
+    timing.workers = attached_producers;
 
     let go = unsafe { go_flag(finish.state_manager()) };
 
-    match mpp_attach_outcome(producer_count, launched) {
+    match mpp_attach_outcome(requested_bg_workers, launched_bg_workers) {
         Ok(MppAttachOutcome::SerialFallback) => {
             // The machine could not give us the minimum two producers required for the MPP mesh.
             // The launched workers are still on the go flag with no rings attached; release them
@@ -447,7 +510,7 @@ fn launch_mpp(
             go.store(GO_ABORT, Ordering::Release);
             finish.wait_for_finish();
             pgrx::warning!(
-                "mpp: launched {launched} of {producer_count} requested workers; running serially"
+                "mpp: launched {launched_bg_workers} of {requested_bg_workers} requested workers; running serially"
             );
             return None;
         }
@@ -456,12 +519,12 @@ fn launch_mpp(
     }
 
     // PostgreSQL may attach fewer workers than requested. The plan, its task counts, and the
-    // payload all stand: `proc_for_task(launched, task_idx)` assigns tasks to the attached
-    // workers when each worker expands the blob, and the task-aware transport keeps same-worker
-    // streams apart.
-    if launched != producer_count {
+    // payload all stand: `proc_for_task(attached_producers, task_idx)` assigns tasks to the
+    // participating procs when each proc expands the blob, and the task-aware transport keeps
+    // same-proc streams apart.
+    if attached_producers != producer_count {
         crate::mpp_log!(
-            "launch: {launched} of {producer_count} producers attached; multiplexing original task plan"
+            "launch: {attached_producers} of {producer_count} producers attached; multiplexing original task plan"
         );
     }
 
@@ -478,16 +541,18 @@ fn launch_mpp(
         _ => pgrx::error!("mpp: mesh region missing"),
     };
     // The narrow mesh depends on attached workers occupying `ParallelWorkerNumber`
-    // 0..launched-1 with no holes: PostgreSQL stops registering after the first failure,
+    // 0..launched_bg_workers-1 with no holes: PostgreSQL stops registering after the first failure,
     // and `wait_for_attach` reports a worker that dies before attaching. Each worker maps
     // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
-    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1, payload) } {
+    let mut leader = match unsafe { leader_setup(mesh_ptr, attached_producers, payload) } {
         Ok(l) => l,
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };
     timing.leader_setup_us = t_setup.elapsed().as_micros() as u64;
     leader.timing = timing;
+    leader.parallel_state = scan_ptr;
+    leader.plan_sources_count = plan_sources_count;
 
     // Registered here (not in `leader_setup`) because this is the first point with both the segment
     // (`finish`) and the senders (`leader`) in hand.
@@ -570,10 +635,7 @@ mod tests {
             mpp_attach_outcome(5, 0),
             Ok(MppAttachOutcome::SerialFallback)
         );
-        assert_eq!(
-            mpp_attach_outcome(5, 1),
-            Ok(MppAttachOutcome::SerialFallback)
-        );
+        assert_eq!(mpp_attach_outcome(5, 1), Ok(MppAttachOutcome::Parallel));
         assert_eq!(mpp_attach_outcome(5, 2), Ok(MppAttachOutcome::Parallel));
         assert_eq!(mpp_attach_outcome(5, 3), Ok(MppAttachOutcome::Parallel));
         assert_eq!(mpp_attach_outcome(5, 5), Ok(MppAttachOutcome::Parallel));

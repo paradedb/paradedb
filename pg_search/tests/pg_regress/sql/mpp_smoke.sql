@@ -20,10 +20,12 @@ LOAD 'pg_search';
 SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_queue_size;
 SHOW paradedb.mpp_min_rows;
+SHOW paradedb.mpp_local_partitions;
 
--- Defaults: the debug knob stays off.
+-- Defaults: the debug knob and local partitions override stay off.
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
+SELECT current_setting('paradedb.mpp_local_partitions')::int AS mpp_local_partitions_default;
 -- The regress database pins the size gate to 0 (setup.sql), so read the shipped
 -- default from the GUC's boot value instead of the session.
 SELECT boot_val::int AS mpp_min_rows_boot_default
@@ -48,6 +50,27 @@ SET paradedb.mpp_min_rows TO 0;
 SELECT current_setting('paradedb.mpp_min_rows')::int AS mpp_min_rows_zero;
 SET paradedb.mpp_min_rows TO 750000;
 SELECT current_setting('paradedb.mpp_min_rows')::int AS mpp_min_rows_set;
+
+-- Local partitions override: 0..64 must be accepted, out-of-range rejected.
+SET paradedb.mpp_local_partitions TO 4;
+SELECT current_setting('paradedb.mpp_local_partitions')::int AS mpp_local_partitions_set;
+SET paradedb.mpp_local_partitions TO 0;
+
+DO $$
+BEGIN
+    BEGIN
+        PERFORM set_config('paradedb.mpp_local_partitions', '-1', true);
+        RAISE EXCEPTION 'expected mpp_local_partitions=-1 to be rejected';
+    EXCEPTION WHEN invalid_parameter_value THEN
+        RAISE NOTICE 'mpp_local_partitions=-1 correctly rejected';
+    END;
+    BEGIN
+        PERFORM set_config('paradedb.mpp_local_partitions', '65', true);
+        RAISE EXCEPTION 'expected mpp_local_partitions=65 to be rejected';
+    EXCEPTION WHEN invalid_parameter_value THEN
+        RAISE NOTICE 'mpp_local_partitions=65 correctly rejected';
+    END;
+END$$;
 
 -- Out-of-range queue size must fail (GUC min=64kB, max=1GB).
 DO $$
@@ -76,3 +99,4 @@ SET paradedb.mpp_debug TO off;
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_queue_size;
 RESET paradedb.mpp_min_rows;
+RESET paradedb.mpp_local_partitions;

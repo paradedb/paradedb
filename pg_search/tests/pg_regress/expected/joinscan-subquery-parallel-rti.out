@@ -106,39 +106,41 @@ LIMIT 10;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
      : │   SortPreservingMergeExec: [id@1 DESC], fetch=10
-     : │     [Stage 4] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
+     : │     [Stage 4] => NetworkCoalesceExec: output_partitions=25, input_tasks=5
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 4 ── tasks=4, partitions=4
+     :   ┌───── Stage 4 ── tasks=5, partitions=5
      :   │ SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[i]
      :   │     HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :   │       [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=1
-     :   │       [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=4
+     :   │       [Stage 2] => NetworkShuffleExec: output_partitions=5, input_tasks=1
+     :   │       [Stage 3] => NetworkShuffleExec: output_partitions=5, input_tasks=5
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=1, partitions=16
-     :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=1
+     :     ┌───── Stage 2 ── tasks=1, partitions=25
+     :     │ RepartitionExec: partitioning=Hash([id@1], 25), input_partitions=1
      :     │   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, company_id@0)], null_aware
      :     │     CoalescePartitionsExec
-     :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
+     :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=5, input_tasks=5
      :     │     DistributedLeafExec:
      :     │       t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
      :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=4, partitions=4
+     :       ┌───── Stage 1 ── tasks=5, partitions=5
      :       │ DistributedLeafExec:
      :       │   t0: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       │   t1: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       │   t2: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       │   t3: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │   t4: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       └──────────────────────────────────────────────────
-     :     ┌───── Stage 3 ── tasks=4, partitions=16
-     :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
+     :     ┌───── Stage 3 ── tasks=5, partitions=25
+     :     │ RepartitionExec: partitioning=Hash([company_id@0], 25), input_partitions=1
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
      :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
      :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
      :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t4: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
-(42 rows)
+(44 rows)
 
 SELECT i.id
 FROM js_rti_items i

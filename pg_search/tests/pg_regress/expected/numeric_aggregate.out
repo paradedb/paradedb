@@ -476,15 +476,15 @@ SELECT category, SUM(price) s FROM numagg WHERE description ||| 'durian OR baske
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ SortPreservingMergeExec: [agg_0@1 DESC], fetch=1
-           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 2 ── tasks=2, partitions=2
+           :   ┌───── Stage 2 ── tasks=2, partitions=3
            :   │ SortExec: TopK(fetch=1), expr=[agg_0@1 DESC], preserve_partitioning=[true]
            :   │   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0]
-           :   │     [Stage 1] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+           :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=2, partitions=4
-           :     │ RepartitionExec: partitioning=Hash([category@0], 4), input_partitions=1
+           :     ┌───── Stage 1 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([category@0], 6), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0]
            :     │     DistributedLeafExec:
            :     │       t0: PgSearchScan: table=numagg, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"durian OR basket OR apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}

@@ -44,16 +44,15 @@ use crate::index::mvcc::SegmentView;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
-    CooperativeDrainSet, InProcessWorkerResolver, MppFrameHeader, MppMesh, MppSender,
-    ShmChannelResolver, WorkerSession, collect_task_metrics, run_execute_task_loop,
-    run_worker_fragment,
+    CooperativeDrainSet, InProcessWorkerResolver, MppMesh, MppSender, ShmChannelResolver,
+    WorkerSession, collect_task_metrics, run_execute_task_loop, run_worker_fragment,
 };
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 use tokio_util::sync::CancellationToken;
 
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
-use crate::postgres::customscan::mpp::glue::producer_worker_cap;
+use crate::postgres::customscan::mpp::glue::{MppLeaderState, producer_worker_cap};
 use crate::postgres::customscan::mpp::interrupt::{
     HeldInterrupts, cancel_pending, check_for_interrupts,
 };
@@ -109,12 +108,17 @@ pub(crate) fn build_mpp_session_context(
     // fewer than 2 producer tasks (#5784), matching execution. mesh = Some reads the
     // launched width from the mesh header, which the plan-first launch sized from the
     // plan's task counts (#5667).
-    let n_workers = match mesh.as_ref() {
-        Some(m) => m.n_workers() as usize,
-        None => producer_worker_cap() as usize,
+    let local_partitions = crate::gucs::mpp_local_partitions();
+    let n_workers = if local_partitions > 0 {
+        local_partitions
+    } else {
+        match mesh.as_ref() {
+            Some(m) => m.n_workers() as usize,
+            None => producer_worker_cap() as usize,
+        }
     };
     assert!(
-        n_workers >= 2,
+        n_workers >= 2 || local_partitions > 0,
         "MPP session contexts require at least two producer workers"
     );
     // Three knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
@@ -276,21 +280,411 @@ fn spawn_fragment_execution_task<'a>(
         .await
     })
 }
-/// Lets `mark_spilled()` cross into the `on_spill` closure, which must be `Send + Sync`.
-/// Does not expose the pointer itself -- only this one operation.
+/// Carries `*mut ParallelScanState` across `Send + Sync` futures on a single-threaded backend
+/// runtime.
 ///
-/// SAFETY: `mark_spilled` is a single relaxed atomic store into the DSM, valid for this
-/// worker's whole lifetime (see `MppWorkerInputs::parallel_state`'s field doc). This type must
-/// not gain more methods without re-checking that argument.
+/// SAFETY: Postgres backends are single-threaded, and the DSM allocation backing `ParallelScanState`
+/// remains mapped for the entire lifetime of the leader and worker fragment tasks (until
+/// `WaitForParallelWorkersToFinish` in `finish_mpp_execution`).
 #[derive(Clone, Copy)]
-struct SpillNotifier(*mut ParallelScanState);
+struct ParallelScanStatePtr(*mut ParallelScanState);
 
-unsafe impl Send for SpillNotifier {}
-unsafe impl Sync for SpillNotifier {}
+unsafe impl Send for ParallelScanStatePtr {}
+unsafe impl Sync for ParallelScanStatePtr {}
 
-impl SpillNotifier {
+impl ParallelScanStatePtr {
+    fn as_ptr(self) -> *mut ParallelScanState {
+        self.0
+    }
+
     fn mark_spilled(self) {
         unsafe { (*self.0).mark_spilled() }
+    }
+
+    fn collect_metrics(self) -> bool {
+        unsafe { (*self.0).collect_metrics() }
+    }
+
+    fn mark_query_done(self) {
+        if !self.0.is_null() {
+            unsafe { (*self.0).mark_query_done() }
+        }
+    }
+
+    fn is_query_done(self) -> bool {
+        !self.0.is_null() && unsafe { (*self.0).is_query_done() }
+    }
+}
+
+struct PreparedMppFragments {
+    worker_session: WorkerSession,
+    fragments: Vec<FragmentAssignment>,
+    session: SessionContext,
+    parallel_state: ParallelScanStatePtr,
+    plan_sources_count: usize,
+    index_segment_views: Vec<SegmentView>,
+    expr_context_guard: ExprContextGuard,
+    work_mem_bytes: usize,
+    hash_mem_multiplier: f64,
+    mpp_debug: bool,
+    token: CancellationToken,
+}
+
+fn prepare_mpp_fragments(
+    worker_session: WorkerSession,
+    seed_ctx: SessionContext,
+    parallel_state: *mut ParallelScanState,
+    plan_sources_count: usize,
+    token: CancellationToken,
+) -> Result<PreparedMppFragments, datafusion::common::DataFusionError> {
+    let this_proc = worker_session.mesh.this_proc;
+    let n_workers = worker_session.mesh.n_workers();
+
+    let mut index_segment_views: Vec<SegmentView> =
+        vec![SegmentView::default(); plan_sources_count];
+    for (i, slot) in index_segment_views.iter_mut().enumerate() {
+        *slot = unsafe { (*parallel_state).segment_view_for_source_unlocked(i) };
+    }
+
+    let expr_context_guard = ExprContextGuard::new();
+    let (fragments, session) = fragments_for_worker(
+        &worker_session.plan_bytes,
+        seed_ctx,
+        Arc::clone(&worker_session.mesh),
+        this_proc,
+        n_workers,
+    )?;
+    if fragments.is_empty() {
+        // The launch spawns `producer_count <= max_tasks` producers, so the widest stage's
+        // round-robin assigns every proc at least one fragment.
+        return Err(datafusion::common::DataFusionError::Internal(format!(
+            "no fragments assigned (proc={this_proc})"
+        )));
+    }
+
+    let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+    let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
+    let mpp_debug = crate::gucs::mpp_debug();
+
+    Ok(PreparedMppFragments {
+        worker_session,
+        fragments,
+        session,
+        parallel_state: ParallelScanStatePtr(parallel_state),
+        plan_sources_count,
+        index_segment_views,
+        expr_context_guard,
+        work_mem_bytes,
+        hash_mem_multiplier,
+        mpp_debug,
+        token,
+    })
+}
+
+async fn run_mpp_fragments_async(
+    prepared: PreparedMppFragments,
+) -> Result<(), datafusion::common::DataFusionError> {
+    let this_proc = prepared.worker_session.mesh.this_proc;
+    let mesh_for_fail = Arc::clone(&prepared.worker_session.mesh);
+    let res = run_mpp_fragments_inner(prepared).await;
+    if let Err(ref e) = res
+        && this_proc == 0
+    {
+        mesh_for_fail.fail_local_scope(&e.to_string());
+    }
+    res
+}
+
+async fn run_mpp_fragments_inner(
+    prepared: PreparedMppFragments,
+) -> Result<(), datafusion::common::DataFusionError> {
+    let PreparedMppFragments {
+        worker_session,
+        fragments,
+        session,
+        parallel_state,
+        plan_sources_count,
+        index_segment_views,
+        expr_context_guard,
+        work_mem_bytes,
+        hash_mem_multiplier,
+        mpp_debug,
+        token,
+    } = prepared;
+    let mesh = &worker_session.mesh;
+    let outbound_senders = worker_session.outbound_senders();
+    let this_proc = mesh.this_proc;
+
+    // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same
+    // `SetPlanRequest` Flight ships. Collect the frames first (the take drains the inbox while
+    // it waits), then decode synchronously.
+    let mut frames: Vec<SetPlanFrame> = Vec::with_capacity(fragments.len());
+    for fragment in &fragments {
+        let frame = tokio::select! {
+            res = take_set_plan_draining(mesh, fragment.stage_id, fragment.task_idx) => res?,
+            _ = token.cancelled() => return Ok(()),
+        };
+        frames.push(frame);
+    }
+
+    // Deserialize under the decode ctx, not the run ctx. The run ctx limits
+    // allocations aggressively; decode builds the plan graph and can spike memory.
+    let decode_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let decode_ctx = session.task_ctx();
+        let mut plans = Vec::with_capacity(frames.len());
+        for (fragment, frame) in fragments.iter().zip(frames) {
+            let Some(set_plan) = frame.set_plan else {
+                return Err(datafusion::common::DataFusionError::Internal(format!(
+                    "SetPlan frame without a request (stage_id={}, task_idx={})",
+                    fragment.stage_id, fragment.task_idx
+                )));
+            };
+            // Deduplicating decode re-shares expressions by `expression_id`, so occurrences of one
+            // dynamic filter come back as a single shared instance instead of per-site snapshots.
+            let plan = deserialize_physical_plan_with_runtime(
+                &set_plan.plan_proto,
+                &decode_ctx,
+                Some(parallel_state.as_ptr()),
+                index_segment_views.to_vec(),
+                Some(expr_context_guard.as_ptr()),
+                &DeduplicatingProtoConverter {},
+            )
+            .map_err(|e| {
+                datafusion::common::DataFusionError::Execution(format!(
+                    "decode dispatched plan failed (stage_id={}, task_idx={}): {e}",
+                    fragment.stage_id, fragment.task_idx
+                ))
+            })?;
+            plans.push(plan);
+        }
+        // `checkout_segment_for_source` answers a pool index past the DSM's table with `None`,
+        // which a scan reads as "no segments left". Refuse the plan instead of scanning nothing.
+        for plan in &plans {
+            let mut bad_idx = None;
+            crate::scan::execution_plan::visit_scan_nodes(plan, &mut |scan| {
+                if let Some(idx) = scan.source_idx()
+                    && idx >= plan_sources_count
+                {
+                    bad_idx = Some(idx);
+                }
+            });
+            if let Some(idx) = bad_idx {
+                return Err(datafusion::common::DataFusionError::Internal(format!(
+                    "scan claims from segment pool {idx} but the DSM holds \
+                     {plan_sources_count} pools (proc={this_proc})"
+                )));
+            }
+        }
+        Ok::<Vec<Arc<dyn ExecutionPlan>>, datafusion::common::DataFusionError>(plans)
+    }));
+    let plans = match decode_res {
+        Ok(res) => res?,
+        Err(payload) => {
+            if let Some(msg) = downcast_pgrx_panic_payload(&*payload) {
+                HeldInterrupts::reassert();
+                return Err(datafusion::common::DataFusionError::Execution(msg));
+            } else {
+                std::panic::resume_unwind(payload);
+            }
+        }
+    };
+
+    let collect_metrics = parallel_state.collect_metrics();
+    let session_arc = Arc::new(session);
+    let mut futures: Vec<FragmentFuture<'_>> = Vec::with_capacity(fragments.len());
+    let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> = if collect_metrics
+    {
+        Vec::with_capacity(fragments.len())
+    } else {
+        Vec::new()
+    };
+    for (fragment, frag_plan) in fragments.iter().zip(plans) {
+        // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary
+        // nodes inside the fragment's plan know their `(task_index, task_count)`.
+        let cfg = session_arc
+            .state()
+            .config()
+            .clone()
+            .with_extension(Arc::new(DistributedTaskContext {
+                task_index: fragment.task_idx as usize,
+                task_count: fragment.task_count,
+            }));
+        let memory_pool = create_memory_pool(&frag_plan, work_mem_bytes, hash_mem_multiplier);
+        let spill_state = parallel_state;
+        let task_ctx = Arc::new(
+            TaskContext::from(session_arc.as_ref())
+                .with_session_config(cfg)
+                .with_runtime(build_runtime_env(
+                    memory_pool,
+                    Arc::new(move || spill_state.mark_spilled()),
+                )),
+        );
+
+        // The fragment arrives ready-to-run: the leader serialized it with nested stages
+        // already `Remote`, so its boundary leaves read the mesh through the session's
+        // `ShmChannelResolver`.
+        if collect_metrics {
+            executed_fragments.push((
+                fragment.stage_id,
+                fragment.task_idx,
+                fragment.task_count,
+                Arc::clone(&frag_plan),
+            ));
+        }
+        futures.push(spawn_fragment_execution_task(
+            Arc::clone(mesh),
+            outbound_senders,
+            fragment,
+            frag_plan,
+            task_ctx,
+            token.clone(),
+        ));
+    }
+
+    crate::mpp_log!(
+        "mpp worker dispatch this_proc={this_proc} starting fragment futures on {} fragments",
+        fragments.len()
+    );
+    // Fail-fast via FuturesUnordered. Under the pull model, an error in any fragment must
+    // surface immediately so that worker_session drops outbound senders and triggers
+    // pgrx::error! (causing peers to observe Detached status and fail pending buffers).
+    // Waiting for all fragments could cause a hang if a fragment blocks waiting for an RPC
+    // request that will never arrive due to a sibling failure.
+    //
+    // Deadlock detector. Under `paradedb.mpp_debug`, if any fragment hasn't completed
+    // within 30 s the dispatcher surfaces an error instead of letting the backend spin
+    // forever.
+    let mut frag_stream: futures::stream::FuturesUnordered<_> = futures.into_iter().collect();
+    // A cancel or die that lands while a fragment is idle in its request wait reaches no
+    // send spin and no consumer pull, the only places that poll the flags (a drain pass
+    // only moves frames). The leader is already waiting for this worker to exit and
+    // releases nothing before that, so the wait would never end on its own. Cancelling
+    // the token unwinds the request loops.
+    let interrupt_watch = {
+        let token = token.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                if cancel_pending() || parallel_state.is_query_done() {
+                    token.cancel();
+                    return;
+                }
+            }
+        })
+    };
+    let join_fut = async {
+        while let Some(res) = frag_stream.next().await {
+            res?;
+        }
+        Ok::<(), datafusion::common::DataFusionError>(())
+    };
+    let outcome: Result<(), datafusion::common::DataFusionError> = if mpp_debug {
+        match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
+            Ok(res) => res,
+            Err(_) => {
+                crate::mpp_log!(
+                    "mpp worker dispatch this_proc={this_proc} HANG: fragment execution exceeded 30s"
+                );
+                Err(datafusion::common::DataFusionError::Internal(format!(
+                    "mpp worker dispatch (proc={this_proc}): fragment execution exceeded 30s; \
+                     deadlock detector triggered"
+                )))
+            }
+        }
+    } else {
+        join_fut.await
+    };
+    interrupt_watch.abort();
+    drop(frag_stream);
+
+    // Report each fragment's metrics to the leader, even after a fragment error: partial
+    // metrics still tell the user where the time went. Best-effort like every transport's
+    // metrics path; the bounded send drops the frame if the leader already went away.
+    for (stage_id, task_idx, task_count, plan) in &executed_fragments {
+        let frame = collect_task_metrics(plan, *task_idx as usize, *task_count);
+        mesh.send_task_metrics_best_effort(outbound_senders, *stage_id, *task_idx, &frame)
+            .await;
+    }
+    drop(expr_context_guard);
+    outcome
+}
+
+impl MppLeaderState {
+    /// Spawn the leader's own producer fragments (`proc 0`) onto `runtime`.
+    pub fn spawn_leader_fragments(
+        &mut self,
+        seed_ctx: SessionContext,
+        runtime: &tokio::runtime::Runtime,
+    ) {
+        let Some(worker_session) = self.session.worker.take() else {
+            return;
+        };
+        let prepared = match prepare_mpp_fragments(
+            worker_session,
+            seed_ctx,
+            self.parallel_state,
+            self.plan_sources_count,
+            self.leader_token.clone(),
+        ) {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("mpp leader: {e}"),
+        };
+        self.leader_task = Some(runtime.spawn(run_mpp_fragments_async(prepared)));
+    }
+
+    /// Drive the leader's producer fragment task (`proc 0`) to completion so its `TaskMetrics`
+    /// land before `drain_worker_metrics` and its DSM senders drop before `wait_for_finish`.
+    pub fn finish_leader_fragments(&mut self, runtime: Option<&tokio::runtime::Runtime>) {
+        let parallel_state = ParallelScanStatePtr(self.parallel_state);
+        let Some(mut task) = self.leader_task.take() else {
+            parallel_state.mark_query_done();
+            return;
+        };
+        let Some(runtime) = runtime else {
+            parallel_state.mark_query_done();
+            self.leader_token.cancel();
+            task.abort();
+            return;
+        };
+        let token = self.leader_token.clone();
+        let mesh = Arc::clone(&self.session.mesh);
+        let outcome = {
+            let _held = HeldInterrupts::hold();
+            runtime.block_on(async {
+                // `Stage 0` has already dropped its output stream when this runs. Give in-flight
+                // `Cancel` and `Eof` frames a brief grace window to drain naturally so fragments
+                // finish cleanly and report metrics; once all remote producers have detached or
+                // the grace deadline expires, mark `query_done` and cancel `leader_token` so any
+                // unrequested upstream stages unwind instead of waiting for `ExecuteTaskFrame`s.
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(50);
+                let mut cancelled = false;
+                loop {
+                    let _ = mesh.try_drain_pass();
+                    tokio::select! {
+                        biased;
+                        join_res = &mut task => break join_res,
+                        _ = tokio::time::sleep_until(deadline), if !cancelled => {
+                            cancelled = true;
+                            parallel_state.mark_query_done();
+                            token.cancel();
+                        }
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(1)) => {}
+                    }
+                }
+            })
+        };
+        parallel_state.mark_query_done();
+        check_for_interrupts();
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                pgrx::error!("mpp leader: fragment dispatch failed: {e}");
+            }
+            Err(join_err) if join_err.is_panic() => {
+                std::panic::resume_unwind(join_err.into_panic());
+            }
+            Err(_) => {}
+        }
     }
 }
 
@@ -313,252 +707,22 @@ pub(crate) fn run_mpp_worker(
         session: worker_session,
     } = inputs;
 
-    let worker_mesh = &worker_session.mesh;
-    let plan_bytes = &worker_session.plan_bytes;
-    let this_proc = worker_mesh.this_proc;
-
-    // Build per-source segment views from the populated ParallelScanState.
-    // Workers will then claim individual segments via `checkout_segment_for_source` inside their
-    // `PgSearchTableProvider`.
-    let mut index_segment_views: Vec<SegmentView> =
-        vec![SegmentView::default(); plan_sources_count];
-    for (i, slot) in index_segment_views.iter_mut().enumerate() {
-        *slot = unsafe { (*parallel_state).segment_view_for_source_unlocked(i) };
-    }
-
-    // Build this worker's fragment assignments by decoding the leader's dispatched per-stage
-    // subplans from the DSM payload (no re-planning), then run them on the dispatcher loop below.
-    // `worker_mesh.n_procs >= MIN_TOTAL_WORKER_COUNT` is guaranteed by the launch's clamp
-    // (it spawns at least 2 producers), so `n_workers() = n_procs - 1` is safe.
-    let n_workers = worker_mesh.n_workers();
-    let expr_context_guard = ExprContextGuard::new();
-    let (fragments, session) = match fragments_for_worker(
-        plan_bytes,
+    let prepared = match prepare_mpp_fragments(
+        worker_session,
         seed_ctx,
-        Arc::clone(worker_mesh),
-        this_proc,
-        n_workers,
+        parallel_state,
+        plan_sources_count,
+        CancellationToken::new(),
     ) {
-        Ok(v) => v,
-        Err(e) => {
-            pgrx::error!("mpp worker: build fragment assignments failed: {e}");
-        }
+        Ok(p) => p,
+        Err(e) => pgrx::error!("mpp worker: {e}"),
     };
-    if fragments.is_empty() {
-        // The launch spawns `producer_count <= max_tasks` producers, so the widest stage's
-        // round-robin assigns every proc at least one fragment.
-        pgrx::error!("mpp worker: no fragments assigned (proc={this_proc})");
-    }
 
-    // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same
-    // `SetPlanRequest` Flight ships. Collect the frames first (the take drains the inbox while
-    // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
-    // must stay off the produce futures.
-    let frames: Vec<SetPlanFrame> = {
-        // Same holdoff as the fragment run below: the plan wait bails on a cancel/die with a
-        // plain error, and PG acts on the interrupt itself once the runtime is off the stack.
-        // Otherwise the cancel would surface as a plan-frame failure.
-        let held = HeldInterrupts::hold();
-        let collected = runtime.block_on(async {
-            let mut frames = Vec::with_capacity(fragments.len());
-            for fragment in &fragments {
-                frames.push(
-                    take_set_plan_draining(worker_mesh, fragment.stage_id, fragment.task_idx)
-                        .await?,
-                );
-            }
-            Ok::<_, datafusion::common::DataFusionError>(frames)
-        });
-        drop(held);
-        check_for_interrupts();
-        match collected {
-            Ok(frames) => frames,
-            Err(e) => {
-                pgrx::error!("mpp worker: plan frames did not arrive: {e}");
-            }
-        }
-    };
-    let decode_ctx = session.task_ctx();
-    let mut plans = Vec::with_capacity(frames.len());
-
-    // Deserialize under the decode ctx, not the run ctx. The run ctx limits
-    // allocations aggressively; decode builds the plan graph and can spike memory.
-    for (fragment, frame) in fragments.iter().zip(frames) {
-        let Some(set_plan) = frame.set_plan else {
-            pgrx::error!(
-                "mpp worker: SetPlan frame without a request (stage_id={}, task_idx={})",
-                fragment.stage_id,
-                fragment.task_idx
-            );
-        };
-        // Deduplicating decode re-shares expressions by `expression_id`, so occurrences of one
-        // dynamic filter come back as a single shared instance instead of per-site snapshots.
-        match deserialize_physical_plan_with_runtime(
-            &set_plan.plan_proto,
-            &decode_ctx,
-            Some(parallel_state),
-            index_segment_views.to_vec(),
-            Some(expr_context_guard.as_ptr()),
-            &DeduplicatingProtoConverter {},
-        ) {
-            Ok(plan) => plans.push(plan),
-            Err(e) => {
-                pgrx::error!(
-                    "mpp worker: decode dispatched plan failed (stage_id={}, task_idx={}): {e}",
-                    fragment.stage_id,
-                    fragment.task_idx
-                );
-            }
-        }
-    }
-    // `checkout_segment_for_source` answers a pool index past the DSM's table with `None`,
-    // which a scan reads as "no segments left". Refuse the plan instead of scanning nothing.
-    for plan in &plans {
-        crate::scan::execution_plan::visit_scan_nodes(plan, &mut |scan| {
-            if let Some(idx) = scan.source_idx()
-                && idx >= plan_sources_count
-            {
-                pgrx::error!(
-                    "mpp worker: scan claims from segment pool {idx} but the DSM holds \
-                     {plan_sources_count} pools (proc={this_proc})"
-                );
-            }
-        });
-    }
-
-    let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
-    let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
-    let session_arc = Arc::new(session);
     // Hold cancel/die off for the duration so neither our drain/send loops nor a subroutine
     // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
     // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
     let held = HeldInterrupts::hold();
-    let mesh_for_block = Arc::clone(worker_mesh);
-    let outcome = runtime.block_on(async move {
-        let token = CancellationToken::new();
-        let outbound_senders = worker_session.outbound_senders();
-        let mut futures: Vec<FragmentFuture<'_>> = Vec::with_capacity(fragments.len());
-        let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> =
-            Vec::with_capacity(fragments.len());
-        for (fragment, frag_plan) in fragments.iter().zip(&plans) {
-            // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary
-            // nodes inside the fragment's plan know their `(task_index, task_count)`.
-            let cfg = session_arc
-                .state()
-                .config()
-                .clone()
-                .with_extension(Arc::new(DistributedTaskContext {
-                    task_index: fragment.task_idx as usize,
-                    task_count: fragment.task_count,
-                }));
-            let memory_pool =
-                create_memory_pool(frag_plan, work_mem_bytes, hash_mem_multiplier);
-            let spill_state = SpillNotifier(parallel_state);
-            let task_ctx = Arc::new(
-                TaskContext::from(session_arc.as_ref())
-                    .with_session_config(cfg)
-                    .with_runtime(build_runtime_env(
-                        memory_pool,
-                        Arc::new(move || spill_state.mark_spilled()),
-                    )),
-            );
-
-            // The fragment arrives ready-to-run: the leader serialized it with nested stages
-            // already `Remote`, so its boundary leaves read the mesh through the session's
-            // `ShmChannelResolver`.
-            let plan = Arc::clone(frag_plan);
-            executed_fragments.push((
-                fragment.stage_id,
-                fragment.task_idx,
-                fragment.task_count,
-                Arc::clone(&plan),
-            ));
-            futures.push(spawn_fragment_execution_task(
-                Arc::clone(&mesh_for_block),
-                outbound_senders,
-                fragment,
-                plan,
-                task_ctx,
-                token.clone(),
-            ));
-        }
-        // The metrics frames go to the leader after the fragments finish.
-        let metrics_sender_base = outbound_senders
-            .first()
-            .and_then(|s| s.as_ref())
-            .map(|s| s.clone_with_header(MppFrameHeader::task_metrics(0, 0, this_proc)));
-        crate::mpp_log!(
-            "mpp worker dispatch this_proc={this_proc} starting fragment futures on {} fragments",
-            fragments.len()
-        );
-        // Fail-fast via FuturesUnordered. Under the pull model, an error in any fragment must
-        // surface immediately so that worker_session drops outbound senders and triggers
-        // pgrx::error! (causing peers to observe Detached status and fail pending buffers).
-        // Waiting for all fragments could cause a hang if a fragment blocks waiting for an RPC
-        // request that will never arrive due to a sibling failure.
-        //
-        // Deadlock detector. Under `paradedb.mpp_debug`, if any fragment hasn't completed
-        // within 30 s the dispatcher surfaces an error instead of letting the backend spin
-        // forever.
-        let mut frag_stream: futures::stream::FuturesUnordered<_> = futures.into_iter().collect();
-        // A cancel or die that lands while a fragment is idle in its request wait reaches no
-        // send spin and no consumer pull, the only places that poll the flags (a drain pass
-        // only moves frames). The leader is already waiting for this worker to exit and
-        // releases nothing before that, so the wait would never end on its own. Cancelling
-        // the token unwinds the request loops.
-        let interrupt_watch = {
-            let token = token.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                    if cancel_pending() {
-                        token.cancel();
-                        return;
-                    }
-                }
-            })
-        };
-        let join_fut = async {
-            while let Some(res) = frag_stream.next().await {
-                res?;
-            }
-            Ok::<(), datafusion::common::DataFusionError>(())
-        };
-        let outcome: Result<(), datafusion::common::DataFusionError> = if crate::gucs::mpp_debug() {
-            match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
-                Ok(res) => res,
-                Err(_) => {
-                    crate::mpp_log!(
-                        "mpp worker dispatch this_proc={this_proc} HANG: fragment execution exceeded 30s"
-                    );
-                    Err(datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch (proc={this_proc}): fragment execution exceeded 30s; \
-                         deadlock detector triggered"
-                    )))
-                }
-            }
-        } else {
-            join_fut.await
-        };
-        interrupt_watch.abort();
-        drop(frag_stream);
-
-        // Report each fragment's metrics to the leader, even after a fragment error: partial
-        // metrics still tell the user where the time went. Best-effort like every transport's
-        // metrics path; the bounded send drops the frame if the leader already went away.
-        if let Some(base) = metrics_sender_base {
-            for (stage_id, task_idx, task_count, plan) in &executed_fragments {
-                let frame = collect_task_metrics(plan, *task_idx as usize, *task_count);
-                let sender = base.clone_with_header(MppFrameHeader::task_metrics(
-                    *stage_id,
-                    *task_idx,
-                    this_proc,
-                ));
-                let _ = sender.send_task_metrics_best_effort(&frame).await;
-            }
-        }
-        outcome
-    });
+    let outcome = runtime.block_on(run_mpp_fragments_async(prepared));
     // `block_on` has returned, so the runtime is idle and every fragment future (with its
     // DSM senders) has dropped. Resume interrupts, then service any cancel/die the loops
     // deferred, now on a stack with no live runtime; for a die this `proc_exit`s here instead

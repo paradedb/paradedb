@@ -186,7 +186,11 @@ pub(crate) fn proc_exit_in_progress() -> bool {
 /// // Use context_guard.as_ptr() to get the raw pointer
 /// // Context is automatically freed when context_guard goes out of scope
 #[derive(Debug)]
-pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+pub struct ExprContextGuard {
+    econtext: *mut pg_sys::ExprContext,
+    sentinel_cxt: pg_sys::MemoryContext,
+    context_alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
 
 // SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
 // The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
@@ -197,19 +201,62 @@ unsafe impl Sync for ExprContextGuard {}
 impl ExprContextGuard {
     /// Creates a new standalone expression context
     pub fn new() -> Self {
-        unsafe { Self(pg_sys::CreateStandaloneExprContext()) }
+        #[pg_guard]
+        unsafe extern "C-unwind" fn on_sentinel_delete(arg: *mut std::ffi::c_void) {
+            let alive =
+                unsafe { std::sync::Arc::from_raw(arg.cast::<std::sync::atomic::AtomicBool>()) };
+            alive.store(false, std::sync::atomic::Ordering::Release);
+        }
+
+        unsafe {
+            let econtext = pg_sys::CreateStandaloneExprContext();
+            // `MemoryContextDelete(parent)` runs `MemoryContextDeleteChildren(parent)` (which
+            // deletes `ecxt_per_tuple_memory`) BEFORE `MemoryContextCallResetCallbacks(parent)`
+            // (which drops `CustomScanStateWrapper` and any `ExprContextGuard` it holds). A
+            // sibling child context whose reset callback flips `context_alive` to `false` lets
+            // `Drop` detect that `parent` has already deleted its children and skip a double
+            // `FreeExprContext` onto `aset.c`'s freelist.
+            let sentinel_cxt = pg_sys::AllocSetContextCreateExtended(
+                (*econtext).ecxt_per_query_memory,
+                c"ExprContextGuard sentinel".as_ptr(),
+                pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
+                pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
+                pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
+            );
+            let context_alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let callback = pg_sys::MemoryContextAllocZero(
+                sentinel_cxt,
+                std::mem::size_of::<pg_sys::MemoryContextCallback>(),
+            ) as *mut pg_sys::MemoryContextCallback;
+            (*callback).func = Some(on_sentinel_delete);
+            (*callback).arg = std::sync::Arc::into_raw(std::sync::Arc::clone(&context_alive))
+                .cast_mut()
+                .cast();
+            pg_sys::MemoryContextRegisterResetCallback(sentinel_cxt, callback);
+            Self {
+                econtext,
+                sentinel_cxt,
+                context_alive,
+            }
+        }
     }
 
     /// Returns the raw pointer to the expression context
     pub fn as_ptr(&self) -> *mut pg_sys::ExprContext {
-        self.0
+        self.econtext
     }
 }
 
 impl_safe_drop!(ExprContextGuard, |self| {
-    unsafe {
-        let is_commit = pg_sys::IsTransactionState();
-        pg_sys::FreeExprContext(self.0, is_commit);
+    if self
+        .context_alive
+        .load(std::sync::atomic::Ordering::Acquire)
+    {
+        unsafe {
+            pg_sys::MemoryContextDelete(self.sentinel_cxt);
+            let is_commit = pg_sys::IsTransactionState();
+            pg_sys::FreeExprContext(self.econtext, is_commit);
+        }
     }
 });
 

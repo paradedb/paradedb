@@ -182,7 +182,7 @@ mod tests {
             stage_num: 7,
             task_count: 5,
         };
-        let assigned_by_proc = (1..=3)
+        let assigned_by_proc = (0..3)
             .map(|proc_idx| {
                 let mut assignments = Vec::new();
                 push_owned_tasks(&mut assignments, stage, proc_idx, 3).unwrap();

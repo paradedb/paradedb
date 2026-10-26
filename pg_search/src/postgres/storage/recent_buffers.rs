@@ -142,6 +142,7 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_recent_buffer_hints() {
+        Spi::run("CREATE TABLE recent_heap AS SELECT 1 AS id").unwrap();
         Spi::run("CREATE TABLE recent_hints (id INT)").unwrap();
         Spi::run("CREATE INDEX recent_hints_a ON recent_hints USING paradedb (id)").unwrap();
         Spi::run("CREATE TABLE recent_other (id INT)").unwrap();
@@ -204,6 +205,23 @@ mod tests {
         assert_eq!(repaired, first);
         pg_sys::ReleaseBuffer(repaired);
         let key = RECENT.with_borrow(|cache| cache.key);
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_heap'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let heap = PgSearchRelation::open(oid);
+        let heap_access = RelationBufferAccess::open(&heap);
+        let hints = RECENT.with_borrow(|cache| cache.buffers.as_ptr());
+        for _ in 0..10 {
+            let heap_buffer = heap_access.get_buffer(0, None);
+            assert_eq!(pg_sys::BufferGetBlockNumber(heap_buffer), 0);
+            pg_sys::ReleaseBuffer(heap_buffer);
+            RECENT.with_borrow(|cache| {
+                assert_eq!(cache.key, key);
+                assert_eq!(cache.buffers.as_ptr(), hints);
+                assert_eq!(cache.buffers[0], first);
+            });
+            pg_sys::ReleaseBuffer(access.get_buffer(0, None));
+        }
         let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_hints_b'::regclass::oid")
             .unwrap()
             .unwrap();

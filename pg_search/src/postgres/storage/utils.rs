@@ -207,6 +207,8 @@ impl RelationBufferAccess {
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
             } else if crate::gucs::recent_buffers()
+                && (*(*self.rel.as_ptr()).rd_rel).relkind
+                    == pg_sys::RELKIND_INDEX as std::ffi::c_char
                 && strategy.is_null()
                 && buffer_mode == pg_sys::ReadBufferMode::RBM_NORMAL
                 && (*(*self.rel.as_ptr()).rd_rel).relpersistence

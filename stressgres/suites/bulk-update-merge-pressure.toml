@@ -130,6 +130,10 @@ $$;
 
 [server.teardown]
 sql = """
+SELECT pg_cancel_backend(pid)
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND backend_type IN ('background merger for public.idxtest', 'background merger for public.idxupserts');
 DROP TABLE test, upserts, segment_sightings, segment_counts CASCADE;
 DROP EXTENSION pg_search CASCADE;
 """

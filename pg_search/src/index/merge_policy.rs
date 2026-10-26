@@ -66,8 +66,10 @@ impl LayeredMergePolicy {
         }
     }
 
-    pub fn prefer_small_merges(&mut self) {
+    pub fn prepare_backpressure(&mut self, extra_layer: Option<u64>) {
+        self.layer_sizes.extend(extra_layer);
         self.layer_sizes.sort_unstable();
+        self.layer_sizes.dedup();
         self.already_processed.store(false, Ordering::Relaxed);
     }
 
@@ -674,7 +676,7 @@ pub(crate) mod tests {
                     .collect::<HashSet<_>>())
             };
             let (large_first, _, _) = policy.simulate_with_validation(validate).unwrap();
-            policy.prefer_small_merges();
+            policy.prepare_backpressure(None);
             let (small_first, largest_layer, skipped) =
                 policy.simulate_with_validation(validate).unwrap();
 
@@ -736,7 +738,7 @@ pub(crate) mod tests {
         assert_eq!(candidates.len(), 3);
         assert_eq!(candidates[1].0, 10000);
         assert_eq!(candidates[2].1.0.len(), 20);
-        policy.prefer_small_merges();
+        policy.prepare_backpressure(None);
         let (candidates, largest_layer_size) = policy.simulate();
         assert_eq!(largest_layer_size, 10000);
         assert_eq!(candidates.len(), 12);

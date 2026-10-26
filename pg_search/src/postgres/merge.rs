@@ -173,6 +173,7 @@ struct IndexLayerSizes {
     user_configured_bg_layers: bool,
     foreground_layer_sizes: Vec<u64>,
     background_layer_sizes: Vec<u64>,
+    backpressure_layer_size: Option<u64>,
 }
 
 impl From<&PgSearchRelation> for IndexLayerSizes {
@@ -241,8 +242,10 @@ impl IndexLayerSizes {
                 user_configured_bg_layers: has_bg_layers,
                 foreground_layer_sizes: Vec::new(),
                 background_layer_sizes: Vec::new(),
+                backpressure_layer_size: None,
             };
         }
+        let mut backpressure_layer_size = None;
         if !background_layer_sizes.is_empty() {
             let has_larger_layer = background_layer_sizes
                 .iter()
@@ -250,12 +253,16 @@ impl IndexLayerSizes {
             // additionally, ensure that the background layer sizes are <= to the target segment size
             background_layer_sizes.retain(|&layer_size| layer_size <= target_segment_byte_size);
 
-            // Fill gaps in the configured layers when the segment backlog needs backpressure.
-            if background_layer_sizes.is_empty()
-                || (has_larger_layer
-                    && segment_cnt > BACKPRESSURE_MULTIPLIER * target_segment_count)
-            {
+            // Pushing the target size unconditionally makes a large, unbalanced index merge itself
+            // down in the background.  Only step in when the clamp left nothing to merge into; the
+            // target size is then below the smallest configured layer.  This happens to small
+            // indexes on hosts with many cores, where the default `target_segment_count` is large.
+            if background_layer_sizes.is_empty() {
                 background_layer_sizes.push(target_segment_byte_size);
+            } else if has_larger_layer
+                && segment_cnt > BACKPRESSURE_MULTIPLIER * target_segment_count
+            {
+                backpressure_layer_size = Some(target_segment_byte_size);
             }
         }
 
@@ -269,6 +276,7 @@ impl IndexLayerSizes {
             user_configured_bg_layers: has_bg_layers,
             foreground_layer_sizes,
             background_layer_sizes,
+            backpressure_layer_size,
         }
     }
 
@@ -346,8 +354,9 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
             .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
             .min_by_key(|(layer, _)| *layer)
             .map(|(_, candidate)| candidate);
-        merge_policy.prefer_small_merges();
-        let (backpressure_candidates, _, _) = merge_policy.simulate_supported(&merger)?;
+        merge_policy.prepare_backpressure(layer_sizes.backpressure_layer_size);
+        let (backpressure_candidates, _, skipped) = merge_policy.simulate_supported(&merger)?;
+        warn_unsupported_vector_merge(index, skipped);
         let candidate = backpressure(
             &backpressure_candidates,
             index.options().target_segment_count(),
@@ -807,7 +816,12 @@ mod tests {
 
     #[pg_test]
     fn test_backpressure_uses_background_layer_limits() {
-        for (count, expected) in [(41, false), (80, true)] {
+        for (count, background_expected, backpressure_expected) in [
+            (40, false, false),
+            (41, false, false),
+            (50, false, true),
+            (80, true, true),
+        ] {
             let bytes = 2 * 1024 * 1024;
             let layers = IndexLayerSizes::new(
                 vec![],
@@ -817,15 +831,54 @@ mod tests {
                 10,
             );
             let mut policy = LayeredMergePolicy::new(layers.combined());
-            policy.set_mergeable_segments_for_test(
-                (0..count)
-                    .map(|_| create_segment_meta_entry(bytes, 10, 0))
-                    .collect(),
-            );
+            let entries = (0..count)
+                .map(|_| create_segment_meta_entry(bytes, 10, 0))
+                .collect::<Vec<_>>();
+            policy.set_mergeable_segments_for_test(entries.clone());
             let (candidates, _) = policy.simulate();
-            assert!(!candidates.is_empty());
-            assert_eq!(backpressure(&candidates, 10).is_some(), expected);
+            assert_eq!(!candidates.is_empty(), background_expected);
+
+            policy.set_mergeable_segments_for_test(entries);
+            policy.prepare_backpressure(layers.backpressure_layer_size);
+            let (candidates, _) = policy.simulate();
+            assert_eq!(
+                backpressure(&candidates, 10).is_some(),
+                backpressure_expected
+            );
         }
+    }
+
+    #[pg_test]
+    fn test_foreground_backpressure_fills_clamped_layer_gap() {
+        Spi::run(
+            "CREATE TABLE backpressure_gap (id bigint, body text);
+            CREATE INDEX backpressure_gap_idx ON backpressure_gap USING paradedb (id, body)
+            WITH (target_segment_count=2, mutable_segment_rows=0, background_layer_sizes='0');",
+        )
+        .unwrap();
+        for id in 0..12 {
+            Spi::run(&format!(
+                "INSERT INTO backpressure_gap VALUES ({id}, 'beer wine cheese')"
+            ))
+            .unwrap();
+        }
+        Spi::run(
+            "ALTER INDEX backpressure_gap_idx SET (background_layer_sizes='1 bytes,100mb');
+            INSERT INTO backpressure_gap VALUES (12, 'beer wine cheese');",
+        )
+        .unwrap();
+        let segments = Spi::get_one::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('backpressure_gap_idx') WHERE visible",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(segments < 12, "foreground backpressure must close the gap");
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM backpressure_gap WHERE id @@@ pdb.all()")
+                .unwrap(),
+            Some(13)
+        );
+        assert_eq!(Spi::get_one::<bool>("SELECT bool_and(passed) FROM pdb.verify_index('backpressure_gap_idx', heapallindexed => true)").unwrap(), Some(true));
     }
 
     #[pg_test]
@@ -1094,19 +1147,22 @@ mod tests {
     #[pg_test]
     fn test_layer_sizes_clamped_to_target_segment_size() {
         // 200mb over 10 segments: the target segment size is ~13.3mb, so the 100mb layer goes
-        let layers = IndexLayerSizes::new(
-            vec![],
-            vec![1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024],
-            20,
-            200 * 1024 * 1024,
-            10,
-        );
-        assert_eq!(
-            layers.background_layer_sizes,
-            vec![1024 * 1024, 10 * 1024 * 1024]
-        );
+        for count in [20, 41, 100] {
+            let layers = IndexLayerSizes::new(
+                vec![],
+                vec![1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024],
+                count,
+                200 * 1024 * 1024,
+                10,
+            );
+            assert_eq!(
+                layers.background_layer_sizes,
+                vec![1024 * 1024, 10 * 1024 * 1024]
+            );
+        }
         let layers = IndexLayerSizes::new(vec![], vec![1024, 64 * 1024], 500, 500 * 687, 1);
         assert_eq!(layers.background_layer_sizes, vec![1024, 64 * 1024]);
+        assert!(layers.backpressure_layer_size.is_none());
     }
 
     #[pg_test]
@@ -1126,6 +1182,7 @@ mod tests {
             vec![target_segment_byte_size]
         );
         assert_eq!(layers.combined(), vec![target_segment_byte_size]);
+        assert!(layers.backpressure_layer_size.is_none());
     }
 
     #[pg_test]
@@ -1166,6 +1223,7 @@ mod tests {
             224,
         );
         assert!(layers.background_layer_sizes.is_empty());
+        assert!(layers.backpressure_layer_size.is_none());
         assert!(layers.user_configured_background_layers());
     }
 
@@ -1173,6 +1231,7 @@ mod tests {
     fn test_layer_sizes_background_merging_disabled() {
         let layers = IndexLayerSizes::new(vec![], vec![], 3438, 4_739_219, 224);
         assert!(layers.background_layer_sizes.is_empty());
+        assert!(layers.backpressure_layer_size.is_none());
         assert!(!layers.user_configured_background_layers());
     }
 

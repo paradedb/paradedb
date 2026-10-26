@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793037980485,
+  "lastUpdate": 1793038011518,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -422462,6 +422462,88 @@ window.BENCHMARK_DATA = {
             "value": 612.8813304146413,
             "unit": "median tps",
             "extra": "avg tps: 610.5183503652053, max tps: 614.8420145251292, count: 55273"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "177edfc2afded8d19ee0ee675c584592608273ac",
+          "message": "fix: keep backpressure layer expansion in the foreground",
+          "timestamp": "2026-10-26T17:27:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/177edfc2afded8d19ee0ee675c584592608273ac"
+        },
+        "date": 1793037924160,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 515.1309636739145,
+            "unit": "median tps",
+            "extra": "avg tps: 525.5492937287326, max tps: 626.8048371057115, count: 55304"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 542.9518808320705,
+            "unit": "median tps",
+            "extra": "avg tps: 542.8766817775871, max tps: 584.3255375736513, count: 55304"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 207.57591449199805,
+            "unit": "median tps",
+            "extra": "avg tps: 207.58644280929153, max tps: 216.87142582335775, count: 55304"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 595.0842259691053,
+            "unit": "median tps",
+            "extra": "avg tps: 594.9787405529771, max tps: 625.6169813061159, count: 55304"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 402.9509104307343,
+            "unit": "median tps",
+            "extra": "avg tps: 403.14958824444165, max tps: 426.7192944042848, count: 55304"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.77765880250423,
+            "unit": "median tps",
+            "extra": "avg tps: 14.782483046113708, max tps: 15.027200975554958, count: 55304"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 719.0450347239016,
+            "unit": "median tps",
+            "extra": "avg tps: 719.1951437623613, max tps: 747.935124506199, count: 55304"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 739.0237724502791,
+            "unit": "median tps",
+            "extra": "avg tps: 738.840636227583, max tps: 777.739651876423, count: 55304"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 318.44663438713576,
+            "unit": "median tps",
+            "extra": "avg tps: 318.4971237986035, max tps: 332.9512796673265, count: 55304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 632.0237946181903,
+            "unit": "median tps",
+            "extra": "avg tps: 632.0097843899006, max tps: 651.688982335519, count: 55304"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793004732331,
+  "lastUpdate": 1793037935880,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -337112,6 +337112,52 @@ window.BENCHMARK_DATA = {
             "value": 32.6357917882874,
             "unit": "median tps",
             "extra": "avg tps: 56.797916978727216, max tps: 703.6590016780472, count: 59331"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "177edfc2afded8d19ee0ee675c584592608273ac",
+          "message": "fix: keep backpressure layer expansion in the foreground",
+          "timestamp": "2026-10-26T17:27:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/177edfc2afded8d19ee0ee675c584592608273ac"
+        },
+        "date": 1793037924341,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.365878084466,
+            "unit": "median tps",
+            "extra": "avg tps: 57.09904184587435, max tps: 656.521736639794, count: 59315"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.587781912435716,
+            "unit": "median tps",
+            "extra": "avg tps: 56.770118088267374, max tps: 700.8007909129911, count: 59315"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.609523225526885,
+            "unit": "median tps",
+            "extra": "avg tps: 59.046211374349475, max tps: 753.3679764643974, count: 59315"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.61684083939188,
+            "unit": "median tps",
+            "extra": "avg tps: 56.66689737595406, max tps: 688.699968426295, count: 59315"
           }
         ]
       }

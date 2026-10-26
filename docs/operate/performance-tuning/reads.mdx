@@ -100,6 +100,33 @@ note are:
 
 Setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` triggers an autovacuum for every `100000` row updates. As a general rule of thumb, we recommend autovacuuming at least once every `100000` single-row updates, and running a manual `VACUUM` immediately after large bulk loads.
 
+### Enabling Index Cleanup
+
+If heap fetches remain high after autovacuum, consider enabling index cleanup on the heap table:
+
+```sql
+ALTER TABLE mock_items SET (vacuum_index_cleanup = on);
+```
+
+Autovacuum honors this [table storage parameter](https://www.postgresql.org/docs/current/sql-createtable.html#RELOPTION-VACUUM-INDEX-CLEANUP). The default, `auto`, can skip index vacuuming when there are few dead tuples. Skipping it can leave dead heap line pointers that prevent affected pages from becoming all-visible. Setting `on` disables this optimization for all indexes on the table, at the cost of additional vacuum work.
+
+This setting persists for future autovacuums, but does not change how often they run. It must be set per table; it cannot be configured globally in `postgresql.conf`. To clean up immediately, run:
+
+```sql
+VACUUM (INDEX_CLEANUP ON) mock_items;
+```
+
+The manual `VACUUM` option applies only to that invocation; use `ALTER TABLE` to persist it for autovacuum.
+
+<Note>
+  Autovacuum maintains the visibility map even when index cleanup is skipped.
+  Enabling cleanup does not guarantee that every page becomes all-visible: old
+  snapshots, ongoing writes, and skipped pages can still limit coverage. The
+  [transaction ID wraparound
+  failsafe](https://www.postgresql.org/docs/current/sql-vacuum.html) can skip
+  index cleanup even with `on`.
+</Note>
+
 ## Adjusting Target Segment Count
 
 By default, `CREATE INDEX`/`REINDEX` targets `max(4, max_parallel_workers_per_gather) * max(1, len(partition_by))` segments, where `len(partition_by)` is the number of partitioning columns. Without `partition_by`, the multiplier is 1. This can be changed using the

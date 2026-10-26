@@ -879,12 +879,11 @@ impl CustomScan for BaseScan {
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         unsafe fn query_tree_needs_const_projections(mut root: *mut pg_sys::PlannerInfo) -> bool {
             while !root.is_null() {
-                if let Some(parse) = (*root).parse.as_ref() {
-                    if !parse.targetList.is_null()
-                        && parse.targetList.maybe_needs_const_projections()
-                    {
-                        return true;
-                    }
+                if let Some(parse) = (*root).parse.as_ref()
+                    && !parse.targetList.is_null()
+                    && parse.targetList.maybe_needs_const_projections()
+                {
+                    return true;
                 }
                 if !(*root).processed_tlist.is_null()
                     && (*root).processed_tlist.maybe_needs_const_projections()
@@ -953,7 +952,7 @@ impl CustomScan for BaseScan {
 
             // quick look at the target list (and any parent query roots, e.g. under row-level security)
             // to see if we might need to do our const projections for scores or snippets
-            let maybe_needs_const_projections = unsafe { query_tree_needs_const_projections(root) };
+            let maybe_needs_const_projections = query_tree_needs_const_projections(root);
 
             //
             // look for quals we can support.  we do this first so that we can get out early if this

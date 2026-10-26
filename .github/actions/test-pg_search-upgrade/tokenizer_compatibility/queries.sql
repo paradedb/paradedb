@@ -34,9 +34,6 @@ BEGIN
         FROM (
             SELECT 'tokenizer_compatibility_idx' AS index_name, name, tokenizer
             FROM paradedb.schema('tokenizer_compatibility_idx')
-            UNION ALL
-            SELECT 'tokenizer_search_tokenizer_idx', name, tokenizer
-            FROM paradedb.schema('tokenizer_search_tokenizer_idx')
         ) current
         FULL JOIN tokenizer_compatibility_schema_before_upgrade old USING (index_name, name)
         WHERE current.index_name IS NULL
@@ -77,9 +74,6 @@ BEGIN
         FROM (
             SELECT 'tokenizer_compatibility_idx' AS index_name, name, tokenizer
             FROM paradedb.schema('tokenizer_compatibility_idx')
-            UNION ALL
-            SELECT 'tokenizer_search_tokenizer_idx', name, tokenizer
-            FROM paradedb.schema('tokenizer_search_tokenizer_idx')
         ) current
         FULL JOIN tokenizer_compatibility_schema_before_upgrade old USING (index_name, name)
         WHERE current.index_name IS NULL

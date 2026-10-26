@@ -39,10 +39,12 @@ USING paradedb (
     (current_chinese::pdb.lindera(chinese, 'alias=current_chinese')),
     (current_japanese::pdb.lindera(japanese, 'alias=current_japanese')),
     (current_korean::pdb.lindera(korean, 'alias=current_korean')),
-    raw_text
+    raw_text,
+    (autocomplete::pdb.ngram(1, 3, 'prefix_only=true'))
 )
 WITH (
     key_field = 'id',
+    search_tokenizer = 'unicode_words',
     text_fields = '{
         "legacy_chinese": {"tokenizer": {"type": "chinese_lindera"}},
         "legacy_japanese": {"tokenizer": {"type": "japanese_lindera"}},
@@ -50,13 +52,6 @@ WITH (
         "raw_text": {"tokenizer": {"type": "raw"}}
     }'
 );
-
-CREATE INDEX tokenizer_search_tokenizer_idx ON tokenizer_compatibility
-USING paradedb (
-    id,
-    (autocomplete::pdb.ngram(1, 3, 'prefix_only=true'))
-)
-WITH (key_field = 'id', search_tokenizer = 'unicode_words');
 
 CREATE VIEW tokenizer_compatibility_results AS
 SELECT 'unicode_field' AS query, ARRAY(
@@ -120,7 +115,4 @@ $$;
 
 CREATE TABLE tokenizer_compatibility_schema_before_upgrade AS
 SELECT 'tokenizer_compatibility_idx' AS index_name, name, tokenizer
-FROM paradedb.schema('tokenizer_compatibility_idx')
-UNION ALL
-SELECT 'tokenizer_search_tokenizer_idx', name, tokenizer
-FROM paradedb.schema('tokenizer_search_tokenizer_idx');
+FROM paradedb.schema('tokenizer_compatibility_idx');

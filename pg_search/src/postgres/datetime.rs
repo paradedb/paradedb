@@ -796,7 +796,7 @@ mod tests {
         assert_eq!(pg_timestamp_micros_to_date32(MAX_PG_MICROS), 106_762_939);
     }
 
-    #[test]
+    #[pg_test]
     fn date_infinity_maps_to_timestamp_infinity_and_back() {
         let infinity = PostgresTimestamp::try_from(pgrx::datum::Date::positive_infinity()).unwrap();
         let neg_infinity =
@@ -813,7 +813,7 @@ mod tests {
         assert_eq!(pgrx::datum::Date::from(pg_dt).to_pg_epoch_days(), 8766);
     }
 
-    #[test]
+    #[pg_test]
     fn date_bounds_conversion() {
         // Upper bound: 294276-12-31 is 106,751,982 days after the Postgres epoch.
         let max_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(106_751_982) };
@@ -1025,7 +1025,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn postgres_date_sorts_and_hashes_by_day_count() {
         let earlier = PostgresDate::try_from_raw(0).unwrap();
         let later = PostgresDate::try_from_raw(1).unwrap();

@@ -758,7 +758,7 @@ mod tests {
         postcard::from_bytes::<Wire>(&bytes).unwrap().0
     }
 
-    #[test]
+    #[pg_test]
     fn exact_scalar_wire_preserves_every_scalar_variant() {
         let cases = [
             PdbOwnedValue::Str("héllo \"world\"".into()),
@@ -786,7 +786,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[pg_test]
     fn exact_scalar_wire_keeps_persisted_variant_tags() {
         let cases = [
             (PdbOwnedValue::Str("x".into()), 0),
@@ -840,7 +840,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn legacy_date_index_rejects_values_outside_timestamp_range() {
         let date = PostgresDate::try_from_raw(crate::postgres::datetime::MAX_PG_DATE_DAYS).unwrap();
         let legacy = Some(crate::api::version::Version::new(0, 26, 0));

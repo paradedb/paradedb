@@ -324,6 +324,13 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+static VECTOR_CLUSTER_MIN_PROBE: GucSetting<i32> = GucSetting::<i32>::new(16);
+
+/// Returns the minimum per-segment IVF work budget.
+pub fn vector_cluster_min_probe() -> usize {
+    VECTOR_CLUSTER_MIN_PROBE.get() as usize
+}
+
 /// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
@@ -678,11 +685,22 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"Per-segment IVF work ceiling, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Cluster opens and scored rows consume work. The budget is floored at paradedb.vector_cluster_min_probe and capped at the segment's cluster count.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_cluster_min_probe",
+        c"Minimum per-segment IVF work budget for vector ORDER BY queries",
+        c"One work unit is the cost of an average cluster. This floor applies before the budget is capped at the segment's cluster count; it is not a minimum number of clusters scanned.",
+        &VECTOR_CLUSTER_MIN_PROBE,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );

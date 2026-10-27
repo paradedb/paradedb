@@ -20,8 +20,10 @@
 -- NumericBytes keys with a matching byte layout are still pushed down.
 --
 -- The validation resolves each key against its own join node, so it
--- also covers keys lifted from IN / NOT IN subqueries, including
--- JoinScan's `col IS NULL OR col IN (SELECT ...)` path.
+-- also covers keys from subqueries: IN subqueries that Postgres pulls up
+-- into ordinary semi joins, NOT IN subqueries that stay SubPlans and are
+-- lifted into anti joins, and JoinScan's `col IS NULL OR col IN
+-- (SELECT ...)` path.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -52,6 +54,11 @@ INSERT INTO i6834_scale2 VALUES (21, 1.10), (22, 2.20), (23, 9.99);
 CREATE TABLE i6834_wide2 (id bigint PRIMARY KEY, amt numeric(30,2));
 INSERT INTO i6834_wide2 VALUES (31, 1.10), (32, 2.20), (33, 3.30);
 
+-- Tags for the outer items, so JoinScan sees a join in the outer query
+-- in addition to a lifted NOT IN subquery.
+CREATE TABLE i6834_tags (id bigint PRIMARY KEY, item_id bigint NOT NULL, tag text NOT NULL);
+INSERT INTO i6834_tags VALUES (51, 1, 'a'), (52, 2, 'b'), (53, 3, 'c'), (54, 4, 'd');
+
 -- numeric(30,2) outer and numeric(40,5) inner: two NumericBytes sides,
 -- which compare by value whatever their declared scales.
 CREATE TABLE i6834_wide_items (
@@ -73,6 +80,8 @@ CREATE INDEX i6834_scale2_idx ON i6834_scale2 USING paradedb (id, amt)
   WITH (numeric_fields='{"amt":{"fast":true}}');
 CREATE INDEX i6834_wide2_idx ON i6834_wide2 USING paradedb (id, amt)
   WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX i6834_tags_idx ON i6834_tags USING paradedb (id, item_id, tag)
+  WITH (text_fields='{"tag":{"fast":true}}');
 CREATE INDEX i6834_wide5_idx ON i6834_wide5 USING paradedb (id, amt)
   WITH (numeric_fields='{"amt":{"fast":true}}');
 
@@ -82,13 +91,14 @@ ANALYZE i6834_scale2;
 ANALYZE i6834_wide2;
 ANALYZE i6834_wide_items;
 ANALYZE i6834_wide5;
+ANALYZE i6834_tags;
 
 -- =====================================================================
 -- Part 1: AggregateScan (JoinScan off, as in the issue).
 -- =====================================================================
 SET paradedb.enable_join_custom_scan = off;
 
--- Ground truth from PostgreSQL. Expected: 2, 2, 3, 2, 2, 2.
+-- Ground truth from PostgreSQL. Expected: 2, 2, 3, 2, 2, 2, 1, 0, 1.
 SET paradedb.enable_aggregate_custom_scan = off;
 SELECT
     (SELECT count(*) FROM i6834_items i JOIN i6834_scale3 r ON i.amt = r.amt
@@ -102,7 +112,13 @@ SELECT
     (SELECT count(*) FROM i6834_items i
       WHERE i.amt IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match') AS in_cross_scale,
     (SELECT count(*) FROM i6834_items i
-      WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match') AS in_same_scale;
+      WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match') AS in_same_scale,
+    (SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+      WHERE i.amt NOT IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match') AS not_in_cross_scale,
+    (SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+      WHERE i.amt NOT IN (SELECT amt FROM i6834_wide2) AND i.txt @@@ 'match') AS not_in_bytes,
+    (SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+      WHERE i.amt NOT IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match') AS not_in_same_scale;
 
 SET paradedb.enable_aggregate_custom_scan = on;
 
@@ -160,6 +176,35 @@ $$);
 SELECT count(*) FROM i6834_items i
 WHERE i.amt IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match';
 
+-- 1g. Cross-scale key lifted from a NOT IN subquery (a null-aware anti
+-- join): AggregateScan declines. Expected: 1 (only 3.30). Comparing raw
+-- integers would also keep 2.20 (220 matches nothing in 1100, 2200, 110).
+-- The NULL item is excluded by NOT IN either way. AggregateScan only
+-- lifts NOT IN when aggregating over a join, hence the tags join in 1g-1i.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match';
+
+-- 1h. Numeric64 vs NumericBytes key lifted from NOT IN: AggregateScan
+-- declines rather than failing in DataFusion. Expected: 0.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_wide2) AND i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_wide2) AND i.txt @@@ 'match';
+
+-- 1i. Positive control, equal-scale key lifted from NOT IN. Expected: 1.
+SELECT explain_redact_oid($$
+SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match'
+$$);
+SELECT count(*) FROM i6834_items i JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match';
+
 -- =====================================================================
 -- Part 2: JoinScan's subquery paths, which share the validation.
 -- =====================================================================
@@ -209,8 +254,48 @@ SELECT i.id FROM i6834_items i
 WHERE (i.amt IS NULL OR i.amt IN (SELECT amt FROM i6834_scale2)) AND i.txt @@@ 'match'
 ORDER BY i.id LIMIT 10;
 
+-- 2e. Multi-table JoinScan with a cross-scale key lifted from NOT IN:
+-- JoinScan declines. Expected: (3, c).
+SELECT explain_redact_oid($$
+SELECT i.id, t.tag FROM i6834_items i
+JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id, t.tag FROM i6834_items i
+JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale3) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
+-- 2f. As 2e with a NumericBytes subquery key: JoinScan declines. Expected:
+-- no rows.
+SELECT explain_redact_oid($$
+SELECT i.id, t.tag FROM i6834_items i
+JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_wide2) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id, t.tag FROM i6834_items i
+JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_wide2) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
+-- 2g. Positive control for 2e with an equal-scale key: JoinScan is used.
+-- Expected: (3, c).
+SELECT explain_redact_oid($$
+SELECT i.id, t.tag FROM i6834_items i
+JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10
+$$);
+SELECT i.id, t.tag FROM i6834_items i
+JOIN i6834_tags t ON i.id = t.item_id
+WHERE i.amt NOT IN (SELECT amt FROM i6834_scale2) AND i.txt @@@ 'match'
+ORDER BY i.id LIMIT 10;
+
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;
 
-DROP TABLE i6834_items, i6834_scale3, i6834_scale2, i6834_wide2, i6834_wide_items, i6834_wide5;
+DROP TABLE i6834_items, i6834_scale3, i6834_scale2, i6834_wide2, i6834_wide_items, i6834_wide5,
+    i6834_tags;

@@ -28,7 +28,7 @@
 use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
@@ -174,9 +174,10 @@ pub struct PgSearchScanPlan {
     /// the state has been consumed.
     planner_estimated_rows: u64,
     /// Candidate and pruned segment counts from this plan's static execution-time proof.
-    /// Kept around for EXPLAIN after the state is consumed. The reader still retains the full
-    /// manifest/DSM view; this is an estimate and never a segment-identity authority.
-    segment_pruning: SegmentPruningEstimate,
+    /// Seeded from the reader when already cached and computed on demand for EXPLAIN.
+    /// The reader still retains the full manifest/DSM view; this is an estimate and never
+    /// a segment-identity authority.
+    segment_pruning: OnceLock<SegmentPruningEstimate>,
     /// Number of partitions in the scan before task specialization. A specialized variant's
     /// `output_partitioning` is always one, so this count is serialized separately and used to
     /// rebuild the original range boundaries when the variant is decoded on its worker.
@@ -228,7 +229,7 @@ impl Clone for PgSearchScanPlan {
         Self {
             state: Mutex::new(new_state),
             planner_estimated_rows: self.planner_estimated_rows,
-            segment_pruning: self.segment_pruning,
+            segment_pruning: self.segment_pruning.clone(),
             global_partition_count: self.global_partition_count,
             properties: Arc::clone(&self.properties),
             resolved_query: self.resolved_query.clone(),
@@ -317,18 +318,19 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
         let segment_pruning = state
             .as_ref()
-            .map(|s| s.reader.segment_pruning_estimate())
-            .unwrap_or_default();
+            .and_then(|s| s.reader.cached_segment_pruning_estimate());
 
-        if range_split_points.is_none() {
+        if range_split_points.is_none()
+            && let Some(pruning) = segment_pruning
+        {
             // A partition count exceeding the segment count indicates a bug in
             // pg_search_scan_desired_task_count, which should cap the tasks
             // to the segment count when range partitioning is off.
             assert!(
-                partition_count <= segment_pruning.candidate_segments.max(1),
+                partition_count <= pruning.candidate_segments.max(1),
                 "partition_count {} exceeds segment_count {}",
                 partition_count,
-                segment_pruning.candidate_segments
+                pruning.candidate_segments
             );
         }
 
@@ -357,7 +359,7 @@ impl PgSearchScanPlan {
         Self {
             state: Mutex::new(exec_state),
             planner_estimated_rows,
-            segment_pruning,
+            segment_pruning: segment_pruning.map(OnceLock::from).unwrap_or_default(),
             global_partition_count: partition_count,
             properties,
             resolved_query,
@@ -390,8 +392,8 @@ impl PgSearchScanPlan {
         let schema = self.properties.eq_properties.schema().clone();
         let eq_properties =
             build_equivalence_properties(schema, self.sort_order.as_ref(), Some(&lazy_sort));
-        // NOTE: Lazy-sorted scans currently execute as a single `Shared` partition;
-        // `LazySegmentTarget::RangePartitioned` is wired up in `lazy_sort` for future
+        // TODO(#6898): Lazy-sorted scans currently execute as a single `Shared` partition;
+        // `LazySegmentTarget::RangePartitioned` is wired up in `lazy_sort` for
         // range-partitioned rank joins.
         self.global_partition_count = 1;
         self.range_split_points = None;
@@ -518,7 +520,7 @@ impl PgSearchScanPlan {
         Arc::new(Self {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
-            segment_pruning: self.segment_pruning,
+            segment_pruning: self.segment_pruning.clone(),
             global_partition_count,
             properties,
             resolved_query: self.resolved_query.clone(),
@@ -651,6 +653,24 @@ impl PgSearchScanPlan {
     /// partitions the way `partition_statistics` divides it.
     pub fn planner_estimated_rows(&self) -> u64 {
         self.planner_estimated_rows
+    }
+
+    fn segment_pruning(&self) -> SegmentPruningEstimate {
+        *self.segment_pruning.get_or_init(|| {
+            let state_guard = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match &*state_guard {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => {
+                    scan_state.0.reader.segment_pruning_estimate()
+                }
+                ExecutionState::Consumed | ExecutionState::Uninitialized => {
+                    SegmentPruningEstimate::default()
+                }
+            }
+        })
     }
 
     fn rebuild_properties_with_schema(&mut self, schema: SchemaRef) {
@@ -1210,20 +1230,23 @@ impl DisplayAs for PgSearchScanPlan {
                 partition_segments.included.len(),
                 partition_segments.pruned.len()
             )?;
-        } else if self.segment_pruning.pruned_segments > 0 {
-            write!(
-                f,
-                "PgSearchScan: table={}, segments={{included={}, pruned={}}}",
-                self.table_alias,
-                self.segment_pruning.candidate_segments,
-                self.segment_pruning.pruned_segments
-            )?;
         } else {
-            write!(
-                f,
-                "PgSearchScan: table={}, segments={}",
-                self.table_alias, self.segment_pruning.candidate_segments
-            )?;
+            let segment_pruning = self.segment_pruning();
+            if segment_pruning.pruned_segments > 0 {
+                write!(
+                    f,
+                    "PgSearchScan: table={}, segments={{included={}, pruned={}}}",
+                    self.table_alias,
+                    segment_pruning.candidate_segments,
+                    segment_pruning.pruned_segments
+                )?;
+            } else {
+                write!(
+                    f,
+                    "PgSearchScan: table={}, segments={}",
+                    self.table_alias, segment_pruning.candidate_segments
+                )?;
+            }
         }
         if let Some(range_split_points) = &self.range_split_points {
             if let Some(assigned) = self.assigned_partition {
@@ -1948,9 +1971,8 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
 pub(crate) fn pg_search_scan_desired_task_count(
     ev: DesiredTaskCountEvent,
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
-    let scan = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
-    if scan.lazy_sort().is_some() {
-        return Some(Ok(DesiredTaskCountEventResponse::maximum(1)));
+    if !ev.plan.is::<PgSearchScanPlan>() {
+        return None;
     }
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
     let partition_count = NonZeroUsize::new(partition_count)?;
@@ -2209,7 +2231,7 @@ mod tests {
                 None,
             )
             .with_table_alias("items");
-            plan.segment_pruning = estimate;
+            plan.segment_pruning = std::sync::OnceLock::from(estimate);
             format!(
                 "{}",
                 datafusion::physical_plan::display::DisplayableExecutionPlan::new(&plan).one_line()

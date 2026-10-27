@@ -282,15 +282,6 @@ pub fn collect_filters(
     score_col_schema_idx: Option<usize>,
     score_threshold: &mut Option<Score>,
 ) -> datafusion::error::Result<()> {
-    // Ignore no-op boolean placeholders (such as unpopulated DynamicFilterPhysicalExprs,
-    // `InList` nodes rewritten to `lit(true)` after inverted-index pushdown, or `lit(false)`
-    // SA-exhaustion signals).
-    if let Some(lit) = expr.downcast_ref::<Literal>()
-        && matches!(lit.value(), ScalarValue::Boolean(Some(true | false)))
-    {
-        return Ok(());
-    }
-
     // Split top-level ANDs to maximize early pruning
     if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
         && matches!(binary.op(), Operator::And)
@@ -309,6 +300,14 @@ pub fn collect_filters(
             score_col_schema_idx,
             score_threshold,
         )?;
+        return Ok(());
+    }
+
+    // Ignore trivial `true` literals (e.g. uninitialized TopK dynamic filters or
+    // `InList` nodes rewritten to `lit(true)` after inverted-index pushdown).
+    if let Some(lit) = expr.downcast_ref::<Literal>()
+        && matches!(lit.value(), ScalarValue::Boolean(Some(true)))
+    {
         return Ok(());
     }
 

@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use arrow_array::{Float32Array, RecordBatch, UInt64Array};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_plan::ExecutionPlan;
-use futures::StreamExt;
 use tokio::runtime::Runtime;
 
 use crate::aggregate::exec::AggregationExec;
@@ -37,6 +36,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::heap::VisibilityChecker;
 use crate::scan::execution_plan::{
     LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan, ScanState,
@@ -47,15 +47,6 @@ use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-
-/// Polls a stream for the next item synchronously using a tokio runtime.
-fn poll_next_sync<S: futures::Stream + Unpin>(
-    runtime: &Runtime,
-    stream: &mut S,
-) -> Option<S::Item> {
-    check_for_interrupts!();
-    runtime.block_on(async { stream.next().await })
-}
 
 struct PreparedAggregations {
     aggregations: Aggregations,
@@ -442,7 +433,7 @@ impl ExecMethod for TopKScanExecState {
         loop {
             if let Some(stream) = &mut self.stream {
                 let runtime = self.runtime.as_ref().unwrap();
-                let polled = poll_next_sync(runtime, stream);
+                let polled = block_on_next(runtime, stream);
                 self.drain_telemetry(state);
                 match polled {
                     Some(Ok(batch)) => {

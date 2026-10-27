@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion::common::Result;
+use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::metrics::{Count, MetricBuilder, RecordOutput};
 use futures::Stream;
@@ -46,6 +46,7 @@ use crate::index::reader::index::{
 };
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::mpp::interrupt::{cancel_pending, interrupted};
 use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
@@ -214,8 +215,8 @@ impl TopKWindowCursor {
 enum LazySegmentTarget {
     /// Range-partitioned segment classification and partition bounds.
     ///
-    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
-    /// execution; this variant is wired up for future range-partitioned rank joins.
+    /// TODO(#6898): `PgSearchScanPlan::with_lazy_sort` currently forces single-partition
+    /// `Shared` execution; this variant is wired up for range-partitioned rank joins.
     RangePartitioned {
         segments: PartitionSegments,
         bounds: Box<SearchQueryInput>,
@@ -534,6 +535,12 @@ pub(super) fn build_lazy_sort_stream(
 
             // 3. Execute the Top-K search across segments (and optional first-pull aggregation)
             //    and forward query/segment telemetry.
+            // `block_on_next` holds interrupts while this stream runs, so the collector's
+            // own check can't fire. Bail out instead and let the caller act on the interrupt
+            // once `block_on` has returned.
+            if cancel_pending() {
+                Err::<(), DataFusionError>(interrupted())?;
+            }
             let mut top_k_search = segment_target.search_window(&reader, &lazy_sort, &pull);
             record_pull_telemetry(&lazy_sort, &segment_target, &mut top_k_search, &queries);
 

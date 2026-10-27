@@ -431,6 +431,7 @@ pub struct SearchIndexReader {
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
+    candidate_segments: Arc<[OnceLock<bool>]>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -480,6 +481,7 @@ impl Clone for SearchIndexReader {
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
+            candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -891,6 +893,10 @@ impl SearchIndexReader {
             )
             .unwrap_or_else(|e| panic!("{e}"));
 
+        let candidate_segments = (0..searcher.segment_readers().len())
+            .map(|_| OnceLock::new())
+            .collect();
+
         Ok(Self {
             index_rel: index_relation.clone(),
             searcher,
@@ -910,6 +916,7 @@ impl SearchIndexReader {
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
             pruning_estimate: OnceLock::new(),
+            candidate_segments,
         })
     }
 
@@ -986,11 +993,13 @@ impl SearchIndexReader {
     }
 
     fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
-        self.segment_num_docs(self.searcher.segment_reader(ord)) > 0
-            && self
-                .pruning_query
-                .as_ref()
-                .is_none_or(|query| self.pruner().can_match(ord, query))
+        *self.candidate_segments[ord as usize].get_or_init(|| {
+            self.segment_num_docs(self.searcher.segment_reader(ord)) > 0
+                && self
+                    .pruning_query
+                    .as_ref()
+                    .is_none_or(|query| self.pruner().can_match(ord, query))
+        })
     }
 
     fn directory_segment_num_docs(directory: &MVCCDirectory, reader: &SegmentReader) -> u64 {
@@ -1254,6 +1263,11 @@ impl SearchIndexReader {
             pruned_segments: non_empty_segments.saturating_sub(candidate_segments),
             candidate_docs,
         }
+    }
+
+    /// Returns the cached segment pruning estimate if it has already been computed.
+    pub(crate) fn cached_segment_pruning_estimate(&self) -> Option<SegmentPruningEstimate> {
+        self.pruning_estimate.get().copied()
     }
 
     /// Counts the candidate and pruned segments in this reader's snapshot.
@@ -1592,8 +1606,8 @@ impl SearchIndexReader {
     /// Fully included segments evaluate against the unconstrained base query, while partially
     /// included segments also evaluate `partition_bounds`.
     ///
-    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
-    /// execution; this entry point is wired up for future range-partitioned rank joins.
+    /// TODO(#6898): `PgSearchScanPlan::with_lazy_sort` currently forces single-partition
+    /// `Shared` execution; this entry point is wired up for range-partitioned rank joins.
     pub(crate) fn search_top_k_unordered_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,
@@ -1661,8 +1675,8 @@ impl SearchIndexReader {
     /// Fully included segments evaluate against the unconstrained base query, while partially
     /// included segments also evaluate `partition_bounds`.
     ///
-    /// NOTE: `PgSearchScanPlan::with_lazy_sort` currently forces single-partition `Shared`
-    /// execution; this entry point is wired up for future range-partitioned rank joins.
+    /// TODO(#6898): `PgSearchScanPlan::with_lazy_sort` currently forces single-partition
+    /// `Shared` execution; this entry point is wired up for range-partitioned rank joins.
     pub(crate) fn search_top_k_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,
@@ -3713,6 +3727,11 @@ mod tests {
         assert_pruning_matches_tantivy(&reader, 21);
         let derived = reader.and_query_input(&range_query("id", 11, 20));
         assert_pruning_matches_tantivy(&derived, 10);
+        assert_eq!(
+            EMPIRICAL_READS.load(Relaxed),
+            7,
+            "subsequent searches and derived readers reuse cached per-segment candidacy"
+        );
         let sibling = SearchIndexReader::from_manifest(
             &manifest,
             &index_rel,

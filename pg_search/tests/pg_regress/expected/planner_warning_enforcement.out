@@ -113,6 +113,49 @@ WARNING:  Query has LIMIT 1 but is not using Top K scan (using Normal instead). 
 
 DEALLOCATE warning_policy_query;
 RESET plan_cache_mode;
+-- EXPLAIN EXECUTE must allow inspection without caching a permissive plan.
+SET plan_cache_mode = force_generic_plan;
+SET paradedb.planner_warnings = 'off';
+PREPARE warning_policy_explain AS
+SELECT id FROM warning_policy_docs WHERE body ||| 'database' ORDER BY body LIMIT 1;
+EXECUTE warning_policy_explain;
+ id 
+----
+  1
+(1 row)
+
+SET paradedb.planner_warnings = 'error';
+SET client_min_messages = error;
+DO $$
+DECLARE
+    errors int := 0;
+BEGIN
+    -- Both implicit and explicit false ANALYZE options must allow inspection.
+    EXECUTE 'EXPLAIN EXECUTE warning_policy_explain';
+    EXECUTE 'EXPLAIN (ANALYZE FALSE) EXECUTE warning_policy_explain';
+    BEGIN
+        EXECUTE 'EXECUTE warning_policy_explain';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE 'Query has LIMIT 1 but is not using Top K scan%' THEN
+            RAISE;
+        END IF;
+        errors := errors + 1;
+    END;
+    BEGIN
+        EXECUTE 'EXPLAIN ANALYZE EXECUTE warning_policy_explain';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE 'Query has LIMIT 1 but is not using Top K scan%' THEN
+            RAISE;
+        END IF;
+        errors := errors + 1;
+    END;
+    ASSERT errors = 2, 'execution must still enforce error mode after EXPLAIN';
+END
+$$;
+RESET client_min_messages;
+DEALLOCATE warning_policy_explain;
+RESET plan_cache_mode;
+
 -- Runtime scan and spill warnings honor off, and are errors under error mode.
 SET paradedb.enable_custom_scan = off;
 SET enable_bitmapscan = off;

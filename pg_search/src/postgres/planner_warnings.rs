@@ -231,6 +231,59 @@ pub fn is_in_explain() -> bool {
     IN_EXPLAIN.with(|cell| cell.get())
 }
 
+// EXPLAIN EXECUTE bypasses ExplainOneQuery_hook. Cover utility statements too,
+// and invalidate plans built while errors were downgraded before they can execute.
+static mut PREV_PROCESS_UTILITY_HOOK: pg_sys::ProcessUtility_hook_type = None;
+
+struct ExplainUtilityGuard {
+    _explain: ExplainGuard,
+    invalidate: bool,
+}
+
+impl Drop for ExplainUtilityGuard {
+    fn drop(&mut self) {
+        if self.invalidate {
+            unsafe { pg_sys::ResetPlanCache() };
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[rustfmt::skip]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn explain_process_utility_hook(
+    pstmt: *mut pg_sys::PlannedStmt,
+    query_string: *const core::ffi::c_char,
+    read_only_tree: bool,
+    context: pg_sys::ProcessUtilityContext::Type,
+    params: pg_sys::ParamListInfo,
+    query_env: *mut pg_sys::QueryEnvironment,
+    dest: *mut pg_sys::DestReceiver,
+    qc: *mut pg_sys::QueryCompletion,
+) {
+    let node = (*pstmt).utilityStmt;
+    let _guard = if !node.is_null() && (*node).type_ == pg_sys::NodeTag::T_ExplainStmt {
+        let explain = &*node.cast::<pg_sys::ExplainStmt>();
+        let mut analyze = false;
+        for option in pgrx::PgList::<pg_sys::DefElem>::from_pg(explain.options).iter_ptr() {
+            if std::ffi::CStr::from_ptr((*option).defname).to_bytes() == b"analyze" {
+                analyze = pg_sys::defGetBoolean(option);
+            }
+        }
+        Some(ExplainUtilityGuard {
+            _explain: ExplainGuard::new(!analyze),
+            invalidate: !analyze && crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Error,
+        })
+    } else {
+        None
+    };
+    if let Some(prev_hook) = PREV_PROCESS_UTILITY_HOOK {
+        prev_hook(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    } else {
+        pg_sys::standard_ProcessUtility(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    }
+}
+
 static mut PREV_EXPLAIN_ONE_QUERY_HOOK: pg_sys::ExplainOneQuery_hook_type = None;
 
 #[allow(clippy::too_many_arguments)]
@@ -285,6 +338,8 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
 /// This allows `emit_planner_warnings()` to downgrade `paradedb.planner_warnings = 'error'`
 /// to warnings during `EXPLAIN` without `ANALYZE`, allowing users to inspect the query plan.
 pub unsafe fn register_explain_hook() {
+    PREV_PROCESS_UTILITY_HOOK = pg_sys::ProcessUtility_hook;
+    pg_sys::ProcessUtility_hook = Some(explain_process_utility_hook);
     PREV_EXPLAIN_ONE_QUERY_HOOK = pg_sys::ExplainOneQuery_hook;
     pg_sys::ExplainOneQuery_hook = Some(paradedb_explain_one_query_hook);
 }

@@ -265,9 +265,11 @@ impl MetaPage {
     /// Retains both VACUUM barriers before a merger can load segment metadata.
     pub fn pin_merge(&self) -> MergePins {
         assert!(block_number_is_valid(self.data.merge_lock));
+        // A merger waiting for admission must not hold pins that VACUUM needs.
+        let cleanup_barrier = self.cleanup_lock_for_reader();
         MergePins {
             _merge_barrier: self.bman.pinned_buffer(self.data.merge_lock),
-            _cleanup_barrier: self.bman.pinned_buffer(self.cleanup_lock_blockno()),
+            _cleanup_barrier: cleanup_barrier,
         }
     }
 
@@ -346,7 +348,7 @@ impl MetaPage {
 /// selecting segments and on the cleanup-page pin before deactivating its exclusion list.
 pub struct MergePins {
     _merge_barrier: PinnedBuffer,
-    _cleanup_barrier: PinnedBuffer,
+    _cleanup_barrier: CleanupPin,
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -354,7 +356,7 @@ impl MergePins {
     pub(crate) fn pg_buffers(&self) -> [pg_sys::Buffer; 2] {
         [
             self._merge_barrier.pg_buffer(),
-            self._cleanup_barrier.pg_buffer(),
+            self._cleanup_barrier._pin.pg_buffer(),
         ]
     }
 }

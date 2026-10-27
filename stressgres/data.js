@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793090774806,
+  "lastUpdate": 1793090856044,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -498907,6 +498907,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12699445098-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bc1c667888a76a3b48fd6a2a692422e2d82ffc",
+          "message": "ci: migrate Cohere vector benchmarks to pdbench and Benchmarker (#7040)\n\nCohere vector CI currently owns its recall sweep, latency sampling, and\ncomparison logic. Replace that path with `paradedb/pdbench` for\nr90/r95/r99 max_probe selection and `paradedb/benchmarker` k6 for\nlatency and throughput at each selected point.\n\nKeep the native pgrx cluster, pgBackRest 1M/10M heap snapshots, index\noptions, vacuuming, and snapshot generation. The index uses the current\n`paradedb` access-method name so pdbench recognizes it. Preserve the\nexisting 100 query vectors and unfiltered/year/battle ground-truth\nfixtures; remove HNSW, IVFFlat, VectorChord, and pgvectorscale CI\nimplementations.\n\nReuse the Wikipedia/StackExchange publisher for p50/p95/p99 and QPS per\nfilter/recall target, with recall, selected max_probe, and mean shared\nbuffer hits/reads above the comparisons. Verify parameterized query\nplans before k6, retain unreached targets without fabricating timing\nresults, and start separate Cohere Benchmarker baseline histories. The\nhandoff exports pdbench's selections and session settings without\nimplementing a second sweep or timing engine.\n\nValidation:\n- 31 Rust benchmark tests and 5 Python handoff/plan tests pass.\n- Workflow lint, Ruff, rustfmt, Prettier, and whitespace checks pass.\n- Native 1M k6 smoke tests pass at all eight reachable operating points;\nfilter pushdown is verified. The shared publisher extracts 24 latency\nand eight QPS series with warmup excluded, and its locally rendered\ncomment includes the recall/buffer table.\n- Completed all three 100-vector recall sweeps against a native 1M\nindex. The parameterized k6 query path reproduces pdbench recall at all\neight reachable operating points; unfiltered r99 is correctly reported\nas unreachable on that local build.\n- Cloud 1M/10M snapshot restore and full 300-second-per-point runs are\nin progress in CI. Local smoke timings are functional checks, not CI\nperformance results.\n\nThe existing ground-truth Parquets are imported into pdbench's fixture\ntable before the sweep. Both external tool revisions are pinned and\nrecorded with the run artifacts.",
+          "timestamp": "2026-10-27T03:26:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bc1c667888a76a3b48fd6a2a692422e2d82ffc"
+        },
+        "date": 1793090822490,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.435300435079396, max cpu: 4.729064, count: 59236"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.511660455635088, max mem: 20.53125, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622543824710631, max cpu: 4.7808766, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.146396669677223, max mem: 20.1484375, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.402546,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.215082430790174, max cpu: 37.83251, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.684314977906173, max mem: 20.6875, count: 59236"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.91170909582, max document_count: 10002.0, count: 59236"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.918242285097, max document_count: 10002.0, count: 59236"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.577648,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.3743709239127, max cpu: 33.185184, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 43.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.52477424781805, max mem: 59.8125, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.47506763849738, max cpu: 32.73259, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 43.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.39807810600817, max mem: 57.49609375, count: 59236"
+          }
+        ],
+        "publication_id": "12718921825-other"
       }
     ]
   }

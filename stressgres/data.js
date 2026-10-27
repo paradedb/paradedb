@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793061742172,
+  "lastUpdate": 1793061817020,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -477263,6 +477263,95 @@ window.BENCHMARK_DATA = {
             "extra": "avg mem: 47.78665024214259, max mem: 55.28125, count: 58798"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 \u00d7\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8\u201326), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T20:40:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793061786356,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 33.546875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 31.571891075376243, max partition_index_size:MB: 43.234375, count: 58805"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.055005777203828, max cpu: 32.941177, count: 58805"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.02868252327608, max mem: 56.51953125, count: 58805"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.753189229989037, max cpu: 33.3996, count: 58805"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 50.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.68404465766091, max mem: 58.31640625, count: 58805"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.519089,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.059466134315636, max cpu: 23.856857, count: 58805"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 42.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.082392547402435, max mem: 42.0703125, count: 58805"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.77523311389897, max cpu: 33.333336, count: 58805"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.22002586674177, max mem: 62.3984375, count: 58805"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.692119465148384, max cpu: 33.366436, count: 58805"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 48.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.822837596186545, max mem: 56.1796875, count: 58805"
+          }
+        ],
+        "publication_id": "12698345784-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

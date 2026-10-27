@@ -110,7 +110,7 @@ struct WorkerCoordination {
     mutex: Spinlock,
     _pad: [u8; 4],
     nstarted: usize,
-    nlaunched: usize,
+    nparticipants: usize,
     ntuples_done: usize,
     nsegments_written: usize,
     ntuples_staged: usize,
@@ -141,13 +141,13 @@ impl WorkerCoordination {
         let _lock = self.mutex.acquire();
         self.nstarted
     }
-    fn set_nlaunched(&mut self, nlaunched: usize) {
+    fn set_nparticipants(&mut self, nparticipants: usize) {
         let _lock = self.mutex.acquire();
-        self.nlaunched = nlaunched;
+        self.nparticipants = nparticipants;
     }
-    fn nlaunched(&mut self) -> usize {
+    fn nparticipants(&mut self) -> usize {
         let _lock = self.mutex.acquire();
-        self.nlaunched
+        self.nparticipants
     }
     fn add_tuples_done(&mut self, count: usize) {
         let _lock = self.mutex.acquire();
@@ -357,8 +357,8 @@ impl ParallelWorker for BuildWorker<'_> {
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
-        // wait for the leader to tell us how many total workers have been launched
-        while self.coordination.nlaunched() == 0 {
+        // Wait for the leader to publish the active participant count.
+        while self.coordination.nparticipants() == 0 {
             check_for_interrupts!();
             std::thread::yield_now();
         }
@@ -366,7 +366,16 @@ impl ParallelWorker for BuildWorker<'_> {
         // communicate to the group that we've started
         self.coordination.inc_nstarted();
 
-        let (reltuples, nmerges) = self.do_build(worker_number, false)?;
+        let active_workers = self.coordination.nparticipants()
+            - usize::from(unsafe { pg_sys::parallel_leader_participation });
+        let (reltuples, nmerges) = if (worker_number as usize) < active_workers {
+            self.do_build(worker_number, false)?
+        } else {
+            if let Some(scan) = self.table_scan_desc.take() {
+                unsafe { pg_sys::table_endscan(scan.as_ptr()) };
+            }
+            (0.0, 0)
+        };
         Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
     }
 }
@@ -397,23 +406,25 @@ impl<'a> BuildWorker<'a> {
         unsafe {
             let index_info = self.indexrel.index_info();
             (*index_info).ii_Concurrent = self.config.concurrent();
-            let nlaunched = self.coordination.nlaunched();
+            let nparticipants = self.coordination.nparticipants();
             let per_worker_memory_budget =
-                gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
-            let target_segment_count =
-                plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel);
+                gucs::adjust_maintenance_work_mem(nparticipants).get() / nparticipants;
+            let target_segment_count = self.partitioning.as_ref().map_or_else(
+                || plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel),
+                KdTree::partition_count,
+            );
             // Workers are numbered from 0 and a participating leader runs as one more, so the
             // leader takes the last participant slot.
             let participant = if is_leader {
-                nlaunched - 1
+                nparticipants - 1
             } else {
                 worker_number as usize
             };
-            let (_, worker_segment_target) =
-                chunk_range(target_segment_count, nlaunched, participant);
+            assert!(target_segment_count.is_multiple_of(nparticipants));
+            let worker_segment_target = target_segment_count / nparticipants;
 
             pgrx::debug1!(
-                "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
+                "build_worker {worker_number}: target_segment_count: {target_segment_count}, nparticipants: {nparticipants}, worker_segment_target: {worker_segment_target}"
             );
 
             // `None` without `partition_by`: the worker then takes the regular per-row path.
@@ -447,7 +458,7 @@ impl<'a> BuildWorker<'a> {
                 worker_number,
                 is_leader,
                 partitioning,
-                PartitionSpillFiles::new(self.fileset, participant, nlaunched),
+                PartitionSpillFiles::new(self.fileset, participant, nparticipants),
                 build_snapshot,
             )?;
 
@@ -773,7 +784,7 @@ struct WorkerBuildState<'a> {
     // 3. how many merges has this worker done so far? (incrementing counter)
     nmerges: usize,
     //
-    // 4. how many workers are there in total? (including the leader) - utilizing the `nlaunched` field in WorkerCoordination
+    // 4. how many workers are there in total? (including the leader) - utilizing the `nparticipants` field in WorkerCoordination
     coordination: &'a mut WorkerCoordination, // passing in `WorkerCoordination` to have a shared view of `ntuples_done`, used for reporting `tuples_done` in progress monitoring view
     //
     // 5. unmerged segment metas that this worker has created so far
@@ -823,7 +834,7 @@ impl<'a> WorkerBuildState<'a> {
         let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
-                    / coordination.nlaunched as u32
+                    / coordination.nparticipants as u32
                     / worker_segment_target as u32,
             )
         } else {
@@ -1024,9 +1035,9 @@ impl<'a> WorkerBuildState<'a> {
     fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
         *self.estimated_nsegments.get_or_init(|| {
             let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
-            let reltuples_per_worker = reltuples / self.coordination.nlaunched as f64;
+            let reltuples_per_worker = reltuples / self.coordination.nparticipants as f64;
             let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
-            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nlaunched);
+            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nparticipants: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nparticipants);
             nsegments
         })
     }
@@ -1395,6 +1406,10 @@ pub(super) fn build_index(
         snapshot.0,
         plan::adjusted_target_segment_count(&heaprel, &indexrel),
     )?;
+    let target_segment_count = partitioning.as_ref().map_or_else(
+        || plan::adjusted_target_segment_count(&heaprel, &indexrel),
+        KdTree::partition_count,
+    );
     if let Some(partitioning) = &partitioning {
         pgrx::debug1!(
             "build_index: {} partition boundaries:\n{}",
@@ -1458,9 +1473,11 @@ pub(super) fn build_index(
             nlaunched_plus_leader += 1;
         }
 
-        // set_nlaunched last, because workers wait for this to be set
-        coordination.set_nlaunched(nlaunched_plus_leader);
-        pgrx::debug1!("build_index: has {nlaunched_plus_leader} workers (including leader)");
+        let participants =
+            plan::balanced_participant_count(target_segment_count, nlaunched_plus_leader);
+        // Workers wait for this count; excess workers exit without scanning.
+        coordination.set_nparticipants(participants);
+        pgrx::debug1!("build_index: has {participants} active participants (including leader)");
 
         let (mut total_tuples, mut total_merges) = if leader_participating {
             // if the leader is to participate too, it's nice for it to wait until all the other workers
@@ -1473,7 +1490,7 @@ pub(super) fn build_index(
 
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            worker.do_build(nlaunched_plus_leader as i32, true)?
+            worker.do_build(participants as i32, true)?
         } else {
             pgrx::debug1!("build_index: leader is not participating");
             (0.0, 0)
@@ -1494,7 +1511,7 @@ pub(super) fn build_index(
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
         // whole build here in this connected backend
         let mut coordination: WorkerCoordination = Default::default();
-        coordination.set_nlaunched(1);
+        coordination.set_nparticipants(1);
 
         let mut worker = BuildWorker::new(
             &heaprel,
@@ -1518,13 +1535,20 @@ pub(super) fn build_index(
 pub(crate) mod plan {
     use super::*;
 
+    pub(super) fn balanced_participant_count(target: usize, available: usize) -> usize {
+        (1..=available.min(target))
+            .rev()
+            .find(|participants| target.is_multiple_of(*participants))
+            .expect("at least one participant is available")
+    }
+
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
     /// is greater than available parallelism, we use available parallelism.
     ///
-    /// Each participant receives a share of the segment target, including the leader when
-    /// it participates. Shares may differ by one segment.
+    /// Choose a participant count that divides the segment target, including the leader
+    /// when it participates, so every participant receives the same quota.
     pub(super) fn create_index_nworkers(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
@@ -1573,7 +1597,8 @@ pub(crate) mod plan {
         }
 
         let leader = usize::from(unsafe { pg_sys::parallel_leader_participation });
-        let participants = (maintenance_workers + leader).min(target_segment_count);
+        let participants =
+            balanced_participant_count(target_segment_count, maintenance_workers + leader);
 
         participants - leader
     }
@@ -1730,7 +1755,7 @@ mod tests {
                 FOR attempt IN 1..100 LOOP
                     BEGIN
                         CREATE INDEX parallel_temp_limit_idx ON parallel_build_large
-                            USING paradedb (id, name) WITH (target_segment_count = 3);
+                            USING paradedb (id, name) WITH (target_segment_count = 4);
                         RAISE EXCEPTION 'build unexpectedly succeeded';
                     EXCEPTION WHEN configuration_limit_exceeded THEN
                         GET STACKED DIAGNOSTICS failure_context = PG_EXCEPTION_CONTEXT;
@@ -1779,7 +1804,7 @@ mod tests {
             r#"
             SET LOCAL temp_file_limit = '-1';
             CREATE INDEX parallel_temp_limit_idx ON parallel_build_large
-                USING paradedb (id, name) WITH (target_segment_count = 3);
+                USING paradedb (id, name) WITH (target_segment_count = 4);
         "#,
         )
         .unwrap();
@@ -1791,7 +1816,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_build_worker_count_uses_available_workers() {
+    fn test_build_worker_count_balances_segment_targets() {
         use crate::postgres::rel::PgSearchRelation;
 
         setup_parallel_build_large_table();
@@ -1811,18 +1836,18 @@ mod tests {
             Spi::run("SET max_parallel_workers = 8;").unwrap();
             for (target, available, without_leader, with_leader) in [
                 (1, 8, 0, 0),
-                (7, 4, 4, 4),
+                (7, 4, 1, 0),
                 (7, 8, 7, 6),
                 (8, 0, 0, 0),
                 (8, 1, 1, 1),
-                (8, 2, 2, 2),
-                (8, 4, 4, 4),
-                (8, 6, 6, 6),
-                (8, 7, 7, 7),
+                (8, 2, 2, 1),
+                (8, 4, 4, 3),
+                (8, 6, 4, 3),
+                (8, 7, 4, 7),
                 (8, 8, 8, 7),
-                (12, 4, 4, 4),
-                (12, 5, 5, 5),
-                (12, 8, 8, 8),
+                (12, 4, 4, 3),
+                (12, 5, 4, 5),
+                (12, 8, 6, 5),
             ] {
                 Spi::run(&format!(
                     "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
@@ -1862,7 +1887,7 @@ mod tests {
 
     /// Tests parallel index building with various configurations.
     ///
-    /// This test creates 35,000 rows and tests 32 different configuration
+    /// This test creates 35,000 rows and tests different configuration
     /// combinations of maintenance_work_mem, workers, leader participation,
     /// and target segment count.
     #[pg_test]
@@ -1912,7 +1937,7 @@ mod tests {
                                 mw, lp, mwm, ts, count
                             );
                         } else if *ts == 7 {
-                            assert!((4..=7).contains(&count), "prime target: {count} segments");
+                            assert_eq!(count, 7, "prime target: {count} segments");
                         } else if *ts == 32 {
                             // The parallel heap scan hands out blocks on demand, so a participant
                             // short on CPU scans fewer rows and flushes fewer segments than its
@@ -2030,6 +2055,55 @@ mod tests {
                 Some(100010000)
             );
             Spi::run("DROP INDEX vector_build_idx").unwrap();
+        }
+    }
+
+    #[pg_test]
+    fn test_partitioned_build_reduces_active_participants() {
+        Spi::run(
+            r#"
+            CREATE TABLE build_fewer_partitions (id bigint, tenant_id bigint, name text);
+            INSERT INTO build_fewer_partitions
+            SELECT i, i % 3, 'searchable' FROM generate_series(1, 3000) i;
+            SET LOCAL max_parallel_workers = 8;
+            SET LOCAL max_parallel_maintenance_workers = 4;
+            SET LOCAL maintenance_work_mem = '128MB';
+            "#,
+        )
+        .unwrap();
+        for leader in [false, true] {
+            Spi::run(&format!(
+                "SET LOCAL parallel_leader_participation = {leader};"
+            ))
+            .unwrap();
+            Spi::run(
+                "CREATE INDEX build_fewer_partitions_idx ON build_fewer_partitions
+                 USING paradedb (id, tenant_id, name)
+                 WITH (partition_by = 'tenant_id', target_segment_count = 8);",
+            )
+            .unwrap();
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT count(*) FROM paradedb.index_info('build_fewer_partitions_idx')"
+                )
+                .unwrap(),
+                Some(3)
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('build_fewer_partitions_idx')"
+                )
+                .unwrap(),
+                Some(3000)
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT count(*) FROM build_fewer_partitions WHERE name ||| 'searchable'"
+                )
+                .unwrap(),
+                Some(3000)
+            );
+            Spi::run("DROP INDEX build_fewer_partitions_idx;").unwrap();
         }
     }
 

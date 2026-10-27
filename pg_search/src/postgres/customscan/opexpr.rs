@@ -17,6 +17,7 @@
 
 use crate::api::HashMap;
 use crate::nodecast;
+use crate::postgres::customscan::collation_semantics::CollationOperation;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::types::ConstNode;
 use pgrx::{PgList, pg_sys};
@@ -27,9 +28,9 @@ pub type TantivyOperator = &'static str;
 
 pub trait TantivyOperatorExt {
     fn is_range(&self) -> bool;
-    #[allow(unused)]
     fn is_eq(&self) -> bool;
     fn is_neq(&self) -> bool;
+    fn collation_operation(&self) -> CollationOperation;
 }
 
 impl TantivyOperatorExt for TantivyOperator {
@@ -43,6 +44,20 @@ impl TantivyOperatorExt for TantivyOperator {
 
     fn is_neq(&self) -> bool {
         *self == "<>"
+    }
+
+    /// The text semantic a pushdown of this operator has to preserve.
+    ///
+    /// `=` and `<>` only need equality to agree. The range operators need the
+    /// collation to sort the way Tantivy does. Anything not classified here
+    /// takes the stricter of the two, since every byte-ordered collation is
+    /// also deterministic.
+    fn collation_operation(&self) -> CollationOperation {
+        if self.is_eq() || self.is_neq() {
+            CollationOperation::Equality
+        } else {
+            CollationOperation::Ordering
+        }
     }
 }
 

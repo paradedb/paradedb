@@ -94,6 +94,14 @@ class MockItemGeo(Base):
     description: Mapped[str] = mapped_column(Text)
 
 
+class MockItemPath(Base):
+    """Read-only hierarchical-filter fixture; path is referenced as raw SQL."""
+
+    __tablename__ = "mock_items_paths"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str] = mapped_column(Text)
+
+
 engine = create_engine(DATABASE_URL, future=True)
 
 __all__ = [
@@ -102,6 +110,7 @@ __all__ = [
     "Base",
     "MockItem",
     "MockItemGeo",
+    "MockItemPath",
     "Order",
     "engine",
 ]

@@ -31,11 +31,11 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, restrict_info};
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::node::NodeExt;
 use crate::postgres::search_operator_relations;
-use crate::postgres::utils::sort_json_keys;
+use crate::postgres::utils::{missing_partial_index_predicate, sort_json_keys};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -275,7 +275,7 @@ impl AggregateCSClause {
     }
 
     pub fn can_use_doc_count(&self, agg: &AggregateType) -> bool {
-        self.has_groupby() && !self.has_filter() && matches!(agg, AggregateType::CountAny { .. })
+        self.has_groupby() && !self.has_filter() && agg.can_use_doc_count()
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
@@ -481,6 +481,14 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
+        // A query that doesn't imply a partial index's predicate can't use this
+        // index at all, whatever the targetlist holds, so this decides before the
+        // clauses below report a narrower reason for the same decline.
+        let (restrict_info, _) = restrict_info(args.input_rel());
+        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
+            return Err("query does not imply the partial index predicate".into());
+        }
+
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
         // OrderBy is optional - if we can't extract it but there IS a sort clause,
         // use unpushable() to remember that ordering exists
@@ -634,7 +642,9 @@ unsafe fn detect_aggregate_orderby(
     // in a group are NULL. Tantivy treats NULL sums as 0 / omits them,
     // which differs from Postgres's NULL semantics. This causes groups
     // to be mis-ordered or pruned, so we bail out for non-COUNT targets.
-    if agg.can_use_doc_count() {
+    // `COUNT(group_key)` reads 0 on the NULL bucket, but Tantivy ranks
+    // that bucket by its `doc_count`.
+    if matches!(agg, AggregateType::CountAny { .. }) {
         return Some(AggregateOrderBy {
             target: AggregateMetricTarget::Count,
             direction,

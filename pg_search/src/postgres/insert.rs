@@ -443,9 +443,10 @@ pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
         if created_segment {
             do_merge(
                 &state.indexrel,
-                MergeStyle::Insert,
-                Some(pg_sys::GetCurrentFullTransactionId()),
-                Some(pg_sys::ReadNextFullTransactionId()),
+                MergeStyle::Insert {
+                    current_xid: pg_sys::GetCurrentFullTransactionId(),
+                    next_xid: pg_sys::ReadNextFullTransactionId(),
+                },
             )
             .expect("should be able to merge");
         }

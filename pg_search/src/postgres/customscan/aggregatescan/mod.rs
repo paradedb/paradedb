@@ -118,6 +118,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
@@ -1087,6 +1088,7 @@ impl CustomScan for AggregateScan {
             .add_to_explainer(explainer);
 
         if explainer.is_analyze() {
+            state.custom_state().segment_pruning.explain(explainer);
             let stats = &state.custom_state().visibility_stats;
             let [skipped, checked, total, requiring_checks] = stats.totals();
             explainer.add_group("Visibility", |explainer| {
@@ -2101,6 +2103,7 @@ impl AggregateScan {
             ExecutionState::Completed => return None,
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
+                count_index_scan(state.custom_state().indexrel());
                 let mut row_iter = aggregation_results_iter(state);
                 let first = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
@@ -2292,6 +2295,9 @@ impl AggregateScan {
                 let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
                 for source in df_state.plan.sources() {
                     predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
+                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                    }
                 }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
@@ -2625,7 +2631,7 @@ impl AggregateScan {
 /// these aggregates from the Tantivy request — so they must NOT be advanced
 /// past when walking the result iterator.
 fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSClause) -> bool {
-    agg_type.can_use_doc_count() && !aggregate_clause.has_filter() && aggregate_clause.has_groupby()
+    aggregate_clause.can_use_doc_count(agg_type)
 }
 
 /// Convert one aggregate target-list entry to a Postgres datum.
@@ -2661,8 +2667,16 @@ unsafe fn aggregate_value_to_datum(
         });
     }
     if uses_doc_count_path(agg_type, aggregate_clause) {
-        return row
-            .doc_count()
+        let count = match agg_type {
+            AggregateType::Count {
+                group_key: Some(idx),
+                ..
+            } if is_string_null_sentinel(&row.group_keys[*idx]) => {
+                TantivyValue(PdbOwnedValue::U64(0))
+            }
+            _ => row.doc_count(),
+        };
+        return count
             .try_into_datum(pgrx::PgOid::from(target_typoid))
             .ok()
             .flatten();
@@ -2794,6 +2808,27 @@ fn decode_safe_cast(
     }
 }
 
+/// True when a group key is the sentinel Tantivy's terms aggregation puts on the bucket of rows
+/// whose column is NULL (handles both MIN and MAX sentinels).
+/// U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
+/// Bool uses string sentinels for both MIN and MAX.
+/// DateTime columns don't have a missing sentinel (NULLs are excluded).
+fn is_null_group_key(key: &TantivyValue) -> bool {
+    match &key.0 {
+        PdbOwnedValue::Str(_) => is_string_null_sentinel(key),
+        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+        PdbOwnedValue::U64(v) => *v == u64::MAX,
+        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+        _ => false,
+    }
+}
+
+/// The NULL bucket of a key with a string sentinel. A real key of another type, such as a JSON
+/// number equal to `i64::MIN`, must not read as NULL here.
+fn is_string_null_sentinel(key: &TantivyValue) -> bool {
+    matches!(&key.0, PdbOwnedValue::Str(s) if s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX)
+}
+
 /// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels
 /// (used for I64/U64/F64/Bool when the aggregator omits a row) and the
 /// datetime decoding path (Tantivy returns ISO-8601 strings; we parse them
@@ -2807,17 +2842,7 @@ unsafe fn group_key_to_datum(
     original_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
-    // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
-    // Bool uses string sentinels for both MIN and MAX.
-    // DateTime columns don't have a missing sentinel (NULLs are excluded).
-    let is_null_sentinel = match &key.0 {
-        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
-        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-        PdbOwnedValue::U64(v) => *v == u64::MAX,
-        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
-        _ => false,
-    };
-    if is_null_sentinel {
+    if is_null_group_key(&key) {
         return None;
     }
 

@@ -25,6 +25,7 @@
 //! single lazily-claimed partition: segments are claimed dynamically from `ParallelScanState`
 //! in parallel execution, or chained end-to-end when serial.
 
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -64,7 +65,7 @@ use tantivy::Score;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, SegmentPruningEstimate};
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
@@ -166,10 +167,10 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the state has been consumed.
     planner_estimated_rows: u64,
-    /// Number of segments this plan may process after applying its static execution-time proof.
+    /// Candidate and pruned segment counts from this plan's static execution-time proof.
     /// Kept around for EXPLAIN after the state is consumed. The reader still retains the full
     /// manifest/DSM view; this is an estimate and never a segment-identity authority.
-    segment_count: usize,
+    segment_pruning: SegmentPruningEstimate,
     /// Number of partitions in the scan before task specialization. A specialized variant's
     /// `output_partitioning` is always one, so this count is serialized separately and used to
     /// rebuild the original range boundaries when the variant is decoded on its worker.
@@ -219,7 +220,7 @@ impl Clone for PgSearchScanPlan {
         Self {
             state: Mutex::new(new_state),
             planner_estimated_rows: self.planner_estimated_rows,
-            segment_count: self.segment_count,
+            segment_pruning: self.segment_pruning,
             global_partition_count: self.global_partition_count,
             properties: Arc::clone(&self.properties),
             resolved_query: self.resolved_query.clone(),
@@ -305,20 +306,20 @@ impl PgSearchScanPlan {
             .as_ref()
             .map(|s| s.planner_estimated_rows)
             .unwrap_or(0);
-        let segment_count = state
+        let segment_pruning = state
             .as_ref()
-            .map(|s| s.reader.segment_pruning_estimate().candidate_segments)
-            .unwrap_or(0);
+            .map(|s| s.reader.segment_pruning_estimate())
+            .unwrap_or_default();
 
         if range_split_points.is_none() {
             // A partition count exceeding the segment count indicates a bug in
             // pg_search_scan_desired_task_count, which should cap the tasks
             // to the segment count when range partitioning is off.
             assert!(
-                partition_count <= segment_count.max(1),
+                partition_count <= segment_pruning.candidate_segments.max(1),
                 "partition_count {} exceeds segment_count {}",
                 partition_count,
-                segment_count
+                segment_pruning.candidate_segments
             );
         }
 
@@ -347,7 +348,7 @@ impl PgSearchScanPlan {
         Self {
             state: Mutex::new(exec_state),
             planner_estimated_rows,
-            segment_count,
+            segment_pruning,
             global_partition_count: partition_count,
             properties,
             resolved_query,
@@ -451,7 +452,7 @@ impl PgSearchScanPlan {
         Arc::new(Self {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
-            segment_count: self.segment_count,
+            segment_pruning: self.segment_pruning,
             global_partition_count,
             properties,
             resolved_query: self.resolved_query.clone(),
@@ -1041,11 +1042,19 @@ impl DisplayAs for PgSearchScanPlan {
                 partition_segments.included.len(),
                 partition_segments.pruned.len()
             )?;
+        } else if self.segment_pruning.pruned_segments > 0 {
+            write!(
+                f,
+                "PgSearchScan: table={}, segments={{included={}, pruned={}}}",
+                self.table_alias,
+                self.segment_pruning.candidate_segments,
+                self.segment_pruning.pruned_segments
+            )?;
         } else {
             write!(
                 f,
                 "PgSearchScan: table={}, segments={}",
-                self.table_alias, self.segment_count
+                self.table_alias, self.segment_pruning.candidate_segments
             )?;
         }
         if let Some(range_split_points) = &self.range_split_points {
@@ -1679,11 +1688,15 @@ pub(crate) fn pg_search_scan_desired_task_count(
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
     let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
+    let partition_count = NonZeroUsize::new(partition_count)?;
     // `maximum` rather than `desired`: `partition_count` is already clamped to the number
     // of physical index segments (when range partitioning is off). A single segment cannot
     // be concurrently scanned by multiple workers, so scaling the stage past it would just
     // starve tasks with useless setup work (like building empty hash tables) for zero rows.
-    Some(Ok(DesiredTaskCountEventResponse::maximum(partition_count)))
+    Some(Ok(DesiredTaskCountEventResponse::max(
+        partition_count,
+        partition_count.get(),
+    )))
 }
 
 /// Replaces a `PgSearchScanPlan` leaf with per-task variants once its stage's task
@@ -1909,6 +1922,53 @@ mod tests {
             1,
             None,
             None,
+        );
+    }
+
+    #[pg_test]
+    fn display_shows_pruned_segments_only_when_nonzero() {
+        use crate::index::reader::index::SegmentPruningEstimate;
+
+        let render = |estimate: SegmentPruningEstimate| {
+            let mut plan = PgSearchScanPlan::new(
+                None,
+                empty_schema(),
+                SearchQueryInput::All,
+                None,
+                Vec::new(),
+                None,
+                0,
+                None,
+                1,
+                None,
+                None,
+            )
+            .with_table_alias("items");
+            plan.segment_pruning = estimate;
+            format!(
+                "{}",
+                datafusion::physical_plan::display::DisplayableExecutionPlan::new(&plan).one_line()
+            )
+        };
+
+        let unpruned = render(SegmentPruningEstimate {
+            candidate_segments: 4,
+            pruned_segments: 0,
+            candidate_docs: 40,
+        });
+        assert!(
+            unpruned.contains("PgSearchScan: table=items, segments=4,"),
+            "unexpected display when pruned_segments == 0: {unpruned}"
+        );
+
+        let pruned = render(SegmentPruningEstimate {
+            candidate_segments: 1,
+            pruned_segments: 3,
+            candidate_docs: 10,
+        });
+        assert!(
+            pruned.contains("PgSearchScan: table=items, segments={included=1, pruned=3},"),
+            "unexpected display when pruned_segments > 0: {pruned}"
         );
     }
 }

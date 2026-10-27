@@ -1,52 +1,41 @@
 name: Benchmark - Queries
-description: Run a given benchmark dataset against pg_search and publish metrics
+description: Run a given benchmark dataset against pg_search and stage results for publication
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   dataset:
-    description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
+    description: "Benchmark dataset (e.g. logs, docs, stackoverflow)"
     required: true
   size:
-    description: "Size label for pre-sampled dataset, e.g. '100k', '1m', '20m'"
+    description: "Pre-sampled dataset size (e.g. 100k, 1m, 20m)"
     required: true
   index:
-    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25, hnsw, ivfflat"
+    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25"
     required: true
   ref:
-    description: "Git ref or short SHA to report in benchmarks"
-    required: true
-  github_token:
-    description: "GitHub token to authenticate with"
+    description: "Full SHA of the commit benchmarked"
     required: true
   fail_on_error:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
     default: "true"
-  publish:
+  publish_baseline:
     description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
     required: false
     default: "false"
   alert_threshold:
     description: >-
       Ratio of current to baseline value above which github-action-benchmark alerts,
-      e.g. "115%". Callers using the paired-bootstrap strategy should loosen this into a
-      catastrophic-regression backstop, since the comparison script owns real alerting.
+      e.g. "115%".
     required: false
     default: "115%"
-  alert_strategy:
-    description: >-
-      How regressions are detected. "point-ratio": only the alert_threshold point comparison.
-      "paired-bootstrap": percentile series whose runs published per-query samples alert when the
-      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x -- pairing cancels
-      cross-query latency variance, so this is both less noisy and more sensitive than a point
-      comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
-      p99 series stay charted but never alert; a single-run p99 cannot evidence a regression.
-    required: false
-    default: "point-ratio"
-
 runs:
   using: "composite"
   steps:
-    - name: Refresh pg_search after snapshot restore
+    - name: Refresh pg_search after Snapshot Restore
       shell: bash
       run: |
         # Heap snapshots include an old extension catalog. Recreate it from the installed
@@ -57,7 +46,7 @@ runs:
           -c "CREATE EXTENSION pg_search;"
 
     - name: Run Benchmarks
-      working-directory: benchmarks/
+      working-directory: ${{ inputs.source_directory }}/benchmarks/
       shell: bash
       env:
         DATASET: ${{ inputs.dataset }}
@@ -66,8 +55,10 @@ runs:
         SIZE: ${{ inputs.size }}
       run: |
         POSTGRES_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
+        results_file="results_${DATASET}_${INDEX}_${SIZE}.json"
+        rm -f results.json "$results_file"
 
-        # The heap is assumed to already be restored from a snapshot; the benchmark builds the
+        # The heap has already been restored from a snapshot. The benchmark builds the
         # index and runs queries against it.
         cargo run --release -- benchmark \
           --url "${POSTGRES_URL}" \
@@ -78,14 +69,21 @@ runs:
           --output json \
           --fail-on-error "${FAIL_ON_ERROR}"
 
-        echo "ROWS_LABEL=${SIZE}" >> "$GITHUB_ENV"
+        # Historical benchmark code writes to a shared results.json file.
+        if [ -f results.json ]; then
+          mv results.json "$results_file"
+        fi
 
     - name: Upload Query Benchmark Results
       if: always()
       uses: actions/upload-artifact@v7
+      env:
+        DATASET: ${{ inputs.dataset }}
+        INDEX: ${{ inputs.index }}
+        SIZE: ${{ inputs.size }}
       with:
         name: query-benchmark-${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}-${{ github.run_attempt }}
-        path: benchmarks/results.json
+        path: ${{ inputs.source_directory }}/benchmarks/results_${{ env.DATASET }}_${{ env.INDEX }}_${{ env.SIZE }}.json
         retention-days: 1 # Fallback if publishing fails
         if-no-files-found: warn
 
@@ -101,50 +99,8 @@ runs:
         PG_VERSION: ${{ env.pg_version }}
       run: ./.github/scripts/render_crashdump.sh
 
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
-
-    - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+    - name: Stage Results for Publication
+      uses: ./.github/actions/stage-benchmark-results
       with:
-        name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
-        ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output-file-path: benchmarks/results.json
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        auto-push: ${{ inputs.publish }}
-        benchmark-data-dir-path: benchmarks
-        alert-threshold: ${{ inputs.alert_threshold }}
-        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ github.event_name == 'pull_request' }}
-
-    # The publish step above appends the current run to its local gh-pages clone, so the script
-    # takes the second-to-last entry as the baseline.
-    - name: Compare Against Baseline (Paired Bootstrap)
-      if: inputs.alert_strategy == 'paired-bootstrap'
-      id: paired_bootstrap
-      shell: bash
-      env:
-        INPUTS_DATASET: ${{ inputs.dataset }}
-        INPUTS_INDEX: ${{ inputs.index }}
-      run: |
-        python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
-          --results benchmarks/results.json \
-          --data-js benchmark-data-repository/benchmarks/data.js \
-          --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ env.ROWS_LABEL }} rows)" \
-          --out benchmark-alert.md
-
-    - name: Comment on Alert (Paired Bootstrap)
-      if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github_token }}
-      run: |
-        printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
-        gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-          -F body=@benchmark-alert.md
+        benchmark_type: queries
+        metadata: ${{ toJSON(inputs) }}

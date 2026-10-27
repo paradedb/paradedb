@@ -60,29 +60,53 @@ SELECT pg_prewarm('search_idx');
 
 ## Configuring Autovacuum
 
-If an index experiences frequent writes, the search performance of some queries like [sorting](/reference/full-text/score) or
-[aggregates](/reference/aggregates/overview) can degrade if `VACUUM` has not been recently run. This is because writes can cause parts of Postgres' visibility map
-to go out of date, and `VACUUM` updates the visibility map.
+ParadeDB relies on Postgres' [visibility map](https://www.postgresql.org/docs/current/storage-vm.html) to confirm that matching index entries are visible without reading the underlying heap pages:
 
-To determine if search performance is degraded by lack of `VACUUM`, run `EXPLAIN ANALYZE` over a query. A `Parallel Custom Scan`
-in the query plan with a large number of `Heap Fetches` typically means that `VACUUM` should be run.
+- Aggregates (`ParadeDB Aggregate Scan`) skip MVCC checks for entire segments or bitmap windows when their heap blocks are marked all-visible, avoiding per-row `ctid` lookups and heap fetches.
+- Joins (`ParadeDB Join Scan`) and covering scans (`ParadeDB Base Scan`) confirm visibility directly from the visibility map and skip or defer `ctid` fast-field reads and heap page access for all-visible blocks.
+- Top-K and heap-fetching scans (`ParadeDB Base Scan`) avoid stepping over dead tuples left behind by unvacuumed updates and deletes.
 
-Postgres can be configured to automatically vacuum a table when a certain number of rows have been updated. Autovacuum settings
-can be set globally in `postgresql.conf` or for a specific table.
+When a table experiences writes (`INSERT`, `UPDATE`, or `DELETE`), Postgres clears the all-visible bit in the visibility map for every modified 8 KB heap page until `VACUUM` runs. Because the visibility map tracks pages rather than individual rows, updating even a small percentage of rows scattered across a large table can mark the majority of its heap pages as not all-visible long before Postgres' default `autovacuum_vacuum_scale_factor` (`0.2`, or 20% of table rows) triggers a `VACUUM`. Similarly, newly inserted pages after a bulk load are not marked all-visible until `VACUUM` runs.
+
+### Diagnosing Visibility Map Staleness
+
+When a scan encounters a significantly stale visibility map (by default, at least `paradedb.visibility_map_warning_threshold = 10000` non-all-visible heap blocks across the table and at least 50% of scanned blocks not all-visible), ParadeDB emits a once-per-query `WARNING` (controlled by `paradedb.planner_warnings`).
+
+You can also inspect `EXPLAIN ANALYZE` output to see how much heap visibility work a query performed:
+
+- On `ParadeDB Aggregate Scan`, check the `Visibility` section (`Segments Skipped` vs `Segments Checked`, and `Blocks Requiring Checks` vs `Blocks Total`).
+- On `ParadeDB Base Scan`, check `Heap Fetches` (and `Invisible Tuples` under `EXPLAIN (ANALYZE, VERBOSE)`).
+
+### Tuning Autovacuum
+
+Postgres can be configured to automatically vacuum a table when a certain number of rows have been modified or inserted. Autovacuum settings can be set globally in `postgresql.conf` or for a specific table:
 
 ```sql
-ALTER TABLE mock_items SET (autovacuum_vacuum_threshold = 500);
+ALTER TABLE mock_items SET (
+  autovacuum_vacuum_scale_factor = 0,
+  autovacuum_vacuum_threshold = 100000,
+  autovacuum_vacuum_insert_scale_factor = 0,
+  autovacuum_vacuum_insert_threshold = 100000
+);
 ```
 
 There are several [autovacuum settings](https://www.postgresql.org/docs/current/routine-vacuuming.html#AUTOVACUUM), but the important ones to
 note are:
 
-1. `autovacuum_vacuum_scale_factor` triggers an autovacuum if a certain percentage of rows in a table have been updated.
-2. `autovacuum_vacuum_threshold` triggers an autovacuum if an absolute number of rows have been updated.
-3. `autovacuum_naptime` ensures that vacuum does not run too frequently.
+1. `autovacuum_vacuum_scale_factor` triggers an autovacuum if a certain percentage of rows in a table have been updated or deleted.
+2. `autovacuum_vacuum_threshold` triggers an autovacuum if an absolute number of rows have been updated or deleted.
+3. `autovacuum_vacuum_insert_scale_factor` and `autovacuum_vacuum_insert_threshold` trigger an autovacuum after a percentage or absolute number of rows have been inserted, keeping the visibility map up to date for insert-heavy workloads.
+4. `autovacuum_naptime` ensures that vacuum does not run too frequently.
 
-This means that setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` will trigger an autovacuum
-for every `100000` row updates. As a general rule of thumb, we recommend autovacuuming at least once every `100000` single-row updates.
+Setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` triggers an autovacuum for every `100000` row updates. As a general rule of thumb, we recommend autovacuuming at least once every `100000` single-row updates, and running a manual `VACUUM` immediately after large bulk loads.
+
+We also generally recommend `vacuum_index_cleanup = on` for frequently updated tables with a ParadeDB index. By default, Postgres can skip removing dead index entries when fewer than 2% of heap pages contain dead entries. ParadeDB needs cleanup well below this threshold for optimal query performance. This setting forces dead index entry removal during vacuum:
+
+```sql
+ALTER TABLE mock_items SET (vacuum_index_cleanup = on);
+```
+
+This must be applied per table. It is not a database-wide setting.
 
 ## Adjusting Target Segment Count
 

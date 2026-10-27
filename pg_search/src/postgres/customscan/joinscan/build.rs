@@ -468,7 +468,9 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
+    /// Uses [`SearchIndexReader::mvcc_for_estimation`] (`MvccSatisfies::Snapshot` when the
+    /// query has predicates that can prune segments via `.stats`, or
+    /// `MvccSatisfies::LargestSegment` otherwise) for cheap estimation. When the
     /// query has heap filters or `PostgresExpression`s (which need executor
     /// state we don't have at planning time), falls back to `total_docs` as
     /// an upper bound - looser estimate but avoids evaluating Param-bearing
@@ -499,11 +501,12 @@ impl JoinSourceCandidate {
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let needs_tokenizer_manager = query.needs_tokenizer();
+        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
             false,
-            MvccSatisfies::LargestSegment,
+            mvcc_style,
             NonNull::new(expr_context.as_ptr()),
             None,
             needs_tokenizer_manager,
@@ -511,11 +514,8 @@ impl JoinSourceCandidate {
         )
         .expect("Failed to open index reader for estimation");
 
-        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-        // execution may skip some of these segments.
-        self.segment_count = Some(reader.total_segment_count());
-
         let estimate = reader.estimate_docs(row_estimate);
+        self.segment_count = Some(reader.estimated_segment_count());
         self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }
@@ -574,11 +574,8 @@ impl JoinSource {
         if attno == 0 {
             return true;
         }
-        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
-            return true;
-        }
         if attno < 0 {
-            return false;
+            return attno > pg_sys::FirstLowInvalidHeapAttributeNumber as pg_sys::AttrNumber;
         }
         let heaprel = PgSearchRelation::open(self.scan_info.heaprelid);
         let tupdesc = heaprel.tuple_desc();
@@ -1533,14 +1530,12 @@ impl RelNode {
     /// left subtree and the other is in the right. This prevents
     /// `resolve_against` failures caused by both RTIs being in the same subtree.
     ///
-    /// **Why AggregateScan needs this but JoinScan does not:**
-    /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
-    /// for each join pair - so equi-keys arrive pre-distributed across join
-    /// levels by the planner itself. AggregateScan hooks into
-    /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
-    /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
-    /// all equi-keys land in a flat WHERE clause, not distributed across join
-    /// nodes, so this method is needed to place each key at the correct level.
+    /// **Why both scans need this:** JoinScan and AggregateScan reconstruct
+    /// the join tree from the parse tree. For implicit joins
+    /// (`FROM a, b, c WHERE ...`) all equi-keys land in a flat WHERE clause,
+    /// not distributed across join nodes, and a chain rebuilt in the
+    /// planner's estimated order starts with no keys at all, so this method
+    /// places each key at the correct level.
     pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
         for key in keys {
             self.inject_single_equi_key(key);
@@ -2034,9 +2029,17 @@ impl JoinCSClause {
             None
         }
     }
-    /// Visit every `SearchQueryInput` in this clause via `plan`.
+    /// Visit every `SearchQueryInput` in this clause: those in `plan`, and the
+    /// copies in window aggregate FILTER clauses. A FILTER's search predicate
+    /// finds its tag column by comparing its query with the scan's tagged copy,
+    /// so both copies must be solved alike.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         self.plan.visit_queries_mut(f);
+        for window_agg in self.window_aggs.iter_mut() {
+            if let Some(filter) = window_agg.filter.as_mut() {
+                filter.visit_queries_mut(f);
+            }
+        }
     }
 
     /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
@@ -2044,6 +2047,11 @@ impl JoinCSClause {
     /// to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         self.plan.visit_queries(f);
+        for window_agg in self.window_aggs.iter() {
+            if let Some(filter) = window_agg.filter.as_ref() {
+                filter.visit_queries(f);
+            }
+        }
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
@@ -2089,6 +2097,19 @@ impl JoinCSClause {
         self.visit_queries_mut(&mut |q| {
             q.solve_postgres_expressions_no_reset(expr_context);
         });
+    }
+
+    pub fn window_agg_filter_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
+        let mut predicates = Vec::new();
+        for w in self.window_aggs.iter() {
+            if let Some(filter) = w.filter.as_ref() {
+                filter.collect_search_predicates(&mut predicates);
+            }
+        }
+        predicates
+            .into_iter()
+            .map(|(i, p)| (i, p.clone()))
+            .collect()
     }
 }
 

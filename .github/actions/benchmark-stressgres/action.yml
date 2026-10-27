@@ -1,77 +1,54 @@
 name: Benchmark - Stressgres
-description: Run a given Stressgres job file against pg_search and publish metrics
+description: Run a given Stressgres job file against pg_search and stage results for publication
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   test_file:
-    description: "The .toml Stressgres scenario to run (e.g. single-node-planner-paths.toml)"
+    description: "Stressgres scenario file (e.g. single-node-planner-paths.toml)"
     required: true
   duration:
     description: "Duration of the Stressgres run, in milliseconds"
     required: false
     default: "600000" # 10 minutes in milliseconds
   ref:
-    description: "Git ref or short SHA to report in benchmarks"
-    required: true
-  github_app_client_id:
-    description: "GitHub App client ID to authenticate with"
-    required: true
-  github_app_private_key:
-    description: "GitHub App private key to authenticate with"
+    description: "Full SHA of the commit benchmarked"
     required: true
 
 runs:
   using: "composite"
   steps:
-    - name: Sanitize Inputs Into Variables
-      id: sanitize-inputs
+    - name: Determine Job Name
+      id: job-name
       shell: bash
       env:
-        REF: ${{ inputs.ref }}
         TEST_FILE: ${{ inputs.test_file }}
-      run: |
-        # Strip .toml from the test file name
-        echo "jobname=$(basename "$TEST_FILE" .toml)" >> "$GITHUB_OUTPUT"
-
-        # Strip slashes from the ref
-        safe_ref="${REF//\//-}"
-        echo "safe_ref=$safe_ref" >> "$GITHUB_OUTPUT"
-
-    - name: Resolving ${{ inputs.ref }} into SHA
-      id: resolve_ref
-      shell: bash
-      env:
-        REF: ${{ inputs.ref }}
-      run: |
-        echo "Resolving ref: $REF" >&2
-        # Try local resolution only
-        SHA=$(git rev-parse --verify --quiet "$REF")
-        if [ -z "$SHA" ]; then
-          echo "Could not resolve ref '$REF'" >&2
-          exit 1
-        fi
-        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      run: echo "jobname=$(basename "$TEST_FILE" .toml)" >> "$GITHUB_OUTPUT"
 
     - name: Run Stressgres Job
       shell: bash
       env:
         DURATION: ${{ inputs.duration }}
         TEST_FILE: ${{ inputs.test_file }}
-        STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
-        STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
+        SOURCE_DIRECTORY: ${{ inputs.source_directory }}
+        JOB_NAME: ${{ steps.job-name.outputs.jobname }}
+        COMMIT_SHA: ${{ inputs.ref }}
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
-          "stressgres/suites/${TEST_FILE}" \
-          --log-file "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-""${STEP_RESOLVE_REF_SHA}".log \
+          "${SOURCE_DIRECTORY}/stressgres/suites/${TEST_FILE}" \
+          --log-file "stressgres-${JOB_NAME}-${COMMIT_SHA}.log" \
           --pgversion pg18 \
           --runtime "${DURATION}"
 
     - name: Generate CSV
       shell: bash
       env:
-        STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
-        STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
-      run: stressgres csv "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-""${STEP_RESOLVE_REF_SHA}".log output.csv
+        JOB_NAME: ${{ steps.job-name.outputs.jobname }}
+        COMMIT_SHA: ${{ inputs.ref }}
+      run: stressgres csv "stressgres-${JOB_NAME}-${COMMIT_SHA}.log" output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -101,74 +78,11 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
-    - name: Generate GitHub App Token
-      id: app-token
-      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+    - name: Stage Results for Publication
+      uses: ./.github/actions/stage-benchmark-results
       with:
-        client-id: ${{ inputs.github_app_client_id }}
-        private-key: ${{ inputs.github_app_private_key }}
-
-    - name: Wait for App Token to Become Usable
-      shell: bash
-      env:
-        APP_TOKEN: ${{ steps.app-token.outputs.token }}
-      run: |
-        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
-        for attempt in $(seq 1 10); do
-          if git -c http.extraheader="$auth" ls-remote \
-              "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
-            echo "App token usable after ${attempt} attempt(s)"
-            exit 0
-          fi
-          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
-          sleep 5
-        done
-        echo "App token never became usable after 10 attempts" >&2
-        exit 1
-
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
-
-    - name: Publish TPS Metrics
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        name: "pg_search ${{ inputs.test_file }} Performance - TPS"
-        ref: ${{ inputs.ref }}
-        tool: customBiggerIsBetter
-        output-file-path: pg_search_tps.json
-        github-token: ${{ steps.app-token.outputs.token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        auto-push: ${{ github.event_name != 'pull_request' }}
-        benchmark-data-dir-path: stressgres
-        alert-threshold: "115%"
-        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ github.event_name == 'pull_request' }}
-
-    # Necessary to avoid "destination path is not empty" error
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
-
-    - name: Publish Other Metrics
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
-        ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output-file-path: pg_search_other.json
-        github-token: ${{ steps.app-token.outputs.token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        auto-push: ${{ github.event_name != 'pull_request' }}
-        benchmark-data-dir-path: stressgres
-        alert-threshold: "110%"
-        comment-on-alert: true
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ github.event_name == 'pull_request' }}
+        benchmark_type: stressgres
+        metadata: ${{ toJSON(inputs) }}
 
     - name: Print Postgres Logs
       if: always()

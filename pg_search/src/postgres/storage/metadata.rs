@@ -20,9 +20,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
 };
-use crate::postgres::storage::buffer::{
-    Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer,
-};
+use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer, init_new_buffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -232,6 +230,25 @@ impl MetaPage {
         MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
     }
 
+    /// `acquire_merge_lock` for VACUUM: waits for admitted mergers to drop their merge-page pins first.
+    ///
+    /// Keep `ambulkdelete` the only production caller. `LockBufferForCleanup` raises an ERROR when
+    /// a second backend waits on the same buffer, and VACUUM's self-conflicting table lock is what
+    /// keeps the waiter unique.
+    pub unsafe fn acquire_merge_lock_for_cleanup(&self) -> MergeLock {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        MergeLock::acquire_for_cleanup(self.bman.buffer_access().rel(), self.data.merge_lock)
+    }
+
+    /// Retains both VACUUM barriers before a merger can load segment metadata.
+    pub fn pin_merge(&self) -> MergePins {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        MergePins {
+            _merge_barrier: self.bman.pinned_buffer(self.data.merge_lock),
+            _cleanup_barrier: self.cleanup_lock_pinned(),
+        }
+    }
+
     pub fn vacuum_list(&self) -> VacuumList {
         assert!(block_number_is_valid(self.data.active_vacuum_list));
         VacuumList::open(
@@ -303,6 +320,23 @@ impl MetaPage {
     }
 }
 
+/// Pins a merger holds from admission to publication. VACUUM waits on the merge-page pin before
+/// selecting segments and on the cleanup-page pin before deactivating its exclusion list.
+pub struct MergePins {
+    _merge_barrier: PinnedBuffer,
+    _cleanup_barrier: PinnedBuffer,
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl MergePins {
+    pub(crate) fn pg_buffers(&self) -> [pg_sys::Buffer; 2] {
+        [
+            self._merge_barrier.pg_buffer(),
+            self._cleanup_barrier.pg_buffer(),
+        ]
+    }
+}
+
 // legacy hardcoded page support for various index objects
 impl MetaPage {
     const LEGACY_CLEANUP_LOCK: pg_sys::BlockNumber = 1;
@@ -311,38 +345,20 @@ impl MetaPage {
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
     pub fn cleanup_lock_pinned(&self) -> PinnedBuffer {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
+        let blockno = self.cleanup_lock_blockno();
         self.bman.pinned_buffer(blockno)
     }
 
-    pub fn cleanup_lock_shared(&self) -> Buffer {
-        let blockno = if self.data.cleanup_lock == 0 {
+    fn cleanup_lock_blockno(&self) -> pg_sys::BlockNumber {
+        if self.data.cleanup_lock == 0 {
             Self::LEGACY_CLEANUP_LOCK
         } else {
             self.data.cleanup_lock
-        };
-        self.bman.get_buffer(blockno)
-    }
-
-    pub fn cleanup_lock_exclusive(&mut self) -> BufferMut {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
-        self.bman.get_buffer_mut(blockno)
+        }
     }
 
     pub fn cleanup_lock_for_cleanup(&mut self) -> BufferMut {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
+        let blockno = self.cleanup_lock_blockno();
         self.bman.get_buffer_for_cleanup(blockno)
     }
 
@@ -468,6 +484,42 @@ mod tests {
     use super::*;
     use pgrx::datum::TimestampWithTimeZone;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn merger_pins_preserve_both_barriers_without_content_locks() {
+        Spi::run(
+            "CREATE TABLE merger_barriers (id bigint, body text); \
+             CREATE INDEX merger_barriers_idx ON merger_barriers USING paradedb (id, body);",
+        )
+        .unwrap();
+        let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'merger_barriers_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+        let mut metadata = MetaPage::open(&indexrel);
+        let pins = metadata.pin_merge();
+
+        unsafe {
+            let holdoff = pg_sys::InterruptHoldoffCount;
+            assert_eq!(holdoff, 0);
+            for buffer in pins.pg_buffers() {
+                assert!(pg_sys::ConditionalLockBuffer(buffer));
+                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+            }
+            drop(metadata.acquire_merge_lock());
+            let holdoff = pg_sys::InterruptHoldoffCount;
+            assert_eq!(holdoff, 0);
+        }
+        drop(pins);
+
+        let merge_lock = unsafe { metadata.acquire_merge_lock_for_cleanup() };
+        assert!(unsafe { merge_lock.merge_list().list().is_empty() });
+        let sentinel = metadata.pin_ambulkdelete_sentinel();
+        drop(merge_lock);
+        drop(metadata.cleanup_lock_for_cleanup());
+        drop(sentinel);
+        assert_eq!(unsafe { pg_sys::InterruptHoldoffCount }, 0);
+    }
 
     #[pg_test]
     fn created_by_version_is_stamped_at_index_build() {

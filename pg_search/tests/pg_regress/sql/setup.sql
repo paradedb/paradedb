@@ -1,16 +1,19 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- Pin parallelism so regress plans don't depend on the local cluster's worker config. The value
--- drives how much a query parallelizes, MPP or not, so a stock cluster and a tuned one would
--- otherwise produce different plans. Tests that want more workers raise it themselves.
+-- Pin parallelism so regress plans and index builds don't depend on the local cluster's worker
+-- config. These values drive how much a query or build parallelizes, so a stock cluster and a
+-- tuned one would otherwise produce different plans or warnings. Tests that want more workers
+-- raise them themselves.
 DO $$
 BEGIN
     EXECUTE format('ALTER DATABASE %I SET max_parallel_workers_per_gather = 2', current_database());
+    EXECUTE format('ALTER DATABASE %I SET max_parallel_maintenance_workers = 2', current_database());
 END
 $$;
--- Also set it for the current session, in case any subsequent setup steps rely on it
+-- Also set them for the current session, in case any subsequent setup steps rely on them
 SET max_parallel_workers_per_gather = 2;
+SET max_parallel_maintenance_workers = 2;
 
 -- Regress tables are tiny by design, so the MPP size gate would keep MPP off in every
 -- suite. Pin it off here; the suite that exercises the gate itself raises it per-test.
@@ -74,5 +77,19 @@ BEGIN
         RAISE EXCEPTION '% <> %: %', coalesce(a, '<NULL>'), coalesce(b, '<NULL>'), message;
     END IF;
     RETURN true;
+END;
+$$;
+
+/*
+ EXPLAINs a query with index OIDs masked. Plans that fall back to a heap filter embed the BM25
+ index OID, which changes on every database creation.
+ */
+CREATE FUNCTION explain_redact_oid(query text, options text DEFAULT 'COSTS OFF, TIMING OFF') RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (' || options || ') ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
+    END LOOP;
 END;
 $$;

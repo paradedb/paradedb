@@ -29,8 +29,13 @@ var operations = dbContext.GetService<IMigrationsModelDiffer>()
     .ToList();
 if (Environment.GetEnvironmentVariable("DOCS_EXPECT_INDEX") == "true" && operations.Count == 0)
     throw new InvalidOperationException("No ParadeDB index DDL generated for the documented model");
+await dbContext.Database.OpenConnectionAsync();
 foreach (var docsMigrationCommand in dbContext.GetService<IMigrationsSqlGenerator>().Generate(operations.Cast<MigrationOperation>().ToList(), designModel))
-    await dbContext.Database.ExecuteSqlRawAsync(docsMigrationCommand.CommandText);
+{
+    await using var docsCommand = dbContext.Database.GetDbConnection().CreateCommand();
+    docsCommand.CommandText = docsMigrationCommand.CommandText;
+    await docsCommand.ExecuteNonQueryAsync();
+}
 foreach (var operation in operations)
 {
     var count = await dbContext.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_index WHERE indexrelid = to_regclass({operation.Name}) AND indisvalid AND indisready").SingleAsync();
@@ -45,6 +50,7 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
     public DbSet<MockItem> MockItems => Set<MockItem>();
     public DbSet<ArrayDemo> ArrayDemo => Set<ArrayDemo>();
     public DbSet<MockItemGeo> MockItemsGeo => Set<MockItemGeo>();
+    public DbSet<MockItemPath> MockItemsPaths => Set<MockItemPath>();
     public DbSet<Order> Orders => Set<Order>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -89,6 +95,14 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
             entity.Property(item => item.Description).HasColumnName("description");
         });
 
+        modelBuilder.Entity<MockItemPath>(entity =>
+        {
+            entity.ToTable("mock_items_paths");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasColumnName("id");
+            entity.Property(item => item.Description).HasColumnName("description");
+        });
+
         // __PARADEDB_MODEL_SNIPPET__
     }
 }
@@ -122,5 +136,11 @@ public sealed class Order
 public sealed class MockItemGeo
 {
     public long Id { get; set; }
+    public string Description { get; set; } = "";
+}
+
+public sealed class MockItemPath
+{
+    public int Id { get; set; }
     public string Description { get; set; } = "";
 }

@@ -65,7 +65,7 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-hC5G/wYpJOIRc9Cs58lGk7LPuRn7cNlHTAbVOjBT+fs=";
+  cargoHash = "sha256-gOld9FM8hPWHgBK3zHt/5n8i05vtQTHhIBTSWhJQ9R0=";
 
   inherit cargo-pgrx postgresql;
 
@@ -102,7 +102,7 @@ buildPgrxExtension (finalAttrs: {
   passthru.updateScript = nix-update-script { };
 
   meta = {
-    description = "Just use Postgres. One Postgres for your application data, full-text search, vector retrieval, and aggregations.";
+    description = "Just use Postgres One Postgres for your application data, full-text search, vector retrieval, and aggregations.";
     homepage = "https://paradedb.com";
     changelog = "https://github.com/paradedb/paradedb/releases/tag/${finalAttrs.version}";
     license = lib.licenses.agpl3Only;

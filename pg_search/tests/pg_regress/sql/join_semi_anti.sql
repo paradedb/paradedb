@@ -204,8 +204,109 @@ AND id @@@ pdb.all() AND id = 1
 ORDER BY id ASC
 LIMIT 10;
 
+-- =====================================================================
+-- 7. Window aggregates over a non-columnar column, with a NOT IN subquery
+-- =====================================================================
+-- table_a.extra is not indexed. It is attno 3, the same attno as the
+-- indexed table_b.a_id, and table_b is rti 1 inside the lifted NOT IN
+-- subquery, just like table_a in the outer query. Resolving a window
+-- aggregate's column by (rti, attno) across every join source, including
+-- the pruned subquery side, used to find table_b's fast field: JoinScan
+-- accepted these queries, then returned COUNT 0 / SUM NULL for 7a and
+-- panicked for 7b. JoinScan must decline, and results must match Postgres.
+ALTER TABLE table_a ADD COLUMN extra int DEFAULT 3;
+
+DROP TABLE IF EXISTS table_c CASCADE;
+CREATE TABLE table_c (
+    id bigint NOT NULL PRIMARY KEY,
+    a_id bigint
+);
+INSERT INTO table_c (id, a_id) SELECT i, i FROM generate_series(1, 2000) AS i;
+CREATE INDEX table_c_idx ON table_c USING paradedb (id, a_id);
+ANALYZE table_c;
+
+-- Ground truth from Postgres.
+SET paradedb.enable_join_custom_scan TO off;
+SELECT a.id, COUNT(a.extra) OVER () AS cnt, SUM(a.extra) OVER () AS total
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+
+SELECT a.id, COUNT(*) FILTER (WHERE a.extra > 2) OVER () AS cnt
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- 7a. Window aggregate argument.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, COUNT(a.extra) OVER () AS cnt, SUM(a.extra) OVER () AS total
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+
+SELECT a.id, COUNT(a.extra) OVER () AS cnt, SUM(a.extra) OVER () AS total
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+
+-- 7b. Window aggregate FILTER column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, COUNT(*) FILTER (WHERE a.extra > 2) OVER () AS cnt
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+
+SELECT a.id, COUNT(*) FILTER (WHERE a.extra > 2) OVER () AS cnt
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+
 -- Cleanup
 DROP TABLE table_a CASCADE;
 DROP TABLE table_b CASCADE;
+DROP TABLE table_c CASCADE;
 
 RESET paradedb.enable_join_custom_scan;

@@ -416,15 +416,19 @@ pub fn extract_window_agg(
         );
     }
 
-    let all_sources = plan.sources();
+    let outer_root_id = PlannerRootId::from(root);
+    // window function arguments and window FILTER arguments are always VARS of the outer query
+    // level of the provided plan, so only use those
+    let outer_sources: Vec<_> = plan
+        .output_sources()
+        .into_iter()
+        .filter(|s| s.root_id == Some(outer_root_id))
+        .collect();
 
     let filter = if !wf.aggfilter.is_null() {
-        let outer_root_id = PlannerRootId::from(root);
-        let join_agg_sources: Vec<_> = plan
-            .output_sources()
-            .into_iter()
-            .filter(|s| s.root_id == Some(outer_root_id))
-            .map(JoinAggSource::from)
+        let join_agg_sources: Vec<_> = outer_sources
+            .iter()
+            .map(|s| JoinAggSource::from(*s))
             .collect();
         let filter_ctx = FilterExprBuildContext::Filter {
             root,
@@ -442,7 +446,7 @@ pub fn extract_window_agg(
         // verify each field the filter needs is columnar
         if f.collect_column_refs().iter().any(|cr| {
             resolve_fast_field_from_join_sources(
-                &all_sources,
+                &outer_sources,
                 cr.rti as pg_sys::Index,
                 cr.attno as i32,
             )
@@ -458,10 +462,10 @@ pub fn extract_window_agg(
     let agg_def = match SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar) {
         Some(agg_type) => WindowAggDef::Sql(SqlWindowAggDef {
             agg_type,
-            col_info: extract_column_info(wf, &all_sources, agg_type)?,
+            col_info: extract_column_info(wf, &outer_sources, agg_type)?,
         }),
         None if is_agg_funcoid(wf.winfnoid.to_u32()) => {
-            WindowAggDef::try_pdb_agg_from_window_func(wf, &all_sources)?
+            WindowAggDef::try_pdb_agg_from_window_func(wf, &outer_sources)?
         }
         None => return Err("unsupported window function was provided".to_string()),
     };

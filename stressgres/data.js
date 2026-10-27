@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793091458058,
+  "lastUpdate": 1793091539265,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -479193,6 +479193,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12698345784-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bc1c667888a76a3b48fd6a2a692422e2d82ffc",
+          "message": "ci: migrate Cohere vector benchmarks to pdbench and Benchmarker (#7040)\n\nCohere vector CI currently owns its recall sweep, latency sampling, and\ncomparison logic. Replace that path with `paradedb/pdbench` for\nr90/r95/r99 max_probe selection and `paradedb/benchmarker` k6 for\nlatency and throughput at each selected point.\n\nKeep the native pgrx cluster, pgBackRest 1M/10M heap snapshots, index\noptions, vacuuming, and snapshot generation. The index uses the current\n`paradedb` access-method name so pdbench recognizes it. Preserve the\nexisting 100 query vectors and unfiltered/year/battle ground-truth\nfixtures; remove HNSW, IVFFlat, VectorChord, and pgvectorscale CI\nimplementations.\n\nReuse the Wikipedia/StackExchange publisher for p50/p95/p99 and QPS per\nfilter/recall target, with recall, selected max_probe, and mean shared\nbuffer hits/reads above the comparisons. Verify parameterized query\nplans before k6, retain unreached targets without fabricating timing\nresults, and start separate Cohere Benchmarker baseline histories. The\nhandoff exports pdbench's selections and session settings without\nimplementing a second sweep or timing engine.\n\nValidation:\n- 31 Rust benchmark tests and 5 Python handoff/plan tests pass.\n- Workflow lint, Ruff, rustfmt, Prettier, and whitespace checks pass.\n- Native 1M k6 smoke tests pass at all eight reachable operating points;\nfilter pushdown is verified. The shared publisher extracts 24 latency\nand eight QPS series with warmup excluded, and its locally rendered\ncomment includes the recall/buffer table.\n- Completed all three 100-vector recall sweeps against a native 1M\nindex. The parameterized k6 query path reproduces pdbench recall at all\neight reachable operating points; unfiltered r99 is correctly reported\nas unreachable on that local build.\n- Cloud 1M/10M snapshot restore and full 300-second-per-point runs are\nin progress in CI. Local smoke timings are functional checks, not CI\nperformance results.\n\nThe existing ground-truth Parquets are imported into pdbench's fixture\ntable before the sweep. Both external tool revisions are pinned and\nrecorded with the run artifacts.",
+          "timestamp": "2026-10-27T03:26:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bc1c667888a76a3b48fd6a2a692422e2d82ffc"
+        },
+        "date": 1793091506639,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 27.0546875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 30.638853162727536, max partition_index_size:MB: 48.40625, count: 58727"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.04333000497667, max cpu: 33.03835, count: 58727"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.20852358955421, max mem: 56.58203125, count: 58727"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.75506738343672, max cpu: 37.795277, count: 58727"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 51.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.21035050157934, max mem: 59.0546875, count: 58727"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.458128,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.99042300292369, max cpu: 23.727139, count: 58727"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 40.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.22300572192092, max mem: 42.22265625, count: 58727"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.756664299017217, max cpu: 37.795277, count: 58727"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.57618986741618, max mem: 61.3828125, count: 58727"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.974134283575815, max cpu: 32.74854, count: 58727"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 46.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.515203890991366, max mem: 55.0859375, count: 58727"
+          }
+        ],
+        "publication_id": "12719740729-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

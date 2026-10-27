@@ -740,6 +740,29 @@ def update_digitalocean_version(repo_root, clean_ver):
     install_file.write_text(content, encoding="utf-8")
 
 
+def update_changelog_indexing(repo_root, version, is_latest):
+    """Keep only the latest release notes indexable, including on main sync."""
+    changelog_dir, _, _ = get_changelog_dirs(repo_root)
+    target = changelog_dir / f"{version}.mdx"
+    if not target.is_file():
+        raise FileNotFoundError(f"Missing release notes: {target}")
+
+    pages = changelog_dir.glob("*.mdx") if is_latest else [target]
+    for page in pages:
+        if not re.fullmatch(r"\d+\.\d+\.\d+", page.stem):
+            continue
+        content = page.read_text(encoding="utf-8")
+        parts = content.split("---", 2)
+        if len(parts) != 3 or parts[0]:
+            raise ValueError(f"Missing changelog frontmatter: {page}")
+        frontmatter = re.sub(r"^noindex:.*\n?", "", parts[1], flags=re.MULTILINE)
+        if not (is_latest and page == target):
+            frontmatter = frontmatter.rstrip("\n") + "\nnoindex: true\n"
+        updated = "---" + frontmatter + "---" + parts[2]
+        if updated != content:
+            page.write_text(updated, encoding="utf-8")
+
+
 def assemble_changelog_files(
     repo_root, clean_ver, preserve_fragments=False, is_latest=True
 ):
@@ -757,6 +780,7 @@ def assemble_changelog_files(
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Generated changelog: {output_path}")
+    update_changelog_indexing(repo_root, clean_ver, is_latest)
 
     if docs_json.exists():
         update_docs_json(docs_json, clean_ver, is_latest, repo_root=repo_root)
@@ -940,6 +964,7 @@ def handle_changelog_command(args, repo_root):
     clean_ver = clean_version(target_version)
 
     if args.register_only:
+        update_changelog_indexing(repo_root, clean_ver, args.is_latest)
         docs_json = repo_root / "docs" / "docs.json"
         if docs_json.exists():
             update_docs_json(docs_json, clean_ver, args.is_latest, repo_root=repo_root)
@@ -1502,7 +1527,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs navigation and installation examples",
+        help="Only update docs navigation, release indexing, and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",

@@ -124,7 +124,8 @@ impl Fixture {
         } else {
             "'alpha beta ' || md5(id::text)"
         };
-        for batch in 0..4 {
+        let batches = if self.mutable { 6 } else { 4 };
+        for batch in 0..batches {
             self.controller
                 .batch_execute(&format!(
                     "INSERT INTO {} SELECT id, {body} FROM generate_series({}, {}) id",
@@ -449,7 +450,7 @@ fn cancelled_foreground_merge_does_not_keep_inputs_reserved() {
     let inserter = fixture.actor(
         "merge",
         format!(
-            "INSERT INTO {} SELECT id, 'alpha beta' FROM generate_series(401,500) id",
+            "INSERT INTO {} SELECT id, 'alpha beta' FROM generate_series(601,700) id",
             fixture.table
         ),
     );
@@ -482,7 +483,7 @@ fn cancelled_foreground_merge_does_not_keep_inputs_reserved() {
         )) > 0,
         "a cancelled merge must not keep its inputs reserved while its session remains connected"
     );
-    fixture.assert_rows(200);
+    fixture.assert_rows(300);
     drop(inserter_client);
 }
 
@@ -499,7 +500,7 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
         fixture.segments();
         let inserter = fixture.actor(
             "merge",
-            format!("INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(401,500) id"),
+            format!("INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(601,700) id"),
         );
         fixture.stage(&inserter);
         let vacuum = fixture.actor("vacuum", format!("VACUUM {table}"));
@@ -508,15 +509,20 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
             fixture.cancel(&inserter, false);
             assert_error(inserter.finish().1, "57014");
         } else {
-            connect()
-                .batch_execute(&format!(
-                    "INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(501,600) id"
-                ))
-                .unwrap();
+            let mut writer = connect();
+            for batch in 7..12 {
+                writer
+                    .batch_execute(&format!(
+                        "INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series({},{}) id",
+                        batch * 100 + 1,
+                        (batch + 1) * 100
+                    ))
+                    .unwrap();
+            }
             let newcomer = fixture.actor(
                 "merge",
                 format!(
-                    "INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(601,700) id"
+                    "INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(1201,1300) id"
                 ),
             );
             fixture.stage(&newcomer);
@@ -528,6 +534,6 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
         fixture.stage(&vacuum);
         fixture.release(&vacuum);
         vacuum.finish().1.unwrap();
-        fixture.assert_rows(if cancel { 200 } else { 500 });
+        fixture.assert_rows(if cancel { 300 } else { 1000 });
     }
 }

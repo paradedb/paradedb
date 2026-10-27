@@ -6,6 +6,10 @@ description: >-
   including installed extensions and GUCs).
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   pg_version:
     description: "PostgreSQL major version."
     required: false
@@ -13,8 +17,8 @@ inputs:
   global_target_segment_count:
     description: >-
       Cluster-wide `paradedb.global_target_segment_count`. A non-zero value overrides every
-      index's own `target_segment_count`; `0` (the extension's own default) honors each index's
-      per-index value. Defaults to `0`; callers that want a fixed cluster-wide count (e.g. the
+      index's own `target_segment_count`. With `0` (the extension's default), each index uses its
+      own value. Defaults to `0`. Callers that want a fixed cluster-wide count (e.g. the
       stackoverflow bm25 indexes, which set no per-index count) pass their own.
     required: false
     default: "0"
@@ -25,6 +29,7 @@ runs:
     - name: Set Up pg_search Build Environment
       uses: ./.github/actions/setup-pg-search-build-environment
       with:
+        source_directory: ${{ inputs.source_directory }}
         pg_version: ${{ inputs.pg_version }}
         cache_prefix_key: "v2-benchmarks-rust-cache"
         cache_save: "true"
@@ -36,6 +41,7 @@ runs:
       run: ./.github/scripts/setup_crashdumps.sh
 
     - name: Compile and Install pg_search
+      working-directory: ${{ inputs.source_directory }}
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
@@ -46,12 +52,12 @@ runs:
 
     - name: Start PostgreSQL
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
-    - name: Configure PostgreSQL settings and machine settings
+    - name: Configure PostgreSQL Settings and Machine Settings
       shell: bash
       working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
       env:
@@ -76,7 +82,7 @@ runs:
 
     - name: Restart Postgres
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: |
@@ -95,7 +101,7 @@ runs:
 
     - name: Install pg_search
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
         INPUTS_GLOBAL_TARGET_SEGMENT_COUNT: ${{ inputs.global_target_segment_count }}
@@ -106,7 +112,7 @@ runs:
 
     - name: Restart Postgres
       shell: bash
-      working-directory: pg_search/
+      working-directory: ${{ inputs.source_directory }}/pg_search/
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: |
@@ -117,41 +123,3 @@ runs:
       uses: paradedb/actions/apt-install@v14
       with:
         packages: pgbackrest
-
-    # VectorChord (vchordrq) binary for the "cohere / vchord" index variant. Installs the extension
-    # only; it depends on pgvector's `vector` type (installed above). CREATE EXTENSION happens at
-    # index-build time. vchord requires `shared_preload_libraries = ...,vchord`; because a restored
-    # heap snapshot overwrites postgresql.auto.conf, the benchmark workflow re-applies that preload
-    # after restore rather than baking it in here (snapshots are shared with non-vchord runs).
-    # `vchordrq.prefilter` requires VCHORD_VERSION >= 0.4.0.
-    - name: Install VectorChord
-      shell: bash
-      env:
-        VCHORD_VERSION: "1.1.1"
-        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: |
-        set -euo pipefail
-        arch="$(dpkg --print-architecture)"   # arm64 on the benchmark runners; amd64 elsewhere
-        deb="postgresql-${INPUTS_PG_VERSION}-vchord_${VCHORD_VERSION}-1_${arch}.deb"
-        curl -fsSL -o "/tmp/${deb}" \
-          "https://github.com/tensorchord/VectorChord/releases/download/${VCHORD_VERSION}/${deb}"
-        sudo apt-get install -y "/tmp/${deb}"
-
-    # pgvectorscale (StreamingDiskANN) binary for the "cohere / pgvectorscale" index variant. Not on
-    # apt: it ships as a zip bundling the runtime .deb (plus a dbgsym .deb we skip). Depends on
-    # pgvector's `vector` type (installed above); unlike vchord it needs no shared_preload_libraries,
-    # so the benchmark workflow's post-restore CREATE EXTENSION is all that is required.
-    - name: Install pgvectorscale
-      shell: bash
-      env:
-        PGVECTORSCALE_VERSION: "0.9.1"
-        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: |
-        set -euo pipefail
-        arch="$(dpkg --print-architecture)"   # arm64 on the benchmark runners; amd64 elsewhere
-        zip="pgvectorscale-${PGVECTORSCALE_VERSION}-pg${INPUTS_PG_VERSION}-${arch}.zip"
-        curl -fsSL -o "/tmp/${zip}" \
-          "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/${zip}"
-        unzip -o -d /tmp/pgvectorscale "/tmp/${zip}"
-        # Runtime package only; the `_*` glob excludes the `-dbgsym_*` debug package.
-        sudo apt-get install -y "/tmp/pgvectorscale/pgvectorscale-postgresql-${INPUTS_PG_VERSION}_"*.deb

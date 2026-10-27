@@ -25,6 +25,7 @@
 //! single lazily-claimed partition: segments are claimed dynamically from `ParallelScanState`
 //! in parallel execution, or chained end-to-end when serial.
 
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1687,11 +1688,15 @@ pub(crate) fn pg_search_scan_desired_task_count(
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
     let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
+    let partition_count = NonZeroUsize::new(partition_count)?;
     // `maximum` rather than `desired`: `partition_count` is already clamped to the number
     // of physical index segments (when range partitioning is off). A single segment cannot
     // be concurrently scanned by multiple workers, so scaling the stage past it would just
     // starve tasks with useless setup work (like building empty hash tables) for zero rows.
-    Some(Ok(DesiredTaskCountEventResponse::maximum(partition_count)))
+    Some(Ok(DesiredTaskCountEventResponse::max(
+        partition_count,
+        partition_count.get(),
+    )))
 }
 
 /// Replaces a `PgSearchScanPlan` leaf with per-task variants once its stage's task

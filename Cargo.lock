@@ -2088,7 +2088,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-10-21-212219#ecf7b0b8aa041c64317b76259282d2f5fc130f68"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-10-27-165520#a37869c70636f4bbd1d44f270fea146550537802"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5096,6 +5096,7 @@ dependencies = [
  "arrow-select 59.2.0",
  "async-stream",
  "async-trait",
+ "base64 0.22.1",
  "bigdecimal",
  "bincode 2.0.1",
  "bitpacking",

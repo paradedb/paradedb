@@ -1,5 +1,7 @@
 # ParadeDB Benchmarks
 
+For Cohere vector CI, see [the pdbench and k6 pipeline](cohere/README.md).
+
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.
 
 ## Prerequisites
@@ -80,7 +82,7 @@ cargo run -- --help
 ## Notable `benchmark` Options
 
 - `--dataset` defaults to "stackoverflow"
-- `--index` (required): Selects the index to build/benchmark, `datasets/{dataset}/indexes/{index}.sql` (e.g. `bm25`, `hnsw`, `ivfflat`).
+- `--index` (required): Selects the index to build/benchmark, `datasets/{dataset}/indexes/{index}.sql` (e.g. `bm25`).
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
@@ -106,7 +108,7 @@ The queries that are benchmarked for a dataset are located directly under `datas
 
 - `config.toml`
 - `create_tables.sql`
-- `indexes/{index}.sql` (one file per index variant, e.g. `bm25`, `hnsw`, `ivfflat`; chosen with `benchmark --index`)
+- `indexes/{index}.sql` (one file per index variant, e.g. `bm25`; chosen with `benchmark --index`)
 - `prewarm.sql`
 - `queries/{query}/*.sql` or `queries/{query}.sql` (or under `queries/{index}/`)
 - `after_create_index.sql` (optional)

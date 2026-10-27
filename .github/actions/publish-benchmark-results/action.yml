@@ -1,0 +1,169 @@
+name: Publish Benchmark Results
+description: Publish one metric atomically with its artifact ID and preserve its original comparison on retries
+
+inputs:
+  publication_id:
+    description: "Stable artifact ID plus metric name, shared by every retry"
+    required: true
+  name:
+    description: "Benchmark suite name"
+    required: true
+  ref:
+    description: "Full SHA of the commit benchmarked"
+    required: true
+  direction:
+    description: "Metric direction: smaller or bigger"
+    required: false
+    default: "smaller"
+  metrics_file:
+    description: "JSON results file"
+    required: true
+  github_token:
+    description: "ParadeDB GitHub App installation token"
+    required: true
+  pages_directory:
+    description: "History directory on gh-pages"
+    required: true
+  publish_baseline:
+    description: "Whether to write the baseline to gh-pages"
+    required: false
+    default: "false"
+  alert_threshold:
+    description: "Regression alert threshold"
+    required: false
+    default: "115%"
+  comment_on_regression:
+    description: "Whether to comment on regressions"
+    default: "true"
+  comment_summary:
+    description: "Whether to comment on every comparison"
+    default: "false"
+
+outputs:
+  comparison_file:
+    description: "History containing this result and its original baseline"
+    value: _benchmark_publish/comparison.js
+
+runs:
+  using: composite
+  steps:
+    - name: Validate Metric Direction
+      shell: bash
+      env:
+        DIRECTION: ${{ inputs.direction }}
+      run: |
+        case "$DIRECTION" in
+          smaller|bigger) ;;
+          *) echo "Invalid metric direction: $DIRECTION" >&2; exit 1 ;;
+        esac
+
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
+    - name: Fetch Published Metrics
+      if: inputs.publish_baseline == 'true'
+      shell: bash
+      env:
+        APP_TOKEN: ${{ inputs.github_token }}
+      run: |
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        git -c http.extraheader="$auth" clone --depth=1 --single-branch --branch gh-pages \
+          "https://github.com/${GITHUB_REPOSITORY}.git" benchmark-data-repository
+
+    - name: Check for Published Metric
+      id: existing
+      if: inputs.publish_baseline == 'true'
+      shell: python3 {0}
+      env:
+        DATA_DIRECTORY: ${{ inputs.pages_directory }}
+        SUITE: ${{ inputs.name }}
+        PUBLICATION_ID: ${{ inputs.publication_id }}
+      run: |
+        import json
+        import os
+        import shutil
+        from pathlib import Path
+
+        prefix = "window.BENCHMARK_DATA = "
+        history_path = Path("benchmark-data-repository") / os.environ["DATA_DIRECTORY"] / "data.js"
+        entries = []
+        if history_path.exists():
+            text = history_path.read_text()
+            if not text.startswith(prefix):
+                raise ValueError("Unexpected benchmark history prefix")
+            history = json.loads(text[len(prefix):].strip().removesuffix(";"))
+            entries = history.get("entries", {}).get(os.environ["SUITE"], [])
+        position = next((i for i, entry in enumerate(entries)
+                         if entry.get("publication_id") == os.environ["PUBLICATION_ID"]), None)
+        published = position is not None
+        if published:
+            # Later runs may have appended results. Recover this publication's original baseline.
+            comparison = {"entries": {os.environ["SUITE"]: entries[max(0, position - 1):position + 1]}}
+            output = Path("_benchmark_publish/comparison.js")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(prefix + json.dumps(comparison))
+        else:
+            shutil.rmtree("benchmark-data-repository")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"published={str(published).lower()}\n")
+
+    - name: Prepare Metric and Comments
+      if: steps.existing.outputs.published != 'true'
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: ${{ inputs.name }}
+        ref: ${{ inputs.ref }}
+        tool: ${{ inputs.direction == 'bigger' && 'customBiggerIsBetter' || 'customSmallerIsBetter' }}
+        output-file-path: ${{ inputs.metrics_file }}
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        auto-push: false
+        benchmark-data-dir-path: ${{ inputs.pages_directory }}
+        alert-threshold: ${{ inputs.alert_threshold }}
+        comment-on-alert: ${{ inputs.comment_on_regression }}
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ inputs.comment_summary }}
+
+    - name: Record Publication and Original Comparison
+      if: steps.existing.outputs.published != 'true'
+      shell: python3 {0}
+      env:
+        DATA_DIRECTORY: ${{ inputs.pages_directory }}
+        SUITE: ${{ inputs.name }}
+        PUBLICATION_ID: ${{ inputs.publication_id }}
+      run: |
+        import json
+        import os
+        from pathlib import Path
+
+        prefix = "window.BENCHMARK_DATA = "
+        history_path = Path("benchmark-data-repository") / os.environ["DATA_DIRECTORY"] / "data.js"
+        text = history_path.read_text()
+        if not text.startswith(prefix):
+            raise ValueError("Unexpected benchmark history prefix")
+        history = json.loads(text[len(prefix):].strip().removesuffix(";"))
+        entries = history.get("entries", {}).get(os.environ["SUITE"], [])
+        if not entries:
+            raise ValueError("Publisher did not append a result")
+        entries[-1]["publication_id"] = os.environ["PUBLICATION_ID"]
+        history_path.write_text(prefix + json.dumps(history, indent=2))
+        comparison = {"entries": {os.environ["SUITE"]: entries[-2:]}}
+        output = Path("_benchmark_publish/comparison.js")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(prefix + json.dumps(comparison))
+
+    - name: Push Metric with Publication ID
+      if: inputs.publish_baseline == 'true' && steps.existing.outputs.published != 'true'
+      shell: bash
+      working-directory: benchmark-data-repository
+      env:
+        APP_TOKEN: ${{ inputs.github_token }}
+        DATA_DIRECTORY: ${{ inputs.pages_directory }}
+      run: |
+        git add "${DATA_DIRECTORY}/data.js"
+        git -c user.name='github-actions[bot]' -c user.email='github-actions[bot]@users.noreply.github.com' \
+          commit --amend --no-edit
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        git -c http.extraheader="$auth" push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages

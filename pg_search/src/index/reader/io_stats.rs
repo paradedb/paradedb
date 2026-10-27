@@ -240,7 +240,28 @@ impl Trace {
     pub fn end_segment(&self, segment_id: SegmentId) {
         let mut data = self.0.lock();
         let current = std::mem::take(&mut data.current);
-        data.per_segment.push((segment_id, current));
+        if let Some((_, accumulated)) = data
+            .per_segment
+            .iter_mut()
+            .find(|(id, _)| *id == segment_id)
+        {
+            for (target, source) in [
+                (&mut accumulated.components, current.components),
+                (&mut accumulated.stages, current.stages),
+                (
+                    &mut accumulated.scan_init_components,
+                    current.scan_init_components,
+                ),
+            ] {
+                for (key, counters) in source {
+                    let total = target.entry(key).or_default();
+                    total.blks_hit += counters.blks_hit;
+                    total.blks_read += counters.blks_read;
+                }
+            }
+        } else {
+            data.per_segment.push((segment_id, current));
+        }
     }
 
     pub fn hits(&self) -> Vec<(String, u64)> {
@@ -485,6 +506,45 @@ mod tests {
         assert_eq!(counters["buffer_hits"], 17);
         assert_eq!(counters["buffer_reads"], 3);
         assert_eq!(counters["blocks_fetched"], 20);
+    }
+
+    #[pgrx::pg_test]
+    fn interleaved_segments_accumulate_buffer_counts() {
+        let trace = Trace::default();
+        let vectors = trace.component(&SegmentComponent::Custom("vec".into()));
+        let first = SegmentId::generate_random();
+        let second = SegmentId::generate_random();
+        for (segment, hits, reads) in [(first, 2, 1), (second, 7, 3), (first, 5, 2)] {
+            {
+                let _init = trace.begin_scan_init();
+                read_buffers(Some(&vectors), hits, reads);
+            }
+            trace.end_segment(segment);
+        }
+        let mut info = BTreeMap::from([
+            (first, serde_json::json!({})),
+            (second, serde_json::json!({})),
+        ]);
+        trace.attach(&mut info);
+        for segment in [first, second] {
+            for name in [
+                "buffer_hits",
+                "io_vec_buffer_hits",
+                "scan_init_buffer_hits",
+                "scan_init_io_vec_buffer_hits",
+            ] {
+                assert_eq!(info[&segment][name], 7, "{name}");
+            }
+            for name in [
+                "buffer_reads",
+                "io_vec_buffer_reads",
+                "scan_init_buffer_reads",
+                "scan_init_io_vec_buffer_reads",
+            ] {
+                assert_eq!(info[&segment][name], 3, "{name}");
+            }
+            assert_eq!(info[&segment]["blocks_fetched"], 10);
+        }
     }
 
     #[pgrx::pg_test]

@@ -177,15 +177,26 @@ jobs:
           (cd pg_search && cargo pgrx start pg18)
 
       - name: Refresh pg_search and build index
+        env:
+          LC_ALL: C
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
             -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/indexes/pg_search.sql \
+            | tee benchmark-artifacts/index-build.log
+          psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_build_object(
+                  'index_bytes', pg_relation_size('cohere_wiki_bm25_idx'),
+                  'segments', count(*), 'indexed_docs', sum(num_docs))
+                FROM paradedb.index_info('cohere_wiki_bm25_idx');" \
+            > benchmark-artifacts/index-stats.json
+          python3 benchmarks/cohere/index_metrics.py benchmark-artifacts
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
-            | tee benchmark-artifacts/index-build.log
+            | tee benchmark-artifacts/index-vacuum.log
 
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@v14
@@ -281,7 +292,8 @@ jobs:
             {"dataset":"cohere-${{ matrix.size }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
-             "context_file":"benchmark-artifacts/operating_points.md"}
+             "context_file":"benchmark-artifacts/operating_points.md",
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()

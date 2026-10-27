@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793063004277,
+  "lastUpdate": 1793063200049,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -27279,6 +27279,106 @@ window.BENCHMARK_DATA = {
             "unit": "ms"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "384789d05a4b9cf5698f252af50574fc14e2a979",
+          "message": "ci: serialize benchmark publication to gh-pages (#6994)\n\nBenchmark jobs can finish successfully and then fail to publish when\nanother job pushes to `gh-pages` at the same time. [This\nrun](https://github.com/paradedb/paradedb/actions/runs/39862088598/job/120115051599)\nhit that race while publishing dashboards.\n\nBenchmark jobs now upload their results as artifacts. A shared\npublishing workflow queues writes to `gh-pages`, alongside backfill\nresets and history compaction. Benchmarks still run in parallel, and\ncompleted results can publish even if another benchmark fails. Retries\nselect the latest results for each configuration and skip artifacts that\nwere already published. Each persisted metric includes its\nartifact/metric publication ID in the same gh-pages commit. Partial\nretries skip completed metrics and recover their original comparison\nbaseline, including when the push succeeded but the workflow completion\nmarker was never uploaded.\n\nQueries and Stressgres keep workflow actions at the root and check out\nthe tested source under `source/`. This lets older commits use current\nactions. Each workflow records the full commit SHA before staging\nresults. Query result filenames include the dataset, index, and size.\nHistorical benchmark code that writes `results.json` is still supported.\n\nAll three publishers use an App token created after the job leaves the\nqueue, so their pushes can trigger GitHub Pages builds. Publication\nerrors fail the job and feed into the existing Slack notifications.\n\nValidation:\n\n- Formatting, shell syntax, action input checks, and `git diff --check`\npassed.\n- Workflow lint passed with `queue: max` omitted from the validation\ncopy. Local actionlint 1.7.12 does not recognize this [GitHub\nfield](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).\n- Fixtures covered metadata and artifact identifiers, source paths and\ntoolchain selection, result filenames, publication retries, token\nreadiness, and paired-bootstrap comparisons.\n- Local retry fixtures verified recovery after losing the runner\nimmediately after a push. The original 50% regression still alerts on\nretry, even after later results have been appended.\n- Ruff, Pylint, Prettier, actionlint (excluding the unsupported queue\nfield), shell syntax, local action input checks, and `git diff --check`\npassed for the retry fix.\n- Rust compilation, full benchmark execution, and live publication have\nnot been run locally. Rust is not installed here.",
+          "timestamp": "2026-10-26T16:00:40-07:00",
+          "tree_id": "68935c4ec3e2571615f7cf83ce94c005b66877c0",
+          "url": "https://github.com/paradedb/paradedb/commit/384789d05a4b9cf5698f252af50574fc14e2a979"
+        },
+        "date": 1793063160987,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.299,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.67,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.984,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.523,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.052,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.042,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.298,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.468,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.345,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.089,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.863,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.983,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12698025349-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [

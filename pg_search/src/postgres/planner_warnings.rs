@@ -193,17 +193,17 @@ pub fn clear_planner_warnings() {
 }
 
 thread_local! {
-    /// Tracks whether the current execution is within an `EXPLAIN` statement.
+    /// Tracks whether the current execution is within an `EXPLAIN` without `ANALYZE`.
     ///
     /// When `paradedb.planner_warnings` is set to `error`, queries that cannot use
-    /// accelerated ParadeDB custom scans fail with an `ERROR`. However, running `EXPLAIN`
+    /// accelerated ParadeDB custom scans fail with an `ERROR`. However, running plain `EXPLAIN`
     /// on those queries should still succeed so users can inspect the fallback execution plan
     /// and diagnose optimization issues. When `IN_EXPLAIN` is `true`, `emit_planner_warnings()`
     /// downgrades errors to `WARNING`s.
     static IN_EXPLAIN: Cell<bool> = const { Cell::new(false) };
 }
 
-/// An RAII guard that sets `IN_EXPLAIN` to `true` if `is_explain` is true, and restores
+/// An RAII guard that sets `IN_EXPLAIN` to `is_explain`, and restores
 /// the previous state when dropped (supporting nested utility statements and clean unwinds).
 pub struct ExplainGuard {
     prev: bool,
@@ -213,13 +213,7 @@ impl ExplainGuard {
     /// Creates a new `ExplainGuard`. If `is_explain` is `true`, marks the thread-local
     /// state as being inside an `EXPLAIN` query.
     pub fn new(is_explain: bool) -> Self {
-        let prev = IN_EXPLAIN.with(|cell| {
-            let prev = cell.get();
-            if is_explain {
-                cell.set(true);
-            }
-            prev
-        });
+        let prev = IN_EXPLAIN.with(|cell| cell.replace(is_explain));
         Self { prev }
     }
 }
@@ -232,7 +226,7 @@ impl Drop for ExplainGuard {
     }
 }
 
-/// Returns whether the current thread is currently planning or executing an `EXPLAIN` query.
+/// Returns whether the current thread is planning an `EXPLAIN` without `ANALYZE`.
 pub fn is_in_explain() -> bool {
     IN_EXPLAIN.with(|cell| cell.get())
 }
@@ -251,7 +245,8 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
     params: pg_sys::ParamListInfo,
     query_env: *mut pg_sys::QueryEnvironment,
 ) {
-    let _explain_guard = ExplainGuard::new(true);
+    // ANALYZE executes the query, so it must enforce the same policy as SELECT.
+    let _explain_guard = ExplainGuard::new(!(*es).analyze);
 
     if let Some(prev_hook) = PREV_EXPLAIN_ONE_QUERY_HOOK {
         prev_hook(query, cursor_options, into, es, query_string, params, query_env);
@@ -288,7 +283,7 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
 /// Register an `ExplainOneQuery_hook` to track when queries are being planned/executed under `EXPLAIN`.
 ///
 /// This allows `emit_planner_warnings()` to downgrade `paradedb.planner_warnings = 'error'`
-/// to warnings during `EXPLAIN`, allowing users to inspect the query plan.
+/// to warnings during `EXPLAIN` without `ANALYZE`, allowing users to inspect the query plan.
 pub unsafe fn register_explain_hook() {
     PREV_EXPLAIN_ONE_QUERY_HOOK = pg_sys::ExplainOneQuery_hook;
     pg_sys::ExplainOneQuery_hook = Some(paradedb_explain_one_query_hook);
@@ -388,6 +383,13 @@ fn current_statement_id() -> StatementId {
 }
 
 fn warn_once_per_statement(warned_at: &'static LocalKey<Cell<StatementId>>, message: &str) {
+    match crate::gucs::planner_warnings() {
+        crate::gucs::PlannerWarnings::Off => return,
+        // Do not deduplicate errors: catching one in a subtransaction must not allow a
+        // subsequent attempt in the same statement to bypass the diagnostic.
+        crate::gucs::PlannerWarnings::Error => pgrx::error!("{message}"),
+        crate::gucs::PlannerWarnings::Warning => {}
+    }
     let stmt_id = current_statement_id();
     if warned_at.with(|last| last.replace(stmt_id)) != stmt_id {
         pgrx::warning!("{message}");
@@ -419,7 +421,9 @@ fn superseded_by_scan_warning() -> bool {
 /// Warn (once per statement) that a search-operator predicate is being applied as a per-row filter
 /// over a sequential scan rather than via the index.
 pub fn warn_sequential_scan() {
-    if superseded_by_scan_warning() {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Warning
+        && superseded_by_scan_warning()
+    {
         return;
     }
     warn_once_per_statement(
@@ -432,7 +436,9 @@ pub fn warn_sequential_scan() {
 /// Warn (once per statement) that the materialized filter match set exceeded `work_mem` and
 /// spilled to a temporary file.
 pub fn warn_filter_spilled() {
-    if superseded_by_scan_warning() {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Warning
+        && superseded_by_scan_warning()
+    {
         return;
     }
     warn_once_per_statement(
@@ -442,12 +448,15 @@ pub fn warn_filter_spilled() {
 }
 
 /// Warn (once per statement, on the leader only) that a table's visibility map is significantly
-/// out of date, degrading visibility-map shortcuts.
+/// out of date, degrading visibility-map shortcuts. Errors must also be raised by workers,
+/// since the leader need not participate in the scan.
 pub fn warn_stale_visibility_map(table_name: &str) {
     if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
         return;
     }
-    if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+    if unsafe { pg_sys::ParallelWorkerNumber } != -1
+        && crate::gucs::planner_warnings() != crate::gucs::PlannerWarnings::Error
+    {
         return;
     }
     let message = format!(
@@ -457,4 +466,20 @@ pub fn warn_stale_visibility_map(table_name: &str) {
          To disable this warning: SET paradedb.planner_warnings = 'off'"
     );
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+
+    // In a sequential scan the scan error is raised before the spill diagnostic.
+    // Exercise the spill diagnostic independently to verify its severity too.
+    #[pgrx::pg_test(
+        error = "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded"
+    )]
+    fn planner_warning_spill_error() {
+        pgrx::Spi::run("SET paradedb.planner_warnings = 'error'").unwrap();
+        warn_filter_spilled();
+    }
 }

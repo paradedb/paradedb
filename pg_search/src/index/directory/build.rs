@@ -41,6 +41,8 @@ type SharedFile = Arc<Mutex<BuildFile>>;
 pub(crate) struct BuildDirectory {
     files: Arc<Mutex<HashMap<PathBuf, SharedFile>>>,
     release_guard: Arc<BufFileReleaseGuard>,
+    #[cfg(unix)]
+    temp_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 impl fmt::Debug for BuildDirectory {
@@ -56,6 +58,33 @@ impl BuildDirectory {
         Self {
             files: Default::default(),
             release_guard: BufFileReleaseGuard::register(),
+            #[cfg(unix)]
+            temp_paths: Default::default(),
+        }
+    }
+
+    pub fn segment_byte_size(&self, segment_id: SegmentId) -> u64 {
+        self.files
+            .lock()
+            .iter()
+            .filter(|(path, _)| path.segment_id() == Some(segment_id))
+            .map(|(_, file)| file.lock().len as u64)
+            .sum()
+    }
+
+    pub fn available_disk_bytes(&self) -> Option<u64> {
+        #[cfg(unix)]
+        {
+            self.temp_paths
+                .lock()
+                .iter()
+                .filter_map(|path| rustix::fs::statvfs(path).ok())
+                .map(|stat| stat.f_bavail.saturating_mul(stat.f_frsize))
+                .min()
+        }
+        #[cfg(not(unix))]
+        {
+            None
         }
     }
 
@@ -111,6 +140,17 @@ impl Directory for BuildDirectory {
             poisoned: false,
             release_guard: self.release_guard.clone(),
         }));
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let name = unsafe { std::ffi::CStr::from_ptr(pg_sys::FilePathName(file.lock().file)) };
+            let path = Path::new(std::ffi::OsStr::from_bytes(name.to_bytes()));
+            self.temp_paths.lock().insert(
+                path.parent()
+                    .expect("temporary file directory")
+                    .to_path_buf(),
+            );
+        }
         files.insert(path.to_path_buf(), file.clone());
         Ok(Box::new(BuildFileWriter(file)))
     }

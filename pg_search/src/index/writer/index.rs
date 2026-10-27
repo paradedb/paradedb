@@ -162,6 +162,10 @@ impl DiskSpaceGuard {
     /// Error out if the remaining segments are projected not to fit within the tablespace's
     /// available space.
     fn check(&self) -> Result<()> {
+        self.check_available(self.indexrel.available_disk_bytes(), "index's tablespace")
+    }
+
+    fn check_available(&self, available_bytes: Option<u64>, location: &str) -> Result<()> {
         let Some(segment_bytes) = self.segment_bytes else {
             // no sample yet: we can't estimate segment size until one has been written
             return Ok(());
@@ -171,7 +175,7 @@ impl DiskSpaceGuard {
         let projected_segments = (self.remaining_segments as u64).saturating_add(1);
         let required = segment_bytes.saturating_mul(projected_segments);
 
-        let Some(available_bytes) = self.indexrel.available_disk_bytes() else {
+        let Some(available_bytes) = available_bytes else {
             return Ok(());
         };
 
@@ -185,7 +189,7 @@ impl DiskSpaceGuard {
             )
             .set_detail(format!(
                 "estimated ~{} of additional disk space is required, but only ~{} is available \
-                 on the index's tablespace",
+                 on the {location}",
                 format_bytes(required),
                 format_bytes(usable),
             ))
@@ -225,6 +229,7 @@ pub struct SerialIndexWriter {
 struct BuildSegments {
     directory: BuildDirectory,
     index: Index,
+    disk_guard: Option<DiskSpaceGuard>,
 }
 
 impl SerialIndexWriter {
@@ -237,7 +242,11 @@ impl SerialIndexWriter {
         let directory = BuildDirectory::new();
         let mut index = writer.index.clone();
         *index.directory_mut() = ManagedDirectory::wrap(Box::new(directory.clone()))?;
-        writer.build = Some(BuildSegments { directory, index });
+        writer.build = Some(BuildSegments {
+            directory,
+            index,
+            disk_guard: None,
+        });
         Ok(writer)
     }
 
@@ -300,6 +309,9 @@ impl SerialIndexWriter {
 
     /// Attach a pre-flight disk-space check that runs before each segment flush.
     pub fn with_disk_guard(mut self, disk_guard: Option<DiskSpaceGuard>) -> Self {
+        if let Some(build) = self.build.as_mut() {
+            build.disk_guard = disk_guard.clone();
+        }
         self.disk_guard = disk_guard;
         self
     }
@@ -502,6 +514,9 @@ impl SerialIndexWriter {
     }
 
     pub fn finalize_nocommit(&mut self) -> Result<Option<SegmentMeta>> {
+        if self.build.is_some() {
+            return self.finalize_segment(|| {});
+        }
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(None);
@@ -524,9 +539,14 @@ impl SerialIndexWriter {
             return Ok(None);
         }
 
-        if self.build.is_none()
-            && let Some(disk_guard) = &self.disk_guard
-        {
+        if let Some(build) = &self.build {
+            if let Some(guard) = &build.disk_guard {
+                guard.check_available(
+                    build.directory.available_disk_bytes(),
+                    "temporary tablespace",
+                )?;
+            }
+        } else if let Some(disk_guard) = &self.disk_guard {
             disk_guard.check()?;
         }
 
@@ -534,7 +554,18 @@ impl SerialIndexWriter {
 
         on_finalize();
         let finalized_segment = pending_segment.finalize()?;
-        if self.build.is_some() {
+        if let Some(build) = self.build.as_mut() {
+            if let Some(guard) = &mut build.disk_guard {
+                if guard.segment_bytes.is_none() {
+                    guard.set_segment_bytes(
+                        build.directory.segment_byte_size(finalized_segment.id()),
+                    );
+                }
+                guard.check_available(
+                    build.directory.available_disk_bytes(),
+                    "temporary tablespace",
+                )?;
+            }
             Ok(Some(finalized_segment.meta().clone()))
         } else {
             Ok(Some(self.commit_segment(finalized_segment)?))
@@ -799,6 +830,33 @@ mod tests {
 
         segment_ids.extend(writer.commit().unwrap().iter().map(|(meta, _)| meta.id()));
         segment_ids
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "insufficient disk space to complete the index build")]
+    fn test_build_disk_guard_fires_during_staging() {
+        let indexrel = PgSearchRelation::open(get_relation_oid(false));
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: None,
+        };
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config, 0)
+            .unwrap()
+            .with_disk_guard(Some(DiskSpaceGuard::new(&indexrel)));
+        writer
+            .build
+            .as_mut()
+            .unwrap()
+            .disk_guard
+            .as_mut()
+            .unwrap()
+            .set_remaining_segments(usize::MAX);
+        let field = writer.schema().search_field("data").unwrap().field();
+        let mut doc = TantivyDocument::new();
+        doc.add_text(field, "staged");
+        assert!(writer.insert(doc, 1, || {}).unwrap().is_none());
+        writer.finalize_nocommit().unwrap();
+        panic!("staging guard did not fire before final promotion");
     }
 
     #[pg_test]

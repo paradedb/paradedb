@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793062273889,
+  "lastUpdate": 1793062403151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -178844,6 +178844,65 @@ window.BENCHMARK_DATA = {
             "extra": "avg tps: 21.835205550645554, max tps: 35.05310159307233, count: 59308"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 \u00d7\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8\u201326), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T20:40:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793062371663,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 139.95764501553535,
+            "unit": "median tps",
+            "extra": "avg tps: 137.77761243913747, max tps: 145.62334739229095, count: 59308"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 507.7688216439915,
+            "unit": "median tps",
+            "extra": "avg tps: 538.5937740699022, max tps: 5242.49102203403, count: 59308"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3357.2728754167592,
+            "unit": "median tps",
+            "extra": "avg tps: 3377.512201189206, max tps: 3643.086733263234, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 170.69053043177902,
+            "unit": "median tps",
+            "extra": "avg tps: 168.28682545766438, max tps: 181.62881683040678, count: 59308"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 273.6755551468715,
+            "unit": "median tps",
+            "extra": "avg tps: 370.6008635678121, max tps: 3122.5869480007646, count: 118616"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.32110909368601,
+            "unit": "median tps",
+            "extra": "avg tps: 20.71559981671522, max tps: 35.304902671797365, count: 59308"
+          }
+        ],
+        "publication_id": "12697178858-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [

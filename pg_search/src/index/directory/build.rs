@@ -99,7 +99,7 @@ impl Directory for BuildDirectory {
         if files.contains_key(path) {
             return Err(OpenWriteError::FileAlreadyExists(path.to_path_buf()));
         }
-        debug_assert_eq!(self.release_guard.owner(), unsafe {
+        assert_eq!(self.release_guard.owner(), unsafe {
             pg_sys::CurrentResourceOwner
         });
         let file = Arc::new(Mutex::new(BuildFile {

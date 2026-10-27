@@ -1,9 +1,10 @@
 """Regression checks for the pdbench-to-k6 handoff."""
 
 import copy
+import math
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, operating_points, summary
+from prepare_k6 import PROBE, QUERIES, TARGETS, operating_points, summary
 from verify_plans import verify
 
 
@@ -83,6 +84,34 @@ class OperatingPointsTest(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "invalid selected point"):
             operating_points(inputs)
+
+    def test_accepts_recall_roundoff_without_changing_reported_value(self):
+        """Accept a target represented one floating-point step below its value."""
+        for target in TARGETS:
+            with self.subTest(target=target):
+                inputs = reports()
+                recall = math.nextafter(target, 0.0)
+                result = inputs[0]["data"]["variants"][QUERIES[0]]
+                result["targets"] = {str(target): {"value": "0.001", "recall": recall}}
+                result["points"][0]["metrics"]["recall"]["recall"] = recall
+                point = next(
+                    point
+                    for point in operating_points(inputs)
+                    if point["query"] == QUERIES[0] and point["target"] == target
+                )
+                self.assertTrue(point["reached"])
+                self.assertEqual(point["recall"], recall)
+
+    def test_recall_roundoff_does_not_accept_a_real_shortfall(self):
+        """Keep rejecting misses beyond numerical roundoff."""
+        for recall in (0.949, 0.95 - 1e-9):
+            with self.subTest(recall=recall):
+                inputs = reports()
+                result = inputs[0]["data"]["variants"][QUERIES[0]]
+                result["targets"] = {"0.95": {"value": "0.001", "recall": recall}}
+                result["points"][0]["metrics"]["recall"]["recall"] = recall
+                with self.assertRaisesRegex(ValueError, "invalid selected point"):
+                    operating_points(inputs)
 
     def test_refuses_mixed_sessions_and_incomplete_query_sets(self):
         """Reject mismatched or missing sweep reports."""

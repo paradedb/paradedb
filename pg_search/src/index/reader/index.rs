@@ -4454,7 +4454,7 @@ mod tests {
             ("WHERE category = 'keep'", true),
             ("WHERE id > 1", true),
         ] {
-            let plan = Spi::get_one::<pgrx::JsonB>(&format!(
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
                 "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
             )).unwrap().unwrap().0;
             let mut nodes = vec![&plan[0]["Plan"]];
@@ -4510,25 +4510,25 @@ mod tests {
             (1, 20, 20, 2),
             (99, 100, 0, 0),
         ] {
-            let reader = SearchIndexReader::open_with_context(
-                &index_rel,
-                range_query("id", lo, hi),
-                false,
-                MvccSatisfies::Snapshot,
-                None,
-                None,
-                false,
-                Some(io_stats::Trace::default()),
-            )
-            .unwrap();
             for reverse in [false, true] {
-                let mut ids = reader.segment_ids();
-                if reverse {
-                    ids.reverse();
-                }
                 for (tie_break, parallel) in
                     [(false, false), (true, false), (false, true), (true, true)]
                 {
+                    let reader = SearchIndexReader::open_with_context(
+                        &index_rel,
+                        range_query("id", lo, hi),
+                        false,
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                        false,
+                        Some(io_stats::Trace::default()),
+                    )
+                    .unwrap();
+                    let mut ids = reader.segment_ids();
+                    if reverse {
+                        ids.reverse();
+                    }
                     let mut order = vec![OrderByInfo {
                         feature: OrderByFeature::VectorDistance {
                             name: FieldName::from("embedding"),

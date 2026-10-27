@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793140939416,
+  "lastUpdate": 1793141117778,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -37950,6 +37950,151 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12756957044-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aadff5739a6800271feb7540c94246400aa02e2f",
+          "message": "perf: stage index build segments in PostgreSQL temp files (#6948)\n\nStage intermediate index-build components in PostgreSQL temporary files and promote only final segments into the index relation. Use unbuffered virtual files and shared temporary-file ownership to avoid retained per-component buffers and preserve cleanup on errors.\n\nBalance segment quotas across active participants, remove the separate vector-worker cap, and account for staged data when checking disk capacity.",
+          "timestamp": "2026-10-27T15:04:29-07:00",
+          "tree_id": "02bc1b1353a8b37cfca107211216e24bb1e16875",
+          "url": "https://github.com/paradedb/paradedb/commit/aadff5739a6800271feb7540c94246400aa02e2f"
+        },
+        "date": 1793141085278,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.465,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.281,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.714,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.414,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.247,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.697,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 59.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 62.013,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 63.039,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 14.626,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 15.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 16.088,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 14.591,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 15.842,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 16.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 22.688,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 23.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 23.705,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 9.429,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 10.261,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.552,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.697,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.135,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12776107030-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [

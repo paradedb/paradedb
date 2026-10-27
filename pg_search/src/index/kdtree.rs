@@ -437,6 +437,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(test)]
     fn contains(bounds: &[DimBounds], point: &[PdbOwnedValue]) -> bool {
         bounds.iter().zip(point).all(|((lo, hi), v)| {
             let above_lo = match lo {
@@ -459,6 +460,7 @@ mod tests {
 
     /// Every sample point routes to a leaf whose box contains it, and every partition id is
     /// reachable.
+    #[cfg(test)]
     fn check_invariants(tree: &KdTree, sample: &[Point]) {
         let mut seen = vec![0usize; tree.partition_count()];
         for point in sample {

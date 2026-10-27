@@ -744,8 +744,11 @@ mod tests {
     const OID: SearchFieldType = SearchFieldType::U64(pgrx::pg_sys::OIDOID);
     const TIMESTAMP: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::TIMESTAMPOID);
     const DATE_DAYS: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::DATEOID);
+    #[cfg(test)]
     const INT4RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT4RANGEOID);
+    #[cfg(test)]
     const INT8RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT8RANGEOID);
+    #[cfg(test)]
     const HUGE: &str = "100000000000000000000000000000000000000000";
 
     #[pg_test]

@@ -122,17 +122,14 @@ impl IndexWriterConfig {
     }
 }
 
-/// Pre-flight disk-space check run before each segment flush during an index build.
-///
-/// Index build feeds the guard the on-disk size of a written segment and how many segments it
-/// still intends to write. From those the guard projects the space the build still needs and
-/// aborts early — before it saturates the tablespace volume — rather than failing on `ENOSPC`
-/// deep into a large build.
+/// Estimates remaining disk usage during index builds from the first staged segment.
+/// Temporary files are checked before and after staging and when the build-wide estimate
+/// advances. Final outputs are checked against the index tablespace before promotion or merge.
 #[derive(Clone)]
 pub struct DiskSpaceGuard {
     indexrel: PgSearchRelation,
-    /// On-disk size of a written segment, once index build has observed one. `None` until then,
-    /// which makes [`check`](Self::check) a no-op.
+    /// Sampled temporary segment size, or its projected final-segment size for the index guard.
+    /// Checks are inactive until the first staged segment supplies a sample.
     segment_bytes: Option<u64>,
     /// How many more segments index build still intends to write.
     remaining_segments: usize,
@@ -309,7 +306,7 @@ impl SerialIndexWriter {
         Ok(Some(meta))
     }
 
-    /// Attach a pre-flight disk-space check that runs before each segment flush.
+    /// Attach separate guards for temporary staging and final writes to the index tablespace.
     pub fn with_disk_guard(mut self, disk_guard: Option<DiskSpaceGuard>) -> Self {
         if let Some(build) = self.build.as_mut() {
             build.disk_guard = disk_guard.clone();

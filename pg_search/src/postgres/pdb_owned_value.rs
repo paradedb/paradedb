@@ -311,7 +311,7 @@ impl PdbOwnedValue {
             // Arrow's representation of a `DATE` field (new indexes) and of a timestamp
             // column. Date32 carries Unix-epoch days; timestamps carry PG-epoch micros.
             (ScalarValue::Date32(Some(v)), SearchFieldType::I64(oid))
-                if *oid == pg_sys::DATEOID =>
+                if *oid == pgrx::pg_sys::DATEOID =>
             {
                 PostgresDate::try_from_date32(*v)
                     .ok()

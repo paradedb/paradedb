@@ -126,7 +126,6 @@ use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
 use crate::query::SearchQueryInput;
-use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};

@@ -82,7 +82,9 @@ const ONE_DAY_MICROS: i64 = 24 * HOUR_MICROS;
 
 /// The finite range of PostgreSQL's `DateADT`, in days from 2000-01-01. This is the range
 /// `pgrx::datum::Date` accepts: Julian day 0 through `DATE_END_JULIAN - 1`.
+#[cfg(any(test, feature = "pg_test"))]
 pub const MIN_PG_DATE_DAYS: i32 = -2_451_545;
+#[cfg(any(test, feature = "pg_test"))]
 pub const MAX_PG_DATE_DAYS: i32 = 2_145_031_948;
 
 /// A wrapper around PostgreSQL's full-range `DATE` type.

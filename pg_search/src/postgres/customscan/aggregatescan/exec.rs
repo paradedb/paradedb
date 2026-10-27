@@ -32,7 +32,6 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
-use crate::schema::SearchFieldType;
 use pgrx::{IntoDatum, JsonB, check_for_interrupts, pg_sys};
 
 use tantivy::aggregation::Key;

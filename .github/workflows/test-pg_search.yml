@@ -296,6 +296,41 @@ jobs:
             exit 1
           }
 
+      - name: Run DATE day-count regression tests
+        if: matrix.pg_impl == 'pgrx' && matrix.pg_version == 18
+        run: |
+          set -euo pipefail
+          backup=$(mktemp -d)
+          cp Cargo.toml Cargo.lock "$backup/"
+          cleanup() {
+            cp "$backup/Cargo.toml" Cargo.toml
+            cp "$backup/Cargo.lock" Cargo.lock
+            rm -f pg_search/tests/pg_regress/sql/date_days_*.sql pg_search/tests/pg_regress/expected/date_days_*.out
+            rm -rf "$backup"
+          }
+          trap cleanup EXIT
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          version_file = pathlib.Path('pg_search/src/api/version.rs').read_text()
+          version = re.search(r'DATE_DAYS_STORAGE_VERSION: Version = Version::new\((\d+),\s*(\d+),\s*(\d+)\)', version_file)
+          if not version:
+              raise SystemExit('DATE storage version not found')
+          manifest = pathlib.Path('Cargo.toml')
+          source = manifest.read_text()
+          source, count = re.subn(r'(\[workspace\.package\]\s*version = ")[^"]+("\s*)',
+                                  lambda match: match[1] + '.'.join(version.groups()) + match[2], source, count=1)
+          if count != 1:
+              raise SystemExit('workspace version not found')
+          manifest.write_text(source)
+          PY
+          for name in issue_6730 datetime_date_agg; do
+            cp "pg_search/tests/pg_regress/date_days/$name.sql" "pg_search/tests/pg_regress/sql/date_days_$name.sql"
+            cp "pg_search/tests/pg_regress/date_days/$name.out" "pg_search/tests/pg_regress/expected/date_days_$name.out"
+          done
+          cargo pgrx regress --package pg_search pg18 date_days_ --dbname pg_search_date_days_regress
+
       - name: Stop PostgreSQL to flush coverage data (pgrx)
         if: matrix.pg_impl == 'pgrx' && always()
         working-directory: pg_search/

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793062912204,
+  "lastUpdate": 1793063004277,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -34829,6 +34829,56 @@ window.BENCHMARK_DATA = {
             "unit": "queries/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "384789d05a4b9cf5698f252af50574fc14e2a979",
+          "message": "ci: serialize benchmark publication to gh-pages (#6994)\n\nBenchmark jobs can finish successfully and then fail to publish when\nanother job pushes to `gh-pages` at the same time. [This\nrun](https://github.com/paradedb/paradedb/actions/runs/39862088598/job/120115051599)\nhit that race while publishing dashboards.\n\nBenchmark jobs now upload their results as artifacts. A shared\npublishing workflow queues writes to `gh-pages`, alongside backfill\nresets and history compaction. Benchmarks still run in parallel, and\ncompleted results can publish even if another benchmark fails. Retries\nselect the latest results for each configuration and skip artifacts that\nwere already published. Each persisted metric includes its\nartifact/metric publication ID in the same gh-pages commit. Partial\nretries skip completed metrics and recover their original comparison\nbaseline, including when the push succeeded but the workflow completion\nmarker was never uploaded.\n\nQueries and Stressgres keep workflow actions at the root and check out\nthe tested source under `source/`. This lets older commits use current\nactions. Each workflow records the full commit SHA before staging\nresults. Query result filenames include the dataset, index, and size.\nHistorical benchmark code that writes `results.json` is still supported.\n\nAll three publishers use an App token created after the job leaves the\nqueue, so their pushes can trigger GitHub Pages builds. Publication\nerrors fail the job and feed into the existing Slack notifications.\n\nValidation:\n\n- Formatting, shell syntax, action input checks, and `git diff --check`\npassed.\n- Workflow lint passed with `queue: max` omitted from the validation\ncopy. Local actionlint 1.7.12 does not recognize this [GitHub\nfield](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).\n- Fixtures covered metadata and artifact identifiers, source paths and\ntoolchain selection, result filenames, publication retries, token\nreadiness, and paired-bootstrap comparisons.\n- Local retry fixtures verified recovery after losing the runner\nimmediately after a push. The original 50% regression still alerts on\nretry, even after later results have been appended.\n- Ruff, Pylint, Prettier, actionlint (excluding the unsupported queue\nfield), shell syntax, local action input checks, and `git diff --check`\npassed for the retry fix.\n- Rust compilation, full benchmark execution, and live publication have\nnot been run locally. Rust is not installed here.",
+          "timestamp": "2026-10-26T16:00:40-07:00",
+          "tree_id": "68935c4ec3e2571615f7cf83ce94c005b66877c0",
+          "url": "https://github.com/paradedb/paradedb/commit/384789d05a4b9cf5698f252af50574fc14e2a979"
+        },
+        "date": 1793062962674,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.179124686527906,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.790873915117515,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.31230868019791,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.210094234254147,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 35.42774303211997,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12699987021-throughput"
       }
     ]
   }

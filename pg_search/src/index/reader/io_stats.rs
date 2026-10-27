@@ -514,11 +514,9 @@ mod tests {
         let vectors = trace.component(&SegmentComponent::Custom("vec".into()));
         let first = SegmentId::generate_random();
         let second = SegmentId::generate_random();
+        let _init = trace.begin_scan_init();
         for (segment, hits, reads) in [(first, 2, 1), (second, 7, 3), (first, 5, 2)] {
-            {
-                let _init = trace.begin_scan_init();
-                read_buffers(Some(&vectors), hits, reads);
-            }
+            read_buffers(Some(&vectors), hits, reads);
             trace.end_segment(segment);
         }
         let mut info = BTreeMap::from([

@@ -1252,7 +1252,16 @@ impl CustomScan for BaseScan {
                 };
 
                 let is_sorted = method.declares_sorted_output();
-                let consider_parallel_local = (*builder.args().rel).consider_parallel;
+                let consider_parallel_local = (*builder.args().rel).consider_parallel
+                    && !matches!(
+                        &method,
+                        ExecMethodType::TopK {
+                            orderby_info: Some(orderby),
+                            ..
+                        } if orderby
+                            .first()
+                            .is_some_and(|order| order.is_vector_distance())
+                    );
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
                 // Decide the policy first: its reason gates the path cost below.

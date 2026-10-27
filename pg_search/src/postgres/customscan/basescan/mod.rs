@@ -1256,22 +1256,32 @@ impl CustomScan for BaseScan {
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = decide_scan_parallelism(ScanParallelismInputs {
-                    prunability,
-                    query: &query,
-                    drive_cost,
-                    row_estimate,
-                    is_sorted,
-                    limit: float_limit,
-                    base_result_rows,
-                    segment_count,
-                    consider_parallel: consider_parallel_local,
-                    quals: &quals,
-                    root: builder.args().root,
-                    parallel_leader_participates,
-                    is_join_context,
-                    has_grouping,
-                });
+                let policy = if query.is_match_all()
+                    && !quals.contains_heap_expr()
+                    && matches!(&method, ExecMethodType::TopK { orderby_info: Some(orderby), .. }
+                        if orderby.first().is_some_and(|order| order.is_vector_distance()))
+                {
+                    WorkerPathPolicy::SerialOnly {
+                        reason: WorkerDecisionReason::GlobalVectorSchedule,
+                    }
+                } else {
+                    decide_scan_parallelism(ScanParallelismInputs {
+                        prunability,
+                        query: &query,
+                        drive_cost,
+                        row_estimate,
+                        is_sorted,
+                        limit: float_limit,
+                        base_result_rows,
+                        segment_count,
+                        consider_parallel: consider_parallel_local,
+                        quals: &quals,
+                        root: builder.args().root,
+                        parallel_leader_participates,
+                        is_join_context,
+                        has_grouping,
+                    })
+                };
                 let reason = policy.reason();
 
                 // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
@@ -1280,6 +1290,7 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable
+                    | WorkerDecisionReason::GlobalVectorSchedule
                     | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited

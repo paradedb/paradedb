@@ -4434,6 +4434,60 @@ mod tests {
     }
 
     #[pg_test]
+    fn vector_parallelism_depends_on_filter() {
+        Spi::run(
+            "SET max_parallel_workers_per_gather = 2;
+             SET parallel_setup_cost = 0;
+             SET parallel_tuple_cost = 0;
+             SET paradedb.min_rows_per_worker = 0;
+             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3));
+             CREATE INDEX vector_parallelism_idx ON vector_parallelism
+             USING paradedb (id, (category::pdb.literal), embedding vector_l2_ops)
+             WITH (background_layer_sizes = '0', layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
+             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             RESET paradedb.global_mutable_segment_rows;"
+        ).unwrap();
+        for (predicate, parallel) in [
+            ("", false),
+            ("WHERE category = 'keep'", true),
+            ("WHERE id > 1", true),
+        ] {
+            let plan = Spi::get_one::<pgrx::JsonB>(&format!(
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+            )).unwrap().unwrap().0;
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            let mut workers = false;
+            while let Some(node) = nodes.pop() {
+                workers |= node["Workers Planned"].as_u64().unwrap_or(0) > 0;
+                if node["Index"] == "vector_parallelism_idx" {
+                    found = true;
+                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
+                    assert_eq!(
+                        node["Worker Selection"] == "Global vector schedule",
+                        !parallel,
+                        "{plan}"
+                    );
+                    if predicate.contains("category") {
+                        assert!(
+                            node["Tantivy Query"].to_string().contains("category"),
+                            "{plan}"
+                        );
+                        assert!(node.get("Filter").is_none(), "{plan}");
+                    }
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
+            assert_eq!(workers, parallel, "{plan}");
+        }
+    }
+
+    #[pg_test]
     fn vector_topk_reports_only_collected_candidates() {
         use crate::api::QueryVector;
         use crate::vector::metric::VectorMetric;

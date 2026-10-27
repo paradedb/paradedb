@@ -118,7 +118,7 @@
         ["reference/full-text/match.mdx::fence-015", "4bf45207ccc14db6c92d7907b1d0aee1c83ee4b011cd5ca2a1fc71d4b4bbed23"],
         ["reference/full-text/phrase.mdx::fence-001", "8d7db0ba81964840f29ec21781a090d662d531b080c6ac77d5628a12d083f745"],
         ["reference/full-text/score.mdx::fence-013", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
-        ["reference/full-text/score.mdx::fence-021", "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"],
+        ["reference/full-text/score.mdx::fence-016", "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"],
         ["reference/full-text/top-k.mdx::fence-007", "58e614668b82d4bc3419a73563a6a246d43f82d7004be0984065ca2f6f5ad053"],
         ["reference/hybrid/rrf.mdx::fence-010", "925fd4cf677e4beb9b3a8e8e552cc0d702adeeba765e54d58a1544eace8d0a98"],
         ["reference/indexing/create-index.mdx::fence-025", "4e633b3ed3fabffbfc6b1714d556404f9d7e8b89373a835b68584eee19a5e0cf"],

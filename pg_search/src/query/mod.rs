@@ -2085,7 +2085,8 @@ impl Serialize for PostgresPointer {
             serializer.serialize_none()
         } else {
             unsafe {
-                let s = pg_sys::nodeToString(self.0.cast());
+                let stripped = crate::postgres::utils::strip_placeholder_vars_deep(self.0.cast());
+                let s = pg_sys::nodeToString(stripped.cast());
                 let cstr = core::ffi::CStr::from_ptr(s)
                     .to_str()
                     .map_err(serde::ser::Error::custom)?;

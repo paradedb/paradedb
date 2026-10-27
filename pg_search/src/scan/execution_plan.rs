@@ -748,9 +748,10 @@ impl PgSearchScanPlan {
     }
 
     /// Converts a `ScanMode::Tagged` scan into a tagless `ScanMode::Disjunctive` scan for
-    /// `RankJoinExec` if all of its `local_queries` are in `elided_tags`. Strips the tag columns
-    /// from the output schema and scanner configuration, records the matched tag names in
-    /// `matched_tags`, and returns the positional `old_col_idx -> Option<new_col_idx>` mapping.
+    /// `RankJoinExec` if `base_query` is `SearchQueryInput::All` and all of its `local_queries`
+    /// are in `elided_tags`. Strips the tag columns from the output schema and scanner
+    /// configuration, records the matched tag names in `matched_tags`, and returns the positional
+    /// `old_col_idx -> Option<new_col_idx>` mapping.
     pub(crate) fn with_elided_disjunctive_tags(
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
@@ -763,7 +764,8 @@ impl PgSearchScanPlan {
         else {
             return None;
         };
-        if local_queries.is_empty()
+        if !matches!(**base_query, SearchQueryInput::All)
+            || local_queries.is_empty()
             || !local_queries
                 .iter()
                 .all(|tq| elided_tags.contains(&tq.tag_name))
@@ -772,8 +774,7 @@ impl PgSearchScanPlan {
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
         let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();
-        let new_scan_mode =
-            crate::scan::ScanMode::disjunctive((**base_query).clone(), disjunct_queries);
+        let new_scan_mode = crate::scan::ScanMode::disjunctive(disjunct_queries);
 
         let old_schema = self.properties.eq_properties.schema();
         let mut fields = Vec::with_capacity(old_schema.fields().len());
@@ -859,6 +860,41 @@ impl PgSearchScanPlan {
                     .schema()
                     .search_field(name)
                     .is_some_and(|sf| sf.is_numeric_fast() && sf.is_raw_sortable())
+            }
+            ExecutionState::Uninitialized | ExecutionState::Consumed => false,
+        }
+    }
+
+    /// Returns `true` if `col_idx` refers to a scalar, eager index column whose name, Arrow
+    /// [`DataType`], and [`crate::schema::SearchIndexSchema`] entry are supported by
+    /// [`crate::scan::pre_filter::try_convert_rank_lookup_to_query`] for `RA` point lookups.
+    pub fn supports_ra_lookup_column(&self, col_idx: usize) -> bool {
+        let schema = self.schema();
+        let Some(arrow_field) = schema.fields().get(col_idx) else {
+            return false;
+        };
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                let Some(WhichFastField::Named {
+                    name,
+                    cardinality: crate::index::fast_fields_helper::FieldCardinality::Scalar,
+                    delivery: crate::index::fast_fields_helper::FieldDelivery::Eager,
+                    ..
+                }) = scan_state.0.scanner_config.which_fast_fields.get(col_idx)
+                else {
+                    return false;
+                };
+                name == arrow_field.name()
+                    && crate::scan::pre_filter::supports_ra_lookup_column(
+                        name,
+                        arrow_field.data_type(),
+                        scan_state.0.reader.schema(),
+                    )
             }
             ExecutionState::Uninitialized | ExecutionState::Consumed => false,
         }
@@ -1511,14 +1547,8 @@ impl DisplayAs for PgSearchScanPlan {
                     write!(f, ", tag_{}={}", tq.tag_idx.0, tq.query.explain_format())?;
                 }
             }
-            crate::scan::ScanMode::Disjunctive {
-                base_query,
-                disjunct_queries,
-            } => {
-                let has_base = !matches!(**base_query, SearchQueryInput::All);
-                if has_base {
-                    write!(f, ", query={}", base_query.explain_format())?;
-                } else if disjunct_queries.is_empty() {
+            crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
+                if disjunct_queries.is_empty() {
                     write!(f, ", query=\"all\"")?;
                 }
                 for q in disjunct_queries {

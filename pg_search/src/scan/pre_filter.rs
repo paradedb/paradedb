@@ -195,6 +195,11 @@ impl RankLookupPhysicalExpr {
         self
     }
 
+    pub fn with_cols(mut self, cols: Vec<Arc<dyn PhysicalExpr>>) -> Self {
+        self.cols = cols;
+        self
+    }
+
     pub fn with_keys_and_threshold(
         &self,
         keys: Vec<Vec<ScalarValue>>,
@@ -344,10 +349,40 @@ impl PhysicalExpr for RankLookupPhysicalExpr {
     }
 }
 
+/// Returns `true` if `col_name` with Arrow `data_type` can be converted into a Tantivy query
+/// by [`try_convert_rank_lookup_to_query`].
+pub fn supports_ra_lookup_column(
+    col_name: &str,
+    data_type: &DataType,
+    schema: &crate::schema::SearchIndexSchema,
+) -> bool {
+    let Some(field) = schema.search_field(col_name) else {
+        return false;
+    };
+    if field.is_text() && !field.is_keyword() {
+        return false;
+    }
+    let tantivy_schema = schema.tantivy_schema();
+    let Ok(tantivy_field) = tantivy_schema.get_field(col_name) else {
+        return false;
+    };
+    let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+    if !tantivy_field_type.is_indexed()
+        || matches!(
+            tantivy_field_type,
+            tantivy::schema::FieldType::JsonObject(_)
+        )
+    {
+        return false;
+    }
+    PdbOwnedValue::supports_execution_data_type(data_type, &field.field_type())
+}
+
 /// Convert a [`RankLookupPhysicalExpr`] into a zero-scoring Tantivy query (`ConstScoreQuery(..., 0.0)`)
 /// suitable for `reader.and_query(...)` during a Random Access (`RA`) point lookup.
 pub fn try_convert_rank_lookup_to_query(
     lookup: &RankLookupPhysicalExpr,
+    output_schema: &Schema,
     schema: &crate::schema::SearchIndexSchema,
     index_created_by_version: Option<crate::api::version::Version>,
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
@@ -359,12 +394,16 @@ pub fn try_convert_rank_lookup_to_query(
     let tantivy_schema = schema.tantivy_schema();
     if lookup.cols.len() == 1 {
         let col = lookup.cols[0].downcast_ref::<Column>()?;
-        let field = schema.search_field(col.name())?;
+        let output_field = output_schema.fields().get(col.index())?;
+        if output_field.name() != col.name() {
+            return None;
+        }
+        let field = schema.search_field(output_field.name())?;
         if field.is_text() && !field.is_keyword() {
             return None;
         }
         let field_type = field.field_type();
-        let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+        let tantivy_field = tantivy_schema.get_field(output_field.name()).ok()?;
         let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
 
         let mut terms = Vec::with_capacity(lookup.keys.len());
@@ -403,11 +442,15 @@ pub fn try_convert_rank_lookup_to_query(
     let mut col_infos = Vec::with_capacity(lookup.cols.len());
     for col_expr in &lookup.cols {
         let col = col_expr.downcast_ref::<Column>()?;
-        let field = schema.search_field(col.name())?;
+        let output_field = output_schema.fields().get(col.index())?;
+        if output_field.name() != col.name() {
+            return None;
+        }
+        let field = schema.search_field(output_field.name())?;
         if field.is_text() && !field.is_keyword() {
             return None;
         }
-        let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+        let tantivy_field = tantivy_schema.get_field(output_field.name()).ok()?;
         let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
         col_infos.push((field.field_type(), tantivy_field, tantivy_field_type));
     }
@@ -415,37 +458,32 @@ pub fn try_convert_rank_lookup_to_query(
     let mut tuple_queries: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(lookup.keys.len());
     for key_tuple in &lookup.keys {
         if key_tuple.len() != col_infos.len() {
-            continue;
+            return None;
         }
         let mut conj: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(col_infos.len());
-        let mut valid = true;
+        let mut any_null = false;
         for (scalar, (field_type, tantivy_field, tantivy_field_type)) in
             key_tuple.iter().zip(col_infos.iter())
         {
             if scalar.is_null() {
-                valid = false;
+                any_null = true;
                 break;
             }
-            let Some(owned_value) = PdbOwnedValue::from_execution_scalar(scalar, field_type) else {
-                valid = false;
-                break;
-            };
-            let Ok(term) = value_to_term(
+            let owned_value = PdbOwnedValue::from_execution_scalar(scalar, field_type)?;
+            let term = value_to_term(
                 *tantivy_field,
                 &owned_value,
                 tantivy_field_type,
                 None,
                 index_created_by_version,
-            ) else {
-                valid = false;
-                break;
-            };
+            )
+            .ok()?;
             conj.push((
                 Occur::Must,
                 Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
             ));
         }
-        if valid && !conj.is_empty() {
+        if !any_null && !conj.is_empty() {
             tuple_queries.push((Occur::Should, Box::new(BooleanQuery::new(conj))));
         }
     }

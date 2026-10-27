@@ -133,12 +133,10 @@ pub enum ScanMode {
         /// The single-table search predicates lifted from this scan, if any.
         local_queries: Vec<TaggedQuery>,
     },
-    /// Scan participating in a tagless disjunctive `RankJoinExec`.
-    /// `SA` filters and scores by `base_query AND (disjunct_queries union)`, while `RA` filters
-    /// only by `base_query` and scores by `base_query` + `disjunct_queries`. No tag columns are emitted.
+    /// Scan participating in a tagless disjunctive `RankJoinExec` (`base_query` is `All`).
+    /// `SA` filters and scores by the union of `disjunct_queries`, while `RA` matches all
+    /// documents and scores by `disjunct_queries` (`0.0` when no disjunct matches). No tag columns are emitted.
     Disjunctive {
-        /// Mandatory local filter that all rows (both `SA` and `RA`) must satisfy.
-        base_query: Box<SearchQueryInput>,
         /// Local disjunct search queries from the cross-table `OR`.
         disjunct_queries: Vec<SearchQueryInput>,
     },
@@ -165,15 +163,9 @@ impl ScanMode {
         }
     }
 
-    /// Creates a tagless disjunctive scan mode for `RankJoinExec` with a base query and local disjuncts.
-    pub fn disjunctive(
-        base_query: SearchQueryInput,
-        disjunct_queries: Vec<SearchQueryInput>,
-    ) -> Self {
-        Self::Disjunctive {
-            base_query: Box::new(base_query),
-            disjunct_queries,
-        }
+    /// Creates a tagless disjunctive scan mode for `RankJoinExec` with local disjuncts.
+    pub fn disjunctive(disjunct_queries: Vec<SearchQueryInput>) -> Self {
+        Self::Disjunctive { disjunct_queries }
     }
 
     /// Returns a new `ScanMode` with the base or standard query replaced.
@@ -186,12 +178,13 @@ impl ScanMode {
                 base_query: Box::new(base_query),
                 local_queries,
             },
-            Self::Disjunctive {
-                disjunct_queries, ..
-            } => Self::Disjunctive {
-                base_query: Box::new(base_query),
-                disjunct_queries,
-            },
+            Self::Disjunctive { disjunct_queries } => {
+                debug_assert!(
+                    matches!(base_query, SearchQueryInput::All),
+                    "ScanMode::Disjunctive requires SearchQueryInput::All base query"
+                );
+                Self::Disjunctive { disjunct_queries }
+            }
         }
     }
 
@@ -199,7 +192,8 @@ impl ScanMode {
     pub fn query(&self) -> &SearchQueryInput {
         match self {
             Self::Standard { query } => query,
-            Self::Tagged { base_query, .. } | Self::Disjunctive { base_query, .. } => base_query,
+            Self::Tagged { base_query, .. } => base_query,
+            Self::Disjunctive { .. } => &SearchQueryInput::All,
         }
     }
 
@@ -214,11 +208,8 @@ impl ScanMode {
                 base_query.needs_tokenizer()
                     || local_queries.iter().any(|tq| tq.query.needs_tokenizer())
             }
-            Self::Disjunctive {
-                base_query,
-                disjunct_queries,
-            } => {
-                base_query.needs_tokenizer() || disjunct_queries.iter().any(|q| q.needs_tokenizer())
+            Self::Disjunctive { disjunct_queries } => {
+                disjunct_queries.iter().any(|q| q.needs_tokenizer())
             }
         }
     }
@@ -236,15 +227,9 @@ impl ScanMode {
                         .iter()
                         .any(|tq| tq.query.has_postgres_expressions())
             }
-            Self::Disjunctive {
-                base_query,
-                disjunct_queries,
-            } => {
-                base_query.has_postgres_expressions()
-                    || disjunct_queries
-                        .iter()
-                        .any(|q| q.has_postgres_expressions())
-            }
+            Self::Disjunctive { disjunct_queries } => disjunct_queries
+                .iter()
+                .any(|q| q.has_postgres_expressions()),
         }
     }
 
@@ -259,10 +244,9 @@ impl ScanMode {
                 base_query.has_parameters()
                     || local_queries.iter().any(|tq| tq.query.has_parameters())
             }
-            Self::Disjunctive {
-                base_query,
-                disjunct_queries,
-            } => base_query.has_parameters() || disjunct_queries.iter().any(|q| q.has_parameters()),
+            Self::Disjunctive { disjunct_queries } => {
+                disjunct_queries.iter().any(|q| q.has_parameters())
+            }
         }
     }
 
@@ -281,11 +265,7 @@ impl ScanMode {
                     tq.query.init_postgres_expressions(planstate);
                 }
             }
-            Self::Disjunctive {
-                base_query,
-                disjunct_queries,
-            } => {
-                base_query.init_postgres_expressions(planstate);
+            Self::Disjunctive { disjunct_queries } => {
                 for q in disjunct_queries {
                     q.init_postgres_expressions(planstate);
                 }
@@ -315,11 +295,7 @@ impl ScanMode {
                     tq.query.solve_postgres_expressions_no_reset(expr_context);
                 }
             }
-            Self::Disjunctive {
-                base_query,
-                disjunct_queries,
-            } => {
-                base_query.solve_postgres_expressions_no_reset(expr_context);
+            Self::Disjunctive { disjunct_queries } => {
                 for q in disjunct_queries {
                     q.solve_postgres_expressions_no_reset(expr_context);
                 }

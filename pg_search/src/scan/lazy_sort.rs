@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion::common::Result;
+use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::metrics::{
@@ -517,12 +517,9 @@ fn prepare_sa_and_ra(
     range_target: Option<&(PartitionSegments, SearchQueryInput)>,
 ) -> (SearchIndexReader, RaLookupWeights, bool) {
     let (sa_reader, is_disjunctive_sa, base_is_match_all, ra_disjunct_queries) = match scan_mode {
-        crate::scan::ScanMode::Disjunctive {
-            base_query,
-            disjunct_queries,
-        } => {
+        crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
             let has_disjuncts = !disjunct_queries.is_empty();
-            let replace_query = matches!(**base_query, SearchQueryInput::All) && !pushed;
+            let replace_query = !pushed;
             let sa = if has_disjuncts {
                 reader.with_disjunctive_sa_queries(replace_query, disjunct_queries)
             } else {
@@ -660,6 +657,10 @@ impl LazySortStreamState {
         let scanner = init_lazy_sort_scanner(&reader, scanner_config, &scan_fetched_fields)?;
         let window_cursor = TopKWindowCursor::new(lazy_sort.initial_window);
 
+        // `RankJoinRule` sets `SharedThresholdMode::Disabled`, and `RankJoinExec` pushes its
+        // lookup `DynamicFilterPhysicalExpr` to every child that can be `RA`-probed (the scored
+        // child of a root single-sided `NRJN` join has no lookup filter and simply ends its
+        // stream with `None` via `TerminateStream`).
         let is_rank_join_leaf = matches!(lazy_sort.shared_threshold, SharedThresholdMode::Disabled)
             && !dynamic_filters.is_empty();
         let exhaustion_behavior = if !is_rank_join_leaf {
@@ -703,7 +704,8 @@ impl LazySortStreamState {
                 && let Ok(current_expr) = dyn_filter.current()
                 && let Some(lookup) = current_expr.downcast_ref::<RankLookupPhysicalExpr>()
             {
-                let cloned = lookup.clone();
+                let local_cols = df.children().into_iter().cloned().collect();
+                let cloned = lookup.clone().with_cols(local_cols);
                 let _ = dyn_filter.update(datafusion::physical_expr::expressions::lit(true));
                 return Some(cloned);
             }
@@ -736,13 +738,11 @@ impl LazySortStreamState {
         let ra_batch = if let Some(lookup_query) =
             crate::scan::pre_filter::try_convert_rank_lookup_to_query(
                 lookup,
+                &self.schema,
                 self.reader.schema(),
                 self.reader.index_created_by_version(),
                 Some(self.filter_metrics.strategy_sink.clone()),
             ) {
-            if cancel_pending() {
-                return Err(interrupted());
-            }
             let ra_results = self.reader.search_ra_lookup(
                 &self.ra_weights,
                 lookup_query,
@@ -764,6 +764,14 @@ impl LazySortStreamState {
             } else {
                 None
             }
+        } else if lookup
+            .keys()
+            .iter()
+            .any(|tuple| !tuple.is_empty() && tuple.iter().all(|s| !s.is_null()))
+        {
+            return Err(DataFusionError::Internal(format!(
+                "Failed to convert non-null RankLookup keys to Tantivy query: {lookup}"
+            )));
         } else {
             None
         };
@@ -813,12 +821,6 @@ impl LazySortStreamState {
             schema: &self.schema,
         });
 
-        // `block_on_next` holds interrupts while this stream runs, so the collector's
-        // own check can't fire. Bail out instead and let the caller act on the interrupt
-        // once `block_on` has returned.
-        if cancel_pending() {
-            return Err(interrupted());
-        }
         let mut top_k_search =
             self.segment_target
                 .search_window(&self.sa_reader, &self.lazy_sort, pull);
@@ -883,6 +885,10 @@ impl LazySortStreamState {
                 datafusion::common::ScalarValue::Boolean(None),
             ),
         };
+        // DataFusion's `push_down_filters` places each operator's `self_filters` before its
+        // incoming `parent_filters`, and `RankJoinExec::gather_filters_for_pushdown` always
+        // attaches its own lookup filter whenever `parent_filters` is non-empty, so `first()`
+        // is guaranteed to be the direct parent `RankJoinExec`'s filter.
         if let Some(df) = self.dynamic_filters.first()
             && let Some(dyn_filter) = df.downcast_ref::<DynamicFilterPhysicalExpr>()
         {
@@ -910,6 +916,13 @@ pub(super) fn build_lazy_sort_stream(
         let mut state = LazySortStreamState::init(ctx, lazy_sort)?;
 
         loop {
+            // `block_on_next` holds interrupts while this stream runs, so the collector's
+            // own check can't fire. Bail out instead and let the caller act on the interrupt
+            // once `block_on` has returned.
+            if cancel_pending() {
+                Err::<(), DataFusionError>(interrupted())?;
+            }
+
             // 1. Service on-demand Random Access (`RA`) join-key point lookups from a parent
             //    `RankJoinExec` without advancing the Sorted Access (`SA`) window cursor.
             if let Some(lookup) = state.take_pending_ra_lookup() {

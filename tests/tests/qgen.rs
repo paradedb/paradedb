@@ -1928,7 +1928,7 @@ async fn generated_rank_join(database: Db) {
         .collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
     let where_columns = columns_named(vec!["name", "color"]);
-    let join_key_columns = columns_named(vec!["id", "age"]);
+    let join_key_columns = columns_named(vec!["id", "age", "name", "price", "big_numeric", "uuid"]);
 
     let join_and_where_strategy = (2..=all_tables.len()).prop_flat_map(move |num_tables| {
         let joined = all_tables[..num_tables].to_vec();
@@ -1936,15 +1936,18 @@ async fn generated_rank_join(database: Db) {
             .iter()
             .map(|t| arb_wheres(vec![t.clone()], &where_columns).boxed())
             .collect();
+        let extra_base_where =
+            proptest::option::of(arb_wheres(vec![joined[0].clone()], &where_columns));
         (
             arb_joins(Just(JoinType::Inner), joined.clone(), &join_key_columns),
             table_wheres,
+            extra_base_where,
             arb_joinscan_order_parts(joined, false),
         )
     });
 
     proptest!(qgen_proptest_config(), |(
-        (join, table_wheres, mut order_parts) in join_and_where_strategy,
+        (join, table_wheres, extra_base_where, mut order_parts) in join_and_where_strategy,
         disjunctive in proptest::bool::ANY,
         scored_tables in prop_oneof![Just(0usize), Just(1usize), Just(usize::MAX)],
         descending in proptest::bool::ANY,
@@ -1957,11 +1960,15 @@ async fn generated_rank_join(database: Db) {
         let first_table = used_tables[0];
 
         let where_sep = if disjunctive { " OR " } else { " AND " };
-        let where_bm25 = table_wheres
+        let where_clauses = table_wheres
             .iter()
             .map(|w| format!("({})", w.to_sql("@@@")))
             .collect::<Vec<_>>()
             .join(where_sep);
+        let where_bm25 = match &extra_base_where {
+            Some(base_w) => format!("({}) AND ({where_clauses})", base_w.to_sql("@@@")),
+            None => where_clauses,
+        };
 
         // Disjunctive score joins require scoring all tables; conjunctive joins also test
         // single-sided score (`scored_tables == 1`) and fast-field (`scored_tables == 0`) sorts.
@@ -1970,8 +1977,8 @@ async fn generated_rank_join(database: Db) {
         } else {
             scored_tables.min(used_tables.len())
         };
+        let dir = if descending { "DESC" } else { "ASC" };
         let lead_order = if n_scored == 0 {
-            let dir = if descending { "DESC" } else { "ASC" };
             format!("{first_table}.quantity {dir}")
         } else {
             let sum = used_tables[..n_scored]
@@ -1979,7 +1986,7 @@ async fn generated_rank_join(database: Db) {
                 .map(|t| format!("pdb.score({t}.id)"))
                 .collect::<Vec<_>>()
                 .join(" + ");
-            format!("{sum} DESC")
+            format!("{sum} {dir}")
         };
         order_parts.insert(0, lead_order);
         let order_by = order_parts.join(", ");
@@ -1993,8 +2000,6 @@ async fn generated_rank_join(database: Db) {
 
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
-        gucs.parallel_workers = false;
-        gucs.range_partitioned_join = false;
 
         let base_gucs = gucs.set();
         let sides = Sides {
@@ -2020,6 +2025,11 @@ async fn generated_rank_join(database: Db) {
 
         if !join.has_keyless_step()
             && !join_clause.contains(" AND ")
+            && !join_clause.contains(".name =")
+            && !join_clause.contains(".big_numeric =")
+            && extra_base_where.is_none()
+            && (n_scored == 0 || descending)
+            && !gucs.parallel_workers
             && table_wheres
                 .iter()
                 .all(|w| matches!(w, WhereExpr::Atom { is_indexed: true, .. }))

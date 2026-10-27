@@ -9,10 +9,8 @@ SET enable_indexscan to OFF;
 -- Load the pg_search extension
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- Make sure the GUC is enabled, and keep RankJoin disabled so these tests
--- exercise the HashJoinExec + SortExec(TopK) dynamic filter path.
+-- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
-SET paradedb.enable_rank_join = off;
 
 -- =============================================================================
 -- TEST 1: Join on sorted keys (Both sides sorted on join key)
@@ -397,6 +395,8 @@ LIMIT 10;
 -- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
 -- =============================================================================
 
+SET paradedb.enable_rank_join = off;
+
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id, t2.id, paradedb.score(t2.id)
 FROM dyn_filter_t1 t1
@@ -405,6 +405,8 @@ WHERE t1.val ||| 'val'
   AND t2.val ||| 'val'
 ORDER BY paradedb.score(t2.id) DESC, t2.id
 LIMIT 10;
+
+RESET paradedb.enable_rank_join;
 
 -- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs
@@ -548,5 +550,4 @@ DROP TABLE IF EXISTS null_val_t2 CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-RESET paradedb.enable_rank_join;
 RESET paradedb.enable_join_custom_scan;

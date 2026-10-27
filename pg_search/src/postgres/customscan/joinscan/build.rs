@@ -1772,11 +1772,7 @@ impl RelNode {
                         f(&mut tq.query);
                     }
                 }
-                crate::scan::ScanMode::Disjunctive {
-                    base_query,
-                    disjunct_queries,
-                } => {
-                    f(base_query);
+                crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
                     for q in disjunct_queries {
                         f(q);
                     }
@@ -1813,11 +1809,7 @@ impl RelNode {
                         f(&tq.query);
                     }
                 }
-                crate::scan::ScanMode::Disjunctive {
-                    base_query,
-                    disjunct_queries,
-                } => {
-                    f(base_query);
+                crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
                     for q in disjunct_queries {
                         f(q);
                     }

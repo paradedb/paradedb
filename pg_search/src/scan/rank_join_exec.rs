@@ -77,8 +77,9 @@ use datafusion::arrow::row::{OwnedRow, RowConverter, SortField};
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{
-    DataFusionError, JoinSide, NullEquality, Result, ScalarValue, internal_err, project_schema,
+    DataFusionError, JoinSide, Result, ScalarValue, internal_err, project_schema,
 };
+use datafusion::execution::memory_pool::{MemoryConsumer, MemoryReservation};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::JoinType;
 use datafusion::physical_expr::equivalence::{ProjectionMapping, join_equivalence_properties};
@@ -269,7 +270,6 @@ pub struct RankJoinExec {
     pub filter: Option<JoinFilter>,
     pub projection: Option<Vec<usize>>,
     pub mode: PartitionMode,
-    pub null_equality: NullEquality,
     pub sort_exprs: RankJoinSortExprs,
     pub combiner: ScoreCombiner,
     left_lookup_filter: Arc<dyn PhysicalExpr>,
@@ -282,14 +282,12 @@ pub struct RankJoinExec {
 
 impl RankJoinExec {
     /// Creates a new [`RankJoinExec`].
-    #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         inputs: RankJoinInputs,
         on: JoinOn,
         filter: Option<JoinFilter>,
         projection: Option<Vec<usize>>,
         mode: PartitionMode,
-        null_equality: NullEquality,
         sort_exprs: RankJoinSortExprs,
         combiner: ScoreCombiner,
     ) -> Result<Self> {
@@ -306,7 +304,6 @@ impl RankJoinExec {
             filter,
             projection,
             mode,
-            null_equality,
             sort_exprs,
             combiner,
             left_lookup_filter,
@@ -322,7 +319,6 @@ impl RankJoinExec {
         filter: Option<JoinFilter>,
         projection: Option<Vec<usize>>,
         mode: PartitionMode,
-        null_equality: NullEquality,
         sort_exprs: RankJoinSortExprs,
         combiner: ScoreCombiner,
         left_lookup_filter: Arc<dyn PhysicalExpr>,
@@ -350,7 +346,6 @@ impl RankJoinExec {
             filter,
             projection,
             mode,
-            null_equality,
             sort_exprs,
             combiner,
             left_lookup_filter,
@@ -515,7 +510,6 @@ impl RankJoinExec {
             PartitionMode::CollectLeft => 1,
             PartitionMode::Auto => 2,
         };
-        let nulls_equal = self.null_equality == NullEquality::NullEqualsNull;
 
         let left_sort_proto =
             datafusion_proto::physical_plan::to_proto::serialize_physical_sort_expr(
@@ -564,7 +558,6 @@ impl RankJoinExec {
             filter_bytes,
             self.projection.clone(),
             mode_tag,
-            nulls_equal,
             left_sort_bytes,
             right_sort_bytes,
             output_sort_bytes,
@@ -601,7 +594,6 @@ impl RankJoinExec {
             Option<FilterPayload>,
             Option<Vec<usize>>,
             u8,
-            bool,
             Vec<u8>,
             Vec<u8>,
             Vec<Vec<u8>>,
@@ -616,7 +608,6 @@ impl RankJoinExec {
             filter_bytes,
             projection,
             mode_tag,
-            nulls_equal,
             left_sort_bytes,
             right_sort_bytes,
             output_sort_bytes,
@@ -709,11 +700,6 @@ impl RankJoinExec {
             0 => PartitionMode::Partitioned,
             1 => PartitionMode::CollectLeft,
             _ => PartitionMode::Auto,
-        };
-        let null_equality = if nulls_equal {
-            NullEquality::NullEqualsNull
-        } else {
-            NullEquality::NullEqualsNothing
         };
 
         let left_sort_node =
@@ -822,7 +808,6 @@ impl RankJoinExec {
             filter,
             projection,
             mode,
-            null_equality,
             RankJoinSortExprs {
                 left: left_sort,
                 right: right_sort,
@@ -997,7 +982,6 @@ impl ExecutionPlan for RankJoinExec {
             self.filter.clone(),
             self.projection.clone(),
             self.mode,
-            self.null_equality,
             self.sort_exprs.clone(),
             self.combiner.clone(),
             Arc::clone(&self.left_lookup_filter),
@@ -1121,7 +1105,6 @@ impl ExecutionPlan for RankJoinExec {
                 self.filter.clone(),
                 self.projection.clone(),
                 self.mode,
-                self.null_equality,
                 self.sort_exprs.clone(),
                 self.combiner.clone(),
                 Arc::clone(&self.left_lookup_filter),
@@ -1167,20 +1150,26 @@ impl ExecutionPlan for RankJoinExec {
             plan_contains_filter_id(&self.inputs.left, self.left_lookup_filter.expression_id());
         let right_ra_capable =
             plan_contains_filter_id(&self.inputs.right, self.right_lookup_filter.expression_id());
+        let left_mode = CursorMode::from_plan(&self.inputs.left, self.combiner.uses_left());
+        let right_mode = CursorMode::from_plan(&self.inputs.right, self.combiner.uses_right());
 
         let batch_size = context.session_config().batch_size().max(1);
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let elapsed_compute = baseline_metrics.elapsed_compute().clone();
+        let left_reservation = MemoryConsumer::new(format!("RankJoinStream[{partition}]:left"))
+            .register(context.memory_pool());
+        let right_reservation = MemoryConsumer::new(format!("RankJoinStream[{partition}]:right"))
+            .register(context.memory_pool());
 
         let left_cursor = RankedInputCursor::new(
             left_stream,
             self.sort_exprs.left.clone(),
             left_keys,
             Arc::clone(&key_converter),
-            self.null_equality,
             Arc::clone(&self.left_lookup_filter),
             left_ra_capable,
-            !self.combiner.uses_left(),
+            left_mode,
+            left_reservation,
             elapsed_compute.clone(),
         );
         let right_cursor = RankedInputCursor::new(
@@ -1188,10 +1177,10 @@ impl ExecutionPlan for RankJoinExec {
             self.sort_exprs.right.clone(),
             right_keys,
             key_converter,
-            self.null_equality,
             Arc::clone(&self.right_lookup_filter),
             right_ra_capable,
-            !self.combiner.uses_right(),
+            right_mode,
+            right_reservation,
             elapsed_compute.clone(),
         );
 
@@ -1450,6 +1439,40 @@ impl Ord for CandidateMatch {
     }
 }
 
+fn plan_has_disjunctive_scan(plan: &Arc<dyn ExecutionPlan>) -> bool {
+    if let Some(scan) = plan.downcast_ref::<crate::scan::execution_plan::PgSearchScanPlan>() {
+        return scan.is_tagless_disjunctive();
+    }
+    plan.children().into_iter().any(plan_has_disjunctive_scan)
+}
+
+/// Execution mode for one child cursor of [`RankJoinStream`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorMode {
+    /// Unscored `RA`-only input in a single-sided (`NRJN`) join: `SA` starts exhausted at `0.0`,
+    /// and `RA` rows only pair with the scored side's rows (`from_sa = false`).
+    UnscoredRaOnly,
+    /// Scored input in a conjunctive (or field-sorted) join: `SA` is active, and every `RA` row
+    /// satisfies its subtree's required predicates (`from_sa = true`) regardless of whether its
+    /// sort value is `<= 0.0`.
+    ScoredConjunctive,
+    /// Scored input in a tagless disjunctive join (`ScanMode::Disjunctive`): `SA` is active, and
+    /// an `RA` row matched its side's disjunctive search predicate iff `score > 0.0`.
+    ScoredDisjunctive,
+}
+
+impl CursorMode {
+    fn from_plan(plan: &Arc<dyn ExecutionPlan>, combiner_uses_side: bool) -> Self {
+        if !combiner_uses_side {
+            Self::UnscoredRaOnly
+        } else if plan_has_disjunctive_scan(plan) {
+            Self::ScoredDisjunctive
+        } else {
+            Self::ScoredConjunctive
+        }
+    }
+}
+
 /// Wraps one child stream of [`RankJoinExec`], retaining pulled batches so matched rows
 /// can be assembled by `(BatchIndex, RowIndex)` when their candidate clears threshold `T`,
 /// and coordinating both Sorted Access (`SA`) window pulls and Random Access (`RA`) point lookups.
@@ -1458,9 +1481,9 @@ struct RankedInputCursor {
     sort_expr: PhysicalSortExpr,
     key_exprs: Vec<Arc<dyn PhysicalExpr>>,
     key_converter: Arc<RowConverter>,
-    null_equality: NullEquality,
     lookup_filter: Arc<dyn PhysicalExpr>,
     ra_capable: bool,
+    mode: CursorMode,
     batches: Vec<RecordBatch>,
     /// Per-row `f64` scores parallel to `batches`, indexed by `[batch_idx][row_idx]`.
     batch_scores: Vec<Vec<f64>>,
@@ -1493,6 +1516,7 @@ struct RankedInputCursor {
     ra_positive_probed_keys: HashSet<OwnedRow>,
     /// Keys that have been fully probed (`score_threshold = None`, including `0.0`-score rows) against this cursor's child stream.
     ra_probed_keys: HashSet<OwnedRow>,
+    reservation: MemoryReservation,
     elapsed_compute: Time,
 }
 
@@ -1503,20 +1527,21 @@ impl RankedInputCursor {
         sort_expr: PhysicalSortExpr,
         key_exprs: Vec<Arc<dyn PhysicalExpr>>,
         key_converter: Arc<RowConverter>,
-        null_equality: NullEquality,
         lookup_filter: Arc<dyn PhysicalExpr>,
         ra_capable: bool,
-        start_sa_exhausted: bool,
+        mode: CursorMode,
+        reservation: MemoryReservation,
         elapsed_compute: Time,
     ) -> Self {
+        let start_sa_exhausted = matches!(mode, CursorMode::UnscoredRaOnly);
         Self {
             stream,
             sort_expr,
             key_exprs,
             key_converter,
-            null_equality,
             lookup_filter,
             ra_capable,
+            mode,
             batches: Vec::new(),
             batch_scores: Vec::new(),
             hash_table: HashMap::default(),
@@ -1535,6 +1560,7 @@ impl RankedInputCursor {
             ra_batch_size: RA_INITIAL_BATCH_SIZE,
             ra_positive_probed_keys: HashSet::default(),
             ra_probed_keys: HashSet::default(),
+            reservation,
             elapsed_compute,
         }
     }
@@ -1775,10 +1801,9 @@ impl RankedInputCursor {
             .collect::<Result<_>>()?;
         let rows = self.key_converter.convert_columns(&key_arrays)?;
 
-        let skip_nulls = self.null_equality == NullEquality::NullEqualsNothing;
         let mut keys = Vec::with_capacity(num_rows);
         for row_idx in 0..num_rows {
-            if skip_nulls && key_arrays.iter().any(|arr| arr.is_null(row_idx)) {
+            if key_arrays.iter().any(|arr| arr.is_null(row_idx)) {
                 keys.push(None);
             } else {
                 keys.push(Some(rows.row(row_idx).owned()));
@@ -1787,9 +1812,29 @@ impl RankedInputCursor {
         Ok((scores, keys))
     }
 
+    fn reserve_batch_memory(
+        reservation: &mut MemoryReservation,
+        batch: &RecordBatch,
+        scores: &[f64],
+        keys: &[Option<OwnedRow>],
+    ) -> Result<()> {
+        let key_bytes: usize = keys
+            .iter()
+            .flatten()
+            .map(|k| {
+                k.as_ref().len()
+                    + std::mem::size_of::<OwnedRow>()
+                    + std::mem::size_of::<HashTableEntry>()
+            })
+            .sum();
+        let score_bytes = std::mem::size_of_val(scores);
+        reservation.try_grow(batch.get_array_memory_size() + score_bytes + key_bytes)
+    }
+
     fn ingest_sa_batch(&mut self, batch: RecordBatch) -> Result<()> {
         let _timer = self.elapsed_compute.timer();
         let (scores, keys) = self.evaluate_batch(&batch)?;
+        Self::reserve_batch_memory(&mut self.reservation, &batch, &scores, &keys)?;
         if self.top_score.is_none()
             && let Some(&first_score) = scores.first()
         {
@@ -1879,13 +1924,6 @@ impl AdvanceSide {
         match self {
             AdvanceSide::Left => AdvanceSide::Right,
             AdvanceSide::Right => AdvanceSide::Left,
-        }
-    }
-
-    fn to_join_side(self) -> JoinSide {
-        match self {
-            AdvanceSide::Left => JoinSide::Left,
-            AdvanceSide::Right => JoinSide::Right,
         }
     }
 }
@@ -2250,6 +2288,7 @@ impl RankJoinStream {
             AdvanceSide::Right => (&mut self.right_cursor, &self.left_cursor),
         };
         let (scores, keys) = cursor.evaluate_batch(&batch)?;
+        RankedInputCursor::reserve_batch_memory(&mut cursor.reservation, &batch, &scores, &keys)?;
         let batch_idx = cursor.batches.len();
         cursor.batches.push(batch);
         cursor.batch_scores.push(scores.clone());
@@ -2261,7 +2300,11 @@ impl RankJoinStream {
                 batch: BatchIndex(batch_idx),
                 row: RowIndex(row_idx),
             };
-            let from_sa = score > 0.0;
+            let from_sa = match cursor.mode {
+                CursorMode::UnscoredRaOnly => false,
+                CursorMode::ScoredConjunctive => true,
+                CursorMode::ScoredDisjunctive => score > 0.0,
+            };
             if let Some(matches) = opp_cursor.hash_table.get(&key) {
                 for opp_entry in matches.iter().filter(|e| from_sa || e.from_sa) {
                     let combined =
@@ -2307,7 +2350,6 @@ impl RankJoinStream {
     ) -> Result<Vec<(BufferedRowRef, OwnedRow)>> {
         let _timer = self.elapsed_compute.timer();
         let cursor = self.cursor(target_side);
-        let skip_nulls = cursor.null_equality == NullEquality::NullEqualsNothing;
         let mut out = Vec::new();
         for (batch_idx, batch) in cursor.batches.iter().enumerate() {
             let num_rows = batch.num_rows();
@@ -2340,7 +2382,7 @@ impl RankJoinStream {
                     {
                         continue;
                     }
-                    if skip_nulls && key_arrays.iter().any(|arr| arr.is_null(row_idx)) {
+                    if key_arrays.iter().any(|arr| arr.is_null(row_idx)) {
                         continue;
                     }
                     out.push((
@@ -2368,7 +2410,8 @@ impl RankJoinStream {
                     JoinSide::Right => AdvanceSide::Right,
                     JoinSide::None => continue,
                 };
-                let lookup_cloned = lookup.clone();
+                let local_cols = pf.children().into_iter().cloned().collect();
+                let lookup_cloned = lookup.clone().with_cols(local_cols);
                 // Note: if the target child is not `ra_capable` (already exhausted), reset the
                 // filter here; otherwise `execute_parent_lookup` or the target leaf scan will
                 // consume and reset it.
@@ -2446,10 +2489,9 @@ impl RankJoinStream {
             // widened to `target_thresh = None` on `target_side` and fetched all matching rows).
             let unprobed_target_keys = self.parent_target_probed[filter_idx]
                 .take_unprobed_keys(lookup.keys(), target_thresh);
+            let active_pf = Arc::clone(&self.parent_lookup_filters[filter_idx].1);
             if unprobed_target_keys.is_empty() {
-                for (_, pf) in &self.parent_lookup_filters {
-                    let _ = update_lookup_filter(pf, lit(true));
-                }
+                let _ = update_lookup_filter(&active_pf, lit(true));
             } else {
                 if target_thresh != parent_thresh
                     || unprobed_target_keys.len() != lookup.keys().len()
@@ -2457,17 +2499,10 @@ impl RankJoinStream {
                     let target_lookup: Arc<dyn PhysicalExpr> = Arc::new(
                         lookup.with_keys_and_threshold(unprobed_target_keys, target_thresh),
                     );
-                    let target_join_side = target_side.to_join_side();
-                    for (side, pf) in &self.parent_lookup_filters {
-                        if *side == target_join_side {
-                            let _ = update_lookup_filter(pf, Arc::clone(&target_lookup));
-                        }
-                    }
+                    let _ = update_lookup_filter(&active_pf, target_lookup);
                 }
                 let next_res = self.cursor_mut(target_side).stream.next().await;
-                for (_, pf) in &self.parent_lookup_filters {
-                    let _ = update_lookup_filter(pf, lit(true));
-                }
+                let _ = update_lookup_filter(&active_pf, lit(true));
                 match next_res {
                     Some(Err(e)) => return Err(e),
                     None => {
@@ -2982,6 +3017,8 @@ impl RankJoinStream {
         if !self.parent_lookup_filters.is_empty()
             && (self.left_cursor.ra_capable || self.right_cursor.ra_capable)
         {
+            // DataFusion's `push_down_filters` places each operator's `self_filters` before its
+            // incoming `parent_filters`, so `first()` is always the direct parent `RankJoinExec`'s filter.
             if let Some((_, pf)) = self.parent_lookup_filters.first() {
                 let _ = update_lookup_filter(pf, lit(false));
             }
@@ -3052,7 +3089,6 @@ mod tests {
             None,
             Some(vec![0, 1, 2, 3]),
             PartitionMode::CollectLeft,
-            NullEquality::NullEqualsNothing,
             RankJoinSortExprs {
                 left: left_sort,
                 right: right_sort,

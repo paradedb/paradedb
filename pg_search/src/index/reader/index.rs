@@ -1723,13 +1723,14 @@ impl SearchIndexReader {
         let unconstrained = if unconstrained_is_match_all {
             RaBaseFilter::MatchAll
         } else {
+            let contributes_score = self.need_scores && disjunct_queries.is_empty();
             RaBaseFilter::Filtered {
                 weight: Arc::new(LazyWeight::new(
                     self.query().box_clone(),
-                    self.need_scores,
+                    contributes_score,
                     self.searcher.clone(),
                 )),
-                contributes_score: self.need_scores,
+                contributes_score,
             }
         };
         let constrained = range_target.map(|(segments, partition_bounds)| {
@@ -2786,7 +2787,7 @@ impl SearchIndexReader {
     }
 
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
-    /// sampled on the largest segment.
+    /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
         if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
             || query_input.has_postgres_expressions()
@@ -2794,11 +2795,11 @@ impl SearchIndexReader {
         {
             return query_input.selectivity_heuristic().clamp(0.0, 1.0);
         }
-        let Some(largest_reader) = self.segment_readers().iter().max_by_key(|r| r.num_docs())
+        let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)
         else {
             return 0.0;
         };
-        let seg_docs = largest_reader.num_docs();
+        let seg_docs = self.segment_num_docs(largest_reader);
         if seg_docs == 0 {
             return 0.0;
         }
@@ -2812,7 +2813,10 @@ impl SearchIndexReader {
                 let weight = query
                     .weight(EnableScoring::disabled_from_searcher(&self.searcher))
                     .expect("weight should be constructable");
-                scorer_estimate(weight.as_ref(), largest_reader).0
+                weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("creating scorer for estimation should not fail")
+                    .size_hint() as u64
             });
         (count as f64 / seg_docs as f64).clamp(0.0, 1.0)
     }

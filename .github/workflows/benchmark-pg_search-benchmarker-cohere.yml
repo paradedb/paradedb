@@ -1,0 +1,309 @@
+name: Benchmark pg_search (Benchmarker Cohere)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/setup-benchmark-cluster/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
+      - ".github/actions/publish-benchmarker-results/**"
+      - ".github/actions/publish-benchmark-results/**"
+      - ".github/actions/stage-benchmark-results/**"
+      - ".github/workflows/publish-benchmark-results.yml"
+      - ".github/actions/setup-benchmarker/**"
+      - ".github/workflows/benchmark-pg_search-benchmarker-cohere.yml"
+      - "benchmarks/cohere/**"
+      - "benchmarks/datasets/cohere/**"
+      - "Cargo.lock"
+      - "**/*.rs"
+      - "**/*.toml"
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      size:
+        description: "Cohere corpus size"
+        type: choice
+        options: [all, 1m, 10m]
+        default: all
+      commit:
+        description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
+        default: ""
+      pdbench_ref:
+        description: "pdbench ref"
+        default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
+      benchmarker_ref:
+        description: "benchmarker ref"
+        default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
+      publish_baseline:
+        description: "Publish baseline metrics when running on main"
+        type: boolean
+        default: true
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  cohere:
+    name: Cohere ${{ matrix.size }} (ParadeDB)
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["benchmarks", "benchmark-cohere-pg_search", "benchmark-benchmarker-cohere"]'), github.event.label.name)
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        size: ${{ fromJSON(inputs.size == '1m' && '["1m"]' || inputs.size == '10m' && '["10m"]' || '["1m", "10m"]') }}
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache
+    env:
+      COHERE_SIZE: ${{ matrix.size }}
+      pg_version: "18"
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
+      BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
+      BENCHMARK_REF: ${{ inputs.commit || github.sha }}
+
+    steps:
+      - name: Remove benchmark label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BENCHMARK_LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$BENCHMARK_LABEL" || true
+
+      - name: Checkout extension to benchmark
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          persist-credentials: false
+
+      - name: Record benchmark commit and connection
+        id: commit_info
+        run: |
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
+
+      - name: Checkout benchmark workflow for backfills
+        if: inputs.commit != ''
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: benchmark-workflow
+          persist-credentials: false
+
+      - name: Use this workflow's benchmark code for backfills
+        if: inputs.commit != ''
+        run: |
+          rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
+          rsync -a benchmark-workflow/.github/actions/ .github/actions/
+          rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
+
+      - name: Test recall-to-k6 handoff
+        run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
+
+      - name: Configure RunsOn caching
+        uses: runs-on/action@v2
+
+      - name: Set up benchmark cluster
+        uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: ${{ env.pg_version }}
+
+      - name: Create pdbench checkout token
+        id: pdbench_token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pdbench
+          permission-contents: read
+
+      - name: Checkout pdbench
+        uses: actions/checkout@v7
+        with:
+          repository: paradedb/pdbench
+          ref: ${{ env.PDBENCH_REF }}
+          path: pdbench
+          token: ${{ steps.pdbench_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Install pdbench toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Cache pdbench build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pdbench -> target
+
+      - name: Build pdbench
+        working-directory: pdbench
+        run: |
+          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+
+      - name: Set up Benchmarker
+        uses: ./.github/actions/setup-benchmarker
+        with:
+          ref: ${{ env.BENCHMARKER_REF }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Restore Cohere heap snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifacts
+          (cd pg_search && cargo pgrx stop pg18)
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset cohere --size "$COHERE_SIZE" \
+            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
+            --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots \
+            --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
+            --repo-s3-key-type shared)
+          (cd pg_search && cargo pgrx start pg18)
+
+      - name: Refresh pg_search and build index
+        run: |
+          set -euo pipefail
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+            -f benchmarks/datasets/cohere/indexes/pg_search.sql \
+            -f benchmarks/datasets/cohere/after_create_index.sql \
+            -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
+            | tee benchmark-artifacts/index-build.log
+
+      - name: Install fixture reader
+        uses: paradedb/actions/apt-install@v14
+        with:
+          packages: python3-venv
+
+      - name: Import published ground-truth fixtures
+        env:
+          FIXTURE_SOURCE: s3://paradedb-benchmarks/datasets/cohere/queries
+        run: |
+          set -euo pipefail
+          python3 -m venv .cohere-fixtures
+          .cohere-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '
+            CREATE TABLE IF NOT EXISTS pdbench_ground_truth (
+              corpus text, query_stem text, query_id int, gt_ids text[],
+              PRIMARY KEY (corpus, query_stem, query_id)
+            );'
+          .cohere-fixtures/bin/python - <<'PYTHON'
+          import os
+          import duckdb
+
+          db = duckdb.connect()
+          db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
+          db.execute("CREATE SECRET (TYPE s3, PROVIDER credential_chain);")
+          url = os.environ["PARADEDB_URL"].replace("'", "''")
+          db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
+          for query in ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct"):
+              source = f"{os.environ['FIXTURE_SOURCE']}/ground_truth_{query}_{os.environ['COHERE_SIZE']}.parquet"
+              count = db.execute("SELECT count(*) FROM read_parquet(?)", [source]).fetchone()[0]
+              if count != 100:
+                  raise ValueError(f"{query}: expected 100 ground-truth rows, found {count}")
+              db.execute("DELETE FROM pg.public.pdbench_ground_truth WHERE corpus = 'cohere_wiki' AND query_stem = ?", [query])
+              db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
+          PYTHON
+
+      - name: Sweep max_probe with pdbench
+        run: |
+          set -euo pipefail
+          for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
+            pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
+              --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
+              --query "$query" --no-compare --html
+          done
+
+      - name: Prepare k6 operating points
+        run: |
+          set -euo pipefail
+          python3 benchmarks/cohere/prepare_k6.py --runs benchmark-artifacts/search --output benchmark-artifacts
+          psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+            -c 'SELECT json_agg(emb::text ORDER BY id) FROM pdbench_queries' \
+            > benchmark-artifacts/query_vectors.json
+          cat benchmark-artifacts/operating_points.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            git -C pdbench rev-parse HEAD
+            git -C benchmarker rev-parse HEAD
+          } > benchmark-artifacts/tool-commits.txt
+
+      - name: Verify k6 query plans and filter pushdown
+        run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
+
+      - name: Measure selected operating points with k6
+        env:
+          BENCHMARKER_META: >-
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          root="$PWD"
+          mkdir -p benchmarker/results
+          while IFS= read -r point; do
+            (
+              cd benchmarker/results
+              "$root/benchmarker/k6" run --out dashboard=json,html \
+                -e PARADEDB_URL="$PARADEDB_URL" \
+                -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
+                -e OPERATING_POINT="$point" \
+                -e QUERY_VECTORS="$root/benchmark-artifacts/query_vectors.json" \
+                "$root/benchmarks/cohere/k6/search.js"
+            )
+            jsons=(benchmarker/results/dashboard_*.json)
+            htmls=(benchmarker/results/dashboard_*.html)
+            test "${#jsons[@]}" -eq 1 && test "${#htmls[@]}" -eq 1
+            mv "${jsons[0]}" "benchmarker/results/${point}.json"
+            mv "${htmls[0]}" "benchmarker/results/${point}.html"
+          done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
+
+      - name: Stage Benchmarker results
+        uses: ./.github/actions/stage-benchmark-results
+        with:
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"cohere-${{ matrix.size }}",
+             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
+             "context_file":"benchmark-artifacts/operating_points.md"}
+
+      - name: Upload index, recall, and buffer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cohere-${{ matrix.size }}-diagnostics
+          path: benchmark-artifacts/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Database logs
+        if: failure() || cancelled()
+        run: tail -200 ~/.pgrx/18.log
+
+      - name: Stop database
+        if: always()
+        working-directory: pg_search
+        run: cargo pgrx stop pg18
+
+  publish-results:
+    name: Publish Benchmark Results
+    needs: cohere
+    if: always() && !cancelled() && (needs.cohere.result == 'success' || needs.cohere.result == 'failure')
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit

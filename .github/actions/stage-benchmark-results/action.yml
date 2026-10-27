@@ -45,5 +45,6 @@ runs:
         path: |
           _benchmark_publish/metadata.json
           ${{ steps.publication-inputs.outputs.results_path }}
+          ${{ fromJSON(inputs.metadata).context_file }}
         retention-days: 30
         if-no-files-found: error

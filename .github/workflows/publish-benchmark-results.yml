@@ -108,6 +108,7 @@ jobs:
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
           github_token: ${{ steps.app-token.outputs.token }}
           pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}
+          context_file: ${{ fromJSON(steps.metadata.outputs.json).context_file || '' }}
           publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
 
       - name: Publish Query Results
@@ -122,7 +123,6 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
           alert_threshold: ${{ fromJSON(steps.metadata.outputs.json).alert_threshold }}
-          alert_strategy: ${{ fromJSON(steps.metadata.outputs.json).alert_strategy }}
 
       - name: Publish Stressgres Results
         if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'stressgres'

@@ -13,7 +13,7 @@ inputs:
     description: "Pre-sampled dataset size (e.g. 100k, 1m, 20m)"
     required: true
   index:
-    description: "Index variant (e.g. bm25, hnsw, ivfflat). Uses datasets/{dataset}/indexes/{index}.sql."
+    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25"
     required: true
   ref:
     description: "Full SHA of the commit benchmarked"
@@ -28,22 +28,10 @@ inputs:
     default: "false"
   alert_threshold:
     description: >-
-      Ratio of current to baseline value above which github-action-benchmark alerts
-      (e.g. 115%). Callers using the paired-bootstrap strategy should loosen this into a
-      catastrophic-regression backstop, since the comparison script owns real alerting.
+      Ratio of current to baseline value above which github-action-benchmark alerts,
+      e.g. "115%".
     required: false
     default: "115%"
-  alert_strategy:
-    description: >-
-      How regressions are detected. "point-ratio": only the alert_threshold point comparison.
-      "paired-bootstrap": percentile series whose runs published per-query samples alert when the
-      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x. Pairing cancels
-      cross-query latency variance, so this is both less noisy and more sensitive than a point
-      comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
-      p99 series stay on the charts but never trigger alerts. One run is not enough to detect a p99 regression.
-    required: false
-    default: "point-ratio"
-
 runs:
   using: "composite"
   steps:

@@ -19,6 +19,10 @@ inputs:
     description: "Whether to publish baseline metrics to gh-pages"
     required: false
     default: "false"
+  context_file:
+    description: "Optional Markdown context to include above the benchmark comparison"
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -35,6 +39,7 @@ runs:
         if-no-files-found: warn
 
     - name: Extract Tracked Metrics
+      id: metrics
       shell: bash
       env:
         RESULTS_DIR: benchmarker/results
@@ -92,16 +97,19 @@ runs:
         done
 
         mkdir -p "$(dirname "${METRICS_FILE}")" "$(dirname "${THROUGHPUT_METRICS_FILE}")"
+        printf '[]\n' > "${METRICS_FILE}"
+        printf '[]\n' > "${THROUGHPUT_METRICS_FILE}"
         if compgen -G "_metrics/*.json" > /dev/null; then
           jq -s 'add | map(select(.unit == "ms"))' _metrics/*.json > "${METRICS_FILE}"
           jq -s 'add | map(select(.unit == "queries/s"))' _metrics/*.json > "${THROUGHPUT_METRICS_FILE}"
           echo "=== Extracted Metrics ==="
           cat "${METRICS_FILE}" "${THROUGHPUT_METRICS_FILE}"
         fi
+        echo "present=$(jq 'length > 0' "${METRICS_FILE}")" >> "$GITHUB_OUTPUT"
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
-      if: hashFiles('benchmarker/benchmarker_metrics.json') != ''
+      if: steps.metrics.outputs.present == 'true'
       uses: ./.github/actions/publish-benchmark-results
       with:
         publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-latency
@@ -124,7 +132,7 @@ runs:
 
     - name: Publish QPS Metrics
       id: publish_throughput
-      if: hashFiles('benchmarker/benchmarker_throughput_metrics.json') != ''
+      if: steps.metrics.outputs.present == 'true'
       uses: ./.github/actions/publish-benchmark-results
       with:
         publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-throughput
@@ -173,7 +181,7 @@ runs:
         commit_message: "benchmarker dashboards for ${{ inputs.ref }} (${{ inputs.dataset }})"
 
     - name: Comment Benchmark Comparison and Dashboard Links
-      if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
+      if: inputs.pr_number != '' && (hashFiles('_ghpages_html/*.html') != '' || inputs.context_file != '')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -183,6 +191,7 @@ runs:
         DATASET: ${{ inputs.dataset }}
         METRICS_FILE: benchmarker/benchmarker_metrics.json
         THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
+        CONTEXT_FILE: ${{ inputs.context_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -195,6 +204,10 @@ runs:
         done
         {
           printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:0:7}"
+          if [ -n "$CONTEXT_FILE" ]; then
+            cat "$CONTEXT_FILE"
+            printf '\n'
+          fi
           jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json '
             "Baselines: latency `\(($latency[0].commit.id // "n/a") | .[0:7])`, QPS `\(($throughput[0].commit.id // "n/a") | .[0:7])`.\n"
           '
@@ -222,7 +235,7 @@ runs:
           '
           printf '\nRatio: current/previous for latency, previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
           printf '\n'
-          printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
+          printf 'Interactive per-script graphs (latency timeline, throughput, and resource metrics when available):\n\n'
           printf '%s\n' "$links"
           printf 'Over-time tracking (p50, p95, p99 latency and QPS across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
           printf '_gh-pages may take ~a minute to deploy after this run._\n'

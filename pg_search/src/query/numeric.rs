@@ -571,9 +571,12 @@ pub fn convert_value_for_field(
 mod tests {
     use super::*;
     use crate::postgres::datetime::PostgresTimestamp;
+    #[cfg(test)]
     use Clamped::{Above, Below, Exact};
     use pgrx::pg_test;
+    #[cfg(test)]
     use rstest::rstest;
+    #[cfg(test)]
     use std::ops::Bound::{Excluded, Included, Unbounded};
 
     #[test]
@@ -654,6 +657,7 @@ mod tests {
         SearchFieldType::Numeric64(pgrx::pg_sys::NUMERICOID, scale)
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case(2, "12.345", 1234, false)]
     #[case(2, "-12.345", -1235, false)]
@@ -687,6 +691,7 @@ mod tests {
         );
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case("12.34", 1234)]
     #[case("NaN", Decimal64NoScale::nan().value())]
@@ -764,6 +769,7 @@ mod tests {
         assert!(convert_value_for_field(text("not a date"), &DATE_DAYS, date_version).is_err());
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::integer(INT8, int(5), Exact(int(5)))]
     #[case::u64_at_max(INT8, uint(i64::MAX as u64), Exact(int(i64::MAX)))]
@@ -869,6 +875,7 @@ mod tests {
         assert_eq!(clamp_to_int_domain(&value, &field_type), Some(expected));
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::word(INT8, text("abc"))]
     #[case::empty(INT8, text(""))]
@@ -892,6 +899,7 @@ mod tests {
         assert_eq!(clamp_to_int_domain(&value, &field_type), None);
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::included(INT8, Included(text("5")), Included(int(5)))]
     #[case::excluded(INT8, Excluded(uint(5)), Excluded(int(5)))]
@@ -914,6 +922,7 @@ mod tests {
         );
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::included(INT8, Included(int(5)), Included(int(5)))]
     #[case::excluded(INT8, Excluded(text("5")), Excluded(int(5)))]
@@ -936,6 +945,7 @@ mod tests {
         );
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::int8range(INT8RANGE, Excluded(int(i64::MAX)), int(i64::MAX))]
     #[case::int8range_above_max(INT8RANGE, Included(uint(1 << 63)), int(i64::MAX))]
@@ -969,6 +979,7 @@ mod tests {
         assert!(clamp_int_bounds(&OID, Unbounded, Excluded(text("1-2"))).is_err());
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::integer(INT8, int(5), false)]
     #[case::fraction(INT8, text("2.5"), true)]
@@ -986,35 +997,33 @@ mod tests {
         assert_eq!(is_outside_int_domain(&value, &field_type), expected);
     }
 
-    #[rstest]
-    #[case::string(INT8, text(" 5 "), int(5))]
-    #[case::float(INT8, float(5.0), int(5))]
-    #[case::u64(OID, text("5.0"), uint(5))]
-    #[case::not_a_number(INT8, text("abc"), text("abc"))]
-    #[case::timestamp(TIMESTAMP, text("infinity"), int(i64::MAX))]
-    fn test_convert_value_for_int_field(
-        #[case] field_type: SearchFieldType,
-        #[case] value: PdbOwnedValue,
-        #[case] expected: PdbOwnedValue,
-    ) {
-        assert_eq!(
-            convert_value_for_field(value, &field_type, None).unwrap(),
-            expected
-        );
+    #[pg_test]
+    fn test_convert_value_for_int_field() {
+        for (field_type, value, expected) in [
+            (INT8, text(" 5 "), int(5)),
+            (INT8, float(5.0), int(5)),
+            (OID, text("5.0"), uint(5)),
+            (INT8, text("abc"), text("abc")),
+            (TIMESTAMP, text("infinity"), int(i64::MAX)),
+        ] {
+            assert_eq!(
+                convert_value_for_field(value, &field_type, None).unwrap(),
+                expected
+            );
+        }
     }
 
-    #[rstest]
-    #[case::fraction(text("2.5"))]
-    #[case::above_max(uint(1 << 63))]
-    fn convert_value_for_field_rejects_numbers_outside_int_domain(#[case] value: PdbOwnedValue) {
-        assert!(convert_value_for_field(value, &INT8, None).is_err());
+    #[pg_test]
+    fn convert_value_for_field_rejects_numbers_outside_int_domain() {
+        for value in [text("2.5"), uint(1 << 63)] {
+            assert!(convert_value_for_field(value, &INT8, None).is_err());
+        }
     }
 
-    #[rstest]
-    #[case::not_a_number(text("abc"))]
-    #[case::empty(text(""))]
-    #[case::off_grid(text("12.345"))]
-    fn convert_value_for_field_rejects_non_values_of_numeric64(#[case] value: PdbOwnedValue) {
-        assert!(convert_value_for_field(value, &numeric64(2), None).is_err());
+    #[pg_test]
+    fn convert_value_for_field_rejects_non_values_of_numeric64() {
+        for value in [text("abc"), text(""), text("12.345")] {
+            assert!(convert_value_for_field(value, &numeric64(2), None).is_err());
+        }
     }
 }

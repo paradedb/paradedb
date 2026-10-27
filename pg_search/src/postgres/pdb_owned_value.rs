@@ -625,9 +625,8 @@ pub(crate) mod exact_scalar_wire {
 }
 
 impl PdbOwnedValue {
-    /// A `Display` that renders this value for logs without calling into Postgres, so it works
-    /// outside a backend. The complementary `TantivyValue` `Display` routes dates through
-    /// Postgres output functions; this one renders dates in ISO form without the backend.
+    /// A `Display` that renders this value for logs. DATE values use PostgreSQL output
+    /// functions, while timestamps are rendered as RFC 3339 without the backend.
     /// Strings are quoted so a value reads unambiguously in a log line, and the composite and
     /// unsupported variants fall back to `Debug`.
     pub(crate) fn plain_display(&self) -> impl std::fmt::Display + '_ {
@@ -703,8 +702,10 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
 mod tests {
     use super::*;
     use arrow_schema::TimeUnit;
+    #[cfg(test)]
     use pgrx::pg_sys;
     use pgrx::pg_test;
+    #[cfg(test)]
     use std::cmp::Ordering;
     use std::net::Ipv6Addr;
 
@@ -863,8 +864,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn plain_display_renders_without_a_backend() {
+    #[pg_test]
+    fn plain_display_renders_scalar_values() {
         assert_eq!(
             PdbOwnedValue::Str("x\"y".into())
                 .plain_display()

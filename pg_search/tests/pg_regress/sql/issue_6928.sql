@@ -37,6 +37,30 @@ WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup));
 SELECT count(*) FROM issue_6928_docs
 WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup));
 
+-- NULL AND true is NULL; NULL OR true is true.
+SELECT count(*) FROM issue_6928_docs
+WHERE body @@@ (SELECT q FROM issue_6928_lookup) AND body @@@ 'document';
+
+SELECT count(*) FROM issue_6928_docs
+WHERE body @@@ (SELECT q FROM issue_6928_lookup) OR body @@@ 'document';
+
+-- A negated NULL must not admit rows through AND or OR.
+SELECT count(*) FROM issue_6928_docs
+WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup)) AND body @@@ 'document';
+
+SELECT count(*) FROM issue_6928_docs
+WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup)) OR body @@@ 'missing';
+
+-- Negating compound predicates must preserve SQL three-valued logic.
+SELECT count(*) FROM issue_6928_docs
+WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup) AND body @@@ 'document');
+
+SELECT count(*) FROM issue_6928_docs
+WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup) OR body @@@ 'missing');
+
+SELECT count(*) FROM issue_6928_docs
+WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup)) OR body @@@ 'document';
+
 -- A NULL parameter reaches the same `Null` query, through the planner's estimate
 -- fold for a generic plan.
 SET plan_cache_mode = force_generic_plan;

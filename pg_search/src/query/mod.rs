@@ -118,10 +118,10 @@ pub enum SearchQueryInput {
     /// query builder therefore turns a boolean with `Null` in `must_not` into a
     /// query that matches nothing.
     ///
-    /// Only a direct `Null` child of `must_not` is handled this way. A wrapped
-    /// or nested NULL is not reachable from SQL because every `SearchQueryInput`
-    /// builder is STRICT, so a NULL argument produces SQL NULL instead of a
-    /// query that contains `Null`.
+    /// Only a direct `Null` child of `must_not` is handled this way. SQL query
+    /// wrappers such as `boost` and `const_score` are STRICT, so a SQL NULL
+    /// argument makes the entire wrapper NULL. The boolean builder instead
+    /// omits optional SQL NULL arguments; it does not embed them as `Null`.
     Null,
     MoreLikeThis {
         #[serde(flatten)]

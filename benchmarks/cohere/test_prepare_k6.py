@@ -84,6 +84,21 @@ class OperatingPointsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid selected point"):
             operating_points(inputs)
 
+    def test_accepts_roundoff_at_target_but_rejects_one_missing_neighbor(self):
+        """Treat 0.9499999999999998 as 95%, while preserving the recall floor."""
+        for recall, accepted in ((0.9499999999999998, True), (0.949, False)):
+            inputs = reports()
+            variant = inputs[0]["data"]["variants"][QUERIES[0]]
+            variant["targets"]["0.95"]["recall"] = recall
+            variant["targets"]["0.9"]["recall"] = recall
+            variant["points"][0]["metrics"]["recall"]["recall"] = recall
+            with self.subTest(recall=recall):
+                if accepted:
+                    operating_points(inputs)
+                else:
+                    with self.assertRaisesRegex(ValueError, "invalid selected point"):
+                        operating_points(inputs)
+
     def test_refuses_mixed_sessions_and_incomplete_query_sets(self):
         """Reject mismatched or missing sweep reports."""
         inputs = reports()

@@ -349,25 +349,11 @@ pub fn vector_stats() -> bool {
     VECTOR_STATS.get()
 }
 
-/// Reserved for a future early-stop on the stacked IVF router's centroid
-/// ranking. Accepted and readable, but not wired into Tantivy's
-/// [`ProbeParams`](tantivy::vector::ProbeParams) while geometry APS is removed.
-static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(0.99);
+/// Registered for compatibility. Nothing reads it.
+static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// Returns the stacked IVF router's recall target GUC (currently unused).
-pub fn vector_router_recall_target() -> f32 {
-    VECTOR_ROUTER_RECALL_TARGET.get() as f32
-}
-
-/// Reserved for a future early-stop on each segment's cluster scan. Accepted
-/// and readable, but not wired into Tantivy's
-/// [`ProbeParams`](tantivy::vector::ProbeParams) while geometry APS is removed.
+/// Registered for compatibility. Nothing reads it.
 static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
-
-/// Returns the segment cluster scan's recall target GUC (currently unused).
-pub fn vector_recall_target() -> f32 {
-    VECTOR_RECALL_TARGET.get() as f32
-}
 
 /// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
@@ -691,12 +677,11 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    // No-ops until a replacement for geometry APS lands; kept so existing
-    // `SET` / `postgresql.conf` values keep working.
+    // Registered so SHOW and pg_settings stay stable. Nothing reads these.
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
-        c"Reserved: recall target for the IVF router's centroid ranking (currently unused)",
-        c"Accepted for compatibility. Vector probes currently stop only on the work budget (paradedb.vector_cluster_max_probe) or when ranked clusters run out; this setting has no effect until early-stop returns.",
+        c"Registered for compatibility; nothing reads it",
+        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
         &VECTOR_ROUTER_RECALL_TARGET,
         0.000001,
         1.0,
@@ -706,8 +691,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
-        c"Reserved: recall target for each segment's cluster scan (currently unused)",
-        c"Accepted for compatibility. Vector probes currently stop only on the work budget (paradedb.vector_cluster_max_probe) or when ranked clusters run out; this setting has no effect until early-stop returns.",
+        c"Registered for compatibility; nothing reads it",
+        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,

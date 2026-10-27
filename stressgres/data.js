@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793062403151,
+  "lastUpdate": 1793062479634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -226051,6 +226051,125 @@ window.BENCHMARK_DATA = {
             "extra": "avg mem: 45.503582134260974, max mem: 47.44140625, count: 59308"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 \u00d7\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8\u201326), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T20:40:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793062448507,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.495549,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.913624978629379, max cpu: 32.589718, count: 59308"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 46.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.401937699699026, max mem: 46.47265625, count: 59308"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.6264577269118625, max cpu: 28.22146, count: 59308"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.75,
+            "unit": "median mem",
+            "extra": "avg mem: 31.74669837964524, max mem: 31.75, count: 59308"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.789385601193517, max cpu: 14.131501, count: 59308"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.6826062541099, max mem: 50.6484375, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18029,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18173.941120928037, max block_count: 34824.0, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6489105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.327878524182095, max cpu: 4.712813, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.000646650746948, max mem: 28.05078125, count: 59308"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.690800566534026, max segment_count: 37.0, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.950985203690458, max cpu: 28.614008, count: 59308"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 46.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.283020352966716, max mem: 46.3046875, count: 59308"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.288939021020981, max cpu: 28.388369, count: 118616"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.87612870786825, max mem: 55.01171875, count: 118616"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.504951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.839314746209189, max cpu: 23.506365, count: 59308"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 47.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.22065399060835, max mem: 51.08984375, count: 59308"
+          }
+        ],
+        "publication_id": "12697178858-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

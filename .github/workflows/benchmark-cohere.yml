@@ -10,6 +10,8 @@ on:
       - ".github/actions/setup-postgres/**"
       - ".github/actions/publish-benchmarker-results/**"
       - ".github/actions/publish-benchmark-results/**"
+      - ".github/actions/stage-benchmark-results/**"
+      - ".github/workflows/publish-benchmark-results.yml"
       - ".github/actions/setup-benchmarker/**"
       - ".github/workflows/benchmark-cohere.yml"
       - "benchmarks/cohere/**"
@@ -41,7 +43,8 @@ on:
         default: true
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -86,7 +89,7 @@ jobs:
       - name: Record benchmark commit and connection
         id: commit_info
         run: |
-          echo "short_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark workflow for backfills
@@ -247,7 +250,7 @@ jobs:
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.short_commit }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -270,17 +273,15 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
-      - name: Publish Benchmarker results
-        uses: ./.github/actions/publish-benchmarker-results
+      - name: Stage Benchmarker results
+        uses: ./.github/actions/stage-benchmark-results
         with:
-          dataset: cohere-${{ matrix.size }}
-          short_commit: ${{ steps.commit_info.outputs.short_commit }}
-          ref: ${{ env.BENCHMARK_REF }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          pr_number: ${{ github.event.pull_request.number }}
-          publish_baseline: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
-          context_file: benchmark-artifacts/operating_points.md
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"cohere-${{ matrix.size }}",
+             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
+             "context_file":"benchmark-artifacts/operating_points.md"}
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()
@@ -299,3 +300,10 @@ jobs:
         if: always()
         working-directory: pg_search
         run: cargo pgrx stop pg18
+
+  publish-results:
+    name: Publish Benchmark Results
+    needs: cohere
+    if: always() && !cancelled() && (needs.cohere.result == 'success' || needs.cohere.result == 'failure')
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit

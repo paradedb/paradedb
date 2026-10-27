@@ -761,7 +761,7 @@ async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 }
 
 async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    // Index and query metrics share one results.json, so the publish step reports them as one set.
+    // Keep index and query metrics together, with a separate result file per configuration.
     let mut results = Vec::new();
     if !args.skip_index {
         results.extend(
@@ -779,7 +779,14 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
             .flat_map(JSONBenchmarkResult::from_query_result),
     );
 
-    let mut file = File::create("results.json").with_context(|| "Failed to create output file")?;
+    let size_suffix = args
+        .size
+        .as_deref()
+        .map(|size| format!("_{size}"))
+        .unwrap_or_default();
+    let output_file = format!("results_{}_{}{size_suffix}.json", args.dataset, args.index);
+    let mut file =
+        File::create(&output_file).with_context(|| format!("Failed to create {output_file}"))?;
     let results_json =
         serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
     file.write_all(results_json.as_bytes())

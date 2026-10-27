@@ -2,6 +2,10 @@ name: Set Up pg_search Toolchain
 description: Install pinned Rust and cargo-pgrx with a configurable shared Rust cache
 
 inputs:
+  source_directory:
+    description: "Directory containing the source being benchmarked or built"
+    required: false
+    default: "."
   pg_version:
     description: "PostgreSQL major version used to partition the Rust cache."
     required: true
@@ -36,6 +40,7 @@ runs:
   steps:
     - name: Extract Pinned Toolchain Versions
       id: versions
+      working-directory: ${{ inputs.source_directory }}
       shell: bash
       run: |
         set -euo pipefail
@@ -66,12 +71,14 @@ runs:
       with:
         prefix-key: ${{ inputs.cache_prefix_key }}-${{ steps.build_os.outputs.id }}
         shared-key: pg${{ inputs.pg_version }}
+        workspaces: ${{ inputs.source_directory }} -> target
         cache-targets: true
         cache-all-crates: true
         save-if: ${{ inputs.cache_save == 'true' }}
         cache-on-failure: ${{ inputs.cache_on_failure == 'true' }}
 
     - name: Install cargo-pgrx ${{ steps.versions.outputs.pgrx }}
+      working-directory: ${{ inputs.source_directory }}
       if: inputs.install_cargo_pgrx == 'true'
       shell: bash
       env:

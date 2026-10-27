@@ -28,8 +28,9 @@ workers. Both tools use the same database and index throughout a run.
    as a parameter, with custom plans and no prepared-statement cache. The
    selected max_probe and all fixed search settings apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
-5. The shared Wikipedia/StackExchange publisher posts p50/p95/p99 and QPS with
-   baseline comparisons and dashboard links. Recall, max_probe, and mean
+5. Results and recall context enter the shared publication queue. The
+   Wikipedia/StackExchange publisher posts p50/p95/p99 and QPS with baseline
+   comparisons and dashboard links. Recall, max_probe, and mean
    whole-query shared buffer hits/reads appear above those results. Buffer
    diagnostics come from pdbench's separate EXPLAIN pass over all 100 vectors.
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793062031005,
+  "lastUpdate": 1793062180637,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -362278,6 +362278,137 @@ window.BENCHMARK_DATA = {
             "extra": "avg tps: 181.4875226335637, max tps: 351.36005766151413, count: 59117"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 \u00d7\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8\u201326), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T20:40:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793062138336,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 12.839903694797293,
+            "unit": "median tps",
+            "extra": "avg tps: 11.529010281954408, max tps: 15.170796626096058, count: 59116"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.182134795750779,
+            "unit": "median tps",
+            "extra": "avg tps: 2.206052857929849, max tps: 2.4454758677290784, count: 59116"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 184.88906283463442,
+            "unit": "median tps",
+            "extra": "avg tps: 196.97734888169816, max tps: 378.0307777722116, count: 59116"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 181.10815717467034,
+            "unit": "median tps",
+            "extra": "avg tps: 188.49467999223216, max tps: 388.67439917459564, count: 59116"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 176.52569042431998,
+            "unit": "median tps",
+            "extra": "avg tps: 188.08654672587232, max tps: 418.3032027837012, count: 59116"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 195.17612503366416,
+            "unit": "median tps",
+            "extra": "avg tps: 205.5033517064623, max tps: 413.89864945089806, count: 59116"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 189.72049814358823,
+            "unit": "median tps",
+            "extra": "avg tps: 201.1622827013598, max tps: 394.36354718755524, count: 59116"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 173.98746540714316,
+            "unit": "median tps",
+            "extra": "avg tps: 189.47976991436042, max tps: 411.25838355237426, count: 59116"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 180.80329222228414,
+            "unit": "median tps",
+            "extra": "avg tps: 191.3784421725451, max tps: 385.14718770482307, count: 59116"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 180.0847597767086,
+            "unit": "median tps",
+            "extra": "avg tps: 196.46619114455208, max tps: 410.0959706026052, count: 59116"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 175.5442133236633,
+            "unit": "median tps",
+            "extra": "avg tps: 189.3010742210903, max tps: 474.238682705943, count: 59116"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 185.59066642590588,
+            "unit": "median tps",
+            "extra": "avg tps: 195.33598106532702, max tps: 438.9165723760221, count: 59116"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 175.85495418719995,
+            "unit": "median tps",
+            "extra": "avg tps: 188.3018618000192, max tps: 297.2868408947942, count: 59116"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 184.5024350867729,
+            "unit": "median tps",
+            "extra": "avg tps: 189.60796525085502, max tps: 287.8654805164914, count: 59116"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 169.58039962070873,
+            "unit": "median tps",
+            "extra": "avg tps: 185.551074693298, max tps: 471.9144007941376, count: 59116"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 166.84509646384694,
+            "unit": "median tps",
+            "extra": "avg tps: 184.7317895172703, max tps: 379.5184870159852, count: 59116"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 181.87880892435425,
+            "unit": "median tps",
+            "extra": "avg tps: 191.50230818482186, max tps: 648.4569282019405, count: 59116"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 190.97587749080793,
+            "unit": "median tps",
+            "extra": "avg tps: 200.11836170507007, max tps: 397.6842150381119, count: 59116"
+          }
+        ],
+        "publication_id": "12697703173-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [

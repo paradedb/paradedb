@@ -18,7 +18,7 @@
 use crate::api::version::{Version, parse_version_component};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
+    LinkedList, SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer, init_new_buffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
@@ -29,6 +29,7 @@ use pgrx::{
     PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_extern,
     pg_sys,
 };
+use std::io::{self, Write};
 use tantivy::IndexSettings;
 
 /// The metadata stored on the `Metadata` page
@@ -86,12 +87,16 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// a separate lock keeps a statistics refresh from waiting for a long-running merge.
+    index_stats_lock: pg_sys::BlockNumber,
+    /// zero on indexes created before index-wide statistics were introduced.
+    index_stats_start: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
-/// Because the metadata page does not change after it's initialized in MetaPage::open(),
-// (with the exception of the `ambulkdelete_epoch` field, see comment below)
-/// we do not need to hold a share lock for the lifetime of this struct.
+/// most metadata is stable after `open()`. the ambulkdelete epoch and statistics pointer can
+/// change, so callers requiring a current value must reread them under their respective locks.
 pub struct MetaPage {
     data: MetaPageData,
     bman: BufferManager,
@@ -100,6 +105,48 @@ pub struct MetaPage {
 const METAPAGE: pg_sys::BlockNumber = 0;
 
 impl MetaPage {
+    /// read the current immutable statistics file while holding its lock. the writer
+    /// takes that lock exclusively before replacing the pointer and recycling the old file.
+    pub(crate) fn index_stats_bytes(indexrel: &PgSearchRelation) -> Option<Vec<u8>> {
+        let metadata = Self::open(indexrel);
+        let _lock = metadata.bman.get_buffer(metadata.data.index_stats_lock);
+        let metadata = Self::open(indexrel);
+        let start = metadata.data.index_stats_start;
+        block_number_is_valid(start)
+            .then(|| unsafe { LinkedBytesList::open(indexrel, start).read_all() })
+    }
+
+    /// publish a complete replacement before recycling the previous file. readers either see
+    /// the old file or the new file, never a partially written one.
+    pub(crate) fn replace_index_stats(indexrel: &PgSearchRelation, bytes: &[u8]) -> io::Result<()> {
+        let mut writer = LinkedBytesList::create_with_fsm(indexrel).writer();
+        writer.write_all(bytes)?;
+        let new_start = writer.finalize_and_write()?.get_header_blockno();
+        Self::set_index_stats_start(indexrel, new_start);
+        Ok(())
+    }
+
+    pub(crate) fn clear_index_stats(indexrel: &PgSearchRelation) {
+        Self::set_index_stats_start(indexrel, 0);
+    }
+
+    fn set_index_stats_start(indexrel: &PgSearchRelation, new_start: pg_sys::BlockNumber) {
+        let mut metadata = Self::open(indexrel);
+        let _lock = metadata.bman.get_buffer_mut(metadata.data.index_stats_lock);
+        let mut buffer = metadata.bman.get_buffer_mut(METAPAGE);
+        let old_start = {
+            let mut page = buffer.page_mut();
+            let data = page.contents_mut::<MetaPageData>();
+            let old = data.index_stats_start;
+            data.index_stats_start = new_start;
+            old
+        };
+        drop(buffer);
+        if block_number_is_valid(old_start) {
+            unsafe { LinkedBytesList::open(indexrel, old_start).return_to_fsm() };
+        }
+    }
+
     pub unsafe fn init(indexrel: &PgSearchRelation) {
         let mut buffer = init_new_buffer(indexrel);
         assert_eq!(
@@ -132,6 +179,8 @@ impl MetaPage {
                 const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
 
             metadata.created_at = pg_sys::GetCurrentTimestamp();
+            metadata.index_stats_lock = init_new_buffer(indexrel).number();
+            metadata.index_stats_start = 0;
         }
     }
 
@@ -165,7 +214,8 @@ impl MetaPage {
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
             || !block_number_is_valid(metadata.v2_fsm)
-            || !block_number_is_valid(metadata.segment_meta_garbage);
+            || !block_number_is_valid(metadata.segment_meta_garbage)
+            || !block_number_is_valid(metadata.index_stats_lock);
 
         drop(buffer);
 
@@ -209,6 +259,9 @@ impl MetaPage {
                 if !block_number_is_valid(metadata.segment_meta_garbage) {
                     metadata.segment_meta_garbage =
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+                }
+                if !block_number_is_valid(metadata.index_stats_lock) {
+                    metadata.index_stats_lock = init_new_buffer(indexrel).number();
                 }
             }
 
@@ -484,6 +537,31 @@ mod tests {
     use super::*;
     use pgrx::datum::TimestampWithTimeZone;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn pre_statistics_metapage_opens_without_a_summary() {
+        Spi::run("CREATE TABLE old_stats_index (id BIGINT);").unwrap();
+        Spi::run("CREATE INDEX old_stats_index_idx ON old_stats_index USING paradedb (id);")
+            .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'old_stats_index_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        // older metapages have zeros past `created_at`. recreate those bytes in place.
+        {
+            let mut bman = BufferManager::new(&indexrel);
+            let mut buffer = bman.get_buffer_mut(METAPAGE);
+            let mut page = buffer.page_mut();
+            let data = page.contents_mut::<MetaPageData>();
+            data.index_stats_lock = 0;
+            data.index_stats_start = 0;
+        }
+
+        assert!(block_number_is_valid(
+            MetaPage::open(&indexrel).data.index_stats_lock
+        ));
+        assert!(MetaPage::index_stats_bytes(&indexrel).is_none());
+    }
 
     #[pg_test]
     fn merger_pins_preserve_both_barriers_without_content_locks() {

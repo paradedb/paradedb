@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793144774768,
+  "lastUpdate": 1793144866237,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -32654,6 +32654,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12776552350-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4ed223f9583b868c4de9d0bbe23f82569a25658",
+          "message": "perf: pin Tantivy tip and retire geometry APS early-stop (#7020)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nPin ParadeDB to Tantivy tip `ff6099c7`\n([paradedb/tantivy#345](https://github.com/paradedb/tantivy/pull/345)):\nan AVX-512 VPOPCNTDQ tier for the sign kernels. This sits on the k-aware\nstacked list selection and geometry APS removal from `c39b4c12`\n([paradedb/tantivy#342](https://github.com/paradedb/tantivy/pull/342)).\n\n## Why\n\nTantivy main moved one commit past the previous pin. Scores stay\nbit-identical; sign-quantized scans get faster on CPUs with AVX-512\nVPOPCNTDQ. The routing change from #342 still changes default recall and\nlatency, so it stays in the changelog, rewritten to the user-visible\nbehavior from review.\n\n## How\n\n- Bump synchronized `tantivy` / `tantivy-common` /\n`tantivy-tokenizer-api` Git revs to\n`ff6099c7e0877689187c9e60f771c08c2ed71c9d`.\n- Keep `paradedb.vector_router_recall_target` and\n`paradedb.vector_recall_target` registered so `SHOW` and `pg_settings`\nstay stable. Nothing reads them, and both default to `1.0`.\n- Changelog: list selection scales with the requested cluster count on\nevery stacked IVF index; geometry APS early-stop is gone for L2 and\ncosine at 128 dimensions or fewer; sign scans are faster on AVX-512\nVPOPCNTDQ CPUs with unchanged scores.\n\n## Tests\n\n- [x] `cargo metadata --locked` resolves to `ff6099c7`\n- [x] `cargo check -p tantivy --locked`\n- [ ] Nix `cargoHash` (CI updates this when the lockfile changes; Nix is\nnot installed locally)\n- [ ] CI green on this PR\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-27T15:06:30-07:00",
+          "tree_id": "878c3ff2a93cfd6513d511b5e95c14463152151e",
+          "url": "https://github.com/paradedb/paradedb/commit/e4ed223f9583b868c4de9d0bbe23f82569a25658"
+        },
+        "date": 1793144824725,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 537.3323046085306,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 513.9369082675303,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 142.63323256340124,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 257.3857523112528,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 377.73603206705036,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12778300144-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

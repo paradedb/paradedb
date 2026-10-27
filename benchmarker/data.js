@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793121370524,
+  "lastUpdate": 1793121469754,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -35988,6 +35988,71 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12710115826-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b045205c3908e79372646b0206d9a0d2574a51e6",
+          "message": "ci: shorten Cohere k6 measurement runs (#7049)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nRun each Cohere CI k6 operating point with 10 seconds of warmup and 50\nseconds of measurement, down from 30 and 300 seconds.\n\n## Why\n\nReduce the k6 phase from roughly 49.5 minutes to 9 minutes per dataset\nsize when all nine recall/filter combinations are reached. Index\nconstruction and recall selection run before this phase.\n\n## How\n\nUpdate the k6 defaults, README, and generated operating-point summary to\nuse the shorter durations.\n\n## Tests\n\n- `python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'` \u2014\nall 5 tests passed.\n- `git diff --check`.",
+          "timestamp": "2026-10-27T09:27:13-07:00",
+          "tree_id": "da64a274164398f8fbff1d7d5969befded6d9826",
+          "url": "https://github.com/paradedb/paradedb/commit/b045205c3908e79372646b0206d9a0d2574a51e6"
+        },
+        "date": 1793121430955,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 95.80806918142666,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 95.306434836607,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 70.60813934956101,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 97.6407154194253,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 97.998156291477,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 98.89410333898961,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 121.87926124917188,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 118.88699579407394,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12752790460-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [

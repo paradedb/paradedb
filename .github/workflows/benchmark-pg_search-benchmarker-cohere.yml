@@ -181,8 +181,19 @@ jobs:
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
             -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c "SELECT name, setting, unit FROM pg_settings
+                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                               'max_worker_processes', 'max_parallel_maintenance_workers',
+                               'parallel_leader_participation', 'paradedb.global_target_segment_count')
+                ORDER BY name;" \
+            | tee benchmark-artifacts/index-build-settings.log
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/indexes/pg_search.sql \
+            -c "SELECT pg_relation_size('cohere_wiki_bm25_idx') AS index_bytes,
+                       pg_relation_size('cohere_wiki_bm25_idx') / (1024 * 1024) AS index_mb,
+                       count(*) AS segments, sum(num_docs) AS indexed_docs
+                FROM paradedb.index_info('cohere_wiki_bm25_idx');" \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-build.log

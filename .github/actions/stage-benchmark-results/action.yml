@@ -1,0 +1,50 @@
+name: Stage Benchmark Results
+description: Upload results and publication inputs as GitHub Actions artifacts for the queued publisher
+
+inputs:
+  benchmark_type:
+    description: "Benchmark type: benchmarker, queries, or stressgres"
+    required: true
+  metadata:
+    description: "Publication inputs as JSON. Credentials are removed before upload."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Save Publication Inputs
+      id: publication-inputs
+      shell: bash
+      env:
+        METADATA: ${{ inputs.metadata }}
+        BENCHMARK_TYPE: ${{ inputs.benchmark_type }}
+      run: |
+        jq -er --arg benchmark_type "$BENCHMARK_TYPE" '
+          if $benchmark_type == "benchmarker" then
+            {artifact_key: .dataset, results_path: "benchmarker/results/"}
+          elif $benchmark_type == "queries" then
+            {artifact_key: ([.dataset, .index, .size] | join("-")),
+             results_path: "\(.source_directory // ".")/benchmarks/results_\(.dataset)_\(.index)_\(.size).json"}
+          elif $benchmark_type == "stressgres" then
+            {artifact_key: (.test_file | split("/")[-1] | rtrimstr(".toml")),
+             results_path: "pg_search_*.json"}
+          else error("Unknown benchmark type: " + $benchmark_type)
+          end
+          | to_entries[] | "\(.key)=\(.value)"
+        ' <<< "$METADATA" >> "$GITHUB_OUTPUT"
+
+        mkdir -p _benchmark_publish
+        jq --arg benchmark_type "$BENCHMARK_TYPE" \
+          'del(.github_token, .github_app_client_id, .github_app_private_key) + {benchmark_type: $benchmark_type}' \
+          <<< "$METADATA" > _benchmark_publish/metadata.json
+
+    - name: Upload Benchmark Results
+      uses: actions/upload-artifact@v7
+      with:
+        name: gh-pages-${{ inputs.benchmark_type }}-${{ steps.publication-inputs.outputs.artifact_key }}-${{ github.run_attempt }}
+        path: |
+          _benchmark_publish/metadata.json
+          ${{ steps.publication-inputs.outputs.results_path }}
+          ${{ fromJSON(inputs.metadata).context_file }}
+        retention-days: 30
+        if-no-files-found: error

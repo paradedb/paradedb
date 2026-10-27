@@ -1725,6 +1725,83 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_parallel_build_recovers_after_temp_file_limit() {
+        setup_parallel_build_large_table();
+        Spi::run(
+            r#"
+            SET LOCAL max_parallel_workers = 8;
+            SET LOCAL max_parallel_maintenance_workers = 2;
+            SET LOCAL parallel_leader_participation = off;
+            SET LOCAL maintenance_work_mem = '128MB';
+            CREATE TEMP TABLE build_temp_files_before AS SELECT name FROM pg_ls_tmpdir();
+            SET LOCAL temp_file_limit = '0';
+            DO $$
+            DECLARE failure_context text;
+            BEGIN
+                FOR attempt IN 1..100 LOOP
+                    BEGIN
+                        CREATE INDEX parallel_temp_limit_idx ON parallel_build_large
+                            USING paradedb (id, name) WITH (target_segment_count = 3);
+                        RAISE EXCEPTION 'build unexpectedly succeeded';
+                    EXCEPTION WHEN configuration_limit_exceeded THEN
+                        GET STACKED DIAGNOSTICS failure_context = PG_EXCEPTION_CONTEXT;
+                    END;
+                    EXIT WHEN position('parallel worker' IN failure_context) > 0;
+                    PERFORM pg_sleep(0.1);
+                END LOOP;
+                ASSERT position('parallel worker' IN failure_context) > 0,
+                    'temp_file_limit must fail in a parallel worker';
+                FOR attempt IN 1..100 LOOP
+                    PERFORM pg_stat_clear_snapshot();
+                    EXIT WHEN NOT EXISTS (
+                        SELECT FROM pg_stat_activity WHERE leader_pid = pg_backend_pid()
+                    );
+                    PERFORM pg_sleep(0.01);
+                END LOOP;
+                ASSERT NOT EXISTS (
+                    SELECT FROM pg_stat_activity WHERE leader_pid = pg_backend_pid()
+                ), 'failed build workers must exit';
+            END $$;
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<bool>("SELECT to_regclass('parallel_temp_limit_idx') IS NULL").unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            Spi::get_one::<i64>(
+                r#"
+            SELECT count(*) FROM pg_ls_tmpdir() AS file
+            WHERE file.name NOT IN (SELECT name FROM build_temp_files_before)
+              AND (
+                substring(file.name FROM '^pgsql_tmp([0-9]+)\.')::int = pg_backend_pid()
+                OR NOT EXISTS (
+                    SELECT FROM pg_stat_activity
+                    WHERE pid = substring(file.name FROM '^pgsql_tmp([0-9]+)\.')::int
+                )
+              )
+        "#
+            )
+            .unwrap(),
+            Some(0)
+        );
+        Spi::run(
+            r#"
+            SET LOCAL temp_file_limit = '-1';
+            CREATE INDEX parallel_temp_limit_idx ON parallel_build_large
+                USING paradedb (id, name) WITH (target_segment_count = 3);
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM parallel_build_large WHERE name ||| 'lorem'")
+                .unwrap(),
+            Some(35000)
+        );
+    }
+
+    #[pg_test]
     fn test_build_worker_count_uses_available_workers() {
         use crate::postgres::rel::PgSearchRelation;
 

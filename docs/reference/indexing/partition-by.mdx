@@ -126,7 +126,7 @@ Because [`target_segment_count`](/reference/indexing/create-index#index-partitio
 A single indexed vector field can be used as the partition key:
 
 ```sql
-CREATE INDEX documents_idx ON documents
+CREATE INDEX search_idx ON mock_items
 USING paradedb (id, embedding vector_cosine_ops)
 WITH (partition_by = 'embedding', target_segment_count = 8);
 ```

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793075230440,
+  "lastUpdate": 1793075313044,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -35279,6 +35279,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12699987021-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "649d1ea660f7d1e69d14e086196401fcd79bbf2d",
+          "message": "fix: make optional bundled extensions opt-in (#7044)\n\n## What\n\nStop automatically creating `postgis`, `postgis_topology`,\n`postgis_tiger_geocoder`, `pg_ivm`, and `fuzzystrmatch` when\ninitializing fresh ParadeDB databases. Keep their packages, shared\nlibraries, and extension SQL/control files in the images so users can\nenable them explicitly with `CREATE EXTENSION`.\n\nThe standard Docker bootstrap continues to enable `pg_search`, `vector`,\nand `pg_stat_statements`, plus `pg_cron` in the `postgres` database.\n\n## Why\n\nFresh databases should not contain optional GIS, incremental-view, or\nfuzzy-matching objects unless users opt into those features. This also\navoids the PostGIS extensions' automatic search-path changes.\n\n## How\n\n- Remove creation of all five extensions from the shared Docker\nbootstrap and both Antithesis application/template initialization lists.\n- Copy the current bootstrap into source-built images so they do not\ninherit the old initialization behavior from a released base image.\n- Clarify that the documented PostGIS/Alembic table exclusion applies\nwhen PostGIS is explicitly enabled.\n\nExisting databases are unaffected; this does not drop installed\nextensions or data. The pg_ivm integration test already creates its own\nextension explicitly.",
+          "timestamp": "2026-10-26T19:51:21-07:00",
+          "tree_id": "544757c341be652faae4ba1bd05d2d01f3f8694c",
+          "url": "https://github.com/paradedb/paradedb/commit/649d1ea660f7d1e69d14e086196401fcd79bbf2d"
+        },
+        "date": 1793075275005,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.02063177006595,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 30.3799675615413,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.679852236102512,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.754659187197262,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.08822211678228,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12709800424-throughput"
       }
     ]
   }

@@ -28,8 +28,8 @@ const backends = db.backends({
     },
   ],
 });
-const warmup = Number(__ENV.WARMUP_SECONDS || 30);
-const duration = Number(__ENV.DURATION_SECONDS || 300);
+const warmup = Number(__ENV.WARMUP_SECONDS || 10);
+const duration = Number(__ENV.DURATION_SECONDS || 50);
 const scenarios = {
   search: {
     executor: "ramping-vus",

@@ -17,7 +17,7 @@
 
 use crate::api::{HashMap, HashSet};
 use crate::index::directory::mvcc::PgTempFile;
-use crate::postgres::buffile::{self, BufFileReleaseGuard};
+use crate::postgres::buffile::BufFileReleaseGuard;
 use crate::postgres::storage::block::SegmentFileDetails;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -103,7 +103,10 @@ impl Directory for BuildDirectory {
             pg_sys::CurrentResourceOwner
         });
         let file = Arc::new(Mutex::new(BuildFile {
-            file: unsafe { buffile::create_temp_buffile() },
+            file: unsafe {
+                pg_sys::PrepareTempTablespaces();
+                pg_sys::OpenTemporaryFile(false)
+            },
             len: 0,
             poisoned: false,
             release_guard: self.release_guard.clone(),
@@ -159,27 +162,46 @@ impl Directory for BuildDirectory {
 }
 
 struct BuildFile {
-    file: *mut pg_sys::BufFile,
+    file: pg_sys::File,
     len: usize,
     poisoned: bool,
     release_guard: Arc<BufFileReleaseGuard>,
 }
 
-// All I/O and drops run on the creating PostgreSQL backend thread.
-unsafe impl Send for BuildFile {}
-
 impl BuildFile {
-    fn seek(&mut self, offset: usize) -> io::Result<()> {
+    fn check_usable(&self) -> io::Result<()> {
         if self.poisoned || !self.release_guard.may_close() {
             return Err(io::Error::other("build temporary file is no longer usable"));
         }
         pgrx::check_for_interrupts!();
-        let offset = offset.try_into().map_err(io::Error::other)?;
+        Ok(())
+    }
+
+    fn read_exact_at(&mut self, mut data: &mut [u8], offset: usize) -> io::Result<()> {
+        self.check_usable()?;
+        let mut offset: pg_sys::off_t = offset.try_into().map_err(io::Error::other)?;
         self.poisoned = true;
-        let result =
-            unsafe { buffile::buffile_seek(self.file, 0, offset, 0) }.map_err(io::Error::other);
-        self.poisoned = result.is_err();
-        result
+        while !data.is_empty() {
+            let n = unsafe {
+                pg_sys::FileRead(
+                    self.file,
+                    data.as_mut_ptr().cast(),
+                    data.len().min(i32::MAX as usize) as _,
+                    offset,
+                    pg_sys::WaitEventIO::WAIT_EVENT_BUFFILE_READ,
+                )
+            };
+            if n < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if n == 0 {
+                return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+            }
+            offset += n as pg_sys::off_t;
+            data = &mut data[n as usize..];
+        }
+        self.poisoned = false;
+        Ok(())
     }
 }
 
@@ -188,7 +210,7 @@ impl BuildFile {
 impl Drop for BuildFile {
     fn drop(&mut self) {
         if !self.poisoned && self.release_guard.may_close() {
-            unsafe { pg_sys::BufFileClose(self.file) }
+            unsafe { pg_sys::FileClose(self.file) }
         }
     }
 }
@@ -209,16 +231,35 @@ impl Write for BuildFileWriter {
                 "build temporary file is too large",
             )
         })?;
-        file.seek(offset)?;
+        let _: pg_sys::off_t = new_len.try_into().map_err(io::Error::other)?;
+        file.check_usable()?;
         file.poisoned = true;
-        unsafe { buffile::buffile_write(file.file, data) };
-        file.len = new_len;
+        let mut remaining = data;
+        while !remaining.is_empty() {
+            let n = unsafe {
+                pg_sys::FileWrite(
+                    file.file,
+                    remaining.as_ptr().cast_mut().cast(),
+                    remaining.len().min(i32::MAX as usize) as _,
+                    file.len as pg_sys::off_t,
+                    pg_sys::WaitEventIO::WAIT_EVENT_BUFFILE_WRITE,
+                )
+            };
+            if n < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if n == 0 {
+                return Err(io::Error::from(io::ErrorKind::WriteZero));
+            }
+            file.len += n as usize;
+            remaining = &remaining[n as usize..];
+        }
         file.poisoned = false;
         Ok(data.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        // Reads seek through BufFile's buffer; scratch data does not need durable flushing.
+        // Writes go directly to the VFD; scratch data does not need durable flushing.
         Ok(())
     }
 }
@@ -259,10 +300,7 @@ impl FileHandle for BuildFileReader {
         }
         let mut data = vec![0; end - range.start];
         let mut file = self.file.lock();
-        file.seek(range.start)?;
-        file.poisoned = true;
-        unsafe { buffile::buffile_read_exact(file.file, &mut data) };
-        file.poisoned = false;
+        file.read_exact_at(&mut data, range.start)?;
         Ok(OwnedBytes::new(data))
     }
 }
@@ -306,6 +344,39 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_build_directory_many_components_without_resident_buffers() {
+        let directory = BuildDirectory::new();
+        let memory_before = Spi::get_one::<i64>(
+            "SELECT total_bytes FROM pg_backend_memory_contexts WHERE name = 'TopTransactionContext'",
+        ).unwrap().unwrap();
+        let components = 1200_i64;
+        for i in 0..components {
+            let mut writer = directory
+                .open_write(Path::new(&format!("{i}.fast")))
+                .unwrap();
+            writer.write_all(&i.to_le_bytes()).unwrap();
+            writer.terminate().unwrap();
+        }
+        let memory_after = Spi::get_one::<i64>(
+            "SELECT total_bytes FROM pg_backend_memory_contexts WHERE name = 'TopTransactionContext'",
+        ).unwrap().unwrap();
+        assert!(memory_after - memory_before < components * pg_sys::BLCKSZ as i64 / 2);
+        for i in 0..components {
+            let path = PathBuf::from(format!("{i}.fast"));
+            assert_eq!(
+                directory
+                    .open_read(&path)
+                    .unwrap()
+                    .read_bytes()
+                    .unwrap()
+                    .as_ref(),
+                i.to_le_bytes()
+            );
+            directory.delete(&path).unwrap();
+        }
+    }
+
+    #[pg_test]
     fn test_build_directory_crosses_physical_file_boundary() {
         Spi::run("SET LOCAL temp_file_limit = '-1'").unwrap();
         let directory = BuildDirectory::new();
@@ -315,14 +386,6 @@ mod tests {
         directory.files.lock().get(path).unwrap().lock().len = boundary - 4;
         writer.write_all(b"abcdefgh").unwrap();
         writer.terminate().unwrap();
-        directory
-            .files
-            .lock()
-            .get(path)
-            .unwrap()
-            .lock()
-            .seek(0)
-            .unwrap();
         let reader = directory.open_read(path).unwrap();
         assert_eq!(
             reader

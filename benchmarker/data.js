@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793063285769,
+  "lastUpdate": 1793074936267,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -27379,6 +27379,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12698025349-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "649d1ea660f7d1e69d14e086196401fcd79bbf2d",
+          "message": "fix: make optional bundled extensions opt-in (#7044)\n\n## What\n\nStop automatically creating `postgis`, `postgis_topology`,\n`postgis_tiger_geocoder`, `pg_ivm`, and `fuzzystrmatch` when\ninitializing fresh ParadeDB databases. Keep their packages, shared\nlibraries, and extension SQL/control files in the images so users can\nenable them explicitly with `CREATE EXTENSION`.\n\nThe standard Docker bootstrap continues to enable `pg_search`, `vector`,\nand `pg_stat_statements`, plus `pg_cron` in the `postgres` database.\n\n## Why\n\nFresh databases should not contain optional GIS, incremental-view, or\nfuzzy-matching objects unless users opt into those features. This also\navoids the PostGIS extensions' automatic search-path changes.\n\n## How\n\n- Remove creation of all five extensions from the shared Docker\nbootstrap and both Antithesis application/template initialization lists.\n- Copy the current bootstrap into source-built images so they do not\ninherit the old initialization behavior from a released base image.\n- Clarify that the documented PostGIS/Alembic table exclusion applies\nwhen PostGIS is explicitly enabled.\n\nExisting databases are unaffected; this does not drop installed\nextensions or data. The pg_ivm integration test already creates its own\nextension explicitly.",
+          "timestamp": "2026-10-26T19:51:21-07:00",
+          "tree_id": "544757c341be652faae4ba1bd05d2d01f3f8694c",
+          "url": "https://github.com/paradedb/paradedb/commit/649d1ea660f7d1e69d14e086196401fcd79bbf2d"
+        },
+        "date": 1793074889105,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.3,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.677,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.511,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.324,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.86,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.41,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.082,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.457,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.163,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.103,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.861,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.144,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.002,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12707712663-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [

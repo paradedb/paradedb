@@ -398,8 +398,6 @@ impl<'a> BuildWorker<'a> {
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
             let target_segment_count =
                 plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel);
-            let (_, worker_segment_target) =
-                chunk_range(target_segment_count, nlaunched, worker_number as usize);
             // Workers are numbered from 0 and a participating leader runs as one more, so the
             // leader takes the last participant slot.
             let participant = if is_leader {
@@ -407,6 +405,8 @@ impl<'a> BuildWorker<'a> {
             } else {
                 worker_number as usize
             };
+            let (_, worker_segment_target) =
+                chunk_range(target_segment_count, nlaunched, participant);
 
             pgrx::debug1!(
                 "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
@@ -1519,8 +1519,8 @@ pub(crate) mod plan {
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
     /// is greater than available parallelism, we use available parallelism.
     ///
-    /// Round the participant count down to a divisor of the target segment count, including
-    /// the leader when it participates, so every participant has the same segment target.
+    /// Each participant receives a share of the segment target, including the leader when
+    /// it participates. Shares may differ by one segment.
     pub(super) fn create_index_nworkers(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
@@ -1578,11 +1578,7 @@ pub(crate) mod plan {
         }
 
         let leader = usize::from(unsafe { pg_sys::parallel_leader_participation });
-        let max_participants = (maintenance_workers + leader).min(target_segment_count);
-        let participants = (1..=max_participants)
-            .rev()
-            .find(|participants| target_segment_count.is_multiple_of(*participants))
-            .expect("one participant divides every segment target");
+        let participants = (maintenance_workers + leader).min(target_segment_count);
 
         participants - leader
     }
@@ -1723,7 +1719,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_build_worker_count_balances_segment_targets() {
+    fn test_build_worker_count_uses_available_workers() {
         use crate::postgres::rel::PgSearchRelation;
 
         setup_parallel_build_large_table();
@@ -1743,18 +1739,18 @@ mod tests {
             Spi::run("SET max_parallel_workers = 8;").unwrap();
             for (target, available, without_leader, with_leader, vector_without, vector_with) in [
                 (1, 8, 0, 0, 0, 0),
-                (7, 4, 1, 0, 1, 0),
-                (7, 8, 7, 6, 1, 0),
+                (7, 4, 4, 4, 4, 4),
+                (7, 8, 7, 6, 4, 4),
                 (8, 0, 0, 0, 0, 0),
                 (8, 1, 1, 1, 1, 1),
-                (8, 2, 2, 1, 2, 1),
-                (8, 4, 4, 3, 4, 3),
-                (8, 6, 4, 3, 4, 3),
-                (8, 7, 4, 7, 4, 3),
-                (8, 8, 8, 7, 4, 3),
-                (12, 4, 4, 3, 4, 3),
-                (12, 5, 4, 5, 4, 3),
-                (12, 8, 6, 5, 4, 3),
+                (8, 2, 2, 2, 2, 2),
+                (8, 4, 4, 4, 4, 4),
+                (8, 6, 6, 6, 4, 4),
+                (8, 7, 7, 7, 4, 4),
+                (8, 8, 8, 7, 4, 4),
+                (12, 4, 4, 4, 4, 4),
+                (12, 5, 5, 5, 4, 4),
+                (12, 8, 8, 8, 4, 4),
             ] {
                 Spi::run(&format!(
                     "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
@@ -1812,7 +1808,7 @@ mod tests {
         let maintenance_work_mem = ["2GB", "128MB"];
         let maintenance_workers = [6, 2];
         let leader_participation = [true, false];
-        let target_segments = [4, 32];
+        let target_segments = [4, 7, 32];
 
         for mwm in &maintenance_work_mem {
             for mw in &maintenance_workers {
@@ -1849,6 +1845,8 @@ mod tests {
                                 "Expected 4 segments with workers={}, leader={}, mem={}, segments={}, got {}",
                                 mw, lp, mwm, ts, count
                             );
+                        } else if *ts == 7 {
+                            assert!((4..=7).contains(&count), "prime target: {count} segments");
                         } else if *ts == 32 {
                             // The parallel heap scan hands out blocks on demand, so a participant
                             // short on CPU scans fewer rows and flushes fewer segments than its

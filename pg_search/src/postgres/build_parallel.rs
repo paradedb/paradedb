@@ -17,7 +17,6 @@
 
 use crate::api::version::Version;
 use crate::gucs;
-use crate::index::kdtree::KdTree;
 use crate::index::stats::partition_box;
 use crate::index::writer::index::{DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter};
 use crate::launch_parallel_process;
@@ -27,7 +26,9 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle, chunk_range,
 };
-use crate::postgres::build_partitioning::{PartitionField, plan_partition_boundaries};
+use crate::postgres::build_partitioning::{
+    BuildPartitioning, PartitionField, PartitionPoint, plan_partition_boundaries,
+};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
@@ -260,7 +261,7 @@ struct WorkerResponse {
     nmerges: usize,
 }
 
-fn deserialize_partitioning(bytes: &[u8]) -> Option<KdTree> {
+fn deserialize_partitioning(bytes: &[u8]) -> Option<BuildPartitioning> {
     if bytes.is_empty() {
         return None;
     }
@@ -279,7 +280,7 @@ struct BuildWorker<'a> {
     heaprel: PgSearchRelation,
     indexrel: PgSearchRelation,
     /// Global partition boundaries computed by the leader; `None` without `partition_by`.
-    partitioning: Option<KdTree>,
+    partitioning: Option<BuildPartitioning>,
     /// The spill fileset of a parallel partitioned build, in the DSM. Null on the serial path.
     fileset: *mut pg_sys::SharedFileSet,
 }
@@ -387,7 +388,7 @@ impl<'a> BuildWorker<'a> {
         snapshot: pg_sys::Snapshot,
         config: WorkerConfig,
         coordination: &'a mut WorkerCoordination,
-        partitioning: Option<KdTree>,
+        partitioning: Option<BuildPartitioning>,
         fileset: *mut pg_sys::SharedFileSet,
     ) -> Self {
         Self {
@@ -411,7 +412,7 @@ impl<'a> BuildWorker<'a> {
                 gucs::adjust_maintenance_work_mem(nparticipants).get() / nparticipants;
             let target_segment_count = self.partitioning.as_ref().map_or_else(
                 || plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel),
-                KdTree::partition_count,
+                BuildPartitioning::partition_count,
             );
             // Workers are numbered from 0 and a participating leader runs as one more, so the
             // leader takes the last participant slot.
@@ -430,7 +431,11 @@ impl<'a> BuildWorker<'a> {
             // `None` without `partition_by`: the worker then takes the regular per-row path.
             let partitioning = self.partitioning.take();
             if let Some(partitioning) = &partitioning {
-                pgrx::debug1!("build_worker {worker_number}: partition boundaries: {partitioning}");
+                pgrx::debug1!(
+                    "build_worker {worker_number}: {} partitions over {:?}",
+                    partitioning.partition_count(),
+                    partitioning.dims()
+                );
             }
 
             // Only a partitioned drain re-fetches, and only a concurrent one has to land on the
@@ -700,12 +705,12 @@ fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
 }
 
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
-/// routed to a partition by the leader's kd-tree boundaries and its ctid appended to that
+/// routed to a partition by the leader's shared model and its ctid appended to that
 /// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
 /// participants' files, so a partition ends up as one segment however many workers scanned it.
 struct PartitionSpill {
-    tree: KdTree,
-    /// The `partition_by` fields in `tree.dims()` order, resolved to either `Ctid` or the index's categorized
+    model: BuildPartitioning,
+    /// The `partition_by` fields in `model.dims()` order, resolved to either `Ctid` or the index's categorized
     /// fields so the callback can project each scanned row onto them.
     dim_fields: Vec<PartitionField>,
     files: PartitionSpillFiles,
@@ -716,15 +721,15 @@ struct PartitionSpill {
 
 impl PartitionSpill {
     fn new(
-        tree: KdTree,
+        model: BuildPartitioning,
         categorized_fields: &[(SearchField, CategorizedFieldData)],
         files: PartitionSpillFiles,
         created_by_version: Option<Version>,
     ) -> anyhow::Result<Self> {
-        let dim_fields = PartitionField::resolve_dims(tree.dims(), categorized_fields)?;
-        let files = files.with_partitions(tree.partition_count());
+        let dim_fields = PartitionField::resolve_dims(model.dims(), categorized_fields)?;
+        let files = files.with_partitions(model.partition_count());
         Ok(Self {
-            tree,
+            model,
             dim_fields,
             files,
             created_by_version,
@@ -732,7 +737,7 @@ impl PartitionSpill {
     }
 
     /// Route one scanned row to its partition by projecting it onto the `partition_by` dimensions and
-    /// consulting the kd-tree. `unpacked_composites` must be built over the full field set so a
+    /// consulting the partition model. `unpacked_composites` must be built over the full field set so a
     /// composite `partition_by` field resolves the same way the document build would.
     unsafe fn route(
         &self,
@@ -741,6 +746,20 @@ impl PartitionSpill {
         ctid: u64,
         unpacked_composites: &CompositeSlotValues,
     ) -> anyhow::Result<usize> {
+        if let BuildPartitioning::Vector(_) = &self.model {
+            let [PartitionField::Categorized(categorized)] = self.dim_fields.as_slice() else {
+                unreachable!("vector partitioning requires one vector field")
+            };
+            let (datum, is_null) = get_field_value(
+                &categorized.categorized.source,
+                categorized.categorized.attno,
+                values,
+                isnull,
+                unpacked_composites,
+            );
+            let vector = unsafe { categorized.datum_to_vector(datum, is_null) };
+            return Ok(self.model.route(&PartitionPoint::Vector(vector)));
+        }
         let point = self
             .dim_fields
             .iter()
@@ -758,7 +777,7 @@ impl PartitionSpill {
                 }
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(self.tree.route(&point))
+        Ok(self.model.route(&PartitionPoint::Range(point)))
     }
 }
 
@@ -821,7 +840,7 @@ impl<'a> WorkerBuildState<'a> {
         coordination: &'a mut WorkerCoordination,
         worker_number: i32,
         is_leader: bool,
-        partitioning: Option<KdTree>,
+        partitioning: Option<BuildPartitioning>,
         spill_files: PartitionSpillFiles,
         build_snapshot: Option<pg_sys::Snapshot>,
     ) -> anyhow::Result<Self> {
@@ -1104,7 +1123,7 @@ impl<'a> WorkerBuildState<'a> {
     /// segment, whichever participants scanned its rows.
     fn drain_partitioned(&mut self) -> anyhow::Result<()> {
         let PartitionSpill {
-            tree, mut files, ..
+            model, mut files, ..
         } = self
             .partitioning
             .take()
@@ -1148,8 +1167,11 @@ impl<'a> WorkerBuildState<'a> {
         });
 
         let prefetch_distance = unsafe { pg_sys::maintenance_io_concurrency }.max(0) as usize;
-        let (first_partition, owned_partitions) =
-            chunk_range(tree.partition_count(), self.nparticipants, self.participant);
+        let (first_partition, owned_partitions) = chunk_range(
+            model.partition_count(),
+            self.nparticipants,
+            self.participant,
+        );
         for partition in first_partition..first_partition + owned_partitions {
             check_for_interrupts!();
             let Some(mut sorter) = (unsafe { files.gather(partition, self.gather_budget)? }) else {
@@ -1163,7 +1185,10 @@ impl<'a> WorkerBuildState<'a> {
             self.writer
                 .as_mut()
                 .expect("drain_partitioned: writer should be set")
-                .set_logical_bounds(partition_box(&tree, partition));
+                .set_logical_bounds(match &model {
+                    BuildPartitioning::Range(tree) => partition_box(tree, partition),
+                    BuildPartitioning::Vector(_) => None,
+                });
             let mut partition_metas: Vec<SegmentMeta> = Vec::new();
             let mut ctids = PrefetchWindow::new(
                 &heaprel,
@@ -1408,13 +1433,19 @@ pub(super) fn build_index(
     )?;
     let target_segment_count = partitioning.as_ref().map_or_else(
         || plan::adjusted_target_segment_count(&heaprel, &indexrel),
-        KdTree::partition_count,
+        BuildPartitioning::partition_count,
     );
     if let Some(partitioning) = &partitioning {
+        let description = match partitioning {
+            BuildPartitioning::Range(tree) => tree.bounds_listing().to_string(),
+            BuildPartitioning::Vector(_) => {
+                format!("vector centroids over {:?}", partitioning.dims())
+            }
+        };
         pgrx::debug1!(
-            "build_index: {} partition boundaries:\n{}",
+            "build_index: {} partitions:\n{}",
             partitioning.partition_count(),
-            partitioning.bounds_listing()
+            description
         );
     }
     let partitioning_bytes = match &partitioning {

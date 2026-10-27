@@ -1,6 +1,6 @@
 ---
 title: Index Partitioning
-description: Partition ParadeDB indexes to accelerate filter and JOIN queries
+description: Partition ParadeDB indexes by scalar values or vector clusters
 canonical: https://www.paradedb.com/docs/reference/indexing/partition-by
 ---
 
@@ -91,10 +91,7 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
-Partitioning an index provides two key benefits:
-
-- Accelerating search and filter queries
-- Accelerating joins
+Partitioning on scalar columns can accelerate search and filter queries, as well as joins.
 
 You can also partition along multiple columns by specifying a comma-separated list:
 
@@ -124,6 +121,32 @@ Because [`target_segment_count`](/reference/indexing/create-index#index-partitio
 
 ---
 
+## Vector Partitioning
+
+A single indexed vector field can be used as the partition key:
+
+```sql
+CREATE INDEX documents_idx ON documents
+USING paradedb (id, embedding vector_cosine_ops)
+WITH (partition_by = 'embedding', target_segment_count = 8);
+```
+
+During `CREATE INDEX` or `REINDEX`, ParadeDB samples vectors across the table and trains
+coarse clusters using the field's distance metric. Every build worker assigns rows to
+the same centroids, and each nonempty partition becomes one segment. Each segment still
+builds its own vector search index. Partition sizes can differ, and the final segment
+count can be smaller than the target when the sample has too few distinct vectors.
+
+Vector partitioning supports L2, cosine, and inner product operator classes. The vector
+field must be the only partition key; mixing it with scalar keys or another vector field
+is not supported. Null vectors are retained in the first partition. Vector partitions
+do not provide scalar range bounds or enable coarse segment pruning during vector search.
+
+This layout is established at build time. Inserts and subsequent merges do not yet
+preserve vector cluster assignments; `REINDEX` rebuilds the layout.
+
+---
+
 ## Column Selection Guidance
 
 Choosing the right column(s) for `partition_by` depends on your query patterns and join requirements.
@@ -141,7 +164,7 @@ Choosing the right column(s) for `partition_by` depends on your query patterns a
 Columns specified in `partition_by` must meet the following constraints:
 
 1. Single-valued only: Multi-valued types (such as arrays `TEXT[]`, `INT[]` and JSON/JSONB fields) cannot be used.
-2. Columnar indexed: The column must be columnar indexed. Scalar types (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default.
+2. Columnar indexed: Scalar partition columns must be columnar indexed. Scalar types (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default. A vector partition key uses its vector index instead.
 3. Tokenizer: If a text column is used in `partition_by`, it must use the [`literal`](/reference/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`).
 4. Low-cardinality columns: Columns with few distinct values (booleans, enums) cap total partitions to their cardinality. To reach `target_segment_count`, pair them with Postgres's internal `ctid` column (e.g. `partition_by = 'is_active, ctid'`). Only use `ctid` in this specific case: it usually cannot prune on its own and should not be used alone or with high-cardinality columns.
 

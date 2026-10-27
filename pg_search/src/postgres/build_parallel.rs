@@ -1512,6 +1512,8 @@ pub(super) fn build_index(
 pub(crate) mod plan {
     use super::*;
 
+    pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
+
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
@@ -1550,6 +1552,15 @@ pub(crate) mod plan {
         let maintenance_workers = maintenance_workers
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
+
+        let maintenance_workers = if indexrel
+            .schema()
+            .is_ok_and(|schema| schema.has_vector_field())
+        {
+            maintenance_workers.min(MAX_VECTOR_BUILD_WORKERS)
+        } else {
+            maintenance_workers
+        };
 
         if maintenance_workers < 3 {
             ErrorReport::new(
@@ -1730,20 +1741,20 @@ mod tests {
                     .unwrap();
             let heaprel = PgSearchRelation::open(heap_oid);
             Spi::run("SET max_parallel_workers = 8;").unwrap();
-            for (target, available, without_leader, with_leader) in [
-                (1, 8, 0, 0),
-                (7, 4, 1, 0),
-                (7, 8, 7, 6),
-                (8, 0, 0, 0),
-                (8, 1, 1, 1),
-                (8, 2, 2, 1),
-                (8, 4, 4, 3),
-                (8, 6, 4, 3),
-                (8, 7, 4, 7),
-                (8, 8, 8, 7),
-                (12, 4, 4, 3),
-                (12, 5, 4, 5),
-                (12, 8, 6, 5),
+            for (target, available, without_leader, with_leader, vector_without, vector_with) in [
+                (1, 8, 0, 0, 0, 0),
+                (7, 4, 1, 0, 1, 0),
+                (7, 8, 7, 6, 1, 0),
+                (8, 0, 0, 0, 0, 0),
+                (8, 1, 1, 1, 1, 1),
+                (8, 2, 2, 1, 2, 1),
+                (8, 4, 4, 3, 4, 3),
+                (8, 6, 4, 3, 4, 3),
+                (8, 7, 4, 7, 4, 3),
+                (8, 8, 8, 7, 4, 3),
+                (12, 4, 4, 3, 4, 3),
+                (12, 5, 4, 5, 4, 3),
+                (12, 8, 6, 5, 4, 3),
             ] {
                 Spi::run(&format!(
                     "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
@@ -1751,6 +1762,12 @@ mod tests {
                 ))
                 .unwrap();
                 let indexrel = PgSearchRelation::open(index_oid);
+                let (without_leader, with_leader) = if indexrel.schema().unwrap().has_vector_field()
+                {
+                    (vector_without, vector_with)
+                } else {
+                    (without_leader, with_leader)
+                };
                 for (leader, expected) in [(false, without_leader), (true, with_leader)] {
                     Spi::run(&format!("SET parallel_leader_participation = {leader};")).unwrap();
                     assert_eq!(

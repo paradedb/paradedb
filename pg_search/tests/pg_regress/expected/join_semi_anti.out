@@ -149,8 +149,8 @@ AND id NOT IN (
 AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: (table_a ANTI table_b) SEMI table_b
@@ -168,7 +168,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
+     :             PgSearchScan: table=table_b, segments={included=0, pruned=1}, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
 (18 rows)
 
 SELECT id, category

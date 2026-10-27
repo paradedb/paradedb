@@ -18,8 +18,8 @@ SELECT count(*) FROM issue_6722 WHERE id @@@ pdb.all();
 EXPLAIN (COSTS OFF)
 SELECT id, d FROM issue_6722
 WHERE id @@@ pdb.all() AND d < 'infinity'::date ORDER BY id;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_6722
@@ -28,7 +28,7 @@ WHERE id @@@ pdb.all() AND d < 'infinity'::date ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: d, id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"d","lower_bound":null,"upper_bound":{"excluded":{"$__pdb_date_days__":2147483647}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"d","lower_bound":null,"upper_bound":{"excluded":{"$__pdb_date__":"infinity"}}}}]}}
 (9 rows)
 
 SELECT id, d FROM issue_6722

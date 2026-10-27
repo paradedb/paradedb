@@ -296,9 +296,7 @@ pub fn aggregate_result_to_datum(
                 let date_days = agg_type
                     .field_name()
                     .and_then(|field| index_info.schema.search_field(&field))
-                    .is_some_and(|field| {
-                        matches!(field.field_type(), SearchFieldType::DateDays(_))
-                    });
+                    .is_some_and(|field| field.stores_date_days());
                 if date_days {
                     metric.value.and_then(|value| unsafe {
                         let days = i32::try_from(value as i64)

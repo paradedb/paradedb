@@ -88,9 +88,6 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
-
-    /// Zero on indexes built before DATE day-count storage was introduced.
-    date_days_storage: u8,
 }
 
 /// Provides read access to the metadata page
@@ -137,7 +134,6 @@ impl MetaPage {
                 const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
 
             metadata.created_at = pg_sys::GetCurrentTimestamp();
-            metadata.date_days_storage = 1;
         }
     }
 
@@ -267,16 +263,11 @@ impl MetaPage {
         if major == 0 && minor == 0 && patch == 0 {
             None
         } else {
-            let mut version = Version {
+            Some(Version {
                 major,
                 minor,
                 patch,
-                date_days_storage: false,
-            };
-            if self.data.date_days_storage == 1 {
-                version = version.with_date_days_storage();
-            }
-            Some(version)
+            })
         }
     }
 
@@ -499,11 +490,7 @@ mod tests {
             env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
             env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
         );
-        assert_eq!(
-            (stamped.major, stamped.minor, stamped.patch),
-            (expected.major, expected.minor, expected.patch)
-        );
-        assert!(stamped.date_days_storage);
+        assert_eq!(stamped, expected);
 
         // The UDF should surface the same version.
         let via_udf: String = Spi::get_one("SELECT paradedb.index_created_by('t_idx')")

@@ -85,15 +85,32 @@ const ONE_DAY_MICROS: i64 = 24 * HOUR_MICROS;
 pub const MIN_PG_DATE_DAYS: i32 = -2_451_545;
 pub const MAX_PG_DATE_DAYS: i32 = 2_145_031_948;
 
-/// A wrapper around PostgreSQL's `DATE` representation: a signed day count from the PostgreSQL
-/// epoch (2000-01-01). Infinities use the same `i32::MIN`/`i32::MAX` sentinels as `DateADT`.
-///
-/// Unlike [`PostgresTimestamp`], this can represent every finite PostgreSQL date. It deliberately
-/// does not go through `pgrx::datum::Date` for comparison, hashing, formatting, or storage: those
-/// paths call into the backend, and an index may hold dates far outside the timestamp range.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PostgresDate(i32);
+/// A wrapper around PostgreSQL's full-range `DATE` type.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct PostgresDate(pgrx::datum::Date);
+
+impl PartialEq for PostgresDate {
+    fn eq(&self, other: &Self) -> bool {
+        self.into_inner() == other.into_inner()
+    }
+}
+impl Eq for PostgresDate {}
+impl PartialOrd for PostgresDate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for PostgresDate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.into_inner().cmp(&other.into_inner())
+    }
+}
+impl Hash for PostgresDate {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.into_inner().hash(state);
+    }
+}
 
 /// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
 /// really just a wrapper around an i64 representing microseconds from the PG epoch.
@@ -128,39 +145,36 @@ impl PostgresDate {
     /// Wraps a raw `DateADT`. Infinities are accepted; finite values outside PostgreSQL's range
     /// are rejected.
     pub fn try_from_raw(raw: i32) -> Result<Self, DateTimeConversionError> {
-        match raw {
-            i32::MIN | i32::MAX | MIN_PG_DATE_DAYS..=MAX_PG_DATE_DAYS => Ok(Self(raw)),
-            _ => Err(DateTimeConversionError::OutOfRange),
-        }
+        pgrx::datum::Date::try_from(raw).map(Self)
     }
 
     /// Wraps a day count already known to be a valid `DateADT`.
     pub fn from_pg_epoch_days(days: i32) -> Self {
-        Self(days)
+        Self(unsafe { pgrx::datum::Date::from_pg_epoch_days(days) })
     }
 
     pub fn into_inner(self) -> i32 {
-        self.0
+        self.0.into_inner()
     }
 
     /// Is this Postgres's `infinity`?
     pub fn is_infinity(&self) -> bool {
-        self.0 == i32::MAX
+        self.0.is_infinity()
     }
 
     /// Is this Postgres's `-infinity`?
     pub fn is_neg_infinity(&self) -> bool {
-        self.0 == i32::MIN
+        self.0.is_neg_infinity()
     }
 
     pub fn is_finite(&self) -> bool {
-        !self.is_infinity() && !self.is_neg_infinity()
+        self.0.is_finite()
     }
 
     /// Days from the Unix epoch, or `None` for the infinity sentinels.
     pub fn to_unix_epoch_days(self) -> Option<i64> {
         self.is_finite()
-            .then(|| i64::from(self.0) + i64::from(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS))
+            .then(|| i64::from(self.0.to_unix_epoch_days()))
     }
 
     /// Arrow `Date32` uses Unix-epoch days and the same `i32` infinity sentinels.
@@ -169,7 +183,7 @@ impl PostgresDate {
             Some(days) => days
                 .try_into()
                 .expect("PostgreSQL's date range fits in an Arrow Date32"),
-            None => self.0,
+            None => self.into_inner(),
         }
     }
 
@@ -191,83 +205,18 @@ impl PostgresDate {
         }
     }
 
-    /// Parses PostgreSQL's ISO date output, including its `BC` suffix, without calling into the
-    /// backend. Keeping this pure lets the unit-test binary prune pgrx's PostgreSQL FFI shims.
+    /// Parses a date using PostgreSQL's input function.
     pub fn try_from_date_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let s = s.trim();
-        if s.eq_ignore_ascii_case("infinity") {
-            return Ok(Self::from_pg_epoch_days(i32::MAX));
-        }
-        if s.eq_ignore_ascii_case("-infinity") {
-            return Ok(Self::from_pg_epoch_days(i32::MIN));
-        }
-
-        let (body, is_bc) = if let Some(body) = s.strip_suffix(" BC") {
-            (body.trim_end(), true)
-        } else if let Some(body) = s.strip_suffix(" AD") {
-            (body.trim_end(), false)
-        } else if let Some(body) = s.strip_suffix("BC") {
-            (body.trim_end(), true)
-        } else if let Some(body) = s.strip_suffix("AD") {
-            (body.trim_end(), false)
-        } else {
-            (s, false)
-        };
-
-        let mut parts = body.split('-');
-        let (Some(year), Some(month), Some(day), None) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            return Err(DateTimeConversionError::InvalidFormat);
-        };
-        let year: i64 = year
-            .parse()
-            .map_err(|_| DateTimeConversionError::InvalidFormat)?;
-        let month: i64 = month
-            .parse()
-            .map_err(|_| DateTimeConversionError::InvalidFormat)?;
-        let day: i64 = day
-            .parse()
-            .map_err(|_| DateTimeConversionError::InvalidFormat)?;
-        if year <= 0 || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-            return Err(DateTimeConversionError::InvalidFormat);
-        }
-        // Reject years outside PostgreSQL's finite DATE range before civil-date arithmetic,
-        // which can overflow for an otherwise valid i64 year.
-        if (is_bc && year > 4_714) || (!is_bc && year > 5_874_897) {
-            return Err(DateTimeConversionError::OutOfRange);
-        }
-
-        // PostgreSQL's ISO output counts BC years without a year zero, while the proleptic
-        // Gregorian arithmetic below uses astronomical years (1 BC is year 0).
-        let astronomical_year = if is_bc { 1 - year } else { year };
-        let unix_days = unix_days_from_civil(astronomical_year, month, day);
-        if civil_from_unix_days(unix_days) != (astronomical_year, month, day) {
-            return Err(DateTimeConversionError::InvalidFormat);
-        }
-        Self::try_from_unix_epoch_days(unix_days)
+        pgrx::datum::Date::from_str(s).map(Self)
     }
 
-    /// Parses full-range ISO dates and timestamp-shaped DATE query literals without using
-    /// PostgreSQL's input functions, so unit-test binaries can call this outside a backend.
+    /// Parses DATE query literals with PostgreSQL's date input rules.
     pub fn try_from_query_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let s = s.trim();
-        if let Ok(date) = Self::try_from_date_str(s) {
-            return Ok(date);
-        }
-        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(s) {
-            return Self::try_from_date_str(&timestamp.date_naive().to_string());
-        }
-        for format in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"] {
-            if let Ok(timestamp) = chrono::NaiveDateTime::parse_from_str(s, format) {
-                return Self::try_from_date_str(&timestamp.date().to_string());
-            }
-        }
-        Err(DateTimeConversionError::InvalidFormat)
+        Self::try_from_date_str(s)
     }
 
     pub fn add_days(&self, days: i64) -> Result<Self, DateTimeConversionError> {
-        let new_days = i64::from(self.0)
+        let new_days = i64::from(self.into_inner())
             .checked_add(days)
             .ok_or(DateTimeConversionError::FieldOverflow)?;
         let new_days: i32 = new_days
@@ -276,55 +225,10 @@ impl PostgresDate {
         Self::try_from_raw(new_days)
     }
 
-    /// PostgreSQL's ISO date output, including its BC suffix. Implemented without the backend so
-    /// it works for dates outside the timestamp range and in unit tests.
+    /// PostgreSQL's ISO date output, including its BC suffix.
     pub fn to_iso_string(self) -> String {
-        if self.is_infinity() {
-            return "infinity".to_string();
-        }
-        if self.is_neg_infinity() {
-            return "-infinity".to_string();
-        }
-
-        let unix_days = self
-            .to_unix_epoch_days()
-            .expect("finite dates have a Unix day count");
-        let (year, month, day) = civil_from_unix_days(unix_days);
-        if year <= 0 {
-            format!("{:04}-{:02}-{:02} BC", 1 - year, month, day)
-        } else {
-            format!("{year:04}-{month:02}-{day:02}")
-        }
+        self.0.to_iso_string()
     }
-}
-
-/// Converts a count of days from 1970-01-01 to a proleptic Gregorian `(year, month, day)`.
-///
-/// This is Howard Hinnant's `civil_from_days` algorithm. PostgreSQL uses proleptic Gregorian
-/// dates for the entire `DateADT` range, including the BC era where year 0 is 1 BC.
-fn civil_from_unix_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    (year + if month <= 2 { 1 } else { 0 }, month, day)
-}
-
-/// Converts a proleptic Gregorian `(year, month, day)` to days from 1970-01-01.
-///
-/// The inverse of [`civil_from_unix_days`], using the same astronomical year numbering.
-fn unix_days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = year - i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
 }
 
 impl Display for PostgresDate {
@@ -351,13 +255,13 @@ impl TryFrom<pgrx::datum::Date> for PostgresDate {
     type Error = DateTimeConversionError;
 
     fn try_from(value: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        Self::try_from_raw(value.to_pg_epoch_days())
+        Ok(Self(value))
     }
 }
 
 impl From<PostgresDate> for pgrx::datum::Date {
     fn from(value: PostgresDate) -> Self {
-        unsafe { Self::from_pg_epoch_days(value.into_inner()) }
+        value.0
     }
 }
 
@@ -383,10 +287,10 @@ impl TryFrom<PostgresTimestamp> for PostgresDate {
 
     fn try_from(value: PostgresTimestamp) -> Result<Self, Self::Error> {
         if value.is_infinity() {
-            return Ok(Self(i32::MAX));
+            return Ok(Self(pgrx::datum::Date::positive_infinity()));
         }
         if value.is_neg_infinity() {
-            return Ok(Self(i32::MIN));
+            return Ok(Self(pgrx::datum::Date::negative_infinity()));
         }
         let pg_days = value.into_inner().div_euclid(ONE_DAY_MICROS);
         let pg_days: i32 = pg_days
@@ -947,7 +851,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[pg_test]
     fn postgres_date_covers_the_entire_date_range() {
         let min = PostgresDate::try_from_raw(MIN_PG_DATE_DAYS).unwrap();
         assert_eq!(min.to_iso_string(), "4714-11-24 BC");
@@ -980,7 +884,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn postgres_date_parses_postgres_iso_output() {
         for raw in [
             MIN_PG_DATE_DAYS,
@@ -1021,19 +925,15 @@ mod tests {
         // PostgreSQL has no year zero, and a day must exist in its month.
         assert!(PostgresDate::try_from_date_str("0000-01-01").is_err());
         assert!(PostgresDate::try_from_date_str("2024-02-30").is_err());
-        assert!(PostgresDate::try_from_date_str("2024-01-01 00:00:00").is_err());
-        let first_bc = PostgresDate::try_from_date_str("0001-01-01 BC").unwrap();
         assert_eq!(
-            PostgresDate::try_from_date_str("0001-01-01BC").unwrap(),
-            first_bc
+            PostgresDate::try_from_date_str("2024-01-01 00:00:00").unwrap(),
+            PostgresDate::try_from_date_str("2024-01-01").unwrap()
         );
+        let first_bc = PostgresDate::try_from_date_str("0001-01-01 BC").unwrap();
+        assert_eq!(first_bc.to_iso_string(), "0001-01-01 BC");
         let epoch = PostgresDate::try_from_raw(0).unwrap();
         assert_eq!(
             PostgresDate::try_from_date_str("2000-01-01 AD").unwrap(),
-            epoch
-        );
-        assert_eq!(
-            PostgresDate::try_from_date_str("2000-01-01AD").unwrap(),
             epoch
         );
         assert_eq!(
@@ -1048,15 +948,12 @@ mod tests {
             "5874898-01-01",
             "4715-01-01 BC",
         ] {
-            assert!(matches!(
-                PostgresDate::try_from_date_str(value),
-                Err(DateTimeConversionError::OutOfRange)
-            ));
+            assert!(PostgresDate::try_from_date_str(value).is_err());
             assert!(PostgresDate::try_from_query_str(value).is_err());
         }
     }
 
-    #[test]
+    #[pg_test]
     fn postgres_date_query_literals_ignore_timestamp_time() {
         let expected = PostgresDate::try_from_date_str("2023-05-01").unwrap();
         assert_eq!(

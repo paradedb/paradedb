@@ -31,6 +31,7 @@
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{ColumnRef, CompareOp, FilterExpr};
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
+use crate::api::version::VersionInfo;
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
@@ -137,6 +138,7 @@ pub struct ResolvedSourceField {
     /// The name as the index knows it, without a table qualifier.
     pub field_name: String,
     pub field_type: SearchFieldType,
+    pub stores_date_days: bool,
     pub is_array: bool,
 }
 
@@ -207,6 +209,10 @@ pub fn resolve_source_field(
                 attno: resolved.attno,
                 field_name,
                 field_type: resolved.field_type,
+                stores_date_days: source.bm25_index.as_ref().is_some_and(|index| {
+                    resolved.field_type.typeoid().value() == pg_sys::DATEOID
+                        && index.created_by_version().stores_dates_as_days()
+                }),
                 is_array: resolved.is_array,
             })
         }

@@ -70,21 +70,27 @@ pub struct PdbAggFieldRef {
     /// Index field name, dotted for a JSON sub-field.
     pub field_name: String,
     pub field_type: SearchFieldType,
+    pub stores_date_days: bool,
     /// Where the source sits in the plan tree, assigned once the tree exists.
     pub plan_position: usize,
     pub is_array: bool,
 }
 
 impl PdbAggFieldRef {
+    pub fn arrow_data_type(&self) -> arrow_schema::DataType {
+        self.field_type
+            .arrow_data_type_with_date_days(self.stores_date_days)
+    }
+
     /// How a date/time column reaches the aggregation backends: a timestamp in
     /// PG-epoch microseconds, or a DATE as PostgreSQL `DateADT` days.
     pub fn datetime_kind(&self) -> Option<DatetimeKind> {
-        match self.field_type {
-            SearchFieldType::DateDays(_) => Some(DatetimeKind::DateDays),
-            _ if is_pgoid_datetime_type(self.field_type.typeoid()) => {
-                Some(DatetimeKind::TimestampMicros)
-            }
-            _ => None,
+        if self.stores_date_days {
+            Some(DatetimeKind::DateDays)
+        } else if is_pgoid_datetime_type(self.field_type.typeoid()) {
+            Some(DatetimeKind::TimestampMicros)
+        } else {
+            None
         }
     }
 
@@ -99,10 +105,9 @@ impl PdbAggFieldRef {
     /// sub-field only reaches this backend when it holds text.
     pub fn column_type(&self) -> ColumnType {
         match self.field_type {
-            SearchFieldType::I64(_)
-            | SearchFieldType::Date(_)
-            | SearchFieldType::DateDays(_)
-            | SearchFieldType::Numeric64(..) => ColumnType::I64,
+            SearchFieldType::I64(_) | SearchFieldType::Date(_) | SearchFieldType::Numeric64(..) => {
+                ColumnType::I64
+            }
             SearchFieldType::U64(_) => ColumnType::U64,
             SearchFieldType::F64(_) => ColumnType::F64,
             SearchFieldType::Bool(_) => ColumnType::Bool,
@@ -136,7 +141,6 @@ fn check_field_type(
                 | SearchFieldType::U64(_)
                 | SearchFieldType::F64(_)
                 | SearchFieldType::Date(_)
-                | SearchFieldType::DateDays(_)
                 | SearchFieldType::Numeric64(..)
                 | SearchFieldType::NumericBytes(..)
         )
@@ -327,8 +331,7 @@ fn check_missing(field: &PdbAggFieldRef, missing: Option<&Key>) -> Result<(), St
             SearchFieldType::I64(_)
             | SearchFieldType::U64(_)
             | SearchFieldType::F64(_)
-            | SearchFieldType::Date(_)
-            | SearchFieldType::DateDays(_),
+            | SearchFieldType::Date(_),
             Key::Str(_),
         ) => Err(format!("`missing` for field '{name}' must be a number")),
         _ => Ok(()),
@@ -1265,6 +1268,7 @@ mod tests {
             attno: 1,
             field_name: name.to_string(),
             field_type: SearchFieldType::I64(pg_sys::INT8OID),
+            stores_date_days: false,
             plan_position: 0,
             is_array: false,
         }

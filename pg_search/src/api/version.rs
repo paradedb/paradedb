@@ -23,9 +23,6 @@ pub struct Version {
     pub major: u16,
     pub minor: u16,
     pub patch: u16,
-    /// The DATE layout is independent of the package version until its first release.
-    #[serde(default)]
-    pub date_days_storage: bool,
 }
 
 /// The first pg_search version in which datetime fields are stored as i64 microseconds from the
@@ -38,7 +35,7 @@ pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
 /// representation (and its narrower range) for new rows; a `REINDEX` moves such an index to day
 /// storage.
 ///
-/// This is a placeholder for the next release; it must be corrected when the version is known.
+/// TODO: update this to the first release that includes DATE day-count storage.
 pub const DATE_DAYS_STORAGE_VERSION: Version = Version::new(0, 27, 0);
 
 /// The first pg_search version whose `NumericBytes` fast fields store negative values in a byte
@@ -58,13 +55,7 @@ impl Version {
             major,
             minor,
             patch,
-            date_days_storage: false,
         }
-    }
-
-    pub const fn with_date_days_storage(mut self) -> Self {
-        self.date_days_storage = true;
-        self
     }
 }
 
@@ -88,7 +79,7 @@ impl VersionInfo for Version {
         self >= &DATETIME_I64_STORAGE_VERSION
     }
     fn stores_dates_as_days(&self) -> bool {
-        self.date_days_storage || self >= &DATE_DAYS_STORAGE_VERSION
+        self >= &DATE_DAYS_STORAGE_VERSION
     }
     fn stores_sortable_negative_numeric_bytes(&self) -> bool {
         self >= &NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION
@@ -135,10 +126,8 @@ mod tests {
     }
 
     #[test]
-    fn date_storage_marker_distinguishes_indexes_at_the_same_version() {
-        let version = Version::new(0, 26, 0);
-        assert!(!version.stores_dates_as_days());
-        assert!(version.with_date_days_storage().stores_dates_as_days());
+    fn date_storage_depends_on_index_version() {
+        assert!(!Version::new(0, 26, 0).stores_dates_as_days());
         assert!(DATE_DAYS_STORAGE_VERSION.stores_dates_as_days());
     }
 }

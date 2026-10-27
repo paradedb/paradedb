@@ -152,8 +152,11 @@ impl PdbOwnedValue {
         }
     }
 
-    pub fn into_tantivy_value(self, index_created_by_version: Option<Version>) -> OwnedValue {
-        match self {
+    pub fn into_tantivy_value(
+        self,
+        index_created_by_version: Option<Version>,
+    ) -> Result<OwnedValue, TantivyValueError> {
+        Ok(match self {
             PdbOwnedValue::Date(date) => {
                 if index_created_by_version.stores_dates_as_days() {
                     OwnedValue::I64(i64::from(date.into_inner()))
@@ -161,13 +164,15 @@ impl PdbOwnedValue {
                     // Legacy indexes stored DATE values as a midnight timestamp.
                     let timestamp: PostgresTimestamp = date
                         .try_into()
-                        .expect("legacy date indexes only contain dates that fit in a timestamp");
+                        .map_err(|_| TantivyValueError::DateOutOfRange)?;
                     if index_created_by_version.stores_datetimes_in_i64() {
                         OwnedValue::I64(timestamp.into_inner())
                     } else {
-                        OwnedValue::Date(timestamp.try_into().expect(
-                            "legacy date indexes only contain dates that fit in tantivy's DateTime",
-                        ))
+                        OwnedValue::Date(
+                            timestamp
+                                .try_into()
+                                .map_err(|_| TantivyValueError::DateOutOfRange)?,
+                        )
                     }
                 }
             }
@@ -177,7 +182,7 @@ impl PdbOwnedValue {
                 } else {
                     OwnedValue::Date(
                         date.try_into()
-                            .expect("legacy timestamps should always fit into tantivy's DateTime"),
+                            .map_err(|_| TantivyValueError::DateOutOfRange)?,
                     )
                 }
             }
@@ -185,16 +190,16 @@ impl PdbOwnedValue {
                 array
                     .into_iter()
                     .map(|v| Self::into_tantivy_value(v, index_created_by_version))
-                    .collect(),
+                    .collect::<Result<Vec<_>, _>>()?,
             ),
             PdbOwnedValue::Object(object) => OwnedValue::Object(
                 object
                     .into_iter()
-                    .map(|(k, v)| (k, Self::into_tantivy_value(v, index_created_by_version)))
-                    .collect(),
+                    .map(|(k, v)| Ok((k, Self::into_tantivy_value(v, index_created_by_version)?)))
+                    .collect::<Result<Vec<_>, TantivyValueError>>()?,
             ),
             _ => Self::into_tantivy_value_no_version_awareness(self),
-        }
+        })
     }
 
     /// Convert variants that don't require knowledge of the `index_created_by_version`.
@@ -305,7 +310,9 @@ impl PdbOwnedValue {
 
             // Arrow's representation of a `DATE` field (new indexes) and of a timestamp
             // column. Date32 carries Unix-epoch days; timestamps carry PG-epoch micros.
-            (ScalarValue::Date32(Some(v)), SearchFieldType::DateDays(_)) => {
+            (ScalarValue::Date32(Some(v)), SearchFieldType::I64(oid))
+                if *oid == pg_sys::DATEOID =>
+            {
                 PostgresDate::try_from_date32(*v)
                     .ok()
                     .map(PdbOwnedValue::Date)
@@ -691,11 +698,13 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use arrow_schema::TimeUnit;
     use pgrx::pg_sys;
+    use pgrx::pg_test;
     use std::cmp::Ordering;
     use std::net::Ipv6Addr;
 
@@ -803,16 +812,13 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn date_and_timestamp_scalars_keep_their_storage_units() {
         let date = PostgresDate::try_from_raw(0).unwrap();
         let date_value = PdbOwnedValue::Date(date);
         let date_scalar = ScalarValue::Date32(Some(date.to_date32()));
         assert_eq!(
-            PdbOwnedValue::from_scalar(
-                &date_scalar,
-                &SearchFieldType::DateDays(pgrx::pg_sys::DATEOID),
-            ),
+            PdbOwnedValue::from_scalar(&date_scalar, &SearchFieldType::I64(pgrx::pg_sys::DATEOID),),
             Some(date_value.clone())
         );
         assert_eq!(date_value.to_scalar(&DataType::Date32), Some(date_scalar));
@@ -832,6 +838,20 @@ mod tests {
             timestamp_value.to_scalar(&DataType::Timestamp(TimeUnit::Microsecond, None)),
             Some(timestamp_scalar)
         );
+    }
+
+    #[test]
+    fn legacy_date_index_rejects_values_outside_timestamp_range() {
+        let date = PostgresDate::try_from_raw(crate::postgres::datetime::MAX_PG_DATE_DAYS).unwrap();
+        let legacy = Some(crate::api::version::Version::new(0, 26, 0));
+        assert!(matches!(
+            PdbOwnedValue::Date(date).into_tantivy_value(legacy),
+            Err(TantivyValueError::DateOutOfRange)
+        ));
+        assert!(matches!(
+            PdbOwnedValue::Date(date).into_tantivy_value(Some(crate::api::version::DATE_DAYS_STORAGE_VERSION)),
+            Ok(OwnedValue::I64(days)) if days == i64::from(date.into_inner())
+        ));
     }
 
     #[test]

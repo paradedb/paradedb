@@ -80,8 +80,6 @@ pub enum SearchFieldType {
     /// Dense vector field (pgvector type). The usize is the number of dimensions,
     /// and `VectorMetric` is the distance metric (default L2).
     Vector(pg_sys::Oid, usize, VectorMetric),
-    /// New DATE storage: PostgreSQL's `DateADT` day count in an `I64` fast field.
-    DateDays(pg_sys::Oid),
 }
 
 impl SearchFieldType {
@@ -113,7 +111,6 @@ impl SearchFieldType {
             SearchFieldType::Bool(_) => SearchFieldConfig::default_boolean(),
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
-            SearchFieldType::DateDays(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::Range(_) => SearchFieldConfig::default_range(),
             SearchFieldType::Vector(_, dims, _) => SearchFieldConfig::default_vector(*dims),
         }
@@ -132,7 +129,6 @@ impl SearchFieldType {
             SearchFieldType::Bool(oid) => *oid,
             SearchFieldType::Json(oid) => *oid,
             SearchFieldType::Date(oid) => *oid,
-            SearchFieldType::DateDays(oid) => *oid,
             SearchFieldType::Range(oid) => *oid,
             SearchFieldType::Numeric64(oid, _) => *oid,
             SearchFieldType::NumericBytes(oid, _) => *oid,
@@ -172,8 +168,7 @@ impl SearchFieldType {
     /// empty accessor and every hit gets `"sort": [null]` with no ordering applied (see
     /// issue #5710). Sortable types must therefore lower to one of those Arrow storage
     /// types: `I64`, `U64`, `F64`, `Date`, and `Numeric64` (stored as scaled `Int64`) all
-    /// qualify. `DateDays` also stores as `Date32`/`Int64` and qualifies. `NumericBytes` is
-    /// excluded because it stores as `BinaryView`.
+    /// qualify. `NumericBytes` is excluded because it stores as `BinaryView`.
     pub fn supports_top_hits_sort(&self) -> bool {
         matches!(
             self,
@@ -181,7 +176,6 @@ impl SearchFieldType {
                 | SearchFieldType::U64(_)
                 | SearchFieldType::F64(_)
                 | SearchFieldType::Date(_)
-                | SearchFieldType::DateDays(_)
                 | SearchFieldType::Numeric64(..)
         )
     }
@@ -219,8 +213,6 @@ impl SearchFieldType {
             SearchFieldType::Date(_) => {
                 arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
             }
-            // Date stored as PostgreSQL's `DateADT` day count.
-            SearchFieldType::DateDays(_) => arrow_schema::DataType::Date32,
 
             // Numeric64 is stored as Int64 (scaled integer)
             SearchFieldType::Numeric64(..) => arrow_schema::DataType::Int64,
@@ -230,6 +222,14 @@ impl SearchFieldType {
 
             // Vector is not stored in Arrow columnar format
             SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
+        }
+    }
+
+    pub fn arrow_data_type_with_date_days(&self, date_days: bool) -> arrow_schema::DataType {
+        if date_days {
+            arrow_schema::DataType::Date32
+        } else {
+            self.arrow_data_type()
         }
     }
 
@@ -383,17 +383,9 @@ impl SearchFieldType {
                 | PgBuiltInOids::DATERANGEOID
                 | PgBuiltInOids::TSRANGEOID
                 | PgBuiltInOids::TSTZRANGEOID => Ok(SearchFieldType::Range((*builtin).into())),
-                PgBuiltInOids::DATEOID => {
-                    if index_created_by_version.stores_dates_as_days() {
-                        Ok(SearchFieldType::DateDays((*builtin).into()))
-                    } else if index_created_by_version.stores_datetimes_in_i64() {
-                        Ok(SearchFieldType::I64((*builtin).into()))
-                    } else {
-                        Ok(SearchFieldType::Date((*builtin).into()))
-                    }
-                }
                 PgBuiltInOids::TIMESTAMPOID
                 | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::DATEOID
                 | PgBuiltInOids::TIMEOID
                 | PgBuiltInOids::TIMETZOID => {
                     if index_created_by_version.stores_datetimes_in_i64() {
@@ -455,6 +447,7 @@ pub struct CategorizedFieldData {
 pub struct SearchIndexSchema {
     schema: Schema,
     bm25_options: BM25IndexOptions,
+    created_by_version: Option<Version>,
     categorized: Rc<RefCell<Vec<(SearchField, CategorizedFieldData)>>>,
 }
 
@@ -481,17 +474,24 @@ pub fn is_columnar_json_path(schema: &Schema, name: &str) -> bool {
 
 impl SearchIndexSchema {
     pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
+        let created_by_version = indexrel.created_by_version();
         Ok(load_index_schema(indexrel)?
             .map(|schema| Self {
                 schema,
                 bm25_options: indexrel.options().clone(),
+                created_by_version,
                 categorized: Default::default(),
             })
             .unwrap_or_else(|| Self {
                 schema: Schema::builder().build(),
                 bm25_options: indexrel.options().clone(),
+                created_by_version,
                 categorized: Default::default(),
             }))
+    }
+
+    pub fn created_by_version(&self) -> Option<Version> {
+        self.created_by_version
     }
 
     pub fn tantivy_schema(&self) -> &Schema {
@@ -582,7 +582,12 @@ impl SearchIndexSchema {
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         let field_name = FieldName::from(name.as_ref());
         match self.schema.get_field(&field_name.root()) {
-            Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
+            Ok(field) => Some(SearchField::new(
+                field,
+                &self.bm25_options,
+                &self.schema,
+                self.created_by_version,
+            )),
             Err(_) => None,
         }
     }
@@ -770,6 +775,7 @@ pub struct SearchField {
     field_entry: FieldEntry,
     field_type: SearchFieldType,
     field_config: SearchFieldConfig,
+    created_by_version: Option<Version>,
 }
 
 impl Hash for SearchField {
@@ -787,7 +793,12 @@ impl PartialEq for SearchField {
 }
 
 impl SearchField {
-    pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
+    pub fn new(
+        field: Field,
+        options: &BM25IndexOptions,
+        schema: &Schema,
+        created_by_version: Option<Version>,
+    ) -> Self {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
         let mut field_config = options.field_config_or_default(&field_name);
@@ -803,7 +814,13 @@ impl SearchField {
             field_entry,
             field_type,
             field_config,
+            created_by_version,
         }
+    }
+
+    pub fn stores_date_days(&self) -> bool {
+        matches!(self.field_type, SearchFieldType::I64(oid) if oid == pg_sys::DATEOID)
+            && self.created_by_version.stores_dates_as_days()
     }
 
     pub fn field(&self) -> Field {
@@ -1005,9 +1022,7 @@ impl SearchField {
             | (FieldType::Facet(_), PdbOwnedValue::Facet(_))
             | (FieldType::JsonObject(_), PdbOwnedValue::Object(_)) => Ok(()),
             (FieldType::Date(_), PdbOwnedValue::Date(_)) => Ok(()),
-            (FieldType::I64(_), PdbOwnedValue::Timestamp(timestamp))
-                if matches!(self.field_type, SearchFieldType::DateDays(_)) =>
-            {
+            (FieldType::I64(_), PdbOwnedValue::Timestamp(timestamp)) if self.stores_date_days() => {
                 *value = PdbOwnedValue::Date(
                     crate::postgres::datetime::PostgresDate::try_from(timestamp)
                         .map_err(|e| anyhow::anyhow!("{e:?}"))?,

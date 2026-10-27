@@ -64,7 +64,7 @@ impl TantivyValue {
     pub fn into_tantivy_value(
         self,
         index_created_by_version: Option<crate::api::version::Version>,
-    ) -> tantivy::schema::OwnedValue {
+    ) -> Result<tantivy::schema::OwnedValue, TantivyValueError> {
         self.0.into_tantivy_value(index_created_by_version)
     }
 

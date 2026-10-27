@@ -418,7 +418,7 @@ impl PdbAggAccumulator {
             .map(|(k, key)| {
                 Arc::new(Field::new(
                     format!("__pdb_k{k}"),
-                    key.field.field_type.arrow_data_type(),
+                    key.field.arrow_data_type(),
                     true,
                 ))
             })
@@ -1224,6 +1224,7 @@ mod tests {
                 attno: 1,
                 field_name: name.to_string(),
                 field_type,
+                stores_date_days: false,
                 plan_position: 0,
                 is_array: false,
             })

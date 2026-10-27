@@ -533,17 +533,21 @@ pub fn convert_value_for_field(
             numeric_value_to_decimal_bytes(value, index_created_by_version)
         }
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
-        SearchFieldType::DateDays(_) => match value {
-            PdbOwnedValue::Str(s) => PostgresDate::try_from_query_str(&s)
-                .map(PdbOwnedValue::Date)
-                .map_err(|e| anyhow::anyhow!("{e:?}")),
-            // JSON string literals are promoted to timestamps before they reach the
-            // field. A DATE field stores days, so narrow the timestamp here.
-            PdbOwnedValue::Timestamp(timestamp) => PostgresDate::try_from(timestamp)
-                .map(PdbOwnedValue::Date)
-                .map_err(|e| anyhow::anyhow!("{e:?}")),
-            other => Ok(other),
-        },
+        SearchFieldType::I64(oid)
+            if *oid == pgrx::pg_sys::DATEOID && index_created_by_version.stores_dates_as_days() =>
+        {
+            match value {
+                PdbOwnedValue::Str(s) => PostgresDate::try_from_query_str(&s)
+                    .map(PdbOwnedValue::Date)
+                    .map_err(|e| anyhow::anyhow!("{e:?}")),
+                // JSON string literals are promoted to timestamps before they reach the
+                // field. A DATE field stores days, so narrow the timestamp here.
+                PdbOwnedValue::Timestamp(timestamp) => PostgresDate::try_from(timestamp)
+                    .map(PdbOwnedValue::Date)
+                    .map_err(|e| anyhow::anyhow!("{e:?}")),
+                other => Ok(other),
+            }
+        }
         SearchFieldType::I64(oid) if is_datetime_type(*oid) => Ok(string_to_i64(value)),
         SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::Numeric64(..) => {
             match clamp_to_int_domain(&value, field_type) {
@@ -562,11 +566,13 @@ pub fn convert_value_for_field(
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use crate::postgres::datetime::PostgresTimestamp;
     use Clamped::{Above, Below, Exact};
+    use pgrx::pg_test;
     use rstest::rstest;
     use std::ops::Bound::{Excluded, Included, Unbounded};
 
@@ -732,28 +738,30 @@ mod tests {
     const INT8: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::INT8OID);
     const OID: SearchFieldType = SearchFieldType::U64(pgrx::pg_sys::OIDOID);
     const TIMESTAMP: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::TIMESTAMPOID);
-    const DATE_DAYS: SearchFieldType = SearchFieldType::DateDays(pgrx::pg_sys::DATEOID);
+    const DATE_DAYS: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::DATEOID);
     const INT4RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT4RANGEOID);
     const INT8RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT8RANGEOID);
     const HUGE: &str = "100000000000000000000000000000000000000000";
 
-    #[test]
+    #[pg_test]
     fn date_days_field_converts_string_and_legacy_timestamp_values() {
         let date = PostgresDate::try_from_raw(0).unwrap();
+        let date_version = Some(crate::api::version::DATE_DAYS_STORAGE_VERSION);
         assert_eq!(
-            convert_value_for_field(text("2000-01-01T12:00:00Z"), &DATE_DAYS, None).unwrap(),
+            convert_value_for_field(text("2000-01-01T12:00:00Z"), &DATE_DAYS, date_version)
+                .unwrap(),
             PdbOwnedValue::Date(date)
         );
         assert_eq!(
             convert_value_for_field(
                 PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap()),
                 &DATE_DAYS,
-                None,
+                date_version,
             )
             .unwrap(),
             PdbOwnedValue::Date(date)
         );
-        assert!(convert_value_for_field(text("not a date"), &DATE_DAYS, None).is_err());
+        assert!(convert_value_for_field(text("not a date"), &DATE_DAYS, date_version).is_err());
     }
 
     #[rstest]

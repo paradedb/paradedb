@@ -1020,7 +1020,11 @@ pub unsafe fn row_to_search_document<'a>(
             for value in converted_array {
                 document.add_field_value(
                     search_field.field(),
-                    &value.into_tantivy_value(created_by_version),
+                    &value
+                        .into_tantivy_value(created_by_version)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        }),
                 );
             }
         } else if *is_json {
@@ -1031,7 +1035,11 @@ pub unsafe fn row_to_search_document<'a>(
             {
                 document.add_field_value(
                     search_field.field(),
-                    &value.into_tantivy_value(created_by_version),
+                    &value
+                        .into_tantivy_value(created_by_version)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        }),
                 );
             }
         } else if matches!(search_field.field_type(), SearchFieldType::Vector(..)) {
@@ -1055,7 +1063,10 @@ pub unsafe fn row_to_search_document<'a>(
             });
             document.add_field_value(
                 search_field.field(),
-                &tv.into_tantivy_value(created_by_version),
+                &tv.into_tantivy_value(created_by_version)
+                    .unwrap_or_else(|e| {
+                        panic!("could not parse field `{}`: {e}", search_field.field_name())
+                    }),
             );
         }
     }

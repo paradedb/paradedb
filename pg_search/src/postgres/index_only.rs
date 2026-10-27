@@ -327,7 +327,8 @@ impl IndexOnlyField {
             fast_field: WhichFastField::eager(
                 search_field.field_name().to_string(),
                 search_field.field_type(),
-            ),
+            )
+            .with_date_days(search_field.stores_date_days()),
             pg_type: PgOid::from(attribute.atttypid),
         })
     }

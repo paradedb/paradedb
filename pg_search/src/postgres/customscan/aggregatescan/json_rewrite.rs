@@ -26,7 +26,7 @@ use crate::postgres::datetime::{
     unix_millis_to_pg_micros,
 };
 use crate::postgres::types::is_pgoid_datetime_type;
-use crate::schema::{SearchFieldType, SearchIndexSchema};
+use crate::schema::SearchIndexSchema;
 
 /// The storage representation behind a PostgreSQL date/time column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,10 +39,10 @@ pub enum DatetimeKind {
 }
 
 pub fn datetime_kind_for_field(schema: &SearchIndexSchema, key: &str) -> Option<DatetimeKind> {
-    let field_type = schema.search_field(key)?.field_type();
-    if matches!(field_type, SearchFieldType::DateDays(_)) {
+    let field = schema.search_field(key)?;
+    if field.stores_date_days() {
         Some(DatetimeKind::DateDays)
-    } else if is_pgoid_datetime_type(field_type.typeoid()) {
+    } else if is_pgoid_datetime_type(field.field_type().typeoid()) {
         Some(DatetimeKind::TimestampMicros)
     } else {
         None

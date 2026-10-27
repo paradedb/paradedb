@@ -1637,10 +1637,6 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             let upper = map_bound(upper_bound, string_to_json_numeric);
             check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
-        // Dates are stored as day counts in I64 fields, but they are not numbers.
-        SearchFieldType::DateDays(_) => {
-            check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?
-        }
         // Dates and times are stored in I64 fields, but they are not numbers
         SearchFieldType::I64(oid) if is_datetime_type(oid) => {
             let lower = map_bound(lower_bound, string_to_i64);
@@ -2337,8 +2333,10 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
     match leaf {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name
-                && let Some(field_type) = field_type_requiring_literal_rewrite(schema, field_name)
-                && let Some(replacement) = phrase_to_stored_numeric_string(&lit.phrase, field_type)
+                && let Some((field_type, date_days)) =
+                    field_type_requiring_literal_rewrite(schema, field_name)
+                && let Some(replacement) =
+                    phrase_to_stored_numeric_string(&lit.phrase, field_type, date_days)
             {
                 lit.phrase = replacement;
             }
@@ -2348,18 +2346,23 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
             lower,
             upper,
         } => {
-            if let Some(field_type) = field_type_requiring_literal_rewrite(schema, name) {
-                rewrite_bound(lower, field_type);
-                rewrite_bound(upper, field_type);
+            if let Some((field_type, date_days)) =
+                field_type_requiring_literal_rewrite(schema, name)
+            {
+                rewrite_bound(lower, field_type, date_days);
+                rewrite_bound(upper, field_type, date_days);
             }
         }
         UserInputLeaf::Set {
             field: Some(name),
             elements,
         } => {
-            if let Some(field_type) = field_type_requiring_literal_rewrite(schema, name) {
+            if let Some((field_type, date_days)) =
+                field_type_requiring_literal_rewrite(schema, name)
+            {
                 for element in elements.iter_mut() {
-                    if let Some(replacement) = phrase_to_stored_numeric_string(element, field_type)
+                    if let Some(replacement) =
+                        phrase_to_stored_numeric_string(element, field_type, date_days)
                     {
                         *element = replacement;
                     }
@@ -2372,10 +2375,12 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
     }
 }
 
-fn rewrite_bound(bound: &mut UserInputBound, field_type: SearchFieldType) {
+fn rewrite_bound(bound: &mut UserInputBound, field_type: SearchFieldType, date_days: bool) {
     match bound {
         UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
-            if let Some(replacement) = phrase_to_stored_numeric_string(phrase, field_type) {
+            if let Some(replacement) =
+                phrase_to_stored_numeric_string(phrase, field_type, date_days)
+            {
                 *phrase = replacement;
             }
         }
@@ -2386,11 +2391,12 @@ fn rewrite_bound(bound: &mut UserInputBound, field_type: SearchFieldType) {
 fn field_type_requiring_literal_rewrite(
     schema: &SearchIndexSchema,
     field_name: &str,
-) -> Option<SearchFieldType> {
-    let field_type = schema.search_field(field_name)?.field_type();
+) -> Option<(SearchFieldType, bool)> {
+    let field = schema.search_field(field_name)?;
+    let field_type = field.field_type();
     match field_type.typeoid() {
-        PgOid::BuiltIn(BuiltinOid::JSONOID | BuiltinOid::JSONBOID) => Some(field_type),
-        oid if is_pgoid_datetime_type(oid) => Some(field_type),
+        PgOid::BuiltIn(BuiltinOid::JSONOID | BuiltinOid::JSONBOID) => Some((field_type, false)),
+        oid if is_pgoid_datetime_type(oid) => Some((field_type, field.stores_date_days())),
         _ => None,
     }
 }
@@ -2399,17 +2405,20 @@ fn field_type_requiring_literal_rewrite(
 /// `DateADT` days for a new DATE field, PG-epoch microseconds for an I64 datetime field, and
 /// Unix-epoch nanoseconds for a legacy tantivy `Date` field. Returns `None` when the phrase
 /// cannot be parsed, leaving it untouched for the caller's normal error path.
-fn phrase_to_stored_numeric_string(phrase: &str, field_type: SearchFieldType) -> Option<String> {
-    match field_type {
+fn phrase_to_stored_numeric_string(
+    phrase: &str,
+    field_type: SearchFieldType,
+    date_days: bool,
+) -> Option<String> {
+    if date_days {
         // A new DATE field is an I64 of `DateADT` days, so the parser needs a number. Accept
         // both PostgreSQL's ISO date form and its looser date input, which also takes a
         // timestamp and ignores its time part, matching what legacy DATE indexes accepted.
         // The ISO form is tried first because it covers years outside the timestamp range.
-        SearchFieldType::DateDays(_) => {
-            let date = PostgresDate::try_from_query_str(phrase).ok()?;
-            Some(date.into_inner().to_string())
-        }
-        _ => match field_type.typeoid() {
+        let date = PostgresDate::try_from_query_str(phrase).ok()?;
+        Some(date.into_inner().to_string())
+    } else {
+        match field_type.typeoid() {
             PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
                 let micros = PostgresTimestamp::try_from_timestamp_str(phrase)
                     .ok()?
@@ -2448,7 +2457,7 @@ fn phrase_to_stored_numeric_string(phrase: &str, field_type: SearchFieldType) ->
                     .map(|dt| dt.into_inner().to_string())
             }
             _ => None,
-        },
+        }
     }
 }
 

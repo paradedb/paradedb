@@ -345,6 +345,7 @@ impl PgSearchTableProvider {
                 field_type,
                 cardinality: FieldCardinality::Scalar,
                 delivery,
+                ..
             } = wff
             {
                 let is_string_or_bytes = field_type.is_dictionary_storage();

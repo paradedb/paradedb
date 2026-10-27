@@ -2859,7 +2859,7 @@ unsafe fn group_key_to_datum(
         PdbOwnedValue::I64(raw) => {
             let is_date_days = schema
                 .search_field(field_name)
-                .is_some_and(|field| matches!(field.field_type(), SearchFieldType::DateDays(_)));
+                .is_some_and(|field| field.stores_date_days());
             let value = if is_date_days {
                 let days = i32::try_from(*raw)
                     .expect("a DATE day count read back from tantivy must fit in an i32");

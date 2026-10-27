@@ -378,7 +378,7 @@ impl EmpiricalStats {
 
     pub(crate) fn into_field_representation(self, field: &SearchField) -> io::Result<Option<Self>> {
         let field_type = field.field_type();
-        let date_days = matches!(field_type, SearchFieldType::DateDays(_));
+        let date_days = field.stores_date_days();
         let is_date = field_type.typeoid().value() == pg_sys::DATEOID;
         if !date_days && !matches!(field_type, SearchFieldType::I64(oid) if is_datetime_type(oid)) {
             return Ok(Some(self));

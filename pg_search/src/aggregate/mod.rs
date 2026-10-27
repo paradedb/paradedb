@@ -953,7 +953,7 @@ fn set_missing_on_terms(
             // theoretically collide with valid data values, though this is unlikely in practice.
             // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
             let sentinel = match schema.get_field_type(&terms.field) {
-                Some(SearchFieldType::I64(_) | SearchFieldType::DateDays(_)) => {
+                Some(SearchFieldType::I64(_)) => {
                     if use_min {
                         Key::I64(i64::MIN)
                     } else {

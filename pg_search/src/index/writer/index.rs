@@ -230,6 +230,7 @@ struct BuildSegments {
     directory: BuildDirectory,
     index: Index,
     disk_guard: Option<DiskSpaceGuard>,
+    sampled_docs: Option<u32>,
 }
 
 impl SerialIndexWriter {
@@ -246,6 +247,7 @@ impl SerialIndexWriter {
             directory,
             index,
             disk_guard: None,
+            sampled_docs: None,
         });
         Ok(writer)
     }
@@ -314,6 +316,34 @@ impl SerialIndexWriter {
         }
         self.disk_guard = disk_guard;
         self
+    }
+
+    pub fn update_build_estimate(
+        &mut self,
+        remaining_docs: usize,
+        docs_per_final_segment: usize,
+    ) -> Result<Option<u64>> {
+        let build = self.build.as_mut().expect("writer must be an index build");
+        let Some(guard) = &mut build.disk_guard else {
+            return Ok(None);
+        };
+        let (Some(bytes), Some(docs)) = (guard.segment_bytes, build.sampled_docs) else {
+            return Ok(None);
+        };
+        let docs = docs.max(1) as usize;
+        guard.set_remaining_segments(remaining_docs.div_ceil(docs));
+        guard.check_available(
+            build.directory.available_disk_bytes(),
+            "temporary tablespace",
+        )?;
+        let final_bytes = (bytes as u128 * docs_per_final_segment as u128)
+            .div_ceil(docs as u128)
+            .min(u64::MAX as u128) as u64;
+        if let Some(guard) = &mut self.disk_guard {
+            guard.set_segment_bytes(final_bytes);
+            guard.check()?;
+        }
+        Ok(Some(final_bytes))
     }
 
     pub fn set_segment_byte_size(&mut self, bytes: u64) {
@@ -560,6 +590,7 @@ impl SerialIndexWriter {
                     guard.set_segment_bytes(
                         build.directory.segment_byte_size(finalized_segment.id()),
                     );
+                    build.sampled_docs = Some(finalized_segment.meta().max_doc());
                 }
                 guard.check_available(
                     build.directory.available_disk_bytes(),
@@ -869,7 +900,9 @@ mod tests {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             max_docs_per_segment: Some(2),
         };
-        let mut writer = SerialIndexWriter::for_build(&indexrel, config.clone(), 0).unwrap();
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config.clone(), 0)
+            .unwrap()
+            .with_disk_guard(Some(DiskSpaceGuard::new(&indexrel)));
         let field = writer.schema().search_field("data").unwrap().field();
         let mut metas = Vec::new();
         for ctid in 1..=5 {
@@ -881,6 +914,16 @@ mod tests {
         }
         metas.extend(writer.finalize_nocommit().unwrap());
         assert_eq!(metas.len(), 3);
+        writer.set_remaining_segments(1);
+        let final_bytes = writer.update_build_estimate(0, 5).unwrap().unwrap();
+        let build = writer.build.as_ref().unwrap();
+        let staged_bytes = build.disk_guard.as_ref().unwrap().segment_bytes.unwrap();
+        assert_eq!(build.sampled_docs, Some(2));
+        assert_eq!(final_bytes, (staged_bytes * 5).div_ceil(2));
+        assert_eq!(
+            writer.disk_guard.as_ref().unwrap().segment_bytes,
+            Some(final_bytes)
+        );
         assert_eq!(
             unsafe {
                 pg_sys::RelationGetNumberOfBlocksInFork(indexrel.as_ptr(), indexrel.fork_number())

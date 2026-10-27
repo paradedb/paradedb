@@ -37,7 +37,6 @@ use crate::postgres::ps_status::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::tuplesort::Int8Sorter;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
@@ -54,7 +53,6 @@ use std::os::raw::c_int;
 use std::ptr::{NonNull, addr_of_mut};
 use std::sync::OnceLock;
 use std::time::Instant;
-use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 const TUPLES_DONE_BATCH_SIZE: usize = 5;
@@ -115,6 +113,7 @@ struct WorkerCoordination {
     nlaunched: usize,
     ntuples_done: usize,
     nsegments_written: usize,
+    ntuples_staged: usize,
     /// Participants whose partitioned-build scan is over and whose spill files are closed.
     nspilled: usize,
 }
@@ -131,7 +130,7 @@ impl ParallelStateType for WorkerCoordination {}
 // It is accessed through object_raw() instead of the typed object() path.
 
 const _: () = assert!(size_of::<WorkerConfig>() == 12);
-const _: () = assert!(size_of::<WorkerCoordination>() == 48);
+const _: () = assert!(size_of::<WorkerCoordination>() == 56);
 
 impl WorkerCoordination {
     fn inc_nstarted(&mut self) {
@@ -157,6 +156,11 @@ impl WorkerCoordination {
     fn tuples_done(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.ntuples_done
+    }
+    fn add_tuples_staged(&mut self, count: usize) -> usize {
+        let _lock = self.mutex.acquire();
+        self.ntuples_staged += count;
+        self.ntuples_staged
     }
     fn add_segments_written(&mut self) -> usize {
         let _lock = self.mutex.acquire();
@@ -776,7 +780,7 @@ struct WorkerBuildState<'a> {
     unmerged_metas: Vec<SegmentMeta>,
     local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
     is_leader: bool,
-    // The first final segment's on-disk size, reused by each partition writer's disk guard.
+    // Estimated final segment size from staged bytes, reused by partition writers.
     sampled_segment_bytes: Option<u64>,
     // For a partitioned build: phase-1 routing and spill state. `None` on the regular path.
     partitioning: Option<PartitionSpill>,
@@ -845,8 +849,9 @@ impl<'a> WorkerBuildState<'a> {
         let disk_guard = indexrel
             .is_create_index()
             .then(|| DiskSpaceGuard::new(indexrel));
-        let writer = SerialIndexWriter::for_build(indexrel, config.clone(), worker_number)?
+        let mut writer = SerialIndexWriter::for_build(indexrel, config.clone(), worker_number)?
             .with_disk_guard(disk_guard);
+        writer.set_remaining_segments(target_segment_count);
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
         let created_by_version = indexrel.created_by_version();
@@ -884,32 +889,27 @@ impl<'a> WorkerBuildState<'a> {
         })
     }
 
-    /// Update the disk-space estimate from final segments written to the index relation.
-    fn on_segment_flushed(&mut self, segment_id: SegmentId) {
+    fn on_segment_staged(&mut self, meta: &SegmentMeta) -> anyhow::Result<()> {
+        let staged = self
+            .coordination
+            .add_tuples_staged(meta.num_docs() as usize);
+        let estimated_docs = plan::estimate_heap_reltuples(&self.heaprel) as usize;
+        let writer = self.writer.as_mut().expect("writer should be set");
+        let written = self.coordination.nsegments_written();
+        writer.set_remaining_segments(self.target_segment_count.saturating_sub(written));
+        self.sampled_segment_bytes = writer.update_build_estimate(
+            estimated_docs.saturating_sub(staged),
+            estimated_docs.div_ceil(self.target_segment_count),
+        )?;
+        Ok(())
+    }
+
+    fn on_segment_flushed(&mut self) {
         let written = self.coordination.add_segments_written();
-        let remaining = self.target_segment_count.saturating_sub(written);
-
-        let mut segment_bytes = None;
-        if self.sampled_segment_bytes.is_none() {
-            unsafe {
-                MetaPage::open(&self.indexrel)
-                    .segment_metas()
-                    .for_each(|_, entry| {
-                        if entry.segment_id() == segment_id {
-                            segment_bytes = Some(entry.byte_size());
-                        }
-                    });
-            }
-            self.sampled_segment_bytes = segment_bytes;
-        }
-
-        let Some(writer) = self.writer.as_mut() else {
-            return;
-        };
-        writer.set_remaining_segments(remaining);
-        if let Some(bytes) = segment_bytes {
-            writer.set_segment_byte_size(bytes);
-        }
+        self.writer
+            .as_mut()
+            .expect("writer should be set")
+            .set_remaining_segments(self.target_segment_count.saturating_sub(written));
     }
 
     fn commit(&mut self) -> anyhow::Result<()> {
@@ -918,6 +918,7 @@ impl<'a> WorkerBuildState<'a> {
         }
         let writer = self.writer.as_mut().expect("writer should be set");
         if let Some(segment_meta) = writer.finalize_nocommit()? {
+            self.on_segment_staged(&segment_meta)?;
             self.unmerged_metas.push(segment_meta);
         }
         self.try_merge(true)?;
@@ -1010,8 +1011,8 @@ impl<'a> WorkerBuildState<'a> {
                 return Err(error);
             }
         };
-        if let Some(meta) = meta {
-            self.on_segment_flushed(meta.id());
+        if meta.is_some() {
+            self.on_segment_flushed();
             self.nmerges += usize::from(segments.len() > 1);
         }
         Ok(())
@@ -1175,6 +1176,7 @@ impl<'a> WorkerBuildState<'a> {
                             set_ps_display_suffix(COMMITTING.as_ptr())
                         })?;
                     if let Some(segment_meta) = segment_meta {
+                        self.on_segment_staged(&segment_meta)?;
                         partition_metas.push(segment_meta);
                         unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
                     }
@@ -1231,6 +1233,7 @@ impl<'a> WorkerBuildState<'a> {
             .as_mut()
             .expect("finish_partition: writer should be set");
         if let Some(segment_meta) = writer.finalize_nocommit()? {
+            self.on_segment_staged(&segment_meta)?;
             partition_metas.push(segment_meta);
         }
         self.persist_segments(partition_metas)?;
@@ -1330,6 +1333,9 @@ unsafe extern "C-unwind" fn build_callback(
     build_state.count_tuple_done();
 
     if let Some(segment_meta) = segment_meta {
+        build_state
+            .on_segment_staged(&segment_meta)
+            .unwrap_or_else(|e| panic!("{e}"));
         build_state.unmerged_metas.push(segment_meta);
         build_state
             .try_merge(false)

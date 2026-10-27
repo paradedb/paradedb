@@ -23,8 +23,8 @@ workers. Both tools use the same database and index throughout a run.
 3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
    It rejects selections below their target and does not select probes or
    calculate latency. Unreached targets remain visible and do not run in k6.
-4. k6 cycles over the same 100 vectors with one VU: 30 seconds of discarded
-   warmup and 300 seconds of measurement per filter/target. The vector is bound
+4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
+   warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
    selected max_probe and all fixed search settings apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.

@@ -98,7 +98,7 @@ def summary(points):
     lines.append(
         "\npdbench selects max_probe separately for each filter and recall target on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
-        "selected settings with 1 VU, after 30 seconds of warmup, for 300 seconds per point. "
+        "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"
     )
     return "\n".join(lines)

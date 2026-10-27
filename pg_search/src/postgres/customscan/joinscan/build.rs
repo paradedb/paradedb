@@ -1302,8 +1302,12 @@ impl RelNode {
             }
         }
     }
+
+    /// Examines output sources only. Pruned semi/anti sides are excluded so RTIs from lifted subqueries can't alias
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
-        self.sources().into_iter().find(|s| s.contains_rti(rti))
+        self.output_sources()
+            .into_iter()
+            .find(|s| s.contains_rti(rti))
     }
 
     /// Locate the unique output-visible source identified by

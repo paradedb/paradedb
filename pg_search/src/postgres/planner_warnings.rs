@@ -240,13 +240,11 @@ struct ExplainUtilityGuard {
     invalidate: bool,
 }
 
-impl Drop for ExplainUtilityGuard {
-    fn drop(&mut self) {
-        if self.invalidate {
-            unsafe { pg_sys::ResetPlanCache() };
-        }
+crate::impl_safe_drop!(ExplainUtilityGuard, |self| {
+    if self.invalidate {
+        unsafe { pg_sys::ResetPlanCache() };
     }
-}
+});
 
 #[allow(clippy::too_many_arguments)]
 #[rustfmt::skip]

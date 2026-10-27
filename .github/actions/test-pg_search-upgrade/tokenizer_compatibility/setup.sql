@@ -631,6 +631,10 @@ SELECT 'chinese_compatible_ascii_folding', true, ARRAY(
 )
 UNION ALL
 SELECT 'jieba_ascii_folding', true, ARRAY(
+    SELECT id FROM tokenizer_option_matrix WHERE jieba_ascii ||| 'CAFE' ORDER BY id
+)
+UNION ALL
+SELECT 'jieba_ascii_preserves_case', false, ARRAY(
     SELECT id FROM tokenizer_option_matrix WHERE jieba_ascii ||| 'cafe' ORDER BY id
 )
 UNION ALL

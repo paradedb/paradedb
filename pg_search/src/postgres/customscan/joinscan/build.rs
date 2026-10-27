@@ -27,6 +27,7 @@
 
 use crate::api::OrderByInfo;
 use crate::nodecast;
+use crate::postgres::customscan::pullup::{Bm25IndexInfo, SourceContext};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
@@ -544,6 +545,16 @@ pub struct JoinSource {
 }
 
 impl JoinSource {
+    pub fn to_source_context(&self) -> SourceContext {
+        let indexrel = PgSearchRelation::open(self.scan_info.indexrelid);
+        let schema = indexrel.schema().expect("should always provide a schema");
+        SourceContext {
+            heap_rti: self.scan_info.heap_rti,
+            heaprel: PgSearchRelation::open(self.scan_info.heaprelid),
+            index: Some(Bm25IndexInfo { indexrel, schema }),
+        }
+    }
+
     pub unsafe fn contains_score(&self, node: *mut pg_sys::Node) -> bool {
         let funcoids = score_funcoids();
         node.any(|node| {

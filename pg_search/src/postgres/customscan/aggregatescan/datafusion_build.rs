@@ -29,7 +29,7 @@
 //! planner estimates smallest first. DataFusion keeps that order.
 
 use super::join_targetlist::ExtractedDataFusionTarget;
-use super::privdat::{ColumnRef, CompareOp, FilterExpr};
+use super::privdat::{ColumnRef as FilterColumnRef, CompareOp, FilterExpr};
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -46,8 +46,8 @@ use crate::postgres::customscan::joinscan::planning::{
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
-    ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
-    resolve_index_field_by_name,
+    Access, Bm25IndexInfo, ColumnRef, ResolvedIndexField, SourceContext, get_attno_by_name,
+    resolve_fast_field_by_name, resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
@@ -78,10 +78,11 @@ use std::sync::OnceLock;
 /// Metadata about a table participating in the join, collected during parse-tree walk.
 #[derive(Debug)]
 pub struct JoinAggSource {
-    pub rti: pg_sys::Index,
-    pub relid: pg_sys::Oid,
+    //pub rti: pg_sys::Index,
+    //pub relid: pg_sys::Oid,
     pub alias: Option<String>,
-    pub bm25_index: Option<PgSearchRelation>,
+    //pub bm25_index: Option<PgSearchRelation>,
+    pub context: SourceContext,
     /// Lazily populated attno -> fast-field mapping for this relation.
     /// Filled on first access by [`JoinAggSource::column_name`]. Empty when the
     /// relation has no ParadeDB index.
@@ -112,17 +113,15 @@ impl JoinAggSource {
 
     fn fields(&self) -> &[FieldInfo] {
         self.fields
-            .get_or_init(|| unsafe { collect_source_fields(self.relid, self.bm25_index.as_ref()) })
+            .get_or_init(|| unsafe { collect_source_fields(&self.context) })
     }
 }
 
 impl From<&JoinSource> for JoinAggSource {
     fn from(value: &JoinSource) -> Self {
         Self {
-            rti: value.scan_info.heap_rti,
-            relid: value.scan_info.heaprelid,
             alias: value.scan_info.alias.clone(),
-            bm25_index: Some(PgSearchRelation::open(value.scan_info.indexrelid)),
+            context: value.to_source_context(),
             // Not `scan_info.fields`: those are only the fields the scan
             // requires, while this holds every fast field of the relation.
             fields: OnceLock::new(),
@@ -152,9 +151,9 @@ pub struct ResolutionSource<'a> {
 impl<'a> From<&'a JoinAggSource> for ResolutionSource<'a> {
     fn from(value: &'a JoinAggSource) -> Self {
         Self {
-            rti: value.rti,
+            rti: value.context.heap_rti,
             alias: &value.alias,
-            bm25_index: value.bm25_index.clone(),
+            bm25_index: value.context.indexrel().cloned(),
         }
     }
 }
@@ -245,30 +244,29 @@ fn source_field_candidates<'a, 'b>(
 /// Iterates across the relation's tuple descriptor, resolving each attribute to either
 /// a scalar fast field via [`resolve_fast_field`] or a multi-valued array fast field
 /// in the ParadeDB index schema. Returns an empty vector if `bm25_index` is None.
-unsafe fn collect_source_fields(
-    relid: pg_sys::Oid,
-    bm25_index: Option<&PgSearchRelation>,
-) -> Vec<FieldInfo> {
-    let Some(bm25) = bm25_index else {
+unsafe fn collect_source_fields(source: &SourceContext) -> Vec<FieldInfo> {
+    let Some(indexrel) = source.indexrel() else {
         return Vec::new();
     };
-    let heaprel = PgSearchRelation::open(relid);
-    let tupdesc = heaprel.tuple_desc();
     let mut fields = Vec::new();
-    for attno in 1..=tupdesc.len() {
-        if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
+    for attno in 1..=source.tupdesc().len() {
+        if let Some(resolved) = source.resolve(
+            ColumnRef::Attno(attno as pg_sys::AttrNumber),
+            Access::Scalar,
+        ) {
             fields.push(FieldInfo {
                 attno: attno as pg_sys::AttrNumber,
-                field,
+                field: resolved.field,
             });
         } else {
+            let tupdesc = source.tupdesc();
             let att = tupdesc.get(attno - 1).unwrap();
             if let Some(
                 field @ WhichFastField::Named {
                     cardinality: FieldCardinality::List,
                     ..
                 },
-            ) = resolve_fast_field_by_name(att.name(), bm25)
+            ) = resolve_fast_field_by_name(att.name(), indexrel)
             {
                 fields.push(FieldInfo {
                     attno: attno as pg_sys::AttrNumber,
@@ -304,11 +302,18 @@ pub unsafe fn collect_join_agg_sources(
             continue;
         };
 
+        let index = bm25_index.map(|indexrel| Bm25IndexInfo {
+            schema: indexrel.schema().expect("should always provide a schema"),
+            indexrel,
+        });
+        let context = SourceContext {
+            heap_rti: rti,
+            heaprel: PgSearchRelation::open(relid),
+            index,
+        };
         sources.push(JoinAggSource {
-            rti,
-            relid,
             alias,
-            bm25_index,
+            context,
             fields: OnceLock::new(),
         });
     }
@@ -1887,10 +1892,12 @@ impl FilterExpr {
                         if unsafe { (*var).vartype } == pg_sys::NUMERICOID {
                             return None;
                         }
-                        let source = sources.iter().find(|s| s.rti == rti)?;
-                        let field_name =
-                            unsafe { fieldname_from_var(source.relid, var, attno) }?.into_inner();
-                        Some(Self::ColumnRef(ColumnRef {
+                        let source = sources.iter().find(|s| s.context.heap_rti == rti)?;
+                        let field_name = unsafe {
+                            fieldname_from_var(source.context.heaprel.oid(), var, attno)
+                        }?
+                        .into_inner();
+                        Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
                             rti,
                             attno,
@@ -2059,13 +2066,13 @@ impl FilterExpr {
 
 /// Validate that at least one table in the join has a ParadeDB index.
 pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
-    sources.iter().any(|s| s.bm25_index.is_some())
+    sources.iter().any(|s| s.context.indexrel().is_some())
 }
 
 /// Validate that all tables in the join have a ParadeDB index.
 /// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
 pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
-    sources.iter().all(|s| s.bm25_index.is_some())
+    sources.iter().all(|s| s.context.indexrel().is_some())
 }
 
 /// Resolve `attno` as a fast field on `(heaprel, indexrel)` and add it to
@@ -2077,14 +2084,16 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
 /// each caller can carry whatever context the user will recognise.
 unsafe fn require_fast_field(
     source: &mut JoinSource,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-    indexrel: &PgSearchRelation,
+    context: &SourceContext,
     attno: pg_sys::AttrNumber,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    match resolve_fast_field(attno as i32, tupdesc, indexrel) {
-        Some(field) => {
-            source.scan_info.add_field(attno, field);
+    match context.resolve(
+        ColumnRef::Attno(attno),
+        crate::postgres::customscan::pullup::Access::Scalar,
+    ) {
+        Some(resolved) => {
+            source.scan_info.add_field(attno, resolved.field);
             Ok(())
         }
         None => Err(format!("{} is not columnar", describe())),
@@ -2099,23 +2108,28 @@ unsafe fn require_fast_field(
 /// error, the same contract as [`require_fast_field`].
 unsafe fn require_named_fast_field(
     source: &mut JoinSource,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-    indexrel: &PgSearchRelation,
+    context: &SourceContext,
     attno: pg_sys::AttrNumber,
     field_name: &str,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
     if field_name.contains('.')
+        && let Some(indexrel) = context.indexrel()
         && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
     {
         source.scan_info.add_field_by_name(attno, field);
         return Ok(());
     }
-    if let Some(field) = resolve_fast_field(attno as i32, tupdesc, indexrel) {
-        source.scan_info.add_field(attno, field);
+    if let Some(resolved) = context.resolve(
+        ColumnRef::Attno(attno as pg_sys::AttrNumber),
+        Access::Scalar,
+    ) {
+        source.scan_info.add_field(attno, resolved.field);
         return Ok(());
     }
-    if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
+    if let Some(indexrel) = context.indexrel()
+        && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
+    {
         source.scan_info.add_field_by_name(attno, field);
         return Ok(());
     }

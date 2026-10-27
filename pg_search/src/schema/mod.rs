@@ -435,7 +435,7 @@ pub struct CategorizedFieldData {
     pub is_json: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SearchIndexSchema {
     schema: Schema,
     bm25_options: BM25IndexOptions,

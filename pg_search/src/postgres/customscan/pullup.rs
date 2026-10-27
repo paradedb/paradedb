@@ -27,9 +27,99 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use crate::schema::{FieldSource, SearchFieldType};
-use pgrx::pg_sys;
+use crate::schema::{FieldSource, SearchFieldType, SearchIndexSchema};
+use pgrx::{PgList, PgTupleDesc, pg_sys};
 use tantivy::columnar::ColumnType;
+
+/// what the caller wants from a single source
+pub enum ColumnRef<'a> {
+    /// A heap column by attno
+    Attno(pg_sys::AttrNumber),
+    /// A Tantivy field by name: an alias, a JSON sub-field, an array, a pdb.agg field.
+    Field(&'a str),
+    /// An expression to match against the index expressions (planning time only).
+    Expr(*mut pg_sys::Node),
+    Ctid,
+    Score,
+}
+
+pub struct ResolvedField {
+    pub attno: Option<pg_sys::AttrNumber>, // none for expression-only fields,
+    pub field: WhichFastField,
+}
+impl ResolvedField {
+    pub fn new(attno: Option<pg_sys::AttrNumber>, field: WhichFastField) -> Self {
+        Self { attno, field }
+    }
+}
+
+/// How the caller will use consume the value
+pub enum Access {
+    Scalar,
+    List,
+}
+
+#[derive(Debug)]
+pub struct Bm25IndexInfo {
+    pub indexrel: PgSearchRelation,
+    pub schema: SearchIndexSchema,
+}
+impl Bm25IndexInfo {
+    fn index_expressions(&self) -> PgList<pg_sys::Expr> {
+        self.indexrel.index_expressions()
+    }
+}
+
+#[derive(Debug)]
+pub struct SourceContext {
+    pub heap_rti: pg_sys::Index,
+    pub heaprel: PgSearchRelation,
+    pub index: Option<Bm25IndexInfo>,
+}
+impl SourceContext {
+    pub fn tupdesc(&self) -> PgTupleDesc<'_> {
+        self.heaprel.tuple_desc()
+    }
+    fn index_expressions(&self) -> Option<PgList<pg_sys::Expr>> {
+        self.indexrel().map(|i| i.index_expressions())
+    }
+
+    pub fn indexrel(&self) -> Option<&PgSearchRelation> {
+        self.index.as_ref().map(|i| &i.indexrel)
+    }
+    pub fn schema(&self) -> Option<&SearchIndexSchema> {
+        self.index.as_ref().map(|i| &i.schema)
+    }
+
+    /// Resolves a ColumnRef to a Tantivy fast field, from this source
+    pub fn resolve(&self, col: ColumnRef, _access: Access) -> Option<ResolvedField> {
+        //TODO:  This will swtich on columnref and just call resovlers. (once that works,
+        //consolidate their code here
+        match col {
+            ColumnRef::Attno(attno) => Some(ResolvedField::new(Some(attno), unsafe {
+                resolve_fast_field(attno as i32, &self.tupdesc(), self.indexrel()?)?
+            })),
+            ColumnRef::Field(name) => Some(ResolvedField::new(
+                None,
+                resolve_fast_field_by_name(name, self.indexrel()?)?,
+            )),
+            ColumnRef::Expr(node) => Some(ResolvedField::new(
+                None,
+                find_matching_fast_field(
+                    node,
+                    &self.index_expressions()?,
+                    self.schema()?.clone(),
+                    self.heap_rti,
+                )?,
+            )),
+            ColumnRef::Ctid => Some(ResolvedField::new(
+                Some(pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber),
+                WhichFastField::Ctid,
+            )),
+            ColumnRef::Score => Some(ResolvedField::new(None, WhichFastField::score())),
+        }
+    }
+}
 
 /// Resolves a PostgreSQL attribute number to a Tantivy fast field, if available.
 ///
@@ -44,7 +134,7 @@ use tantivy::columnar::ColumnType;
 ///
 /// Returns `Some(WhichFastField)` if the column can be pulled up from the index,
 /// or `None` if it cannot (e.g. not indexed, not a fast field, incompatible type).
-pub unsafe fn resolve_fast_field(
+unsafe fn resolve_fast_field(
     attno: i32,
     tupdesc: &pgrx::PgTupleDesc<'_>,
     index: &PgSearchRelation,

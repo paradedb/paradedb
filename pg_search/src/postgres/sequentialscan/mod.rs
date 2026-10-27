@@ -33,6 +33,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::index::{
     any_leaf_partition_index, is_partitioned_index, partition_member_index,
 };
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -379,6 +380,8 @@ fn build_query_cache_entry(
     // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
     // materialize the match set and apply it as a per-row filter (the slow path).
 
+    // Every entry from here on reads the index, so it is one scan of it.
+    count_index_scan(&index_relation);
     let heap_relation = index_relation
         .heap_relation()
         .expect("a ParadeDB index must have a heap relation");
@@ -468,6 +471,7 @@ unsafe fn build_row_matcher(
     query: SearchQueryInput,
 ) -> RowMatcher {
     unsafe {
+        count_index_scan(&index_relation);
         PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
             .switch_to(|_| RowMatcher::new(index_relation, query))
     }

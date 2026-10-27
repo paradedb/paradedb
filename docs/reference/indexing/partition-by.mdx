@@ -58,7 +58,9 @@ idx = Index(
     indexing.ParadeDBField(MockItem.description),
     indexing.ParadeDBField(MockItem.rating),
     postgresql_using="paradedb",
-    postgresql_with={'partition_by': 'rating', 'target_segment_count': 16},
+    postgresql_with=dict(indexing.IndexOptions(
+        partition_by=['rating'], target_segment_count=16,
+    )),
 )
 
 with engine.begin() as conn:

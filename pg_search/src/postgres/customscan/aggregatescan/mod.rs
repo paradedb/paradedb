@@ -118,6 +118,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
@@ -1087,6 +1088,7 @@ impl CustomScan for AggregateScan {
             .add_to_explainer(explainer);
 
         if explainer.is_analyze() {
+            state.custom_state().segment_pruning.explain(explainer);
             let stats = &state.custom_state().visibility_stats;
             let [skipped, checked, total, requiring_checks] = stats.totals();
             explainer.add_group("Visibility", |explainer| {
@@ -1438,11 +1440,24 @@ impl AggregateScan {
         // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
-        let all_sources: Vec<SegmentView> = state
-            .custom_state()
-            .source_manifests
-            .iter()
-            .map(|m| m.segment_view())
+        // One segment pool per scan occurrence: `build_pdb_aggregate_plan` stamps each cloned
+        // join's scans `sources * group + plan_position`, so the pools are the manifest list
+        // repeated once per group, and every pool replays its source's captured view (#5993).
+        // The optimizer may drop a source's scan, so the highest stamped index only bounds the
+        // group count from below; round up to whole repetitions.
+        let manifests = &state.custom_state().source_manifests;
+        if manifests.is_empty() {
+            pgrx::error!("mpp: aggregate launch with no source manifests");
+        }
+        let mut max_source_idx: Option<usize> = None;
+        crate::scan::execution_plan::visit_scan_nodes(physical, &mut |scan| {
+            if let Some(idx) = scan.source_idx() {
+                max_source_idx = Some(max_source_idx.map_or(idx, |m| m.max(idx)));
+            }
+        });
+        let groups = max_source_idx.map_or(1, |m| m / manifests.len() + 1);
+        let all_sources: Vec<SegmentView> = (0..groups * manifests.len())
+            .map(|i| manifests[i % manifests.len()].segment_view())
             .collect();
         let args = ParallelScanArgs {
             all_sources,
@@ -1944,13 +1959,10 @@ impl AggregateScan {
             source.scan_info.mvcc_visibility = visibility;
         }
 
-        // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
-        // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
-        // At UPPERREL_GROUP_AGG we do NOT declare pathkeys to Postgres because
-        // scanrelid=0 CustomScans cannot resolve pathkey items through setrefs.c
-        // when Postgres builds a Sort node above them. At UPPERREL_FINAL there is
-        // no Sort/Limit node above us, so ORDER BY and LIMIT/OFFSET must be pushed
-        // down completely into DataFusion.
+        // Detect ORDER BY + LIMIT for TopK pushdown into DataFusion, whose
+        // SortExec(fetch=K) keeps a bounded TopK heap. At UPPERREL_FINAL there
+        // is no Sort/Limit node above us, so ORDER BY and LIMIT/OFFSET must be
+        // pushed down completely into DataFusion.
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &extracted_target, shape) }
             .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
@@ -2008,7 +2020,6 @@ impl AggregateScan {
         // nodes above can resolve their Var references. Required for DISTINCT
         // (output_rel.reltarget.exprs is empty); for GROUP BY it equals the
         // builder's default.
-        let stage = builder.args().stage;
         let has_pushed_order = topk.as_ref().is_some_and(|t| !t.sorts.is_empty());
         let builder = builder
             .set_pathtarget(shape.reltarget())
@@ -2027,8 +2038,10 @@ impl AggregateScan {
             having_filter,
             parallel_mode_ok,
         });
-        if stage == pg_sys::UpperRelationKind::UPPERREL_FINAL && has_pushed_order {
-            custom_path.path.pathkeys = unsafe { (*root).query_pathkeys };
+        // The scan returns its rows in ORDER BY order, so Postgres can put its
+        // Limit straight on top instead of sorting the K rows again.
+        if has_pushed_order {
+            custom_path.path.pathkeys = unsafe { (*root).sort_pathkeys };
         }
 
         // Sidecar layout, checked by plan_custom_path:
@@ -2090,6 +2103,7 @@ impl AggregateScan {
             ExecutionState::Completed => return None,
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
+                count_index_scan(state.custom_state().indexrel());
                 let mut row_iter = aggregation_results_iter(state);
                 let first = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
@@ -2281,6 +2295,9 @@ impl AggregateScan {
                 let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
                 for source in df_state.plan.sources() {
                     predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
+                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                    }
                 }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
@@ -2614,7 +2631,7 @@ impl AggregateScan {
 /// these aggregates from the Tantivy request — so they must NOT be advanced
 /// past when walking the result iterator.
 fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSClause) -> bool {
-    agg_type.can_use_doc_count() && !aggregate_clause.has_filter() && aggregate_clause.has_groupby()
+    aggregate_clause.can_use_doc_count(agg_type)
 }
 
 /// Convert one aggregate target-list entry to a Postgres datum.
@@ -2650,8 +2667,16 @@ unsafe fn aggregate_value_to_datum(
         });
     }
     if uses_doc_count_path(agg_type, aggregate_clause) {
-        return row
-            .doc_count()
+        let count = match agg_type {
+            AggregateType::Count {
+                group_key: Some(idx),
+                ..
+            } if is_string_null_sentinel(&row.group_keys[*idx]) => {
+                TantivyValue(PdbOwnedValue::U64(0))
+            }
+            _ => row.doc_count(),
+        };
+        return count
             .try_into_datum(pgrx::PgOid::from(target_typoid))
             .ok()
             .flatten();
@@ -2783,6 +2808,27 @@ fn decode_safe_cast(
     }
 }
 
+/// True when a group key is the sentinel Tantivy's terms aggregation puts on the bucket of rows
+/// whose column is NULL (handles both MIN and MAX sentinels).
+/// U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
+/// Bool uses string sentinels for both MIN and MAX.
+/// DateTime columns don't have a missing sentinel (NULLs are excluded).
+fn is_null_group_key(key: &TantivyValue) -> bool {
+    match &key.0 {
+        PdbOwnedValue::Str(_) => is_string_null_sentinel(key),
+        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+        PdbOwnedValue::U64(v) => *v == u64::MAX,
+        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+        _ => false,
+    }
+}
+
+/// The NULL bucket of a key with a string sentinel. A real key of another type, such as a JSON
+/// number equal to `i64::MIN`, must not read as NULL here.
+fn is_string_null_sentinel(key: &TantivyValue) -> bool {
+    matches!(&key.0, PdbOwnedValue::Str(s) if s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX)
+}
+
 /// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels
 /// (used for I64/U64/F64/Bool when the aggregator omits a row) and the
 /// datetime decoding path (Tantivy returns ISO-8601 strings; we parse them
@@ -2796,17 +2842,7 @@ unsafe fn group_key_to_datum(
     original_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
-    // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
-    // Bool uses string sentinels for both MIN and MAX.
-    // DateTime columns don't have a missing sentinel (NULLs are excluded).
-    let is_null_sentinel = match &key.0 {
-        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
-        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-        PdbOwnedValue::U64(v) => *v == u64::MAX,
-        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
-        _ => false,
-    };
-    if is_null_sentinel {
+    if is_null_group_key(&key) {
         return None;
     }
 
@@ -2859,6 +2895,13 @@ unsafe fn resolve_topk_sort_target(
     sort_expr: *mut pg_sys::Node,
     extracted_target: &ExtractedDataFusionTarget,
 ) -> Result<privdat::TopKSortTarget, String> {
+    // DataFusion compares text by bytes, for an aggregate result such as
+    // `STRING_AGG` as much as for a group column.
+    let collation = pg_sys::exprCollation(sort_expr);
+    if !collation_supports(collation, CollationOperation::Ordering) {
+        return Err("ORDER BY uses a collation whose ordering cannot be pushed down".into());
+    }
+
     let targetlist = extracted_target.targetlist();
     if let Some(agg_idx) = extracted_target.aggregate_index(sort_expr) {
         let agg = &targetlist.aggregates[agg_idx];
@@ -2899,23 +2942,52 @@ unsafe fn resolve_topk_sort_target(
             }
         }
 
-        let collation = pg_sys::exprCollation(sort_expr);
-        if !collation_supports(collation, CollationOperation::Ordering) {
-            return Err("ORDER BY uses a collation whose ordering cannot be pushed down".into());
-        }
-
         return Ok(privdat::TopKSortTarget::GroupColumn(gc_idx));
     }
 
     Err("ORDER BY expression must be a direct GROUP BY column or aggregate for pushdown".into())
 }
 
+/// Resolves every `ORDER BY` clause of `parse` to a TopK sort target, in
+/// query order. All keys or none: a TopK over a prefix of the ordering can
+/// drop rows that the full ordering ranks inside the first K, and the `Sort`
+/// above the scan only sees what the scan returns.
+///
+/// `output_exprs`, when given, must contain every sort expression.
+unsafe fn resolve_topk_sorts(
+    parse: *mut pg_sys::Query,
+    extracted_target: &ExtractedDataFusionTarget,
+    output_exprs: Option<&PgList<pg_sys::Expr>>,
+) -> Result<Vec<(privdat::TopKSortTarget, SortDirection)>, String> {
+    let mut sorts = Vec::new();
+    if (*parse).sortClause.is_null() {
+        return Ok(sorts);
+    }
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    for sort_clause_ptr in sort_clauses.iter_ptr() {
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        let direction =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
+                .ok_or_else(|| "ORDER BY sort operator is not supported".to_string())?;
+        if let Some(output_exprs) = output_exprs
+            && !output_exprs
+                .iter_ptr()
+                .any(|output_expr| pg_sys::equal(sort_expr.cast(), output_expr.cast()))
+        {
+            return Err("ORDER BY expression is not an output column".into());
+        }
+        let sort_target = resolve_topk_sort_target(sort_expr, extracted_target)?;
+        sorts.push((sort_target, direction));
+    }
+    Ok(sorts)
+}
+
 /// Detects ORDER BY + LIMIT for join aggregate queries and returns a
 /// `DataFusionTopK` describing the sort targets, limit, and offset.
 ///
 /// At `UPPERREL_GROUP_AGG`, TopK pushdown is an optional optimization for
-/// single-key `ORDER BY ... LIMIT K` queries (when unsupported, returns
-/// `Ok(None)` and PostgreSQL places its own `Sort` + `Limit` above the scan).
+/// `ORDER BY ... LIMIT K` queries (when unsupported, returns `Ok(None)` and
+/// PostgreSQL places its own `Sort` + `Limit` above the scan).
 ///
 /// At `UPPERREL_FINAL` (used for `pdb.combine_agg(pdb.agg(...)) OVER ()` with
 /// `GROUP BY`), there is no `Sort` or `Limit` node above `AggregateScan`, so
@@ -2938,21 +3010,7 @@ unsafe fn detect_join_aggregate_topk(
                 "`FETCH FIRST ... WITH TIES` is not supported with `pdb.combine_agg()`".into(),
             );
         }
-        let mut sorts = Vec::new();
-        if !(*parse).sortClause.is_null() {
-            let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-            for sort_clause_ptr in sort_clauses.iter_ptr() {
-                let sort_expr =
-                    pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-                let direction = SortDirection::from_sort_op(
-                    (*sort_clause_ptr).sortop,
-                    (*sort_clause_ptr).nulls_first,
-                )
-                .ok_or_else(|| "ORDER BY sort operator is not supported".to_string())?;
-                let sort_target = resolve_topk_sort_target(sort_expr, extracted_target)?;
-                sorts.push((sort_target, direction));
-            }
-        }
+        let sorts = resolve_topk_sorts(parse, extracted_target, None)?;
         use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
         let limit = LimitOffset::parse_bound((*parse).limitCount, LimitClauseKind::Limit)
             .map_err(|e| e.into_message("`pdb.combine_agg()`"))?;
@@ -2975,47 +3033,14 @@ unsafe fn detect_join_aggregate_topk(
         return Ok(None);
     }
 
-    // A WindowAgg above the aggregate consumes every grouped row: the WINDOW
-    // stage sits between UPPERREL_GROUP_AGG and the LIMIT, so pushing the
-    // fetch into the scan starves it — `count(*) OVER ()` above a GROUP BY
-    // would return the fetch instead of the qualifying-group count (issue
-    // #5561's shape, one stage down). The scan still engages; only the
-    // sort+limit pushdown stays out.
-    if (*parse).hasWindowFuncs {
-        return Ok(None);
-    }
-
-    // Must have a LIMIT for TopK to matter. We require a STATIC value here
+    // Must have a LIMIT for TopK to matter, and one the grouping stage may
+    // apply. Under a DISTINCT or a window function the scan still engages, only
+    // the sort+limit pushdown stays out. We require a STATIC value here
     // because DataFusion's TopK rule needs a concrete K at planning time.
     // Parameterized LIMIT is left as a regular sort+limit pipeline.
     let Some(k) = args.limit_plus_offset() else {
         return Ok(None);
     };
-
-    // Only single sort clause for TopK at UPPERREL_GROUP_AGG
-    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-    if sort_clauses.len() != 1 {
-        return Ok(None);
-    }
-
-    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
-        return Ok(None);
-    };
-    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    let Some(direction) =
-        SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
-    else {
-        return Ok(None);
-    };
-
-    let sort_expr_is_output = shape
-        .target_exprs()
-        .iter_ptr()
-        .any(|target_expr| pg_sys::equal(sort_expr.cast(), target_expr.cast()));
-    if !sort_expr_is_output {
-        return Ok(None);
-    }
 
     // Grouping sets carry every bucket level in one stream; a sort + limit over
     // that stream would cut across levels.
@@ -3023,12 +3048,12 @@ unsafe fn detect_join_aggregate_topk(
         return Ok(None);
     }
 
-    let Ok(sort_target) = resolve_topk_sort_target(sort_expr, extracted_target) else {
+    let Ok(sorts) = resolve_topk_sorts(parse, extracted_target, Some(&shape.target_exprs())) else {
         return Ok(None);
     };
 
     Ok(Some(privdat::DataFusionTopK {
-        sorts: vec![(sort_target, direction)],
+        sorts,
         limit: Some(
             crate::postgres::customscan::parameterized_value::ParameterizedValue::Static(k as i64),
         ),

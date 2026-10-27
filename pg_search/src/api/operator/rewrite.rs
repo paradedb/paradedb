@@ -178,7 +178,7 @@ impl SearchOperator {
         field: Option<FieldName>,
         lhs: *mut pg_sys::Node,
         rhs: *mut pg_sys::Node,
-    ) -> pg_sys::FuncExpr {
+    ) -> *mut pg_sys::FuncExpr {
         if self == Self::Parse {
             let expr_type = get_expr_result_type(rhs);
             let is_pdb_query = expr_type == pdb_query_typoid();
@@ -212,20 +212,14 @@ impl SearchOperator {
                 args.push(pg_sys::makeBoolConst(false, true));
             }
 
-            return pg_sys::FuncExpr {
-                xpr: pg_sys::Expr {
-                    type_: pg_sys::NodeTag::T_FuncExpr,
-                },
+            return pg_sys::makeFuncExpr(
                 funcid,
-                funcresulttype: searchqueryinput_typoid(),
-                funcretset: false,
-                funcvariadic: false,
-                funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                funccollid: pg_sys::Oid::INVALID,
-                inputcollid: pg_sys::Oid::INVALID,
-                args: args.into_pg(),
-                location: -1,
-            };
+                searchqueryinput_typoid(),
+                args.into_pg(),
+                pg_sys::Oid::INVALID,
+                pg_sys::Oid::INVALID,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            );
         }
         let field = self.require_field(lhs, field);
         // The runtime classification function mirrors this operator's const-fold path and

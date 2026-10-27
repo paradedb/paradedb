@@ -219,6 +219,39 @@ impl Default for ExprContextGuard {
     }
 }
 
+/// RAII guard that ensures an active snapshot is set for the life of the guard.
+///
+/// Most callers (ordinary DML, queries, VACUUM, background merge workers) already run with an
+/// active snapshot. The logical-replication apply worker, however, applies remote changes and runs
+/// pre-commit cleanup without pushing one or having an active portal, while operations like SPI
+/// queries, expression planning (`RelationGetIndexExpressions` -> `eval_const_expressions`), and
+/// out-of-line TOAST detoasting (`get_toast_snapshot`) require an active snapshot. This guard
+/// pushes the transaction snapshot only when the caller lacks an active snapshot, and pops it on
+/// normal scope exit.
+///
+/// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
+/// active-snapshot stack; popping again here would underflow it, so the drop implementation
+/// uses `impl_safe_drop!` to skip cleanup while unwinding.
+pub struct ActiveSnapshotGuard {
+    pushed: bool,
+}
+
+impl ActiveSnapshotGuard {
+    pub fn ensure() -> Self {
+        let pushed = unsafe { !pg_sys::ActiveSnapshotSet() };
+        if pushed {
+            unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        }
+        Self { pushed }
+    }
+}
+
+impl_safe_drop!(ActiveSnapshotGuard, |self| {
+    if self.pushed {
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
+});
+
 /// Recursively sort all object keys in JSON for deterministic output
 pub fn sort_json_keys(value: &mut serde_json::Value) {
     match value {
@@ -308,6 +341,15 @@ mod tests {
             let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
             prop_assert_eq!(us, pg);
         });
+    }
+
+    #[pg_test]
+    fn convert_pg_date_string_test() {
+        use crate::postgres::utils::convert_pg_date_string;
+        use pgrx::PgBuiltInOids;
+
+        let dt = convert_pg_date_string(PgBuiltInOids::DATEOID.into(), "2024-01-01");
+        assert!(!dt.is_infinity());
     }
 }
 
@@ -644,26 +686,7 @@ pub fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::No
 
 /// Identifies if the function identified by `funcid` is `pg_catalog.unnest(anyarray)`.
 pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
-    use std::sync::Once;
-    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static UNNEST_OID_ONCE: Once = Once::new();
-
-    unsafe {
-        UNNEST_OID_ONCE.call_once(|| {
-            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pg_catalog.unnest(anyarray)".into_datum()],
-            ) {
-                UNNEST_OID = oid;
-            }
-        });
-
-        if funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid {
-            return true;
-        }
-
-        false
-    }
+    funcid.to_u32() == pg_sys::F_UNNEST_ANYARRAY
 }
 
 /// Create a text Const node from a string
@@ -1075,7 +1098,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDate
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
                 .expect("must be valid postgres date format");
-            PostgresDateTime::from(d)
+            PostgresDateTime::try_from(d).expect("date out of range")
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {

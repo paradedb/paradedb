@@ -87,15 +87,16 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Download Generated Dockerfiles
         if: inputs.dockerfiles_artifact != ''
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.dockerfiles_artifact }}
           path: docker
-
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
 
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -477,15 +478,16 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Download Generated Dockerfiles
         if: inputs.dockerfiles_artifact != ''
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.dockerfiles_artifact }}
           path: docker
-
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
 
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4

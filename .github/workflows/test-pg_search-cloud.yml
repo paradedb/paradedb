@@ -43,6 +43,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       # Keep image assembly from the workflow ref even when building an older SHA.
       - name: Prepare Image Context
         run: |
@@ -54,9 +58,6 @@ jobs:
         with:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
-
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
 
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4

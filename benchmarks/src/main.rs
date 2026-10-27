@@ -17,9 +17,7 @@
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use paradedb::{
-    Window, confidence_interval_half_width, fnv1a, mean, percentile, percentile_confidence_interval,
-};
+use paradedb::{Window, confidence_interval_half_width, mean, percentile};
 use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -34,7 +32,7 @@ mod convert;
 mod sample;
 mod utils;
 
-use config::{DatasetConfig, LoadFormat, SweepConfig, load_dataset_config};
+use config::{LoadFormat, load_dataset_config};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -58,8 +56,6 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
     Benchmark(BenchmarkArgs),
-    /// Measure recall@k of a built vector index against a held-out query set (cohere).
-    Recall(RecallArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
     /// Sample a Parquet dataset to a target row count, preserving table relationships.
@@ -83,13 +79,13 @@ struct BenchmarkArgs {
     #[arg(long, default_value = "stackoverflow")]
     dataset: String,
 
-    /// Which index variant to build and benchmark (e.g. "bm25", "hnsw", "ivfflat"). Required;
+    /// Which index variant to build and benchmark (e.g. "bm25"). Required;
     /// resolves to `datasets/{dataset}/indexes/{index}.sql`.
     #[arg(long)]
     index: String,
 
     /// Dataset size label (e.g. "1m", "10m"). Used to scale size-dependent index parameters such as
-    /// ivfflat's `lists`; only required for indexes that reference it.
+    /// index options; only required for indexes that reference it.
     #[arg(long)]
     size: Option<String>,
 
@@ -152,40 +148,6 @@ struct LoadHeapArgs {
     data_source: Option<String>,
 }
 
-#[derive(Parser)]
-struct RecallArgs {
-    /// Postgres URL. The corpus and its vector index are assumed to already exist (built by a prior
-    /// `benchmark` run), so recall measures that exact index.
-    #[arg(long)]
-    url: String,
-
-    /// Dataset to measure recall for.
-    #[arg(long, default_value = "cohere")]
-    dataset: String,
-
-    /// Dataset size label (e.g. "1m", "10m"). Selects the precomputed ground-truth parquet
-    /// (`{data_source}/queries/ground_truth_{query}_{size}.parquet`), which is query- and
-    /// corpus-size-specific.
-    #[arg(long)]
-    size: String,
-
-    /// Base path to the held-out query + ground-truth parquets (S3 or local). Overrides s3_base_path
-    /// in config.toml; files load from `{data_source}/queries/`.
-    #[arg(long)]
-    data_source: Option<String>,
-
-    /// Query file (stem of `queries/{query}.sql`) to measure recall for, run for each held-out
-    /// vector. May include an index subdirectory (e.g. `foo/knn_top10_1pct`).
-    #[arg(long, default_value = "knn_top10_unfiltered")]
-    query: String,
-
-    /// Ground-truth stem, selecting `ground_truth_{ground_truth}_{size}.parquet`. The exact top-10
-    /// depends only on filter selectivity, so query files with the same filter share one ground
-    /// truth. Defaults to `--query` with any index subdirectory stripped.
-    #[arg(long)]
-    ground_truth: Option<String>,
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -194,7 +156,6 @@ async fn main() -> anyhow::Result<()> {
         // run (e.g. by the CI workflow, before Postgres started). The index is (re)built by
         // run_sql_benchmarks, gated on `--skip-index`.
         Commands::Benchmark(args) => run_sql_benchmarks(&args).await,
-        Commands::Recall(args) => run_recall(&args).await,
         Commands::Convert(args) => convert::run_convert(args),
         Commands::Sample(args) => sample::run_sample(args),
         // Load the heap without building the index or running queries, leaving a heap-only cluster
@@ -224,13 +185,6 @@ pub struct QueryRunResults {
     pub cold: f64,
     pub samples: Vec<f64>,
     pub num_results: usize,
-    /// True when each sample is a distinct query vector rather than a repeat of one. Only then is
-    /// the sample set a latency distribution, so only then are percentiles meaningful.
-    pub per_vector: bool,
-    /// Hash of the held-out query vectors, in sample order. Published alongside the samples so a
-    /// later run can pair its samples with a baseline's index-by-index, and detect when the vector
-    /// set changed and pairing would be meaningless.
-    pub vector_hash: Option<u64>,
 }
 
 enum IndexCreationResult {
@@ -240,7 +194,7 @@ enum IndexCreationResult {
         index_size: i64,
         segment_count: i64,
     },
-    /// Non-bm25 access methods (e.g. pgvector hnsw/ivfflat) have no segments.
+    /// Non-bm25 access methods have no segments.
     Other {
         duration_min_ms: f64,
         index_name: String,
@@ -303,14 +257,9 @@ struct JSONBenchmarkResult {
     extra: String,
 }
 
-/// Percentiles published as their own tracked series. Each becomes a separate gh-pages entry, so
-/// a regression alert fires on the percentile rather than on a mean that hides the tail.
 const TRACKED_PERCENTILES: [(&str, f64); 3] = [("p50", 0.50), ("p95", 0.95), ("p99", 0.99)];
 
 impl JSONBenchmarkResult {
-    /// One entry per tracked percentile when the samples are a distribution over query vectors;
-    /// otherwise a single mean entry, which is what datasets that repeat one query have always
-    /// reported.
     fn from_query_result(res: QueryResult) -> Vec<Self> {
         let percentiles = TRACKED_PERCENTILES
             .iter()
@@ -324,66 +273,19 @@ impl JSONBenchmarkResult {
             res.query
         );
 
-        if !res.results.per_vector {
-            let mean = mean(&res.results.samples);
-            let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
-            println!(
-                r"Query results: |
-            query: {},
-            mean: {mean:.3} ms,
-            confidence interval: ±{ci_half_width:.3} ms",
-                res.query
-            );
-            return vec![Self {
-                name: res.query_type,
-                unit: "mean ms",
-                value: mean,
-                range: format!("±{ci_half_width:.3} ms"),
-                extra,
-            }];
-        }
-
+        let mean = mean(&res.results.samples);
+        let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
         println!(
-            r"Query results: |
-            query: {},
-            {percentiles} (ms, over {} query vectors)",
-            res.query,
-            res.results.samples.len()
+            "Query results: {}: {mean:.3} ms ±{ci_half_width:.3} ms",
+            res.query
         );
-
-        // The raw per-vector samples ride along on the p50 entry (once per operating point, not
-        // per percentile), so a later run can pair its samples with this one's by index and test
-        // per-query latency ratios instead of comparing independent percentile estimates.
-        let samples_prefix = res.results.vector_hash.map(|hash| {
-            let samples = res
-                .results
-                .samples
-                .iter()
-                .map(|v| format!("{v:.3}"))
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("samples_fnv={hash:016x}; samples=[{samples}]; ")
-        });
-
-        TRACKED_PERCENTILES
-            .iter()
-            .map(|(label, p)| {
-                let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
-                let extra = match (*label, &samples_prefix) {
-                    ("p50", Some(prefix)) => format!("{prefix}{extra}"),
-                    _ => extra.clone(),
-                };
-                Self {
-                    // " - " is the dashboard's chart-grouping separator, so an operating point's
-                    // three percentiles share one chart instead of getting one each.
-                    name: format!("{} - {label}", res.query_type),
-                    unit: "ms",
-                    value: percentile(&res.results.samples, *p),
-                    range: format!("95% CI [{lo:.3}, {hi:.3}]"),
-                    extra,
-                }
-            })
-            .collect()
+        vec![Self {
+            name: res.query_type,
+            unit: "mean ms",
+            value: mean,
+            range: format!("±{ci_half_width:.3} ms"),
+            extra,
+        }]
     }
 
     /// Build cost as tracked series, so a regression in how long an index takes to build, or how
@@ -477,8 +379,7 @@ async fn resolve_template_params(
     resolve_template_params_except(conn, dataset, size, statements, &HashSet::new()).await
 }
 
-/// As [`resolve_template_params`], but skips names the caller supplies itself -- a swept param is
-/// provided per point by the sweep, so it needs no `[params]` entry.
+/// As [`resolve_template_params`], but skips names supplied by the caller.
 async fn resolve_template_params_except(
     conn: &mut PgConnection,
     dataset: &str,
@@ -528,26 +429,6 @@ async fn eval_param(
         .fetch_one(&mut *conn)
         .await
         .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))
-}
-
-/// Split a query file's variant into its operating-point `SET`s and the query itself. Handles the
-/// inline `SET ...; SET ...; SELECT ...` compound the harness uses.
-fn split_operating_point(variant: &str) -> anyhow::Result<(Vec<String>, String)> {
-    let mut sets = Vec::new();
-    let mut query = None;
-    for part in variant.split(';') {
-        let part = part.trim().to_string();
-        if part.is_empty() {
-            continue;
-        }
-        if part.to_uppercase().starts_with("SET ") {
-            sets.push(part);
-        } else {
-            query = Some(part);
-        }
-    }
-    let query = query.with_context(|| "query variant has no statement to run")?;
-    Ok((sets, query))
 }
 
 async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<IndexCreationResult>> {
@@ -639,515 +520,6 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
 }
 
 /// Database-level GUC holding the query vector that every query file orders by.
-const QVEC_GUC: &str = "cohere.qvec";
-/// Number of neighbors per query the ground truth stores (recall@k).
-const RECALL_K: usize = 10;
-
-/// Measure recall@k of an already-built vector index for one query file. Recall runs the *actual*
-/// latency query (`queries/{query}.sql`) verbatim -- including its `current_setting('cohere.qvec')`
-/// operand and any `SET` lines -- once per held-out vector, setting `cohere.qvec` to that vector
-/// each time. Running the query with the vector as a per-call *constant* (not a join parameter) is
-/// what keeps recall's query plan identical to the benchmark's: a lateral parameter can tip the
-/// planner to a different plan (e.g. a btree/GIN pre-filter + exact sort instead of the ANN index),
-/// which would make recall measure something the benchmark never runs. The returned top-k is
-/// intersected with the precomputed exact top-k in `ground_truth_{query}_{size}.parquet`. Assumes
-/// the corpus and its index already exist (from a prior `benchmark` run).
-async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
-    let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
-    if !Path::new(&recall_sql).exists() {
-        bail!("Dataset '{}' has no recall.sql", args.dataset);
-    }
-    let query_file = format!("datasets/{}/queries/{}.sql", args.dataset, args.query);
-    if !Path::new(&query_file).exists() {
-        bail!("No query file at {query_file}; --query must name a queries/<query>.sql file");
-    }
-    let config_path = format!("datasets/{}/config.toml", args.dataset);
-    let (config, _) = config::load_dataset_config(&config_path)
-        .with_context(|| format!("Failed to load config '{config_path}'"))?;
-
-    let base = args
-        .data_source
-        .as_deref()
-        .or(config.s3_base_path.as_deref())
-        .with_context(|| {
-            format!(
-                "Dataset '{}' has no S3 base path. Provide --data-source or set s3_base_path in \
-                 datasets/{}/config.toml",
-                args.dataset, args.dataset
-            )
-        })?;
-    let base = base.trim_end_matches('/');
-
-    let mut conn = PgConnection::connect(&args.url)
-        .await
-        .with_context(|| "Failed to connect to database")?;
-
-    // Parse the query file: resolve its `{{ param }}` references (per-query probes/ef_search scaled
-    // by dataset_size), then split into the `SET` statements (operating point, applied to the
-    // session) and the single kNN query. Splitting on `;` handles the inline `SET ...; SELECT ...`
-    // compound the harness uses. The query is run verbatim per held-out vector, so it must order by
-    // current_setting('cohere.qvec') -- that lets recall vary the vector without changing the query
-    // (and thus its plan).
-    let raw_query = single_query(Path::new(&query_file));
-    if raw_query.is_empty() {
-        bail!("Query file {query_file} is empty");
-    }
-    let params = resolve_template_params(
-        &mut conn,
-        &args.dataset,
-        Some(&args.size),
-        std::slice::from_ref(&raw_query),
-    )
-    .await?;
-    let (set_statements, knn_query) = split_operating_point(&substitute_vars(&raw_query, &params)?)
-        .with_context(|| format!("Query file {query_file} has no query to score"))?;
-    if !knn_query.contains(&format!("current_setting('{QVEC_GUC}')")) {
-        bail!(
-            "Query file {query_file} does not order by current_setting('{QVEC_GUC}'); recall cannot \
-             vary the query vector for it"
-        );
-    }
-
-    // Ground-truth stem: explicit --ground-truth, else --query with any index subdirectory stripped.
-    let gt_stem = args
-        .ground_truth
-        .clone()
-        .unwrap_or_else(|| args.query.rsplit('/').next().unwrap().to_string());
-
-    let fixtures = load_recall_fixtures(
-        &mut conn,
-        &args.url,
-        &args.dataset,
-        &args.size,
-        &gt_stem,
-        base,
-    )
-    .await?;
-
-    // Apply the query file's SET statements so recall runs at the latency query's operating point.
-    for stmt in &set_statements {
-        sqlx::query(AssertSqlSafe(stmt.as_str()))
-            .execute(&mut conn)
-            .await
-            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
-    }
-
-    let recall = score_recall(&mut conn, &knn_query, &fixtures).await?;
-    println!("recall = {recall:.4}");
-    Ok(())
-}
-
-/// Held-out query vectors (as pgvector text, ready to assign to `cohere.qvec`) and the exact
-/// ground truth, keyed by query id. Loaded once per (query, size) and reused across every recall
-/// measurement at that point, so a sweep re-scores the same fixtures at each operating point
-/// instead of re-reading them from S3.
-struct RecallFixtures {
-    vectors: Vec<(i32, String)>,
-    ground_truth: HashMap<i32, HashSet<String>>,
-}
-
-/// Create `recall.sql`'s fixture tables, load each from its exact parquet key, and read them back.
-async fn load_recall_fixtures(
-    conn: &mut PgConnection,
-    url: &str,
-    dataset: &str,
-    size: &str,
-    gt_stem: &str,
-    base: &str,
-) -> anyhow::Result<RecallFixtures> {
-    let recall_sql = format!("datasets/{dataset}/recall.sql");
-
-    // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
-    // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
-    let mut fixtures = vec![
-        (
-            "cohere_queries",
-            format!("{base}/queries/cohere_queries.parquet"),
-        ),
-        (
-            "recall_gt",
-            format!("{base}/queries/ground_truth_{gt_stem}_{size}.parquet"),
-        ),
-    ];
-
-    // Create the fixture tables (recall.sql) and load each from parquet right after its CREATE.
-    // (Keying on the CREATE statement, not table existence, avoids loading a leftover table from a
-    // prior run before recall.sql drops/recreates it.)
-    for statement in queries(Path::new(&recall_sql)) {
-        sqlx::query(AssertSqlSafe(statement.as_str()))
-            .execute(&mut *conn)
-            .await
-            .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
-        let is_create = statement.to_lowercase().contains("create table");
-        let mut pending = Vec::new();
-        for (table, source) in fixtures {
-            if is_create && statement.contains(table) {
-                println!("Loading {table} from {source}...");
-                load_parquet_into(url, table, &source)?;
-            } else {
-                pending.push((table, source));
-            }
-        }
-        fixtures = pending;
-    }
-    if !fixtures.is_empty() {
-        let missing: Vec<_> = fixtures.iter().map(|(t, _)| *t).collect();
-        bail!(
-            "recall.sql did not create expected table(s): {}",
-            missing.join(", ")
-        );
-    }
-
-    let vectors: Vec<(i32, String)> =
-        sqlx::query_as("SELECT id, emb::text FROM cohere_queries ORDER BY id")
-            .fetch_all(&mut *conn)
-            .await
-            .with_context(|| "Failed to read cohere_queries")?;
-    let ground_truth: HashMap<i32, HashSet<String>> =
-        sqlx::query_as::<_, (i32, Vec<String>)>("SELECT query_id, gt_ids FROM recall_gt")
-            .fetch_all(&mut *conn)
-            .await
-            .with_context(|| "Failed to read recall_gt")?
-            .into_iter()
-            .map(|(id, ids)| (id, ids.into_iter().collect()))
-            .collect();
-
-    Ok(RecallFixtures {
-        vectors,
-        ground_truth,
-    })
-}
-
-/// Score recall@k of `knn_query` against `fixtures`. For each held-out vector, set `cohere.qvec`
-/// then run the latency query verbatim via the simple protocol (matching the benchmark, so the
-/// planner picks the same plan), and intersect its top-k with the exact ground truth. The
-/// session's operating-point `SET`s must already be applied.
-async fn score_recall(
-    conn: &mut PgConnection,
-    knn_query: &str,
-    fixtures: &RecallFixtures,
-) -> anyhow::Result<f64> {
-    let mut total_hits = 0usize;
-    for (id, emb_text) in &fixtures.vectors {
-        sqlx::raw_sql(AssertSqlSafe(format!("SET {QVEC_GUC} = '{emb_text}';")))
-            .execute(&mut *conn)
-            .await
-            .with_context(|| format!("Failed to set {QVEC_GUC} for query {id}"))?;
-        let rows = sqlx::raw_sql(AssertSqlSafe(knn_query))
-            .fetch_all(&mut *conn)
-            .await
-            .with_context(|| format!("Failed to run recall query for query {id}"))?;
-        let gt = fixtures
-            .ground_truth
-            .get(id)
-            .with_context(|| format!("No ground truth for query id {id}"))?;
-        for row in &rows {
-            let neighbor: String = row.try_get("_id").with_context(|| {
-                format!("recall query for {id} returned a row with no text `_id` column")
-            })?;
-            if gt.contains(&neighbor) {
-                total_hits += 1;
-            }
-        }
-    }
-    Ok(total_hits as f64 / (fixtures.vectors.len() * RECALL_K) as f64)
-}
-
-/// Recall targets a sweep reports, lowest first.
-const RECALL_TARGETS: [(&str, f64); 3] = [("r90", 0.90), ("r95", 0.95), ("r99", 0.99)];
-const RECALL_PLATEAU_PATIENCE: usize = 3;
-
-/// One measured point of a sweep.
-struct SweepPoint {
-    /// The swept value, as written in `[sweeps].values`.
-    value: String,
-    recall: f64,
-    /// The variant (SETs + query) with `value` substituted, ready to benchmark.
-    query: String,
-}
-
-/// The point chosen for one recall target.
-struct SelectedPoint {
-    label: &'static str,
-    target: f64,
-    value: String,
-    recall: f64,
-    query: Option<String>,
-    /// False when no measured point reached the target.
-    reached: bool,
-}
-
-/// For each target, the cheapest point that reaches it, or the best recall without a latency query.
-///
-/// Recall rises monotonically with these knobs, so the cheapest qualifying point is the
-/// lowest-recall one at or above the target -- which avoids having to order the swept values
-/// themselves, since they are opaque SQL expressions.
-fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
-    let mut by_recall: Vec<&SweepPoint> = points.iter().collect();
-    by_recall.sort_by(|a, b| a.recall.total_cmp(&b.recall));
-
-    RECALL_TARGETS
-        .iter()
-        .filter_map(|(label, target)| {
-            let best_recall = by_recall.last()?.recall;
-            let point = by_recall
-                .iter()
-                .find(|p| p.recall >= *target || p.recall == best_recall)?;
-            Some(SelectedPoint {
-                label,
-                target: *target,
-                value: point.value.clone(),
-                recall: point.recall,
-                query: (point.recall >= *target).then(|| point.query.clone()),
-                reached: point.recall >= *target,
-            })
-        })
-        .collect()
-}
-
-fn recall_plateau(points: &[SweepPoint]) -> Option<f64> {
-    let split = points.len().checked_sub(RECALL_PLATEAU_PATIENCE)?;
-    let (previous, recent) = points.split_at(split);
-    let best_recall = previous.iter().map(|p| p.recall).reduce(f64::max)?;
-    recent
-        .iter()
-        .all(|p| p.recall <= best_recall)
-        .then_some(best_recall)
-}
-
-/// Measure recall at each value of `sweep` for one query, reusing a single set of fixtures.
-///
-/// Values are ordered cheapest first. Stop at the highest recall target or after three
-/// consecutive larger values fail to improve the best recall measured so far.
-async fn sweep_query(
-    conn: &mut PgConnection,
-    args: &BenchmarkArgs,
-    config: &DatasetConfig,
-    size: &str,
-    query_stem: &str,
-    raw_variant: &str,
-    sweep: &SweepConfig,
-) -> anyhow::Result<Vec<SweepPoint>> {
-    // The exact top-10 depends only on filter selectivity, so variants of the same filter share
-    // one ground truth (vchord ships prefilter on/off variants of each).
-    let gt_stem = query_stem
-        .strip_suffix("_prefilter_on")
-        .or_else(|| query_stem.strip_suffix("_prefilter_off"))
-        .unwrap_or(query_stem);
-    let base = config.s3_base_path.as_deref().with_context(|| {
-        format!(
-            "Sweeping `{query_stem}` needs ground truth, but dataset '{}' has no s3_base_path",
-            args.dataset
-        )
-    })?;
-    let fixtures = load_recall_fixtures(
-        conn,
-        &args.url,
-        &args.dataset,
-        size,
-        gt_stem,
-        base.trim_end_matches('/'),
-    )
-    .await?;
-
-    if !template_names(raw_variant).contains(&sweep.param) {
-        bail!(
-            "Sweep for `{query_stem}` varies `{0}`, but that query does not reference `{{{{ {0} }}}}`",
-            sweep.param
-        );
-    }
-    // Resolve the variant's *other* params once; the swept one comes from the sweep per point, so
-    // it needs no `[params]` entry of its own.
-    let swept = HashSet::from([sweep.param.clone()]);
-    let base_params = resolve_template_params_except(
-        conn,
-        &args.dataset,
-        Some(size),
-        &[raw_variant.to_owned()],
-        &swept,
-    )
-    .await?;
-    let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
-    let (_, top_target) = RECALL_TARGETS[RECALL_TARGETS.len() - 1];
-
-    let mut points = Vec::new();
-    for value in &sweep.values {
-        let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
-        let mut params = base_params.clone();
-        params.insert(sweep.param.clone(), resolved);
-
-        let query = substitute_vars(raw_variant, &params)?;
-        let (sets, knn_query) = split_operating_point(&query)?;
-        for stmt in &sets {
-            sqlx::query(AssertSqlSafe(stmt.as_str()))
-                .execute(&mut *conn)
-                .await
-                .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
-        }
-        let recall = score_recall(conn, &knn_query, &fixtures).await?;
-        println!("  {} = {value} -> recall {recall:.4}", sweep.param);
-        points.push(SweepPoint {
-            value: value.clone(),
-            recall,
-            query,
-        });
-        if recall >= top_target {
-            println!("  reached {top_target:.2} recall; skipping larger values");
-            break;
-        }
-        if let Some(best_recall) = recall_plateau(&points) {
-            println!(
-                "  no recall improvement across {RECALL_PLATEAU_PATIENCE} larger values \
-                 (best {best_recall:.4}); skipping remaining values"
-            );
-            break;
-        }
-    }
-    Ok(points)
-}
-
-/// One selected operating point, held until latency has been measured for it so the run's summary
-/// can report the recall and the latency of the same point together.
-struct SweepSummaryRow {
-    query: String,
-    label: &'static str,
-    param: String,
-    value: String,
-    recall: f64,
-    reached: bool,
-}
-
-/// Replace each query that declares a sweep with one entry per reached recall target.
-/// Queries without a sweep pass through untouched.
-///
-/// Returns the rows for the run's sweep summary; latency is joined on afterwards by
-/// [`write_sweep_summary`].
-async fn expand_sweeps(
-    conn: &mut PgConnection,
-    args: &BenchmarkArgs,
-    parsed: Vec<BenchmarkQuery>,
-) -> anyhow::Result<(Vec<BenchmarkQuery>, Vec<SweepSummaryRow>)> {
-    let (config, _) = load_dataset_config(&format!("datasets/{}/config.toml", args.dataset))?;
-    if config.sweeps.is_empty() {
-        return Ok((parsed, Vec::new()));
-    }
-    let size = args
-        .size
-        .as_deref()
-        .with_context(|| "Sweeping needs --size to select the ground truth")?;
-
-    let mut expanded = Vec::new();
-    let mut summary = Vec::new();
-    for query_item in parsed {
-        // Queries not declared in config [sweeps] (e.g. exact pre-filter baselines) pass through
-        // unmodified.
-        let Some(sweep) = config.sweep_for(&args.index, &query_item.query_type) else {
-            expanded.push(query_item);
-            continue;
-        };
-
-        println!(
-            "Sweeping {} over {} ({} values)",
-            query_item.query_type,
-            sweep.param,
-            sweep.values.len()
-        );
-        let points = sweep_query(
-            conn,
-            args,
-            &config,
-            size,
-            &query_item.query_type,
-            &query_item.query,
-            sweep,
-        )
-        .await?;
-        for selected in select_points(&points) {
-            if !selected.reached {
-                println!(
-                    "  WARNING: no measured value reached {:.0}% recall for {}; \
-                     skipping latency measurements (best measured recall: {:.4}).",
-                    selected.target * 100.0,
-                    query_item.query_type,
-                    selected.recall
-                );
-            }
-            summary.push(SweepSummaryRow {
-                query: query_item.query_type.clone(),
-                label: selected.label,
-                param: sweep.param.clone(),
-                value: selected.value,
-                recall: selected.recall,
-                reached: selected.reached,
-            });
-            if let Some(query) = selected.query {
-                expanded.push(BenchmarkQuery {
-                    query_type: format!("{}@{}", query_item.query_type, selected.label),
-                    query,
-                    is_mvcc_sensitive: query_item.is_mvcc_sensitive,
-                });
-            }
-        }
-    }
-    Ok((expanded, summary))
-}
-
-/// Write `sweep_summary_{size}.tsv` for the workflow to render: each selected point with the recall
-/// it achieved and the latency measured at it.
-fn write_sweep_summary(
-    size: &str,
-    rows: &[SweepSummaryRow],
-    results: &[QueryResult],
-) -> anyhow::Result<()> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-    let mut out = Vec::new();
-    for r in rows {
-        // Latency was measured under the expanded label the sweep emitted.
-        let benchmarked = format!("{}@{}", r.query, r.label);
-        let latencies = results
-            .iter()
-            .find(|q| q.query_type == benchmarked)
-            .map(|q| {
-                TRACKED_PERCENTILES
-                    .iter()
-                    .map(|(_, p)| format!("{:.2}", percentile(&q.results.samples, *p)))
-                    .collect::<Vec<_>>()
-            })
-            // A query that errored is skipped by the benchmark loop, so it has no latency.
-            .unwrap_or_else(|| vec!["n/a".to_owned(); TRACKED_PERCENTILES.len()]);
-        out.push(format!(
-            "{}\t{}\t{}\t{}\t{:.4}\t{}\t{}",
-            r.query,
-            r.label,
-            r.param,
-            r.value,
-            r.recall,
-            r.reached,
-            latencies.join("\t")
-        ));
-    }
-    // Per size, so a later size's run does not clobber an earlier one's summary.
-    let path = format!("sweep_summary_{size}.tsv");
-    std::fs::write(&path, out.join("\n") + "\n").with_context(|| format!("Failed to write {path}"))
-}
-
-/// Load `source` (a parquet path/URL) into the already-created Postgres `table` via DuckDB's
-/// postgres extension, preserving native column types (embedding vectors, text arrays).
-fn load_parquet_into(url: &str, table: &str, source: &str) -> anyhow::Result<()> {
-    let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
-    conn.execute_batch("INSTALL postgres; LOAD postgres;")
-        .with_context(|| "Failed to load DuckDB postgres extension")?;
-    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
-        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
-    conn.execute_batch(&format!(
-        "INSERT INTO pg.public.\"{table}\" SELECT * FROM read_parquet('{source}');"
-    ))
-    .with_context(|| format!("Failed to load '{table}' from '{source}'"))?;
-    Ok(())
-}
-
 fn format_percent(pct: f64) -> String {
     if (pct.round() - pct).abs() < 1e-6 {
         format!("{pct:.0}")
@@ -1239,7 +611,6 @@ async fn execute_benchmark_query(
     args: &BenchmarkArgs,
     query_type: &str,
     query: &str,
-    query_vectors: &[String],
 ) -> anyhow::Result<Option<QueryResult>> {
     if args.clear_caches
         && let Err(err) = clear_caches(conn).await
@@ -1253,21 +624,9 @@ async fn execute_benchmark_query(
         .with_context(|| "Failed to execute checkpoint.")?;
 
     println!("Query Type: {query_type}\nQuery: {query}");
-    // Exact pre-filter baselines are fixed reference plans, never a swept operating point,
-    // so nothing builds a percentile series from them. Sampling one once per held-out vector
-    // costs hours at 10m rows to produce a distribution no series reads. They still read the
-    // vector GUC, so they get the vectors and just do not iterate them.
-    let sample_per_vector = !query_type.contains("exact_prefilter");
-    let result = execute_query_multiple_times(
-        &args.url,
-        query_type,
-        query,
-        args.runs,
-        args.fail_on_error,
-        query_vectors,
-        sample_per_vector,
-    )
-    .await?;
+    let result =
+        execute_query_multiple_times(&args.url, query_type, query, args.runs, args.fail_on_error)
+            .await?;
     match result {
         Some(query_results) => {
             println!(
@@ -1328,19 +687,6 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
     // templating used for index DDL.
     let parsed_queries = load_benchmark_queries(Path::new(&queries_dir))?;
-    // Expand any query declaring a sweep into one entry per recall target, measured against the
-    // index just built. Swept entries come back fully substituted; the rest still hold `{{ }}`
-    // references and are resolved below.
-    let (parsed_queries, sweep_summary) =
-        expand_sweeps(&mut utility_conn, args, parsed_queries).await?;
-    // Measure latency across every held-out query vector when this dataset has them.
-    let query_vectors = load_query_vectors(&mut utility_conn).await;
-    if !query_vectors.is_empty() {
-        println!(
-            "Measuring latency over {} held-out query vectors",
-            query_vectors.len()
-        );
-    }
     let query_stmts: Vec<String> = parsed_queries.iter().map(|q| q.query.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,
@@ -1353,14 +699,8 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     let mut results = Vec::new();
     for query_item in &parsed_queries {
         let query = substitute_vars(&query_item.query, &query_params)?;
-        if let Some(res) = execute_benchmark_query(
-            &mut utility_conn,
-            args,
-            &query_item.query_type,
-            &query,
-            &query_vectors,
-        )
-        .await?
+        if let Some(res) =
+            execute_benchmark_query(&mut utility_conn, args, &query_item.query_type, &query).await?
         {
             results.push(res);
         }
@@ -1381,14 +721,8 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             let query = substitute_vars(&query_item.query, &query_params)?;
             let dirty_query_type =
                 format!("{} ({}% visible)", query_item.query_type, visible_pct_str);
-            if let Some(res) = execute_benchmark_query(
-                &mut utility_conn,
-                args,
-                &dirty_query_type,
-                &query,
-                &query_vectors,
-            )
-            .await?
+            if let Some(res) =
+                execute_benchmark_query(&mut utility_conn, args, &dirty_query_type, &query).await?
             {
                 results.push(res);
             }
@@ -1396,10 +730,6 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     }
 
     results.sort_by(|a, b| a.query_type.cmp(&b.query_type));
-
-    if let Some(size) = args.size.as_deref() {
-        write_sweep_summary(size, &sweep_summary, &results)?;
-    }
 
     Ok(results)
 }
@@ -1431,7 +761,7 @@ async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 }
 
 async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    // Index and query metrics share one results.json, so the publish step reports them as one set.
+    // Keep index and query metrics together, with a separate result file per configuration.
     let mut results = Vec::new();
     if !args.skip_index {
         results.extend(
@@ -1449,7 +779,14 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
             .flat_map(JSONBenchmarkResult::from_query_result),
     );
 
-    let mut file = File::create("results.json").with_context(|| "Failed to create output file")?;
+    let size_suffix = args
+        .size
+        .as_deref()
+        .map(|size| format!("_{size}"))
+        .unwrap_or_default();
+    let output_file = format!("results_{}_{}{size_suffix}.json", args.dataset, args.index);
+    let mut file =
+        File::create(&output_file).with_context(|| format!("Failed to create {output_file}"))?;
     let results_json =
         serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
     file.write_all(results_json.as_bytes())
@@ -1920,17 +1257,6 @@ fn parse_sql_statement(statement: &str) -> String {
         .to_owned()
 }
 
-/// Parse a single query file, which may contain session GUC SET statements followed by the query.
-fn single_query(file: &Path) -> String {
-    let content = std::fs::read_to_string(file)
-        .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
-    parse_sql_statement(&content)
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_owned()
-}
-
 /// Strips comments and flattens each query onto a single line.
 ///
 /// Will only split on semicolons with trailing newlines, which allows for applying GUCs to queries.
@@ -1952,14 +1278,6 @@ fn extract_index_name(statement: &str) -> &str {
         .split_whitespace()
         .nth(2)
         .expect("Failed to parse index name")
-}
-
-/// Whether `query` reads its vector from the GUC, and so needs one bound before it can be planned.
-///
-/// This is about whether any vector is *available*, never about how many samples a query takes:
-/// a reference plan reads the GUC just like a swept one, it simply does not iterate every vector.
-fn reads_query_vector(query: &str) -> bool {
-    query.contains(&format!("current_setting('{QVEC_GUC}')"))
 }
 
 fn is_file_mvcc_sensitive(content: &str) -> bool {
@@ -2094,34 +1412,6 @@ async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i6
     Ok(query_id)
 }
 
-/// Execute a benchmark query, taking sample_count warmed samples on a single reused connection.
-///
-/// This creates a fresh connection for each benchmark query and then reuses it across repeated
-/// runs of that query.
-///
-/// The query runs repeatedly, warming it, until a 3-run window shows a sub-0.1% ratio of
-/// variance over mean, or it has run 10 times. At that point, sample_count samples will
-/// be taken.
-///
-/// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
-/// necessary for compatibility with custom scan providers. Compound statements
-/// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
-///
-/// Timing uses the results of server-side planning + execution time from pg_stat_statements,
-/// limiting the amount of non-extension-code time captured.
-///
-/// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
-/// Bind one held-out vector for the next measured run. The query files read the vector through
-/// `current_setting`, so the SQL text -- and therefore its `pg_stat_statements` queryid -- is
-/// identical for every vector.
-async fn set_query_vector(conn: &mut PgConnection, vector: &str) -> anyhow::Result<()> {
-    sqlx::raw_sql(AssertSqlSafe(format!("SET {QVEC_GUC} = '{vector}';")))
-        .execute(&mut *conn)
-        .await
-        .with_context(|| format!("Failed to set {QVEC_GUC}"))?;
-    Ok(())
-}
-
 /// Run the query once and read back its server-side timing, returning `(exec + plan ms, rows)`.
 async fn run_once(
     conn: &mut PgConnection,
@@ -2158,26 +1448,29 @@ fn on_query_error(
     Ok(None)
 }
 
-/// The held-out query vectors, when the dataset has them loaded (the recall fixtures a sweep
-/// creates). Latency is then measured once per vector instead of by repeating a single one.
-/// Datasets without them -- anything non-vector -- get an empty slice and the repeat-one path.
-async fn load_query_vectors(conn: &mut PgConnection) -> Vec<String> {
-    // An error here means no fixtures table: not a vector dataset, or recall was never loaded for
-    // this run. Either way the caller falls back to repeating a single vector.
-    sqlx::query_scalar::<_, String>("SELECT emb::text FROM cohere_queries ORDER BY id")
-        .fetch_all(&mut *conn)
-        .await
-        .unwrap_or_default()
-}
-
+/// Execute a benchmark query, taking sample_count warmed samples on a single reused connection.
+///
+/// This creates a fresh connection for each benchmark query and then reuses it across repeated
+/// runs of that query.
+///
+/// The query runs repeatedly, warming it, until a 3-run window shows a sub-0.1% ratio of
+/// variance over mean, or it has run 10 times. At that point, sample_count samples will
+/// be taken.
+///
+/// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
+/// necessary for compatibility with custom scan providers. Compound statements
+/// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
+///
+/// Timing uses the results of server-side planning + execution time from pg_stat_statements,
+/// limiting the amount of non-extension-code time captured.
+///
+/// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
     url: &str,
     query_type: &str,
     query: &str,
     sample_count: usize,
     fail_on_error: bool,
-    query_vectors: &[String],
-    sample_per_vector: bool,
 ) -> anyhow::Result<Option<QueryRunResults>> {
     let mut conn = PgConnection::connect(url)
         .await
@@ -2205,20 +1498,6 @@ async fn execute_query_multiple_times(
                 .await
                 .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
         }
-    }
-
-    // Bind a vector before the EXPLAINs below: the kNN query files read it through
-    // `current_setting`, and that errors if the GUC was never set. The measured passes rebind it
-    // per vector, so which one seeds the plan does not affect any timing.
-    match query_vectors.first() {
-        Some(first) => set_query_vector(&mut conn, first).await?,
-        // Nothing would bind it, so fail with the cause rather than an "unrecognized configuration
-        // parameter" from deep inside the first EXPLAIN.
-        None if reads_query_vector(query) => bail!(
-            "`{query_type}` reads {QVEC_GUC} but no query vectors were loaded; the dataset's \
-             recall fixtures must be present for a vector benchmark"
-        ),
-        None => {}
     }
 
     let query_id = get_query_id(measured_query, &mut conn).await?;
@@ -2258,34 +1537,6 @@ async fn execute_query_multiple_times(
             }
             Err(e) => println!("plan for `{query_type}`: EXPLAIN failed: {e}"),
         }
-    }
-
-    // With a set of held-out query vectors, measure one timing per vector rather than repeating a
-    // single vector: latency depends on which cells a vector routes to, so one vector reports the
-    // cost of that vector, not of the workload. A first pass over every vector warms the cache for
-    // all of them, then the measured pass records one sample each -- enough for percentiles.
-    if sample_per_vector && !query_vectors.is_empty() {
-        for (i, vector) in query_vectors.iter().enumerate() {
-            set_query_vector(&mut conn, vector).await?;
-            let warm = match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
-                Ok(v) => v,
-                Err(err) => return on_query_error(query_type, err, fail_on_error),
-            };
-            if i == 0 {
-                results.num_results = warm.1 as usize;
-                results.cold = warm.0;
-            }
-        }
-        results.per_vector = true;
-        results.vector_hash = Some(fnv1a(query_vectors));
-        for vector in query_vectors {
-            set_query_vector(&mut conn, vector).await?;
-            match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
-                Ok((time, _)) => results.samples.push(time),
-                Err(err) => return on_query_error(query_type, err, fail_on_error),
-            }
-        }
-        return Ok(Some(results));
     }
 
     // run until run-to-run variance is sub-0.1% (query is warmed) or
@@ -2391,183 +1642,22 @@ async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<
 mod tests {
     use super::*;
 
-    fn point(value: &str, recall: f64) -> SweepPoint {
-        SweepPoint {
-            value: value.to_owned(),
-            recall,
-            query: format!("SET eps={value}; SELECT 1"),
-        }
-    }
-
-    #[test]
-    fn selects_cheapest_point_reaching_each_target() {
-        let points = vec![
-            point("0.1", 0.88),
-            point("0.2", 0.93),
-            point("0.3", 0.96),
-            point("0.4", 0.96),
-            point("0.5", 0.97),
-            point("0.8", 0.995),
-        ];
-        let selected = select_points(&points);
-
-        let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
-        // Cheapest at-or-above each target, not the nearest: 0.93 is closer to 0.90 than 0.88 is,
-        // and 0.96 is the first to clear 0.95 even though 0.97 is also above it.
-        assert_eq!(by_label["r90"].value, "0.2");
-        assert_eq!(by_label["r95"].value, "0.3");
-        assert_eq!(by_label["r99"].value, "0.8");
-        assert!(selected.iter().all(|s| s.reached));
-        // The selected point carries the query that produced it.
-        assert_eq!(
-            by_label["r95"].query.as_deref(),
-            Some("SET eps=0.3; SELECT 1")
-        );
-    }
-
-    #[test]
-    fn unreached_targets_report_recall_without_a_latency_query() {
-        let points = vec![point("0.1", 0.90), point("0.2", 0.94)];
-        let selected = select_points(&points);
-        let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
-
-        assert!(by_label["r90"].reached);
-        assert!(by_label["r90"].query.is_some());
-        for label in ["r95", "r99"] {
-            assert!(!by_label[label].reached, "{label} should be unreached");
-            assert_eq!(by_label[label].value, "0.2");
-            assert_eq!(by_label[label].recall, 0.94);
-            assert!(by_label[label].query.is_none());
-        }
-    }
-
-    #[test]
-    fn unreached_target_uses_cheapest_point_on_recall_plateau() {
-        let points = vec![
-            point("0.003", 0.919),
-            point("0.0075", 0.953),
-            point("0.05", 0.975),
-            point("0.08", 0.975),
-            point("0.12", 0.975),
-            point("0.2", 0.975),
-            point("0.35", 0.975),
-            point("0.5", 0.975),
-            point("0.75", 0.975),
-            point("1.0", 0.975),
-        ];
-        let stop = (1..=points.len())
-            .find(|&len| recall_plateau(&points[..len]).is_some())
-            .unwrap();
-        assert_eq!(points[stop - 1].value, "0.2");
-
-        let selected = select_points(&points[..stop]);
-        let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
-
-        assert_eq!(by_label["r90"].value, "0.003");
-        assert_eq!(by_label["r95"].value, "0.0075");
-        assert_eq!(by_label["r99"].value, "0.05");
-        assert_eq!(by_label["r99"].recall, 0.975);
-        assert!(by_label["r99"].query.is_none());
-        assert!(!by_label["r99"].reached);
-    }
-
-    #[test]
-    fn selection_ignores_the_order_values_were_measured_in() {
-        let ascending = vec![point("0.1", 0.88), point("0.3", 0.96)];
-        let descending = vec![point("0.3", 0.96), point("0.1", 0.88)];
-        let pick = |pts: &[SweepPoint]| {
-            select_points(pts)
-                .into_iter()
-                .map(|s| s.value)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(pick(&ascending), pick(&descending));
-    }
-
-    #[test]
-    fn empty_sweep_selects_nothing() {
-        assert!(select_points(&[]).is_empty());
-    }
-
-    #[rstest::rstest]
-    #[case::empty(&[], None)]
-    #[case::single_point(&[0.97], None)]
-    #[case::two_larger_values(&[0.97, 0.97, 0.97], None)]
-    #[case::three_larger_values(&[0.97, 0.97, 0.97, 0.97], Some(0.97))]
-    #[case::declining_recall(&[0.97, 0.96, 0.95, 0.94], Some(0.97))]
-    #[case::recovery_below_best(&[0.97, 0.94, 0.95, 0.96], Some(0.97))]
-    #[case::improvement_resets_patience(&[0.95, 0.95, 0.97, 0.97, 0.97], None)]
-    #[case::later_plateau(&[0.95, 0.95, 0.97, 0.97, 0.97, 0.97], Some(0.97))]
-    #[case::zero_recall(&[0.0, 0.0, 0.0, 0.0], Some(0.0))]
-    fn detects_recall_plateau(#[case] recalls: &[f64], #[case] expected: Option<f64>) {
-        let points: Vec<_> = recalls
-            .iter()
-            .enumerate()
-            .map(|(i, recall)| point(&i.to_string(), *recall))
-            .collect();
-        assert_eq!(recall_plateau(&points), expected);
-    }
-
-    fn query_result(per_vector: bool, samples: Vec<f64>) -> QueryResult {
-        QueryResult {
-            query_type: "knn_top10_1pct@r95".to_owned(),
-            query: "SELECT 1".to_owned(),
-            results: QueryRunResults {
-                cold: 11.108,
-                samples,
-                num_results: 10,
-                per_vector,
-                vector_hash: per_vector.then_some(0xdead_beef),
-            },
-        }
-    }
-
-    #[test]
-    fn per_vector_results_publish_one_series_per_tracked_percentile() {
-        let out = JSONBenchmarkResult::from_query_result(query_result(
-            true,
-            (1..=100).map(|i| i as f64).collect(),
-        ));
-
-        assert_eq!(
-            out.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
-            [
-                "knn_top10_1pct@r95 - p50",
-                "knn_top10_1pct@r95 - p95",
-                "knn_top10_1pct@r95 - p99"
-            ]
-        );
-        assert!(
-            out.iter()
-                .all(|r| r.unit == "ms" && r.range.starts_with("95% CI ["))
-        );
-        // The raw samples ride on the p50 entry only, prefixed so the pairing metadata cannot
-        // collide with the free-form query text at the end.
-        assert!(
-            out[0]
-                .extra
-                .starts_with("samples_fnv=00000000deadbeef; samples=[1.000,2.000,"),
-            "{}",
-            out[0].extra
-        );
-        assert!(out[0].extra.ends_with(
-            "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
-        ));
-        assert_eq!(
-            out[1].extra,
-            "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
-        );
-    }
-
     /// Datasets that repeat one query have gh-pages history under the bare query name, and their
     /// samples are not a latency distribution. Renaming or re-valuing them would orphan that.
     #[test]
     fn repeated_query_results_still_publish_a_single_mean_series() {
-        let out =
-            JSONBenchmarkResult::from_query_result(query_result(false, vec![10.0, 12.0, 14.0]));
+        let out = JSONBenchmarkResult::from_query_result(QueryResult {
+            query_type: "count".to_owned(),
+            query: "SELECT count(*) FROM t".to_owned(),
+            results: QueryRunResults {
+                cold: 11.108,
+                samples: vec![10.0, 12.0, 14.0],
+                num_results: 1,
+            },
+        });
 
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].name, "knn_top10_1pct@r95");
+        assert_eq!(out[0].name, "count");
         assert_eq!(out[0].unit, "mean ms");
         assert_eq!(out[0].value, 12.0);
         assert!(out[0].extra.contains("p50=12.000"), "{}", out[0].extra);
@@ -2591,18 +1681,18 @@ mod tests {
         assert!(series.iter().all(|s| s.extra == "segments=8"));
     }
 
-    /// pgvector access methods have no segments, so `extra` has nothing to carry.
+    /// Other access methods have no segments to report.
     #[test]
     fn non_bm25_index_publishes_the_same_series_without_segments() {
         let series = JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Other {
             duration_min_ms: 12.5,
-            index_name: "cohere_hnsw_idx".to_owned(),
+            index_name: "btree_idx".to_owned(),
             index_size: 40960,
         });
 
         assert_eq!(
             series.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
-            ["cohere_hnsw_idx build time", "cohere_hnsw_idx index size"]
+            ["btree_idx build time", "btree_idx index size"]
         );
         assert!(series.iter().all(|s| s.extra.is_empty()));
     }
@@ -2624,23 +1714,6 @@ mod tests {
             json,
             r#"{"name":"i build time","unit":"min","value":1.0,"range":"","extra":""}"#
         );
-    }
-
-    /// Passing a non-sampled query an empty vector slice to stop it sampling per vector tripped
-    /// this precondition and failed the whole run: the query still reads the GUC. Availability and
-    /// sampling mode are separate concerns, and only the former belongs here.
-    #[test]
-    fn binding_precondition_tracks_availability_not_sampling_mode() {
-        let knn = format!(
-            "SELECT _id FROM t ORDER BY emb <=> current_setting('{QVEC_GUC}')::vector(1024) LIMIT 10"
-        );
-        assert!(reads_query_vector(&knn));
-        assert!(!reads_query_vector("SELECT count(*) FROM t"));
-
-        // Whether this is a swept point or a reference plan changes nothing about the precondition.
-        for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct_exact_prefilter"] {
-            assert!(reads_query_vector(&knn), "{query_type}");
-        }
     }
 
     #[test]

@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! One execution-visible view of segment statistics.
+//! A reader-scoped view of segment statistics.
 //!
 //! Between planning and execution the visible segment set changes: inserts add segments and
-//! merges replace them. The snapshot is therefore taken from the execution Searcher, never from
-//! planner-visible segment identities.
+//! merges replace them. Each reader's snapshot is therefore taken from its own Searcher, never
+//! reusing planner-visible segment identities at execution time.
 //!
 //! Statistics are accelerators, never substitutes for the query predicate. Missing statistics
 //! leave segments eligible for execution; errors opening or decoding existing statistics abort

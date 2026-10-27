@@ -37,6 +37,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
       image: ${{ matrix.image }}
     defaults:
@@ -204,6 +205,10 @@ jobs:
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # Used to upload the release to GitHub Releases
       - name: Configure GitHub CLI Repository

@@ -17,6 +17,7 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::is_lateral_unnest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     GroupingTransform, JoinAggregateTargetList,
 };
@@ -24,10 +25,20 @@ use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DAT
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, RelNode, RelationAlias,
 };
+use crate::query::SearchQueryInput;
 use datafusion::common::Column;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeIterator, TreeNodeRecursion};
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ColumnRef {
+    pub plan_position: usize,
+    pub rti: pgrx::pg_sys::Index,
+    pub attno: pgrx::pg_sys::AttrNumber,
+    pub field_name: String,
+}
 
 /// Serializable boolean expression IR used for both HAVING clauses and
 /// per-aggregate FILTER clauses.
@@ -35,7 +46,7 @@ use pgrx::prelude::*;
 /// HAVING uses `AggRef` and `GroupRef` (post-aggregate references).
 /// FILTER uses `ColumnRef` (pre-aggregate row-level references).
 /// Both share the same operator, literal, and boolean combinators.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub enum FilterExpr {
     /// Reference to an aggregate result by index (HAVING context).
     AggRef(usize),
@@ -46,12 +57,7 @@ pub enum FilterExpr {
     /// Execution identity is `plan_position`, resolved against the
     /// `RelNode` tree at construction; rti/attno are kept for diagnostics
     /// and for fast-field projection in `populate_required_fields`.
-    ColumnRef {
-        plan_position: usize,
-        rti: pgrx::pg_sys::Index,
-        attno: pgrx::pg_sys::AttrNumber,
-        field_name: String,
-    },
+    ColumnRef(ColumnRef),
     LitInt(i64),
     LitFloat(f64),
     LitBool(bool),
@@ -72,28 +78,71 @@ pub enum FilterExpr {
     },
 }
 
+impl TreeNode for FilterExpr {
+    fn apply_children<'n, F: FnMut(&'n Self) -> datafusion::common::Result<TreeNodeRecursion>>(
+        &'n self,
+        mut f: F,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        match self {
+            Self::BinOp { left, right, .. } => f(left)?.visit_sibling(|| f(right)),
+            Self::And(children) | Self::Or(children) => children.iter().apply_until_stop(f),
+            Self::Not(inner) | Self::IsNull(inner) | Self::IsNotNull(inner) => f(inner),
+            Self::AggRef(_)
+            | Self::GroupRef(_)
+            | Self::ColumnRef(_)
+            | Self::LitInt(_)
+            | Self::LitFloat(_)
+            | Self::LitBool(_)
+            | Self::LitString(_)
+            | Self::SearchTag { .. } => Ok(TreeNodeRecursion::Continue),
+        }
+    }
+
+    fn map_children<F: FnMut(Self) -> datafusion::common::Result<Transformed<Self>>>(
+        self,
+        mut f: F,
+    ) -> datafusion::common::Result<Transformed<Self>> {
+        Ok(match self {
+            Self::BinOp { left, op, right } => f(*left)?
+                .update_data(|left| (left, *right))
+                .transform_sibling(
+                    |(left, right)| Ok(f(right)?.update_data(|right| (left, right))),
+                )?
+                .update_data(|(left, right)| Self::BinOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                }),
+            Self::And(children) => children
+                .into_iter()
+                .map_until_stop_and_collect(f)?
+                .update_data(Self::And),
+            Self::Or(children) => children
+                .into_iter()
+                .map_until_stop_and_collect(f)?
+                .update_data(Self::Or),
+            Self::Not(inner) => f(*inner)?.update_data(|inner| Self::Not(Box::new(inner))),
+            Self::IsNull(inner) => f(*inner)?.update_data(|inner| Self::IsNull(Box::new(inner))),
+            Self::IsNotNull(inner) => {
+                f(*inner)?.update_data(|inner| Self::IsNotNull(Box::new(inner)))
+            }
+            leaf @ (Self::AggRef(_)
+            | Self::GroupRef(_)
+            | Self::ColumnRef(_)
+            | Self::LitInt(_)
+            | Self::LitFloat(_)
+            | Self::LitBool(_)
+            | Self::LitString(_)
+            | Self::SearchTag { .. }) => Transformed::no(leaf),
+        })
+    }
+}
+
 impl FilterExpr {
     /// True if any [`FilterExpr::AggRef`] in this tree satisfies `pred`.
     pub fn any_agg_ref(&self, pred: &impl Fn(usize) -> bool) -> bool {
-        match self {
-            FilterExpr::AggRef(idx) => pred(*idx),
-            FilterExpr::GroupRef(_)
-            | FilterExpr::ColumnRef { .. }
-            | FilterExpr::LitInt(_)
-            | FilterExpr::LitFloat(_)
-            | FilterExpr::LitBool(_)
-            | FilterExpr::LitString(_)
-            | FilterExpr::SearchTag { .. } => false,
-            FilterExpr::BinOp { left, right, .. } => {
-                left.any_agg_ref(pred) || right.any_agg_ref(pred)
-            }
-            FilterExpr::And(children) | FilterExpr::Or(children) => {
-                children.iter().any(|c| c.any_agg_ref(pred))
-            }
-            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-                inner.any_agg_ref(pred)
-            }
-        }
+        self.exists(|node| Ok(matches!(node, FilterExpr::AggRef(idx) if pred(*idx))))
+            .unwrap_or(false)
     }
 
     /// Collects every FILTER `(plan_position, predicate)` pair in this tree.
@@ -101,22 +150,39 @@ impl FilterExpr {
         &'a self,
         out: &mut Vec<(usize, &'a JoinLevelSearchPredicate)>,
     ) {
-        match self {
-            FilterExpr::SearchTag {
+        let _ = self.apply(|node| {
+            if let FilterExpr::SearchTag {
                 plan_position,
                 predicate,
-            } => out.push((*plan_position, predicate)),
+            } = node
+            {
+                out.push((*plan_position, predicate.as_ref()));
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+
+    /// Visit the query of every [`FilterExpr::SearchTag`] in this tree.
+    ///
+    /// The scan carries its own copy of each query as a tagged query, and the
+    /// tag column is found by comparing the two. Whatever solves Params and
+    /// Postgres expressions in the scan's copy has to solve this one too, or
+    /// the comparison fails.
+    ///
+    /// Hand-written because [`TreeNode`] has no in-place `&mut` visit, as for
+    /// `RelNode::visit_queries_mut`.
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        match self {
+            FilterExpr::SearchTag { predicate, .. } => f(&mut predicate.query),
             FilterExpr::BinOp { left, right, .. } => {
-                left.collect_search_predicates(out);
-                right.collect_search_predicates(out);
+                left.visit_queries_mut(f);
+                right.visit_queries_mut(f);
             }
             FilterExpr::And(children) | FilterExpr::Or(children) => {
-                children
-                    .iter()
-                    .for_each(|c| c.collect_search_predicates(out));
+                children.iter_mut().for_each(|c| c.visit_queries_mut(f));
             }
             FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
-                inner.collect_search_predicates(out);
+                inner.visit_queries_mut(f);
             }
             FilterExpr::AggRef(_)
             | FilterExpr::GroupRef(_)
@@ -127,9 +193,33 @@ impl FilterExpr {
             | FilterExpr::LitString(_) => {}
         }
     }
+
+    /// Read-only counterpart of [`FilterExpr::visit_queries_mut`].
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        let _ = self.apply(|node| {
+            if let FilterExpr::SearchTag { predicate, .. } = node {
+                f(&predicate.query);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+
+    /// Collect all `ColumnRef` column references from an [`FilterExpr`] tree.
+    /// Tag columns are synthesized by the scan, not read from fast fields, so
+    /// a [`FilterExpr::SearchTag`] contributes none.
+    pub fn collect_column_refs(&self) -> Vec<ColumnRef> {
+        let mut refs = Vec::new();
+        let _ = self.apply(|node| {
+            if let FilterExpr::ColumnRef(column_ref) = node {
+                refs.push(column_ref.clone());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        refs
+    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub enum CompareOp {
     Eq,
     NotEq,
@@ -178,7 +268,15 @@ impl TopKSortTarget {
                 };
 
                 match gc.transform {
-                    GroupingTransform::Identity => Column::new(Some(alias), &gc.field_name),
+                    GroupingTransform::Identity => {
+                        // A LATERAL unnest column reaches the aggregate under its
+                        // projected name, with no source qualifier to bind to.
+                        if is_lateral_unnest(plan, gc.plan_position, &gc.field_name) {
+                            Column::new_unqualified(format!("{alias}_{}", gc.field_name))
+                        } else {
+                            Column::new(Some(alias), &gc.field_name)
+                        }
+                    }
                     GroupingTransform::TimestampToDate => Column::new_unqualified(format!(
                         "{TIMESTAMP_TO_DATE_UDF_NAME}({alias}.{})",
                         gc.field_name
@@ -194,7 +292,9 @@ impl TopKSortTarget {
 /// When the sort target is a GROUP BY column or MIN/MAX aggregate, DataFusion's
 /// built-in `TopKAggregation` optimizer rule can push the limit into
 /// `AggregateExec`, enabling early termination (group-key ordering) or
-/// PriorityMap-based pruning (MIN/MAX ordering) during aggregation.
+/// PriorityMap-based pruning (MIN/MAX ordering) during aggregation. That rule
+/// takes exactly one sort key over exactly one group column; every other
+/// shape, multi-key sorts included, runs as `SortExec` with `fetch=K`.
 ///
 /// For COUNT/SUM/AVG ordering, DataFusion's `SortExec(fetch=K)` uses a bounded
 /// TopK heap — still more efficient than letting Postgres sort above us.

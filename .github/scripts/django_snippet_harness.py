@@ -123,3 +123,18 @@ class MockItemGeo(models.Model):
         app_label = "docs_snippets"
         managed = False
         db_table = "mock_items_geo"
+
+
+class MockItemPath(models.Model):
+    """Read-only hierarchical-filter fixture; path is referenced as raw SQL."""
+
+    id = models.IntegerField(primary_key=True)
+    description = models.TextField()
+    objects = ParadeDBManager()
+
+    class Meta:
+        """Bind the model to the page-local hierarchical fixture."""
+
+        app_label = "docs_snippets"
+        managed = False
+        db_table = "mock_items_paths"

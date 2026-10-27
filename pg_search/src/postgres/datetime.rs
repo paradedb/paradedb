@@ -177,7 +177,7 @@ impl PostgresDateTime {
 
     pub fn try_from_date_str(s: &str) -> Result<Self, DateTimeConversionError> {
         let date = pgrx::datum::Date::from_str(s)?;
-        Ok(Self::from(date))
+        Self::try_from(date)
     }
 
     pub fn try_from_time_str(s: &str) -> Result<Self, DateTimeConversionError> {
@@ -261,21 +261,22 @@ impl From<PostgresDateTime> for String {
         format!("{}Z", value.0.to_iso_string())
     }
 }
-impl From<pgrx::datum::Date> for PostgresDateTime {
-    fn from(value: pgrx::datum::Date) -> Self {
+impl TryFrom<pgrx::datum::Date> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: pgrx::datum::Date) -> Result<Self, Self::Error> {
         // `date` keeps `infinity` and `-infinity` as the extreme day counts, and `timestamp` keeps
         // them as the extreme microsecond counts. Map one onto the other: scaling them overflows.
         if value.is_infinity() {
-            return Self(pgrx::datum::Timestamp::positive_infinity());
+            return Ok(Self(pgrx::datum::Timestamp::positive_infinity()));
         }
         if value.is_neg_infinity() {
-            return Self(pgrx::datum::Timestamp::negative_infinity());
+            return Ok(Self(pgrx::datum::Timestamp::negative_infinity()));
         }
         let midnight_micros = (value.to_pg_epoch_days() as i64)
             .checked_mul(ONE_DAY_MICROS)
-            .expect("days to micros should never overflow");
+            .ok_or(DateTimeConversionError::FieldOverflow)?;
         Self::try_from_raw(midnight_micros)
-            .expect("Date->Timestamp conversion should always be valid")
     }
 }
 impl From<PostgresDateTime> for pgrx::datum::Date {
@@ -579,8 +580,9 @@ mod tests {
 
     #[test]
     fn date_infinity_maps_to_timestamp_infinity_and_back() {
-        let infinity = PostgresDateTime::from(pgrx::datum::Date::positive_infinity());
-        let neg_infinity = PostgresDateTime::from(pgrx::datum::Date::negative_infinity());
+        let infinity = PostgresDateTime::try_from(pgrx::datum::Date::positive_infinity()).unwrap();
+        let neg_infinity =
+            PostgresDateTime::try_from(pgrx::datum::Date::negative_infinity()).unwrap();
         assert_eq!(infinity.into_inner(), i64::MAX);
         assert_eq!(neg_infinity.into_inner(), i64::MIN);
         assert!(pgrx::datum::Date::from(infinity).is_infinity());
@@ -588,9 +590,49 @@ mod tests {
 
         // 2024-01-01 is 8766 days after the Postgres epoch.
         let date_2024 = unsafe { pgrx::datum::Date::from_pg_epoch_days(8766) };
-        let pg_dt = PostgresDateTime::from(date_2024);
+        let pg_dt = PostgresDateTime::try_from(date_2024).unwrap();
         assert_eq!(pg_dt.into_inner(), PG_MICROS_2024);
         assert_eq!(pgrx::datum::Date::from(pg_dt).to_pg_epoch_days(), 8766);
+    }
+
+    #[test]
+    fn date_bounds_conversion() {
+        // Upper bound: 294276-12-31 is 106,751,982 days after the Postgres epoch.
+        let max_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(106_751_982) };
+        let pg_dt = PostgresDateTime::try_from(max_date);
+        assert!(pg_dt.is_ok());
+
+        // 294277-01-01 is 106,751,983 days after the Postgres epoch (overflows MAX_TIMESTAMP).
+        let out_of_range_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(106_751_983) };
+        assert!(matches!(
+            PostgresDateTime::try_from(out_of_range_date),
+            Err(DateTimeConversionError::OutOfRange)
+        ));
+
+        // Lower bound: 4713-11-24 BC is -2,451,545 days after the Postgres epoch.
+        let min_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(-2_451_545) };
+        assert!(PostgresDateTime::try_from(min_date).is_ok());
+
+        // Days before min_date are out of range for Timestamp.
+        let before_min_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(-2_451_546) };
+        assert!(matches!(
+            PostgresDateTime::try_from(before_min_date),
+            Err(DateTimeConversionError::OutOfRange)
+        ));
+
+        // Extreme future date: finite day count multiplied by ONE_DAY_MICROS overflows i64.
+        let extreme_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MAX - 1) };
+        assert!(matches!(
+            PostgresDateTime::try_from(extreme_date),
+            Err(DateTimeConversionError::FieldOverflow)
+        ));
+
+        // Extreme past date: finite day count multiplied by ONE_DAY_MICROS underflows i64.
+        let extreme_past_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MIN + 1) };
+        assert!(matches!(
+            PostgresDateTime::try_from(extreme_past_date),
+            Err(DateTimeConversionError::FieldOverflow)
+        ));
     }
 
     #[pg_test]

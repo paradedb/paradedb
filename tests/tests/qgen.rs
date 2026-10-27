@@ -739,7 +739,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"], 100),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity", "uuid"], vec!["id"], 100),
         gucs in any::<PgGucs>(),
     )| {
         qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -822,7 +822,7 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
         ],
         // Bounded by the inner table's size: an `OFFSET` past its rows makes the `EXISTS` false
         // whatever the scan returns.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"], tables_and_sizes[1].1),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age", "uuid"], vec!["id"], tables_and_sizes[1].1),
         mut gucs in any::<PgGucs>(),
     )| {
         // TODO(#6814): once Postgres pulls the EXISTS up into a semi join, the InitPlan form is a

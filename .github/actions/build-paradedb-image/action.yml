@@ -1,5 +1,5 @@
 name: Build ParadeDB Image
-description: Build ParadeDB Docker image with pg_search compiled from source
+description: Compile pg_search at a selected ref and build a ParadeDB workload image
 
 inputs:
   ref:
@@ -17,11 +17,31 @@ inputs:
     description: "Scope for GHA cache"
     required: false
     default: "benchmarker-source-pg18-arm64"
+  dst:
+    description: "Build the instrumented dst profile (currently Antithesis, requires linux/amd64)"
+    required: false
+    default: "false"
+  platforms:
+    description: "Target platforms (empty uses the runner architecture)"
+    required: false
+    default: ""
+  labels:
+    description: "Newline-separated image metadata labels"
+    required: false
+    default: ""
+  push:
+    description: "Push image_tag to the registry (caller must log in first)"
+    required: false
+    default: "false"
+  load:
+    description: "Load the image into the local Docker daemon"
+    required: false
+    default: "true"
 
 outputs:
-  short_commit:
-    description: "Short commit SHA of pg_search ref"
-    value: ${{ steps.commit_info.outputs.short_commit }}
+  commit_sha:
+    description: "Commit SHA of pg_search ref"
+    value: ${{ steps.commit_info.outputs.commit_sha }}
 
 runs:
   using: composite
@@ -34,26 +54,28 @@ runs:
         persist-credentials: false
         fetch-depth: 0
 
-    - name: Configure RunsOn Caching
-      uses: runs-on/action@v2
-
-    - name: Derive Short Commit
+    - name: Resolve Benchmark Commit
       id: commit_info
       shell: bash
       working-directory: pg_search_source
-      run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Set Up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
-    - name: Build ParadeDB image from source
+    - name: Build ParadeDB Image from Source
       uses: docker/build-push-action@v7
       with:
         context: pg_search_source
         file: docker/Dockerfile.source
-        build-args: BASE_IMAGE=${{ inputs.base_image }}
+        platforms: ${{ inputs.platforms }}
+        build-args: |
+          BASE_IMAGE=${{ inputs.base_image }}
+          DST=${{ inputs.dst }}
         pull: true
-        load: true
+        push: ${{ inputs.push == 'true' }}
+        load: ${{ inputs.load == 'true' }}
         tags: ${{ inputs.image_tag }}
+        labels: ${{ inputs.labels }}
         cache-from: type=gha,scope=${{ inputs.cache_scope }}
         cache-to: type=gha,mode=max,scope=${{ inputs.cache_scope }}

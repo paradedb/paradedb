@@ -1,0 +1,141 @@
+# workflows/publish-benchmark-results.yml
+#
+# Publish Benchmark Results
+# Serialize gh-pages writes for staged Benchmarker, Queries, and Stressgres results.
+
+name: Publish Benchmark Results
+
+on:
+  workflow_call:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  find-results:
+    name: Find Benchmark Results
+    runs-on: ubuntu-latest
+    outputs:
+      artifacts: ${{ steps.results.outputs.artifacts }}
+      count: ${{ steps.results.outputs.count }}
+    steps:
+      - name: Find Pending Benchmark Results
+        uses: actions/github-script@v9
+        id: results
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: context.runId, per_page: 100,
+            });
+            // Retried publisher jobs can consume results from an earlier attempt.
+            // Keep the latest result for each suite and skip completed publications.
+            const completed = new Set(artifacts.filter(a => !a.expired && a.name.startsWith('published-gh-pages-'))
+              .map(a => Number(a.name.slice('published-gh-pages-'.length))));
+            const latest = new Map();
+            for (const artifact of artifacts.filter(a => !a.expired && a.name.startsWith('gh-pages-'))) {
+              const key = artifact.name.replace(/-\d+$/, '');
+              if (!latest.has(key) || artifact.id > latest.get(key).id) latest.set(key, artifact);
+            }
+            const results = [...latest.values()].filter(a => !completed.has(a.id));
+            core.setOutput('artifacts', JSON.stringify(results.map(a => a.id)));
+            core.setOutput('count', results.length);
+
+  publish:
+    name: Publish Benchmark Results
+    needs: find-results
+    if: needs.find-results.outputs.count != '0'
+    runs-on: ubuntu-latest
+    env:
+      BENCHMARK_PUBLICATION_ID: ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJSON(needs.find-results.outputs.artifacts) }}
+    # Every writer uses this group, including backfill reset and history compaction.
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Checkout Workflow Actions
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Download Benchmark Results
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ matrix.artifact }}
+          merge-multiple: true
+
+      - name: Read Publication Inputs
+        id: metadata
+        run: echo "json=$(jq -c . _benchmark_publish/metadata.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Wait for App Token to Become Usable
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          for attempt in $(seq 1 10); do
+            if git -c http.extraheader="$auth" ls-remote \
+                "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
+              echo "App token usable after ${attempt} attempt(s)"
+              exit 0
+            fi
+            echo "App token not usable yet (attempt ${attempt}/10). Retrying in 5s."
+            sleep 5
+          done
+          echo "App token never became usable after 10 attempts" >&2
+          exit 1
+
+      - name: Publish Benchmarker Results
+        if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'benchmarker'
+        uses: ./.github/actions/publish-benchmarker-results
+        with:
+          dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
+          ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}
+          context_file: ${{ fromJSON(steps.metadata.outputs.json).context_file || '' }}
+          publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
+
+      - name: Publish Query Results
+        if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'queries'
+        uses: ./.github/actions/publish-queries-results
+        with:
+          source_directory: ${{ fromJSON(steps.metadata.outputs.json).source_directory || '.' }}
+          dataset: ${{ fromJSON(steps.metadata.outputs.json).dataset }}
+          index: ${{ fromJSON(steps.metadata.outputs.json).index }}
+          size: ${{ fromJSON(steps.metadata.outputs.json).size }}
+          ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
+          alert_threshold: ${{ fromJSON(steps.metadata.outputs.json).alert_threshold }}
+
+      - name: Publish Stressgres Results
+        if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'stressgres'
+        uses: ./.github/actions/publish-stressgres-results
+        with:
+          test_file: ${{ fromJSON(steps.metadata.outputs.json).test_file }}
+          ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
+          github_token: ${{ steps.app-token.outputs.token }}
+
+      - name: Record Successful Publication
+        uses: actions/upload-artifact@v7
+        with:
+          name: published-gh-pages-${{ matrix.artifact }}
+          path: _benchmark_publish/metadata.json
+          overwrite: true
+          retention-days: 30

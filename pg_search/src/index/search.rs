@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
+use crate::schema::SearchFieldConfig;
 use anyhow::Result;
 use tantivy::Index;
 use tokenizers::manager::SearchTokenizerFilters;
@@ -67,7 +68,10 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
         }
 
         let config = search_field.field_config();
-        if let Some(tokenizer) = config.tokenizer() {
+        // Before 0.26.0, range fields used the default JSON tokenizer.
+        let legacy_range_tokenizer =
+            matches!(config, SearchFieldConfig::Range { .. }).then(SearchTokenizer::default);
+        if let Some(tokenizer) = config.tokenizer().or(legacy_range_tokenizer.as_ref()) {
             tokenizers.push(tokenizer.clone());
 
             match tokenizer {
@@ -80,6 +84,20 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
                         remove_emojis: *remove_emojis,
                         filters: filters.clone(),
                     });
+
+                    // Before #6873, any `unicode_words` typmod with at least one option (even
+                    // `remove_emojis=false`) was parsed as `remove_emojis=true`, so indexes built
+                    // then reference the `remove_emojis=true` tokenizer name
+                    if !remove_emojis {
+                        tokenizers.push(SearchTokenizer::UnicodeWords {
+                            remove_emojis: true,
+                            filters: filters.clone(),
+                        });
+                        tokenizers.push(SearchTokenizer::UnicodeWordsDeprecated {
+                            remove_emojis: true,
+                            filters: filters.clone(),
+                        });
+                    }
                 }
 
                 // <= `0.22.3`, Lindera tokenizers did not support user-specified keep_whitespace. They defaulted to true.

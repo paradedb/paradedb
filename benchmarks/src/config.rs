@@ -51,26 +51,6 @@ pub struct DatasetConfig {
     /// Index SQL references them with `{{ name }}`.
     #[serde(default)]
     pub params: HashMap<String, String>,
-    /// Operating-point sweeps, keyed `[sweeps.{index}.{query}]` where `query` is a query file
-    /// stem. Rather than hand-tuning a param to land on a recall target, the benchmark measures
-    /// recall at each swept value and reports the point that reaches each target.
-    #[serde(default)]
-    pub sweeps: HashMap<String, HashMap<String, SweepConfig>>,
-}
-
-/// A recall sweep for one (index, query) pair.
-///
-/// Keyed by index as well as query because indexes share query stems: each of `queries/{hnsw,
-/// ivfflat, vchord, pg_search}/` has its own `knn_top10_10pct.sql`, sweeping a different knob.
-#[derive(Deserialize)]
-pub struct SweepConfig {
-    /// The name this sweep varies. The query file must reference it as `{{ param }}`; it is
-    /// supplied by the sweep, so it needs no `[params]` entry.
-    pub param: String,
-    /// Operating points to try, ordered cheapest first. Stop at the highest recall target or
-    /// after three consecutive larger values fail to improve the best measured recall.
-    /// Each is a SQL scalar expression, like any other param value.
-    pub values: Vec<String>,
 }
 
 impl DatasetConfig {
@@ -79,11 +59,6 @@ impl DatasetConfig {
         let tables_iter = self.tables.iter().map(|t| t.name.as_str());
         let root_iter = std::iter::once(self.root_table.name.as_str());
         root_iter.chain(tables_iter)
-    }
-
-    /// The sweep declared for `index`'s `query` (a query file stem), if any.
-    pub fn sweep_for(&self, index: &str, query: &str) -> Option<&SweepConfig> {
-        self.sweeps.get(index)?.get(query)
     }
 }
 
@@ -188,34 +163,7 @@ mod tests {
             s3_base_path: None,
             load_format: LoadFormat::default(),
             params: HashMap::new(),
-            sweeps: HashMap::new(),
         }
-    }
-
-    #[test]
-    fn sweeps_parse_and_resolve_per_index() {
-        let config: DatasetConfig = toml::from_str(
-            r#"
-            sampling_seed = 1
-            tables = []
-            [root_table]
-            name = "t"
-            primary_key = "id"
-            [params]
-            eps = "0.2"
-            [sweeps.pg_search.knn_top10_1pct]
-            param = "eps"
-            values = ["0.1", "0.2", "0.4"]
-            "#,
-        )
-        .unwrap();
-
-        let sweep = config.sweep_for("pg_search", "knn_top10_1pct").unwrap();
-        assert_eq!(sweep.param, "eps");
-        assert_eq!(sweep.values, vec!["0.1", "0.2", "0.4"]);
-        // Sweeps are per (index, query): another index sharing the query file has none.
-        assert!(config.sweep_for("hnsw", "knn_top10_1pct").is_none());
-        assert!(config.sweep_for("pg_search", "knn_top10_10pct").is_none());
     }
 
     #[test]

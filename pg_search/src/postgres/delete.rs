@@ -103,9 +103,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    // First, we need an exclusive lock on the CLEANUP_LOCK. Once we get it, we know that there
-    // are no concurrent merges happening. We signal background merge workers via an advisory lock
-    // so they exit early and we don't wait for long-running merges to complete.
+    // Signal background merge workers via an advisory lock so they yield between candidates.
     // Open metadata before taking the signal to keep the lock window small.
     let mut metadata = MetaPage::open(&index_relation);
     let signal = Rc::new(RefCell::new(Some(
@@ -113,18 +111,16 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     )));
     let signal_finally = signal.clone();
 
-    // Ensure the signal advisory lock is released if a PostgreSQL ERROR
-    // occurs while acquiring cleanup_lock_exclusive.
-    let cleanup_lock = PgTryBuilder::new(AssertUnwindSafe(|| {
-        // Acquire cleanup_lock - blocks until workers release
-        let cleanup_lock = metadata.cleanup_lock_exclusive();
+    // AdvisoryLock's Drop skips the unlock while an ERROR unwinds, so release the signal here.
+    let merge_lock = PgTryBuilder::new(AssertUnwindSafe(|| {
+        let merge_lock = metadata.acquire_merge_lock_for_cleanup();
 
         // Workers have exited - release signal
         if let Some(lock) = signal.borrow_mut().take() {
             drop(lock);
         }
 
-        cleanup_lock
+        merge_lock
     }))
     .finally(move || {
         // Release signal if error occurred before we released it
@@ -134,23 +130,22 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     })
     .execute();
 
-    // take the MergeLock
-    let merge_lock = metadata.acquire_merge_lock();
-
     // garbage_collect reclaims stale entries (owning backend exited or transaction ended) left
     // behind by a cancelled or crashed merge.
     //
     // We don't assert the list is empty afterwards. A merge that errored between writing its
     // MergeEntry and removing it leaves a not-yet-recyclable entry (backend alive, xmin in
     // progress) that survives garbage_collect. Such an entry is a harmless leftover, not a
-    // concurrent merge -- we hold the CLEANUP_LOCK exclusively, and a live merge holds it shared
-    // for its whole duration -- and a later garbage_collect reclaims it.
+    // concurrent merge: the cleanup acquisition above waited out admitted mergers and MergeLock
+    // blocks new selection. A later garbage_collect reclaims it.
     merge_lock
         .merge_list()
         .garbage_collect(pg_sys::ReadNextFullTransactionId());
 
     let mutable_segments = metadata.freeze_mutable_segments();
-    drop(cleanup_lock);
+
+    #[cfg(feature = "pg_test")]
+    crate::postgres::storage::coordination_test::vacuum_setup_pause();
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
@@ -163,6 +158,9 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let vacuum_sentinel = metadata.pin_ambulkdelete_sentinel();
     // It's important to drop the merge lock after the `vacuum_sentinel` is pinned
     drop(merge_lock);
+
+    #[cfg(feature = "pg_test")]
+    crate::postgres::storage::coordination_test::vacuum_pause();
 
     let mut old_metas = Vec::new();
     let mut new_metas = Vec::new();
@@ -287,7 +285,14 @@ fn flush_mutable_segments(
         }
         let mut merger =
             SearchIndexMerger::open(indexrel, MvccSatisfies::VacuumMerge { live_ctids })?;
-        merger.merge_segments(&segment_ids)?;
+        if let Err(error) = merger.merge_segments(&segment_ids) {
+            // `merge_segments` returns `Err` on cancellation so `merge_index` can clean up its
+            // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
+            // Check for interrupts here before `ambulkdelete`'s `.expect()` turns a cancellation
+            // into an internal error panic.
+            pgrx::check_for_interrupts!();
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -388,6 +393,36 @@ mod tests {
     use super::*;
     use crate::postgres::storage::block::{MutableSegmentEntry, SegmentMetaEntryMutable};
     use tantivy::index::SegmentId;
+
+    #[pg_test(error = "canceling statement due to user request")]
+    unsafe fn test_vacuum_flush_preserves_query_cancellation() {
+        Spi::run(
+            "CREATE TABLE vacuum_cancel (id INT, message TEXT);
+             CREATE INDEX vacuum_cancel_idx ON vacuum_cancel USING paradedb (id, message)
+             WITH (mutable_segment_rows = 100, layer_sizes = '0', background_layer_sizes = '0');
+             INSERT INTO vacuum_cancel VALUES (1, 'hello');",
+        )
+        .unwrap();
+        let indexrel = PgSearchRelation::open(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'vacuum_cancel_idx'::regclass::oid")
+                .unwrap()
+                .unwrap(),
+        );
+        let metadata = MetaPage::open(&indexrel);
+        let segments = metadata.freeze_mutable_segments();
+        assert_eq!(segments.len(), 1);
+
+        flush_mutable_segments(&indexrel, &segments, &|_ctid| {
+            // Arm cancellation after `vacuum_delay_point()` so Tantivy's foreground merge
+            // observes `QueryCancelPending` via `MVCCDirectory::wants_cancel()`.
+            unsafe {
+                pg_sys::QueryCancelPending = 1;
+                pg_sys::InterruptPending = 1;
+            }
+            false
+        })
+        .unwrap();
+    }
 
     #[pg_test]
     unsafe fn test_vacuum_flushes_mutable_batches() {

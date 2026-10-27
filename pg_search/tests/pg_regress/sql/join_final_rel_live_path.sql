@@ -70,26 +70,14 @@ ANALYZE jflp_users;
 ANALYZE jflp_products;
 ANALYZE jflp_orders;
 
--- The heap-filter call in the plan embeds the index OID, which changes on
--- every database creation; mask it so the plan is stable.
-CREATE FUNCTION explain_live_path(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
-    END LOOP;
-END;
-$$;
-
-SELECT explain_live_path($$
+SELECT explain_redact_oid($$
 SELECT jflp_users.id, jflp_users.name
 FROM jflp_users
 LEFT JOIN jflp_products ON jflp_users.id = jflp_products.id
 JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
 WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
 ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id
-$$);
+$$, 'COSTS OFF, VERBOSE, TIMING OFF');
 
 SELECT jflp_users.id, jflp_users.name
 FROM jflp_users
@@ -98,5 +86,4 @@ JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
 WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
 ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id;
 
-DROP FUNCTION explain_live_path(text);
 DROP TABLE jflp_users, jflp_products, jflp_orders;

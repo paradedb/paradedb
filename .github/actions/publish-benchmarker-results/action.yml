@@ -1,32 +1,13 @@
 name: Publish Benchmarker Results
-description: Extract latency and QPS metrics, upload dashboards, publish to gh-pages, and comment on PRs
+description: Publish Benchmarker benchmark results to gh-pages
 
 inputs:
   dataset:
-    description: "Dataset name (e.g. hn-ci, stackexchange)"
-    required: true
-  short_commit:
-    description: "Short commit SHA"
+    description: "Dataset name (e.g. hackernews, stackexchange)"
     required: true
   ref:
-    description: "Git ref or commit benchmarked"
+    description: "Full SHA of the commit benchmarked"
     required: true
-  image_tag:
-    description: "Image tag tested"
-    required: false
-    default: "paradedb-source:ci"
-  results_dir:
-    description: "Directory containing results json and html files"
-    required: false
-    default: "benchmarker/results"
-  metrics_file:
-    description: "Path to write extracted latency metrics json"
-    required: false
-    default: "benchmarker/benchmarker_metrics.json"
-  throughput_metrics_file:
-    description: "Path to write extracted QPS metrics json"
-    required: false
-    default: "benchmarker/benchmarker_throughput_metrics.json"
   github_token:
     description: "GitHub token for publishing and comments"
     required: true
@@ -34,31 +15,36 @@ inputs:
     description: "PR number to comment on (empty if not a PR)"
     required: false
     default: ""
-  auto_push:
-    description: "Whether to auto-push baseline metrics to gh-pages"
+  publish_baseline:
+    description: "Whether to publish baseline metrics to gh-pages"
     required: false
     default: "false"
+  context_file:
+    description: "Optional Markdown context to include above the benchmark comparison"
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
-    - name: Upload dashboards
+    - name: Upload Dashboards
       uses: actions/upload-artifact@v7
       with:
         overwrite: true
         retention-days: 30
-        name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.short_commit }}
+        name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.ref }}
         path: |
-          ${{ inputs.results_dir }}/*.json
-          ${{ inputs.results_dir }}/*.html
+          benchmarker/results/*.json
+          benchmarker/results/*.html
         if-no-files-found: warn
 
-    - name: Extract tracked metrics
+    - name: Extract Tracked Metrics
+      id: metrics
       shell: bash
       env:
-        RESULTS_DIR: ${{ inputs.results_dir }}
-        METRICS_FILE: ${{ inputs.metrics_file }}
-        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
+        RESULTS_DIR: benchmarker/results
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
+        THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -111,83 +97,67 @@ runs:
         done
 
         mkdir -p "$(dirname "${METRICS_FILE}")" "$(dirname "${THROUGHPUT_METRICS_FILE}")"
+        printf '[]\n' > "${METRICS_FILE}"
+        printf '[]\n' > "${THROUGHPUT_METRICS_FILE}"
         if compgen -G "_metrics/*.json" > /dev/null; then
           jq -s 'add | map(select(.unit == "ms"))' _metrics/*.json > "${METRICS_FILE}"
           jq -s 'add | map(select(.unit == "queries/s"))' _metrics/*.json > "${THROUGHPUT_METRICS_FILE}"
           echo "=== Extracted Metrics ==="
           cat "${METRICS_FILE}" "${THROUGHPUT_METRICS_FILE}"
         fi
-
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
+        echo "present=$(jq 'length > 0' "${METRICS_FILE}")" >> "$GITHUB_OUTPUT"
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
-      if: hashFiles(inputs.metrics_file) != ''
-      continue-on-error: true
-      uses: benchmark-action/github-action-benchmark@v1
+      if: steps.metrics.outputs.present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
       with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-latency
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output-file-path: ${{ inputs.metrics_file }}
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        benchmark-data-dir-path: benchmarker
-        auto-push: ${{ inputs.auto_push == 'true' }}
-        alert-threshold: "115%"
-        comment-on-alert: ${{ inputs.pr_number == '' }}
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: false
+        metrics_file: benchmarker/benchmarker_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
 
-    - name: Read latency baseline
+    - name: Read Latency Baseline
       if: inputs.pr_number != '' && steps.publish_latency.outcome == 'success'
       shell: bash
       env:
         DATASET: ${{ inputs.dataset }}
       run: |
-        sed '1s/^window.BENCHMARK_DATA = //' benchmark-data-repository/benchmarker/data.js |
+        sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_latency.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (latency)" '.entries[$suite][-2] // {}' > _latency_baseline.json
-
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
 
     - name: Publish QPS Metrics
       id: publish_throughput
-      if: hashFiles(inputs.throughput_metrics_file) != ''
-      continue-on-error: true
-      uses: benchmark-action/github-action-benchmark@v1
+      if: steps.metrics.outputs.present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
       with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-throughput
         name: "benchmarker ${{ inputs.dataset }} (throughput)"
         ref: ${{ inputs.ref }}
-        tool: customBiggerIsBetter
-        output-file-path: ${{ inputs.throughput_metrics_file }}
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        benchmark-data-dir-path: benchmarker
-        auto-push: ${{ inputs.auto_push == 'true' }}
-        alert-threshold: "115%"
-        comment-on-alert: ${{ inputs.pr_number == '' }}
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: false
+        direction: bigger
+        metrics_file: benchmarker/benchmarker_throughput_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
 
-    - name: Read QPS baseline
+    - name: Read QPS Baseline
       if: inputs.pr_number != '' && steps.publish_throughput.outcome == 'success'
       shell: bash
       env:
         DATASET: ${{ inputs.dataset }}
       run: |
-        sed '1s/^window.BENCHMARK_DATA = //' benchmark-data-repository/benchmarker/data.js |
+        sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_throughput.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (throughput)" '.entries[$suite][-2] // {}' > _throughput_baseline.json
 
-    - name: Stage dashboards (HTML only) for gh-pages
+    - name: Stage Dashboards (HTML Only) for gh-pages
       shell: bash
       env:
-        RESULTS_DIR: ${{ inputs.results_dir }}
+        RESULTS_DIR: benchmarker/results
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -198,33 +168,34 @@ runs:
         fi
         ls -la _ghpages_html
 
-    - name: Publish dashboards to gh-pages
+    - name: Publish Dashboards to gh-pages
       if: hashFiles('_ghpages_html/*.html') != ''
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ inputs.github_token }}
         publish_dir: ./_ghpages_html
-        destination_dir: benchmarker-runs/${{ inputs.short_commit }}/${{ inputs.dataset }}
+        destination_dir: benchmarker-runs/${{ inputs.ref }}/${{ inputs.dataset }}
         keep_files: true
         user_name: "github-actions[bot]"
         user_email: "github-actions[bot]@users.noreply.github.com"
-        commit_message: "benchmarker dashboards for ${{ inputs.short_commit }} (${{ inputs.dataset }})"
+        commit_message: "benchmarker dashboards for ${{ inputs.ref }} (${{ inputs.dataset }})"
 
-    - name: Comment benchmark comparison and dashboard links
-      if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
+    - name: Comment Benchmark Comparison and Dashboard Links
+      if: inputs.pr_number != '' && (hashFiles('_ghpages_html/*.html') != '' || inputs.context_file != '')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
         EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
-        STEP_COMMIT_INFO_SHORT_COMMIT: ${{ inputs.short_commit }}
+        COMMIT_SHA: ${{ inputs.ref }}
         PR_NUMBER: ${{ inputs.pr_number }}
         DATASET: ${{ inputs.dataset }}
-        METRICS_FILE: ${{ inputs.metrics_file }}
-        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
+        THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
+        CONTEXT_FILE: ${{ inputs.context_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
-        BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${STEP_COMMIT_INFO_SHORT_COMMIT}/${DATASET}"
+        BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${COMMIT_SHA}/${DATASET}"
         OVERTIME="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker/"
         links=""
         for h in _ghpages_html/*.html; do
@@ -232,9 +203,13 @@ runs:
           links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
         done
         {
-          printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${STEP_COMMIT_INFO_SHORT_COMMIT}"
+          printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:0:7}"
+          if [ -n "$CONTEXT_FILE" ]; then
+            cat "$CONTEXT_FILE"
+            printf '\n'
+          fi
           jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json '
-            "Baselines: latency `\($latency[0].commit.id // "—")`, QPS `\($throughput[0].commit.id // "—")`.\n"
+            "Baselines: latency `\(($latency[0].commit.id // "n/a") | .[0:7])`, QPS `\(($throughput[0].commit.id // "n/a") | .[0:7])`.\n"
           '
           printf '| Benchmark | Current | Previous | Ratio |\n|---|---:|---:|---:|\n'
           jq -nr \
@@ -253,14 +228,14 @@ runs:
                    if $current.value > 0 then $previous.value / $current.value else null end
                  else $current.value / $previous.value end
                else null end) as $ratio
-            | (if $ratio == null then "—" else
+            | (if $ratio == null then "n/a" else
                  "\($ratio * 100 | round / 100)x" + (if $ratio > 1.15 then " ⚠️" else "" end)
                end) as $ratio_text
-            | "| `\($current.name)` | \($current | display) | \(if $previous == null then "—" else $previous | display end) | \($ratio_text) |"
+            | "| `\($current.name)` | \($current | display) | \(if $previous == null then "n/a" else $previous | display end) | \($ratio_text) |"
           '
-          printf '\nRatio: current/previous for latency, previous/current for QPS; below 1 is better. ⚠️ marks regressions above 1.15x. — means no comparable baseline.\n'
+          printf '\nRatio: current/previous for latency, previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
           printf '\n'
-          printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
+          printf 'Interactive per-script graphs (latency timeline, throughput, and resource metrics when available):\n\n'
           printf '%s\n' "$links"
           printf 'Over-time tracking (p50, p95, p99 latency and QPS across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
           printf '_gh-pages may take ~a minute to deploy after this run._\n'
@@ -268,12 +243,12 @@ runs:
         cat _comment.md >> "${GITHUB_STEP_SUMMARY}"
         gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
 
-    - name: Fail if no metrics were extracted
+    - name: Fail if No Metrics Were Extracted
       shell: bash
       env:
-        METRICS_FILE: ${{ inputs.metrics_file }}
+        METRICS_FILE: benchmarker/benchmarker_metrics.json
       run: |
-        [ -f "${METRICS_FILE}" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
+        [ -f "${METRICS_FILE}" ] || { echo "No metrics file because an earlier step failed. Skipping the check."; exit 0; }
         n=$(jq 'length' "${METRICS_FILE}")
         echo "extracted metric rows: ${n}"
         if [ "${n:-0}" -eq 0 ]; then

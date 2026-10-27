@@ -31,6 +31,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::ActiveSnapshotGuard;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -331,7 +332,11 @@ impl SegmentView {
 pub enum MvccSatisfies {
     /// Replay exactly the given view; see [`SegmentView`].
     ParallelWorker(SegmentView),
-    /// Read only the largest segment visible to the active snapshot, for estimates.
+    /// Read only the largest segment visible to the active snapshot (preferring non-empty
+    /// persisted segments over mutable segments), for estimates.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will maintain index-wide summary
+    /// statistics for query estimation, replacing single-segment sampling.
     LargestSegment,
     /// Read all segments visible to the active snapshot.
     Snapshot,
@@ -556,6 +561,7 @@ impl MVCCDirectory {
                 }
                 let file_handle = directory
                     .get_or_init(|| {
+                        let _snapshot_guard = ActiveSnapshotGuard::ensure();
                         let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
                             let heaprel = self
                                 .indexrel
@@ -1014,8 +1020,11 @@ impl Directory for MVCCDirectory {
     }
 
     fn wants_cancel(&self) -> bool {
+        // The merger's SIGTERM handler sets `ProcDiePending`, so a fast shutdown has to stop
+        // the loops that poll here too, not only a query cancel.
         unsafe {
             pg_sys::QueryCancelPending != 0
+                || pg_sys::ProcDiePending != 0
                 || !pg_sys::IsTransactionState()
                 || pg_sys::IsAbortedTransactionBlockState()
         }
@@ -1078,44 +1087,6 @@ pub fn index_memory_segment(
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::heap::HeapDocFetcher;
     use pgrx::PgTupleDesc;
-
-    /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
-    /// detoasting performed while materializing a mutable segment.
-    ///
-    /// Most callers of [`index_memory_segment`] (ordinary DML, queries, VACUUM, background merge
-    /// workers) already run with an active snapshot. The logical-replication apply worker, however,
-    /// applies remote changes without pushing one, and `pg_detoast_datum` on an out-of-line TOAST
-    /// value requires a snapshot (`get_toast_snapshot` errors otherwise). This guard pushes the
-    /// transaction snapshot only when the caller lacks one, and pops it on normal scope exit.
-    ///
-    /// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
-    /// active-snapshot stack; popping again here would underflow it, so the drop implementation
-    /// uses `impl_safe_drop!` to skip cleanup while unwinding.
-    struct ActiveSnapshotGuard {
-        pushed: bool,
-    }
-
-    impl ActiveSnapshotGuard {
-        unsafe fn ensure() -> Self {
-            let pushed = !pg_sys::ActiveSnapshotSet();
-            if pushed {
-                pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
-            }
-            Self { pushed }
-        }
-    }
-
-    crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
-        if self.pushed {
-            unsafe {
-                pg_sys::PopActiveSnapshot();
-            }
-        }
-    });
-
-    // Ensure an active snapshot for the heap fetches, detoasting, and expression evaluation
-    // below. Held until this function returns so it covers the entire materialization loop.
-    let _snapshot_guard = unsafe { ActiveSnapshotGuard::ensure() };
 
     let directory = RamDirectory::create();
     let ctids = match mvcc_style {

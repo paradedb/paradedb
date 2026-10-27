@@ -45,7 +45,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList, WindowAggInput, WindowAggKind,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{
-    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+    ColumnRef, CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
 };
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
@@ -69,8 +69,11 @@ use crate::postgres::customscan::joinscan::scan_state::{
 use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::scan::PgSearchTableProvider;
+use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
+use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::{coalesce, get_field};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
@@ -621,8 +624,18 @@ fn build_pdb_aggregate_plan(
 
     let mut level_plans = Vec::with_capacity(groups.len());
 
-    for (needed_keys, levels_in_group) in groups {
-        let mut level_plan = input.clone();
+    // Cloned union groups must not share a provider's runtime state: each group needs its own
+    // `ExprContext` (solving parameters resets per-tuple memory), and under MPP each scan claims
+    // segments from the pool its `source_idx` names (clones sharing the original's indexes would
+    // split every pool between them, so groups past the first get pools one source list apart,
+    // matching the launch's `i % sources` manifest replay).
+    let pool_stride = plan.sources().len();
+    for (group_idx, (needed_keys, levels_in_group)) in groups.into_iter().enumerate() {
+        let mut level_plan = if group_idx == 0 {
+            input.clone()
+        } else {
+            isolate_cloned_sources(input.clone(), group_idx * pool_stride)?
+        };
         for ak in &array_keys {
             if needed_keys.contains(&ak.key_idx) {
                 level_plan = unnest_plan_column(
@@ -744,6 +757,27 @@ fn build_pdb_aggregate_plan(
         }
         Ok(combined)
     }
+}
+
+/// Give every `PgSearchTableProvider` in a cloned union group its own runtime `ExprContext`
+/// and, under MPP, move its segment claims to the pool `offset` past its own.
+fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPlan> {
+    plan.transform(|node| {
+        let LogicalPlan::TableScan(mut scan) = node else {
+            return Ok(Transformed::no(node));
+        };
+        let Some(provider) = pg_search_provider_from_scan(&scan) else {
+            return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+        };
+        let mut provider = provider.clone();
+        if let Some(idx) = provider.source_idx() {
+            provider.set_source_idx(idx + offset);
+        }
+        provider.ensure_own_expr_context();
+        scan.source = Arc::new(DefaultTableSource::new(Arc::new(provider)));
+        Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
+    })
+    .map(|t| t.data)
 }
 
 /// Aggregate with every `pdb.agg()` level folded in as grouping sets, then
@@ -1216,16 +1250,16 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
 /// which carries raw planner `JoinAggSource`s instead of a `RelNode` tree.
-struct FilterExprExecContext<'a> {
-    targetlist: Option<&'a JoinAggregateTargetList>,
-    plan: Option<&'a RelNode>,
+pub struct FilterExprExecContext<'a> {
+    pub targetlist: Option<&'a JoinAggregateTargetList>,
+    pub plan: Option<&'a RelNode>,
 }
 
 impl FilterExpr {
     /// Translate this expression to a DataFusion `Expr`.
     ///
     /// Used for both HAVING (pass `targetlist`) and per-aggregate FILTER (pass `plan`).
-    fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
+    pub fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
         use datafusion::logical_expr::Operator;
 
         match self {
@@ -1246,11 +1280,11 @@ impl FilterExpr {
                     Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
                 })
             }
-            FilterExpr::ColumnRef {
+            FilterExpr::ColumnRef(ColumnRef {
                 plan_position,
                 field_name,
                 ..
-            } => {
+            }) => {
                 let plan = ctx.plan?;
                 Some(make_plan_position_col(plan, *plan_position, field_name))
             }
@@ -1344,31 +1378,6 @@ async fn build_source_df(
         .map(|f| f.field.clone())
         .collect();
 
-    // Each source that solves runtime PostgreSQL expressions needs its own
-    // per-tuple memory context. SearchQueryInput::solve_postgres_expressions()
-    // resets that context before replacing Param/PostgresExpression nodes. If
-    // two providers share one context, solving the second source invalidates
-    // the Const/expression nodes retained by the first source. Generic plans
-    // that parameterize predicates on both join inputs then dereference stale
-    // nodes during reader construction and abort the backend.
-    let needs_runtime_context =
-        scan_info.mode.has_postgres_expressions() || scan_info.mode.has_parameters();
-    // Only the EXPLAIN-only rebuild has no planstate. It preserves runtime
-    // expressions without solving them, so the fallback context is never reset.
-    let source_expr_context = if needs_runtime_context {
-        planstate
-            .and_then(|planstate| {
-                if planstate.is_null() || unsafe { (*planstate).state.is_null() } {
-                    None
-                } else {
-                    Some(unsafe { pg_sys::CreateExprContext((*planstate).state) })
-                }
-            })
-            .or(expr_context)
-    } else {
-        expr_context
-    };
-
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
@@ -1400,8 +1409,9 @@ async fn build_source_df(
     // `init_postgres_expressions` / `solve_postgres_expressions` only
     // when needed, so threading them through here is what makes the
     // agg-on-join path match JoinScan and Base Scan.
-    provider.set_expr_context(source_expr_context);
+    provider.set_expr_context(expr_context);
     provider.set_planstate(planstate);
+    provider.ensure_own_expr_context();
     provider.set_explain_only(planstate.is_none());
 
     // Strings leave the scan deferred, so the placement rule can put each half of their
@@ -1458,7 +1468,7 @@ async fn build_source_df(
     }
 }
 
-fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
+pub(super) fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
     let Some(source) = plan.source_at_plan_position(plan_position) else {
         return false;
     };

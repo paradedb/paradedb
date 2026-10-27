@@ -19,7 +19,7 @@ on:
         required: false
         default: ""
       use_benchmarks_from_ref:
-        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used."
+        description: "Whether to use benchmark code from the specified commit instead of main. Actions always come from this workflow."
         required: false
         type: boolean
         default: false
@@ -30,7 +30,7 @@ permissions:
   deployments: write
   pull-requests: write
 
-# We don't specify a concurrency group here, as we want all jobs to complete.
+# Benchmark jobs run in parallel. Publication jobs use the shared gh-pages queue.
 
 jobs:
   benchmark-pg_search-stressgres:
@@ -95,48 +95,39 @@ jobs:
             echo "Determined ref as default: main"
           fi
 
-      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
+      # Keep workflow actions separate from the source commit being benchmarked
+      # so we can benchmark older commits with newer actions.
+      - name: Checkout Workflow Actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Checkout Source to Benchmark
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
+          path: source
+          persist-credentials: false
           fetch-depth: 1
 
+      - name: Resolve Benchmark Commit
+        id: commit_info
+        working-directory: source
+        run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
-      - name: Derive Short Commit
-        id: commit_info
-        run: |
-          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
-          echo "Deriving short commit: $short_commit"
-
-      - name: Fetch the Latest Composite Actions
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository }}
-          path: actions-temp
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 1
-          ref: main
-
-      - name: Copy latest actions into place
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        run: cp -rv actions-temp/.github/actions .github/
-
-      - name: Cleanup temporary checkout
-        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
-        run: rm -rf actions-temp
-
-      # Nightly and default manual runs use the latest benchmark code from main.
-      - name: Fetch latest benchmark code, suites
+      - name: Fetch Latest Benchmark Code, Suites
         if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          source_directory: source
 
-      - name: Resolve git ref to PR
+      - name: Resolve Git Ref to PR
         id: pr_label
         uses: actions/github-script@v9
         env:
@@ -145,7 +136,7 @@ jobs:
           # • a branch name:    ${{ github.ref_name }}
           # • a tag:            ${{ github.ref_name }}
           # • a PR number:      e.g. “123”
-          TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          TARGET_REF: ${{ steps.commit_info.outputs.commit_sha }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           result-encoding: string
@@ -200,6 +191,7 @@ jobs:
       - name: Set Up pg_search Build Environment
         uses: ./.github/actions/setup-pg-search-build-environment
         with:
+          source_directory: source
           pg_version: ${{ env.pg_version }}
           cache_prefix_key: "v2-benchmarks-rust-cache"
           cache_save: "true"
@@ -211,16 +203,17 @@ jobs:
         run: ./.github/scripts/setup_crashdumps.sh
 
       - name: Compile and Install pg_search
+        working-directory: source
         run: >-
           cargo pgrx install -p pg_search --sudo --release
           --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
           --features=pg${{ env.pg_version }} --no-default-features
 
       - name: Start PostgreSQL
-        working-directory: pg_search/
+        working-directory: source/pg_search/
         run: cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Configure PostgreSQL settings and machine settings
+      - name: Configure PostgreSQL Settings and Machine Settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
         run: |
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM RESET ALL;"
@@ -236,36 +229,35 @@ jobs:
           sudo sysctl -w vm.nr_hugepages=10000
 
       - name: Restart Postgres
-        working-directory: pg_search/
+        working-directory: source/pg_search/
         run: |
           cargo pgrx stop pg${{ env.pg_version }}
           cargo pgrx start pg${{ env.pg_version }}
 
       - name: Install pg_search
-        working-directory: pg_search/
+        working-directory: source/pg_search/
         run: |
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
 
       - name: Restart Postgres
-        working-directory: pg_search/
+        working-directory: source/pg_search/
         run: |
           cargo pgrx stop pg${{ env.pg_version }}
           cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Install the Stressgres CLI tool
-        working-directory: stressgres/
+      - name: Install the Stressgres CLI Tool
+        working-directory: source/stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
       # Each suite is its own matrix job, so a failure never skips later topologies.
       - name: Benchmark ${{ matrix.suite }}
         uses: ./.github/actions/benchmark-stressgres
         with:
+          source_directory: source
           test_file: ${{ matrix.suite }}
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          ref: ${{ steps.commit_info.outputs.commit_sha }}
 
       - name: Print Crashdump Stacktrace
         if: always()
@@ -273,10 +265,17 @@ jobs:
           PG_VERSION: ${{ env.pg_version }}
         run: ./.github/scripts/render_crashdump.sh
 
+  publish-results:
+    name: Publish Benchmark Results
+    needs: [benchmark-pg_search-stressgres]
+    if: always() && !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure'))
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit
+
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-pg_search-stressgres]
-    if: always() && needs.benchmark-pg_search-stressgres.result == 'failure' && github.event_name == 'schedule'
+    needs: [benchmark-pg_search-stressgres, publish-results]
+    if: always() && (needs.benchmark-pg_search-stressgres.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read

@@ -117,6 +117,120 @@ WHERE p.id @@@ pdb.all() AND EXISTS (
      1
 (1 row)
 
+SELECT explain_redact_oid($$
+SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
+       count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
+       count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
+       count(*) FILTER (WHERE o.id > 1) AS later_orders
+FROM agg_numeric_products p
+JOIN agg_numeric_orders o ON o.name = p.name
+WHERE p.id @@@ pdb.all()
+$$);
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: join)
+                                                                                                                                                                                    explain_redact_oid                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (p.name = o.name)
+         ->  Bitmap Heap Scan on agg_numeric_products p
+               Filter: paradedb.search_with_query_input_ctid_or_row_strict(id, '{"with_index":{"oid":N,"query":{"all":{"field":"id"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] ELSE '{}'::record[] END, ROW())
+               ->  Bitmap Index Scan on agg_numeric_products_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"all":{"field":"id"}}}}'::paradedb.searchqueryinput)
+         ->  Hash
+               ->  Seq Scan on agg_numeric_orders o
+                     Disabled: true
+(10 rows)
+
+SELECT count(*) FILTER (WHERE o.price > 50) AS over_fifty,
+       count(*) FILTER (WHERE o.price > 12.34) AS over_cheapest,
+       count(*) FILTER (WHERE o.amount > 0) AS positive_amount,
+       count(*) FILTER (WHERE o.id > 1) AS later_orders
+FROM agg_numeric_products p
+JOIN agg_numeric_orders o ON o.name = p.name
+WHERE p.id @@@ pdb.all();
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: join)
+ over_fifty | over_cheapest | positive_amount | later_orders 
+------------+---------------+-----------------+--------------
+          1 |             1 |               1 |            2
+(1 row)
+
+-- A HAVING clause that compares an aggregate with a NUMERIC literal: AVG of an
+-- integer is NUMERIC, so 1.5 is a NUMERIC constant, decoded as its value.
+-- bob's order ids average exactly 1.5 and carol's 3, so only carol is kept.
+EXPLAIN (COSTS OFF)
+SELECT p.name, avg(o.id) AS avg_id
+FROM agg_numeric_products p
+JOIN agg_numeric_orders o ON o.name = p.name
+WHERE p.id @@@ pdb.all()
+GROUP BY p.name
+HAVING avg(o.id) > 1.5
+ORDER BY p.name;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_numeric_products_idx (p), agg_numeric_orders_idx (o)
+         Group By: name
+         Aggregates: AVG(id)
+         DataFusion Physical Plan: 
+           : FilterExec: agg_0@1 > 1.5
+           :   AggregateExec: mode=Single, gby=[name@0 as name], aggr=[avg(o_1.id) as agg_0]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, name@1)], projection=[name@0, id@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(15 rows)
+
+SELECT p.name, avg(o.id) AS avg_id
+FROM agg_numeric_products p
+JOIN agg_numeric_orders o ON o.name = p.name
+WHERE p.id @@@ pdb.all()
+GROUP BY p.name
+HAVING avg(o.id) > 1.5
+ORDER BY p.name;
+ name  | avg_id 
+-------+--------
+ carol |      3
+(1 row)
+
+-- #6792 on a single table, with default settings so the DataFusion backend
+-- takes the query: a NUMERIC FILTER declines, and the count is 1380, not the
+-- 5400 rows the scan returns.
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_filter_pushdown;
+RESET enable_seqscan;
+RESET enable_indexscan;
+CREATE TABLE agg_numeric_scores (id text PRIMARY KEY, score numeric(3, 2), removed_at timestamptz);
+INSERT INTO agg_numeric_scores
+SELECT 'r' || g, (g % 100) / 10.0, CASE WHEN g % 10 = 0 THEN now() END
+FROM generate_series(1, 6000) g;
+CREATE INDEX agg_numeric_scores_idx ON agg_numeric_scores
+USING paradedb ((id::pdb.literal), score) WHERE removed_at IS NULL;
+EXPLAIN (COSTS OFF)
+SELECT count(*) FILTER (WHERE score >= 7.5) AS high, count(score) AS n
+FROM agg_numeric_scores
+WHERE removed_at IS NULL;
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: agg_numeric_scores)
+              QUERY PLAN              
+--------------------------------------
+ Aggregate
+   ->  Seq Scan on agg_numeric_scores
+         Filter: (removed_at IS NULL)
+(3 rows)
+
+SELECT count(*) FILTER (WHERE score >= 7.5) AS high, count(score) AS n
+FROM agg_numeric_scores
+WHERE removed_at IS NULL;
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: agg_numeric_scores)
+ high |  n   
+------+------
+ 1380 | 5400
+(1 row)
+
+DROP TABLE agg_numeric_scores;
 DROP TABLE agg_numeric_orders, agg_numeric_products;
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_aggregate_custom_scan;

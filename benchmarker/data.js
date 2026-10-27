@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793127414398,
+  "lastUpdate": 1793127610699,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18004,6 +18004,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12710514048-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "74999164+BilalAtique@users.noreply.github.com",
+            "name": "Bilal Atique",
+            "username": "BilalAtique"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "43e55167f2dafe06a9b7c565d6d702c699d0b460",
+          "message": "fix: return system columns from JoinScan heap tuples (#6887)\n\n# Ticket(s) Closed\n\n- Closes #6630\n\n## What\n\nJoinScan returns the fetched row's `ctid`, `tableoid`, `xmin`, `cmin`,\n`xmax`, and `cmax` when they appear in the select list. Both sides of a\njoin use their own heap tuple. An unmatched outer-join side still\nreturns NULL.\n\n## Why\n\nThere were two places that lost system columns. `JoinSource::has_attno`\naccepted only `ctid` among the negative attribute numbers, so the other\nsystem columns were marked as pruned. `build_result_tuple` then returned\nNULL for every nonpositive attribute number, including `ctid`, even\nafter it had fetched the row.\n\n## How\n\n- Accept PostgreSQL's valid system attribute numbers when resolving a\nsource.\n- Read negative attributes through `slot_getsysattr` on the source's\nexisting `BufferHeapTuple` slot. Read ordinary columns through\n`slot_getattr` as before.\n- Keep the null-extension check before either accessor, so an unmatched\nsource cannot reuse the previous row's metadata.\n\n## Tests\n\n`tests/tests/joinscan_system_columns.rs` runs each query with JoinScan\non and then off. It compares every returned column byte for byte: all\nsix system columns from each source, and the ordinary selected columns.\nEach case also checks that the plan uses JoinScan and that PostgreSQL\nreturns the expected nonzero number of rows.\n\nIt covers an inner join, a self-join with different rows on each side,\nan unmatched LEFT JOIN row, a select list containing only system\ncolumns, and an unindexed-column update followed by VACUUM. The test\nruns each query directly rather than wrapping it in an aggregate that\ncould change its plan.\n\n`join_system_columns.sql` shows the JoinScan plan and the system column\nvalues that do not depend on transaction IDs or table OIDs (`ctid`,\n`cmin`, `xmax`, and `cmax`). It covers the inner join and the unmatched\nLEFT JOIN row.\n\nThese focused checks do not exercise RIGHT/FULL joins, MPP, partitioned\nsources, or system columns used inside expressions or sort/group keys.\n\nWithout the fix, on current `main` (`97bc1c6`), all five integration\ncases fail. JoinScan returns NULL for all six system columns from both\nsources, while PostgreSQL returns each row's actual metadata. The\nregression output differs only in those NULL values; the plan is the\nsame. The fixed version matches PostgreSQL.\n\n## Verification\n\n[Fork verification on PostgreSQL 15 and\n18](https://github.com/BilalAtique/paradedb/actions/runs/40466606909)\nran on this branch merged with `main` (`97bc1c6`), on assertion-enabled\nPostgreSQL builds:\n\n| Check | PG15 | PG18 |\n| --- | --- | --- |\n| Integration test without the fix: 0 of 5 pass | Pass | Pass |\n| Integration test with the fix: 5 of 5 pass | Pass | Pass |\n| `join_system_columns` pg_regress fails without the fix | Pass | Pass |\n| `join_system_columns` pg_regress passes with the fix | Pass | Pass |\n| `join_hot_update_vacuum` pg_regress | Pass | Pass |\n| `cargo fmt --all -- --check` | Pass | Pass |\n| `cargo clippy --package tests --test joinscan_system_columns -- -D\nwarnings` | Pass | Pass |\n\npg_regress generated the expected output. It is byte-for-byte identical\non both versions. The fork-only workflow that ran these checks is not\npart of this PR.\n\nAfter merge: confirm the merge commit is on `main` and the upstream\nPostgreSQL test matrix is green. When a release contains it, run the\nissue's SQL against that extension version.",
+          "timestamp": "2026-10-27T11:22:50-06:00",
+          "tree_id": "bd4a3c728757b889ca6ecdca6f40dc8707f8d8cc",
+          "url": "https://github.com/paradedb/paradedb/commit/43e55167f2dafe06a9b7c565d6d702c699d0b460"
+        },
+        "date": 1793127575486,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.065,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.722,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 343.173,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.058,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 102.74,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 183.859,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.963,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 147.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.536,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.018,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 14.966,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 81.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 184.183,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12762440596-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [

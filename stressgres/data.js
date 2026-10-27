@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793061817020,
+  "lastUpdate": 1793061948165,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -424248,6 +424248,89 @@ window.BENCHMARK_DATA = {
             "extra": "avg tps: 632.0097843899006, max tps: 651.688982335519, count: 55304"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 \u00d7\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8\u201326), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T20:40:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793061911189,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 598.6883853449358,
+            "unit": "median tps",
+            "extra": "avg tps: 596.814804312424, max tps: 627.0181085348096, count: 55273"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 525.9805673926035,
+            "unit": "median tps",
+            "extra": "avg tps: 526.3764803341381, max tps: 603.5951657177905, count: 55273"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 210.49214221152857,
+            "unit": "median tps",
+            "extra": "avg tps: 211.20884169679337, max tps: 223.05404714030604, count: 55273"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 613.1822152980482,
+            "unit": "median tps",
+            "extra": "avg tps: 611.4761614000062, max tps: 659.5917149270992, count: 55273"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 428.10475657045504,
+            "unit": "median tps",
+            "extra": "avg tps: 428.3739047695769, max tps: 455.67579246342524, count: 55273"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.68594879554055,
+            "unit": "median tps",
+            "extra": "avg tps: 14.696832429103264, max tps: 15.637311845774342, count: 55273"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 748.8068472704605,
+            "unit": "median tps",
+            "extra": "avg tps: 749.5261398810609, max tps: 797.3938454598133, count: 55273"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 729.5157095795628,
+            "unit": "median tps",
+            "extra": "avg tps: 732.6263991378594, max tps: 817.3573841103995, count: 55273"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 325.46532731525355,
+            "unit": "median tps",
+            "extra": "avg tps: 325.7609124125872, max tps: 341.95555064370797, count: 55273"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 615.5228461291916,
+            "unit": "median tps",
+            "extra": "avg tps: 618.8278119087278, max tps: 689.2346932508193, count: 55273"
+          }
+        ],
+        "publication_id": "12696458326-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793091762552,
+  "lastUpdate": 1793091901829,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -362913,6 +362913,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12697703173-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bc1c667888a76a3b48fd6a2a692422e2d82ffc",
+          "message": "ci: migrate Cohere vector benchmarks to pdbench and Benchmarker (#7040)\n\nCohere vector CI currently owns its recall sweep, latency sampling, and\ncomparison logic. Replace that path with `paradedb/pdbench` for\nr90/r95/r99 max_probe selection and `paradedb/benchmarker` k6 for\nlatency and throughput at each selected point.\n\nKeep the native pgrx cluster, pgBackRest 1M/10M heap snapshots, index\noptions, vacuuming, and snapshot generation. The index uses the current\n`paradedb` access-method name so pdbench recognizes it. Preserve the\nexisting 100 query vectors and unfiltered/year/battle ground-truth\nfixtures; remove HNSW, IVFFlat, VectorChord, and pgvectorscale CI\nimplementations.\n\nReuse the Wikipedia/StackExchange publisher for p50/p95/p99 and QPS per\nfilter/recall target, with recall, selected max_probe, and mean shared\nbuffer hits/reads above the comparisons. Verify parameterized query\nplans before k6, retain unreached targets without fabricating timing\nresults, and start separate Cohere Benchmarker baseline histories. The\nhandoff exports pdbench's selections and session settings without\nimplementing a second sweep or timing engine.\n\nValidation:\n- 31 Rust benchmark tests and 5 Python handoff/plan tests pass.\n- Workflow lint, Ruff, rustfmt, Prettier, and whitespace checks pass.\n- Native 1M k6 smoke tests pass at all eight reachable operating points;\nfilter pushdown is verified. The shared publisher extracts 24 latency\nand eight QPS series with warmup excluded, and its locally rendered\ncomment includes the recall/buffer table.\n- Completed all three 100-vector recall sweeps against a native 1M\nindex. The parameterized k6 query path reproduces pdbench recall at all\neight reachable operating points; unfiltered r99 is correctly reported\nas unreachable on that local build.\n- Cloud 1M/10M snapshot restore and full 300-second-per-point runs are\nin progress in CI. Local smoke timings are functional checks, not CI\nperformance results.\n\nThe existing ground-truth Parquets are imported into pdbench's fixture\ntable before the sweep. Both external tool revisions are pinned and\nrecorded with the run artifacts.",
+          "timestamp": "2026-10-27T03:26:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bc1c667888a76a3b48fd6a2a692422e2d82ffc"
+        },
+        "date": 1793091869635,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 13.294966374684954,
+            "unit": "median tps",
+            "extra": "avg tps: 11.885662500138482, max tps: 15.759104775359644, count: 59119"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.1633706896677816,
+            "unit": "median tps",
+            "extra": "avg tps: 2.2014778153658856, max tps: 2.4439077448775444, count: 59119"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 176.18025301961333,
+            "unit": "median tps",
+            "extra": "avg tps: 186.90659483519002, max tps: 346.08650155836534, count: 59119"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 157.7996935725322,
+            "unit": "median tps",
+            "extra": "avg tps: 175.91201102686045, max tps: 466.54797658535944, count: 59119"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 171.28927148623652,
+            "unit": "median tps",
+            "extra": "avg tps: 191.18431380753455, max tps: 405.737950174262, count: 59119"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 171.99942317865586,
+            "unit": "median tps",
+            "extra": "avg tps: 187.02911807889467, max tps: 378.55267070102707, count: 59119"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 188.611170712326,
+            "unit": "median tps",
+            "extra": "avg tps: 203.12690474883817, max tps: 486.8241949422206, count: 59119"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 180.27596928481,
+            "unit": "median tps",
+            "extra": "avg tps: 191.74574737583237, max tps: 505.62676684032897, count: 59119"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 173.02101702228416,
+            "unit": "median tps",
+            "extra": "avg tps: 191.44365929720533, max tps: 402.7271158321556, count: 59119"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 166.091910499966,
+            "unit": "median tps",
+            "extra": "avg tps: 186.68018442311998, max tps: 549.8689676470847, count: 59119"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 181.60428788445088,
+            "unit": "median tps",
+            "extra": "avg tps: 197.39076377954964, max tps: 321.90026161036894, count: 59119"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 176.22993578442208,
+            "unit": "median tps",
+            "extra": "avg tps: 196.0452561073032, max tps: 468.3319399220239, count: 59119"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 169.38400529647606,
+            "unit": "median tps",
+            "extra": "avg tps: 181.5303012393867, max tps: 384.43120811408414, count: 59119"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 175.66521950956002,
+            "unit": "median tps",
+            "extra": "avg tps: 191.0718556382197, max tps: 431.25389514573374, count: 59119"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 184.70086320400836,
+            "unit": "median tps",
+            "extra": "avg tps: 203.35331874431404, max tps: 454.56597402625005, count: 59119"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 180.88980081985602,
+            "unit": "median tps",
+            "extra": "avg tps: 196.69638364505772, max tps: 384.9734658331235, count: 59119"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 179.4378033503318,
+            "unit": "median tps",
+            "extra": "avg tps: 187.56613036630435, max tps: 330.0182457479948, count: 59119"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 173.33837792514024,
+            "unit": "median tps",
+            "extra": "avg tps: 188.4848601968635, max tps: 483.8496171271926, count: 59119"
+          }
+        ],
+        "publication_id": "12717983907-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [

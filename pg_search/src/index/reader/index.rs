@@ -4451,11 +4451,11 @@ mod tests {
         ).unwrap();
         for (predicate, parallel) in [
             ("", false),
-            ("WHERE category = 'keep'", true),
-            ("WHERE id > 1", true),
+            ("AND category = 'keep'", true),
+            ("AND id > 1", true),
         ] {
             let plan = Spi::get_one::<pgrx::Json>(&format!(
-                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
             )).unwrap().unwrap().0;
             let mut nodes = vec![&plan[0]["Plan"]];
             let mut found = false;

@@ -1,9 +1,5 @@
 [
   {
-    "source": "/operate/deploy/logical-replication/configuration",
-    "destination": "/operate/deploy/logical-replication/schema-changes"
-  },
-  {
     "source": "/operate/deploy/ci/gitlab-ci",
     "destination": "/operate/deploy/ci/gitlab-pipelines"
   },

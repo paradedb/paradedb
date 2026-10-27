@@ -104,8 +104,9 @@ drop_snippet_indexes() {
 
 python3 "${SCRIPT_DIR}/extract_code_snippets.py"
 
-# Make the geometric table and its search index available to every ORM harness.
+# Make the external-index fixtures available to every ORM harness.
 run_psql_file "${SQL_DIR}/reference__filtering__external-indexes__fence-001.sql"
+run_psql_file "${SQL_DIR}/reference__filtering__external-indexes__fence-012.sql"
 
 sql_pass_count=0
 sql_fail_count=0
@@ -234,7 +235,7 @@ if has_target sqlalchemy; then
 
     if {
       cat <<PY
-from sqlalchemy_snippet_harness import MockItem, MockItemGeo, Order, ArrayDemo, engine
+from sqlalchemy_snippet_harness import MockItem, MockItemGeo, MockItemPath, Order, ArrayDemo, engine
 
 # Source: $rel_snippet
 PY

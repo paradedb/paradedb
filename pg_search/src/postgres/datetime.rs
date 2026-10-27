@@ -1000,12 +1000,12 @@ mod tests {
         for value in [
             PdbOwnedValue::Date(epoch),
             PdbOwnedValue::Timestamp(timestamp),
-            PdbOwnedValue::I64(0),
         ] {
             let date: pgrx::datum::Date = TantivyValue(value).try_into().unwrap();
             assert_eq!(date.to_pg_epoch_days(), 0);
         }
         for value in [
+            PdbOwnedValue::I64(0),
             PdbOwnedValue::I64(i64::MAX),
             PdbOwnedValue::I64(i64::from(MAX_PG_DATE_DAYS) + 1),
             PdbOwnedValue::Str("2000-01-01".into()),

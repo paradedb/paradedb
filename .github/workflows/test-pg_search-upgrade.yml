@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/test-pg_search-upgrade/**"
+      - ".github/scripts/release.py"
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
@@ -28,9 +29,7 @@ permissions:
   contents: read
 
 jobs:
-  # Resolves the immediately preceding released version on the upgrade path
-  # (the highest semver tag less than the current Cargo.toml version) plus its
-  # matching pgrx version, and emits the full matrix of upgrade starting points.
+  # Test the newest release in this checkout's SQL chain and the pinned legacy release.
   discover-upgrade-starting-points:
     name: Discover upgrade starting points
     runs-on: ubuntu-latest
@@ -49,12 +48,7 @@ jobs:
         id: compute
         run: |
           set -euo pipefail
-          TAGS=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
-          LATEST_TAG=$(echo "$TAGS" | tail -n 1)
-          if [ -z "$LATEST_TAG" ]; then
-            echo "Could not determine latest tag" >&2
-            exit 1
-          fi
+          LATEST_TAG=$(./scripts/release.sh latest-sql-version --released)
           LATEST_PGRX=$(git show "$LATEST_TAG:Cargo.toml" | sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' | head -1)
           if [ -z "$LATEST_PGRX" ]; then
             echo "Could not determine pgrx version at $LATEST_TAG" >&2
@@ -96,11 +90,12 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Fetch Release Tags
-        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
-
+      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.

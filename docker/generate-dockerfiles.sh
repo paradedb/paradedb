@@ -3,7 +3,7 @@
 # Run docker/generate-dockerfiles.sh to generate every flavor of Dockerfile we support from docker/Dockerfile.template.
 # Docker Official Images does not support build arguments in Dockerfiles, so we have to generate a separate file for each
 # Postgres version we support. Our normal Dockerfile includes Barman cloud which is specific to our deployment approach
-# and thus cannot be included in the official images. We also have a version of the file for use in Antithesis.
+# and thus cannot be included in the official images. Antithesis and benchmarker compile from source using Dockerfile.source.
 #
 # This script downloads the .debs for the specified version from GitHub Releases in order to compute checksums and embed
 # them in the Dockerfiles.
@@ -22,9 +22,6 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 all_versions=(15 16 17 18)
-# `latest_version` decides which PG major gets the Antithesis flavor; keep it tied to the true latest
-# regardless of any version restriction below.
-latest_version=${all_versions[${#all_versions[@]} - 1]}
 PG_SEARCH_VERSION="${1}"
 
 # Optionally restrict which PG majors to generate (space-separated), e.g. "18" for beta releases that
@@ -63,11 +60,9 @@ render() {
     -v pg_search_deb_arm64_sha256="$pg_search_deb_arm64_sha256" \
     -v flavor="$flavor" '
       BEGIN { include = 1 }
-      /^# %%ANTITHESIS_BEGIN%%$/ { include = flavor == "antithesis"; next }
       /^# %%BARMAN_BEGIN%%$/ { include = flavor != "official"; next }
       /^# %%OFFICIAL_BEGIN%%$/ { include = flavor == "official"; next }
-      /^# %%STANDARD_BEGIN%%$/ { include = flavor != "antithesis"; next }
-      /^# %%(ANTITHESIS|BARMAN|OFFICIAL|STANDARD)_END%%$/ { include = 1; next }
+      /^# %%(BARMAN|OFFICIAL)_END%%$/ { include = 1; next }
       !include { next }
       {
         gsub(/@@PG_VERSION_MAJOR@@/, pg_version)
@@ -85,7 +80,4 @@ for pg_version in "${versions[@]}"; do
 
   render paradedb "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
   render official "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
-  if [[ $pg_version -eq $latest_version ]]; then
-    render antithesis "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
-  fi
 done

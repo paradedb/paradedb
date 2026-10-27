@@ -102,6 +102,8 @@ mod avl;
 pub mod block;
 mod blocklist;
 pub mod buffer;
+#[cfg(feature = "pg_test")]
+pub(crate) mod coordination_test;
 pub mod custom_rmgr;
 pub mod fsm;
 pub mod linked_bytes;

@@ -1054,13 +1054,6 @@ impl TryFrom<TantivyValue> for pgrx::datum::Date {
                     PostgresDate::try_from(date).map_err(|_| TantivyValueError::DateOutOfRange)?;
                 Ok(date.into())
             }
-            // Aggregates and fast-field fallbacks can hand us the raw day count.
-            PdbOwnedValue::I64(days) => {
-                let days = i32::try_from(days).map_err(|_| TantivyValueError::DateOutOfRange)?;
-                let date = PostgresDate::try_from_raw(days)
-                    .map_err(|_| TantivyValueError::DateOutOfRange)?;
-                Ok(date.into())
-            }
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "date".to_string(),
             )),

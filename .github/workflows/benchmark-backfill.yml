@@ -26,10 +26,15 @@ permissions:
   actions: write
   contents: write
 
-# We don't specify a concurrency group here, as we want all jobs to complete.
+# Only the reset job, which clears benchmark history on gh-pages, uses the publication queue.
+# Jobs that dispatch benchmark workflows run in parallel.
 
 jobs:
   reset:
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
     name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
     steps:

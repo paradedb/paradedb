@@ -36,6 +36,7 @@ arrow-array = "59.1.0"
 arrow-buffer = "59.1.0"
 arrow-schema = "59.1.0"
 arrow-select = "59.1.0"
+base64 = "0.22.1"
 bitpacking = "0.9.3"
 chrono = "0.4.45"
 time = "0.3.47"
@@ -113,5 +114,6 @@ superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "s
 
 [dev-dependencies]
 pgrx-tests.workspace = true
+postgres = "0.19.14"
 rstest = "0.27.0"
 proptest = "1.11.0"

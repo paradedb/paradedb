@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793061050697,
+  "lastUpdate": 1793061145805,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -155157,6 +155157,107 @@ window.BENCHMARK_DATA = {
             "extra": "avg mem: 43.502921404304104, max mem: 43.51171875, count: 59420"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e16345fb910425f914f614c3c4d5f17668494fe",
+          "message": "fix: apply backpressure across immutable merge layers (#6880)\n\nConcurrent writers can accumulate immutable segments faster than\nbackground mergers can consolidate them. When no background merge is\nlaunched, an inserting backend helps with one merge from the smallest\noverloaded layer. Backpressure counts eligible candidate inputs: more\nthan two frozen mutable segments, or more than `4 \u00d7\ntarget_segment_count` immutable inputs in a layer. Segments reserved by\nanother merger or excluded by VACUUM are left out.\n\nPreserve the existing background layer sizes and target-size clamping.\nWhen clamping leaves a gap between configured layers and the segment\nbacklog needs pressure, add the computed target-size layer only to\nforeground backpressure selection. Both simulations reuse the eligible\ninput snapshot, and normal configured foreground merging remains the\nfallback.\n\nValidation:\n- 38 PostgreSQL 18 tests, including unchanged background layers under\nbacklog, foreground merging across a clamped layer gap, eligibility\nthresholds, reservations, and vector compatibility.\n- All 5 merge/VACUUM coordination tests and all 11 replication\nintegration tests.\n- All commit hooks, including workspace Clippy, `cargo check`, `cargo\ndoc`, and formatting.\n- [All eight Stressgres\nsuites](https://github.com/paradedb/paradedb/actions/runs/40371908582)\npassed on `177edfc2a`: full 600-second workload and successful cleanup,\nincluding bulk-update-merge-pressure; no workload buffer exhaustion,\nassertion failures, or crashdumps.\n\nPerformance compared with 19 nightly runs (Oct 8\u201326), using matching\nworkloads, hardware, and equivalent measurement code: replicated\naggregate median TPS was 1.32% below the historical minimum (mean CPU\n2.25% above the maximum); single-node joined-update median/mean TPS were\n1.04%/1.21% below their minima. Wide-table average active\nbackground-merger count remained 45.13% above its historical maximum\n(0.07415 versus 0.05109; previous PR run 0.07681), despite restored\nbackground layer selection; this activity count does not establish CPU\nor latency cost. Smaller excursions: single-node VACUUM median memory\n+0.24%, multi-subscriber publisher mean TPS -0.33%; their other summary\nstatistic remained within history. Background VACUUM CPU and wide-table\nindex size are within historical ranges. These are descriptive observed\nranges, not causal regression proof. Bulk has no successful matching\nmain baseline, so its performance regression status remains unverified.",
+          "timestamp": "2026-10-26T20:40:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7e16345fb910425f914f614c3c4d5f17668494fe"
+        },
+        "date": 1793061105349,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07390323558129355, max background_merging: 2.0, count: 59402"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.703995483019767, max cpu: 9.552238, count: 59402"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.157309715476753, max mem: 27.16796875, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.931993293614933, max cpu: 9.795918, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 43.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.20293574395643, max mem: 43.2109375, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55775,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55493.61612403623, max block_count: 55775.0, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.311992862193192, max segment_count: 21.0, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.018983814099165, max cpu: 33.870968, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 93.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.71624225878337, max mem: 94.01171875, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.617817271993204, max cpu: 4.8460374, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 43.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.55781982561614, max mem: 43.58203125, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.785562970660676, max cpu: 9.731373, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.2102100676324, max mem: 43.2109375, count: 59402"
+          }
+        ],
+        "publication_id": "12700320981-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

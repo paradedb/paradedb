@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793090856044,
+  "lastUpdate": 1793090996437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -385691,6 +385691,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12698631469-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bc1c667888a76a3b48fd6a2a692422e2d82ffc",
+          "message": "ci: migrate Cohere vector benchmarks to pdbench and Benchmarker (#7040)\n\nCohere vector CI currently owns its recall sweep, latency sampling, and\ncomparison logic. Replace that path with `paradedb/pdbench` for\nr90/r95/r99 max_probe selection and `paradedb/benchmarker` k6 for\nlatency and throughput at each selected point.\n\nKeep the native pgrx cluster, pgBackRest 1M/10M heap snapshots, index\noptions, vacuuming, and snapshot generation. The index uses the current\n`paradedb` access-method name so pdbench recognizes it. Preserve the\nexisting 100 query vectors and unfiltered/year/battle ground-truth\nfixtures; remove HNSW, IVFFlat, VectorChord, and pgvectorscale CI\nimplementations.\n\nReuse the Wikipedia/StackExchange publisher for p50/p95/p99 and QPS per\nfilter/recall target, with recall, selected max_probe, and mean shared\nbuffer hits/reads above the comparisons. Verify parameterized query\nplans before k6, retain unreached targets without fabricating timing\nresults, and start separate Cohere Benchmarker baseline histories. The\nhandoff exports pdbench's selections and session settings without\nimplementing a second sweep or timing engine.\n\nValidation:\n- 31 Rust benchmark tests and 5 Python handoff/plan tests pass.\n- Workflow lint, Ruff, rustfmt, Prettier, and whitespace checks pass.\n- Native 1M k6 smoke tests pass at all eight reachable operating points;\nfilter pushdown is verified. The shared publisher extracts 24 latency\nand eight QPS series with warmup excluded, and its locally rendered\ncomment includes the recall/buffer table.\n- Completed all three 100-vector recall sweeps against a native 1M\nindex. The parameterized k6 query path reproduces pdbench recall at all\neight reachable operating points; unfiltered r99 is correctly reported\nas unreachable on that local build.\n- Cloud 1M/10M snapshot restore and full 300-second-per-point runs are\nin progress in CI. Local smoke timings are functional checks, not CI\nperformance results.\n\nThe existing ground-truth Parquets are imported into pdbench's fixture\ntable before the sweep. Both external tool revisions are pinned and\nrecorded with the run artifacts.",
+          "timestamp": "2026-10-27T03:26:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bc1c667888a76a3b48fd6a2a692422e2d82ffc"
+        },
+        "date": 1793090961627,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 506.7462838569202,
+            "unit": "median tps",
+            "extra": "avg tps: 505.3349856669827, max tps: 507.70117573135434, count: 57364"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 470.94272127081285,
+            "unit": "median tps",
+            "extra": "avg tps: 470.6728039088341, max tps: 474.5241824273243, count: 57364"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3711.303539856492,
+            "unit": "median tps",
+            "extra": "avg tps: 3722.916393928171, max tps: 4026.8697530661516, count: 57364"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 505.01595874106727,
+            "unit": "median tps",
+            "extra": "avg tps: 503.44086921327425, max tps: 506.0174466658588, count: 57364"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3305.716334850221,
+            "unit": "median tps",
+            "extra": "avg tps: 3302.403245050994, max tps: 3325.3118786790237, count: 57364"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3307.8942795455005,
+            "unit": "median tps",
+            "extra": "avg tps: 3306.335221432085, max tps: 3457.9798269372754, count: 57364"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 202.44191886738741,
+            "unit": "median tps",
+            "extra": "avg tps: 202.11124180133712, max tps: 202.67464504066788, count: 57364"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 385.82738421124327,
+            "unit": "median tps",
+            "extra": "avg tps: 384.95241800463344, max tps: 386.3582631379238, count: 57364"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 582.4811795867669,
+            "unit": "median tps",
+            "extra": "avg tps: 581.4244121597278, max tps: 594.1408107363059, count: 57364"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 697.4347019006959,
+            "unit": "median tps",
+            "extra": "avg tps: 690.4029571270474, max tps: 700.8544381648923, count: 57364"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1426.7686774790193,
+            "unit": "median tps",
+            "extra": "avg tps: 1425.881704231531, max tps: 1438.7236433907353, count: 57364"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 520.5679816969882,
+            "unit": "median tps",
+            "extra": "avg tps: 519.3623662287297, max tps: 522.2470169599289, count: 57364"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 637.2150048298311,
+            "unit": "median tps",
+            "extra": "avg tps: 632.2656760102522, max tps: 639.4296196803449, count: 57364"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2402.8053008497695,
+            "unit": "median tps",
+            "extra": "avg tps: 2398.6049774628364, max tps: 2433.269026847789, count: 57364"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1881.1620204088315,
+            "unit": "median tps",
+            "extra": "avg tps: 1868.7537761154679, max tps: 1911.516022183347, count: 57364"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 41.04504349986642,
+            "unit": "median tps",
+            "extra": "avg tps: 47.282841880221774, max tps: 1691.3748340338445, count: 57364"
+          }
+        ],
+        "publication_id": "12719074579-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [

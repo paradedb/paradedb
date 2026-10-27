@@ -383,6 +383,7 @@ impl LazySegmentTarget {
                         pull.window.offset.0,
                         aux_collector,
                         shared_threshold_state,
+                        parallel_state.is_some(),
                     )
                 } else {
                     let mut res = reader.search_top_k_unordered_in_segments(

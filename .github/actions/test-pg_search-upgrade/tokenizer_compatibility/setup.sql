@@ -731,11 +731,22 @@ WHERE name NOT IN ('id', 'ctid');
 
 SET plpgsql.check_asserts = on;
 DO $$
+DECLARE
+    mismatches TEXT;
 BEGIN
-    ASSERT NOT EXISTS (
-        SELECT 1 FROM tokenizer_option_matrix_results_before_upgrade
-        WHERE (expected_match AND ids <> ARRAY[1])
-            OR (NOT expected_match AND ids <> ARRAY[]::integer[])
-    ), 'tokenizer option, boundary, and negative-control cases must match before upgrade';
+    SELECT string_agg(
+        format('%s: expected_match=%s, ids=%s', query, expected_match, ids),
+        '; ' ORDER BY query
+    )
+    INTO mismatches
+    FROM tokenizer_option_matrix_results_before_upgrade
+    WHERE (expected_match AND ids <> ARRAY[1])
+        OR (NOT expected_match AND ids <> ARRAY[]::integer[]);
+
+    ASSERT mismatches IS NULL,
+        format(
+            'tokenizer option, boundary, and negative-control cases must match before upgrade; mismatches: %s',
+            COALESCE(mismatches, '<none>')
+        );
 END;
 $$;

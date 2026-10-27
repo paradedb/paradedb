@@ -17,7 +17,7 @@
 
 use crate::api::{HashMap, HashSet};
 use crate::index::directory::mvcc::PgTempFile;
-use crate::postgres::buffile::BufFileReleaseGuard;
+use crate::postgres::buffile::{BufFileReleaseGuard, TempFileOwner};
 use crate::postgres::storage::block::SegmentFileDetails;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -132,24 +132,30 @@ impl Directory for BuildDirectory {
             pg_sys::CurrentResourceOwner
         });
         let file = Arc::new(Mutex::new(BuildFile {
-            file: unsafe {
-                pg_sys::PrepareTempTablespaces();
-                pg_sys::OpenTemporaryFile(false)
-            },
+            file: TempFileOwner::new(
+                unsafe {
+                    pg_sys::PrepareTempTablespaces();
+                    pg_sys::OpenTemporaryFile(false)
+                },
+                self.release_guard.clone(),
+            ),
             len: 0,
-            poisoned: false,
-            release_guard: self.release_guard.clone(),
         }));
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
-            let name = unsafe { std::ffi::CStr::from_ptr(pg_sys::FilePathName(file.lock().file)) };
-            let path = Path::new(std::ffi::OsStr::from_bytes(name.to_bytes()));
-            self.temp_paths.lock().insert(
-                path.parent()
-                    .expect("temporary file directory")
-                    .to_path_buf(),
-            );
+            let directory = file
+                .lock()
+                .file
+                .with(|handle| {
+                    let name = unsafe { std::ffi::CStr::from_ptr(pg_sys::FilePathName(handle)) };
+                    Ok(Path::new(std::ffi::OsStr::from_bytes(name.to_bytes()))
+                        .parent()
+                        .expect("temporary file directory")
+                        .to_path_buf())
+                })
+                .map_err(|error| OpenWriteError::wrap_io_error(error, path.to_path_buf()))?;
+            self.temp_paths.lock().insert(directory);
         }
         files.insert(path.to_path_buf(), file.clone());
         Ok(Box::new(BuildFileWriter(file)))
@@ -202,56 +208,37 @@ impl Directory for BuildDirectory {
 }
 
 struct BuildFile {
-    file: pg_sys::File,
+    file: TempFileOwner<pg_sys::File>,
     len: usize,
-    poisoned: bool,
-    release_guard: Arc<BufFileReleaseGuard>,
 }
 
 impl BuildFile {
-    fn check_usable(&self) -> io::Result<()> {
-        if self.poisoned || !self.release_guard.may_close() {
-            return Err(io::Error::other("build temporary file is no longer usable"));
-        }
-        pgrx::check_for_interrupts!();
-        Ok(())
-    }
-
-    fn read_exact_at(&mut self, mut data: &mut [u8], offset: usize) -> io::Result<()> {
-        self.check_usable()?;
+    fn read_exact_at(&self, data: &mut [u8], offset: usize) -> io::Result<()> {
         let mut offset: pg_sys::off_t = offset.try_into().map_err(io::Error::other)?;
-        self.poisoned = true;
-        while !data.is_empty() {
-            let n = unsafe {
-                pg_sys::FileRead(
-                    self.file,
-                    data.as_mut_ptr().cast(),
-                    data.len().min(i32::MAX as usize) as _,
-                    offset,
-                    pg_sys::WaitEventIO::WAIT_EVENT_BUFFILE_READ,
-                )
-            };
-            if n < 0 {
-                return Err(io::Error::last_os_error());
+        pgrx::check_for_interrupts!();
+        self.file.with(|file| {
+            let mut data = data;
+            while !data.is_empty() {
+                let n = unsafe {
+                    pg_sys::FileRead(
+                        file,
+                        data.as_mut_ptr().cast(),
+                        data.len().min(i32::MAX as usize) as _,
+                        offset,
+                        pg_sys::WaitEventIO::WAIT_EVENT_BUFFILE_READ,
+                    )
+                };
+                if n < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if n == 0 {
+                    return Err(io::ErrorKind::UnexpectedEof.into());
+                }
+                offset += n as pg_sys::off_t;
+                data = &mut data[n as usize..];
             }
-            if n == 0 {
-                return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-            }
-            offset += n as pg_sys::off_t;
-            data = &mut data[n as usize..];
-        }
-        self.poisoned = false;
-        Ok(())
-    }
-}
-
-// We intentionally do NOT use `impl_safe_drop!` here because `may_close` already prevents
-// closing while unwinding, after resource release, or outside a transaction.
-impl Drop for BuildFile {
-    fn drop(&mut self) {
-        if !self.poisoned && self.release_guard.may_close() {
-            unsafe { pg_sys::FileClose(self.file) }
-        }
+            Ok(())
+        })
     }
 }
 
@@ -272,29 +259,32 @@ impl Write for BuildFileWriter {
             )
         })?;
         let _: pg_sys::off_t = new_len.try_into().map_err(io::Error::other)?;
-        file.check_usable()?;
-        file.poisoned = true;
-        let mut remaining = data;
-        while !remaining.is_empty() {
-            let n = unsafe {
-                pg_sys::FileWrite(
-                    file.file,
-                    remaining.as_ptr().cast_mut().cast(),
-                    remaining.len().min(i32::MAX as usize) as _,
-                    file.len as pg_sys::off_t,
-                    pg_sys::WaitEventIO::WAIT_EVENT_BUFFILE_WRITE,
-                )
-            };
-            if n < 0 {
-                return Err(io::Error::last_os_error());
+        pgrx::check_for_interrupts!();
+        file.file.with(|handle| {
+            let mut offset = offset as pg_sys::off_t;
+            let mut remaining = data;
+            while !remaining.is_empty() {
+                let n = unsafe {
+                    pg_sys::FileWrite(
+                        handle,
+                        remaining.as_ptr().cast_mut().cast(),
+                        remaining.len().min(i32::MAX as usize) as _,
+                        offset,
+                        pg_sys::WaitEventIO::WAIT_EVENT_BUFFILE_WRITE,
+                    )
+                };
+                if n < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if n == 0 {
+                    return Err(io::ErrorKind::WriteZero.into());
+                }
+                offset += n as pg_sys::off_t;
+                remaining = &remaining[n as usize..];
             }
-            if n == 0 {
-                return Err(io::Error::from(io::ErrorKind::WriteZero));
-            }
-            file.len += n as usize;
-            remaining = &remaining[n as usize..];
-        }
-        file.poisoned = false;
+            Ok(())
+        })?;
+        file.len = new_len;
         Ok(data.len())
     }
 
@@ -339,7 +329,7 @@ impl FileHandle for BuildFileReader {
             ));
         }
         let mut data = vec![0; end - range.start];
-        let mut file = self.file.lock();
+        let file = self.file.lock();
         file.read_exact_at(&mut data, range.start)?;
         Ok(OwnedBytes::new(data))
     }

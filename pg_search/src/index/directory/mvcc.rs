@@ -20,7 +20,7 @@ use crate::api::{HashMap, HashSet};
 use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
+use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -67,41 +67,35 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// transaction abort, backend exit, or process failure. It never enters the
 /// immutable segment-component map.
 pub(super) struct PgTempFile {
-    file: *mut pg_sys::BufFile,
-    release_guard: Arc<BufFileReleaseGuard>,
+    file: TempFileOwner<*mut pg_sys::BufFile>,
 }
 
 impl PgTempFile {
     pub(super) fn create() -> Self {
         let release_guard = BufFileReleaseGuard::register();
-        let file = unsafe { create_temp_buffile() };
+        let file = unsafe { buffile::create_temp_buffile() };
         Self {
-            file,
-            release_guard,
+            file: TempFileOwner::new(file, release_guard),
         }
     }
 }
 
 impl Read for PgTempFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Ok(unsafe { pg_sys::BufFileRead(self.file, buf.as_mut_ptr().cast(), buf.len()) })
+        self.file
+            .with(|file| Ok(unsafe { buffile::buffile_read(file, buf) }))
     }
 }
 
 impl Write for PgTempFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unsafe {
-            #[cfg(feature = "pg15")]
-            pg_sys::BufFileWrite(self.file, buf.as_ptr() as *mut std::ffi::c_void, buf.len());
-            #[cfg(not(feature = "pg15"))]
-            pg_sys::BufFileWrite(self.file, buf.as_ptr().cast(), buf.len());
-        }
-        Ok(buf.len())
+        self.file.with(|file| {
+            unsafe { buffile::buffile_write(file, buf) };
+            Ok(buf.len())
+        })
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        // BufFileSeek flushes pending writes before the read phase. There is
-        // no independent BufFile flush API.
         Ok(())
     }
 }
@@ -114,25 +108,10 @@ impl Seek for PgTempFile {
                 "PostgreSQL quantization spill files support rewind only",
             ));
         }
-        let result = unsafe {
-            pg_sys::BufFileSeek(self.file, 0, 0, 0 /* SEEK_SET */)
-        };
-        if result != 0 {
-            return Err(io::Error::other(format!(
-                "BufFileSeek rewind failed with status {result}"
-            )));
-        }
-        Ok(0)
-    }
-}
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
-// close while unwinding, after the owner released the file, and outside a transaction.
-impl Drop for PgTempFile {
-    fn drop(&mut self) {
-        if self.release_guard.may_close() {
-            unsafe { pg_sys::BufFileClose(self.file) }
-        }
+        self.file.with(|file| {
+            unsafe { buffile::buffile_seek(file, 0, 0, 0) }.map_err(io::Error::other)?;
+            Ok(0)
+        })
     }
 }
 

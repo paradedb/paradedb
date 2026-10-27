@@ -57,7 +57,7 @@
 //! `BufFileWrite`/`BufFileRead` call — never relying on the shared cursor's position
 //! surviving between calls, only ever setting it explicitly right before each use.
 
-use crate::postgres::buffile::{self, BufFileReleaseGuard};
+use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
 use bytes::Bytes;
 use datafusion::common::exec_datafusion_err;
 use datafusion::execution::disk_manager::DiskManagerMode;
@@ -77,33 +77,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// (`ReaderStream::with_capacity` in `disk_manager.rs`) — chosen there because the
 /// default 8KB caused excessive per-poll overhead on multi-MB spill files.
 const READ_CHUNK_BYTES: usize = 128 * 1024;
-
-/// Poisons the file if a Postgres error unwinds through a `BufFile` call, the way
-/// `std::sync::Mutex` poisons on a panic. The write buffer is then dirty, so a later
-/// `BufFileClose` would flush and raise again.
-struct PoisonOnUnwind<'a> {
-    poisoned: &'a AtomicBool,
-    panicking_before: bool,
-}
-
-impl<'a> PoisonOnUnwind<'a> {
-    fn guard(poisoned: &'a AtomicBool) -> Self {
-        Self {
-            poisoned,
-            panicking_before: std::thread::panicking(),
-        }
-    }
-}
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this guard exists to observe a
-// panic, so its body has to run while unwinding.
-impl Drop for PoisonOnUnwind<'_> {
-    fn drop(&mut self) {
-        if !self.panicking_before && std::thread::panicking() {
-            self.poisoned.store(true, Ordering::Relaxed);
-        }
-    }
-}
 
 /// Fired once by [`BufFileTempFileFactory`] the first time this query actually spills.
 pub type SpillNotify = Arc<dyn Fn() + Send + Sync>;
@@ -164,48 +137,22 @@ impl TempFileFactory for BufFileTempFileFactory {
         };
         let file = unsafe { buffile::create_temp_buffile() };
         Ok(Arc::new(BufFileSpillFile {
-            file: SendSyncBufFile(file),
+            file: Arc::new(TempFileOwner::new(file, release_guard)),
             size: Arc::new(AtomicU64::new(0)),
             writer_opened: AtomicBool::new(false),
-            poisoned: Arc::new(AtomicBool::new(false)),
-            release_guard,
         }))
     }
 }
 
-/// A `*mut pg_sys::BufFile` created by this backend. `Send`/`Sync` only satisfy the
-/// `SpillFile`/`SpillWriter` bounds; see the module doc, "BufFile FFI".
-#[derive(Debug, Clone, Copy)]
-struct SendSyncBufFile(*mut pg_sys::BufFile);
-
-impl SendSyncBufFile {
-    /// Accessor rather than a public `.0`: closures that reach through `.0` directly
-    /// let Rust's disjoint-closure-capture (RFC 2229) capture the bare `*mut BufFile`
-    /// field instead of this `Send`/`Sync` newtype, silently defeating the impls below
-    /// and failing to compile as `dyn Stream<... + Send>`. Going through a method call
-    /// forces the whole `SendSyncBufFile` to be captured instead.
-    fn get(self) -> *mut pg_sys::BufFile {
-        self.0
-    }
-}
-
-// SAFETY: see the module doc, "BufFile FFI": the pointer is only used inline on the
-// backend thread that created it.
-unsafe impl Send for SendSyncBufFile {}
-unsafe impl Sync for SendSyncBufFile {}
-
 /// A `BufFile`-backed [`SpillFile`]. Created empty; DataFusion opens one writer to fill
 /// it, then reads it back any number of times (multi-pass merges re-read).
 struct BufFileSpillFile {
-    file: SendSyncBufFile,
+    file: Arc<TempFileOwner<*mut pg_sys::BufFile>>,
     /// Bytes written so far. `BufFile` doesn't expose a cheap "current size" query
     /// on all supported PG versions, so this is tracked on the write side instead.
     size: Arc<AtomicU64>,
     /// A second writer would append from wherever a reader left the cursor.
     writer_opened: AtomicBool,
-    /// Set when a call that may flush raised; see `PoisonOnUnwind`.
-    poisoned: Arc<AtomicBool>,
-    release_guard: Arc<BufFileReleaseGuard>,
 }
 
 impl std::fmt::Debug for BufFileSpillFile {
@@ -232,8 +179,7 @@ impl SpillFile for BufFileSpillFile {
     ) -> datafusion::common::Result<
         Pin<Box<dyn Stream<Item = datafusion::common::Result<Bytes>> + Send>>,
     > {
-        let file = self.file;
-        let poisoned = Arc::clone(&self.poisoned);
+        let file = Arc::clone(&self.file);
         // This pass's own read position, tracked the same way BufFileSpillWriter tracks
         // its write position: a writer interleaved with this read can (and does, under
         // RepartitionExec) move the shared BufFile cursor between our poll_fn calls, so
@@ -256,24 +202,20 @@ impl SpillFile for BufFileSpillFile {
         Ok(Box::pin(futures::stream::poll_fn(move |_cx| {
             // Blocking and inline on purpose; see the module doc, "BufFile FFI".
             std::task::Poll::Ready(
-                (|| {
-                    // Re-anchor before every read: an interleaved write (or another pass's
-                    // read_stream) since our last read may have moved the shared cursor.
-                    let _poison = PoisonOnUnwind::guard(&poisoned);
-                    unsafe {
-                        buffile::buffile_seek(file.get(), position.fileno, position.offset, 0)
-                    }
-                    .map_err(|e| exec_datafusion_err!("failed to seek BufFile spill file: {e}"))?;
-                    let n = unsafe { buffile::buffile_read(file.get(), &mut scratch) };
+                file.with(|file| {
+                    unsafe { buffile::buffile_seek(file, position.fileno, position.offset, 0) }
+                        .map_err(io::Error::other)?;
+                    let n = unsafe { buffile::buffile_read(file, &mut scratch) };
                     match n {
                         0 => Ok(None),
                         n => {
-                            let (fileno, offset) = unsafe { buffile::buffile_tell(file.get()) };
+                            let (fileno, offset) = unsafe { buffile::buffile_tell(file) };
                             position = BufFilePosition { fileno, offset };
                             Ok(Some(Bytes::copy_from_slice(&scratch[..n])))
                         }
                     }
-                })()
+                })
+                .map_err(|e| exec_datafusion_err!("failed to read BufFile spill file: {e}"))
                 .transpose(),
             )
         })))
@@ -282,11 +224,13 @@ impl SpillFile for BufFileSpillFile {
     fn open_writer(&self) -> datafusion::common::Result<Box<dyn SpillWriter>> {
         let opened_before = self.writer_opened.swap(true, Ordering::Relaxed);
         debug_assert!(!opened_before, "a spill file takes one writer");
-        let (fileno, offset) = unsafe { buffile::buffile_tell(self.file.get()) };
+        let (fileno, offset) = self
+            .file
+            .with(|file| Ok(unsafe { buffile::buffile_tell(file) }))
+            .map_err(|e| exec_datafusion_err!("failed to open BufFile spill writer: {e}"))?;
         Ok(Box::new(BufFileSpillWriter {
-            file: self.file,
+            file: Arc::clone(&self.file),
             size: Arc::clone(&self.size),
-            poisoned: Arc::clone(&self.poisoned),
             position: BufFilePosition { fileno, offset },
         }))
     }
@@ -295,9 +239,8 @@ impl SpillFile for BufFileSpillFile {
 /// Writes to a `BufFile` via the [`std::io::Write`] impl [`SpillWriter`] requires. See
 /// the module-level "Cursor tracking" note for why `position` is tracked here.
 struct BufFileSpillWriter {
-    file: SendSyncBufFile,
+    file: Arc<TempFileOwner<*mut pg_sys::BufFile>>,
     size: Arc<AtomicU64>,
-    poisoned: Arc<AtomicBool>,
     position: BufFilePosition,
 }
 
@@ -311,28 +254,13 @@ struct BufFilePosition {
 
 impl io::Write for BufFileSpillWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // DataFusion may write from a `Drop` (`SpillPoolSink` finishes its IPC stream),
-        // and a raise there is a panic in a destructor. Refuse instead of touching the
-        // file once it is poisoned, while unwinding, or outside a transaction; those
-        // callers ignore the error.
-        if self.poisoned.load(Ordering::Relaxed)
-            || std::thread::panicking()
-            || !unsafe { pg_sys::IsTransactionState() }
-        {
-            return Err(io::Error::other("BufFile spill file is no longer writable"));
-        }
-        // Re-anchor before writing: a read_stream() poll interleaved since our last
-        // write may have moved the shared BufFile cursor (see module-level note).
-        let file = self.file;
-        let position = &self.position;
-        {
-            let _poison = PoisonOnUnwind::guard(&self.poisoned);
-            unsafe { buffile::buffile_seek(file.get(), position.fileno, position.offset, 0) }
-                .map_err(|e| io::Error::other(format!("BufFile seek failed: {e}")))?;
-            unsafe { buffile::buffile_write(file.get(), buf) };
-        }
+        let (fileno, offset) = self.file.with(|file| {
+            unsafe { buffile::buffile_seek(file, self.position.fileno, self.position.offset, 0) }
+                .map_err(io::Error::other)?;
+            unsafe { buffile::buffile_write(file, buf) };
+            Ok(unsafe { buffile::buffile_tell(file) })
+        })?;
         self.size.fetch_add(buf.len() as u64, Ordering::Relaxed);
-        let (fileno, offset) = unsafe { buffile::buffile_tell(self.file.get()) };
         self.position = BufFilePosition { fileno, offset };
         Ok(buf.len())
     }
@@ -347,18 +275,38 @@ impl io::Write for BufFileSpillWriter {
 impl SpillWriter for BufFileSpillWriter {
     fn finish(&mut self) -> datafusion::common::Result<()> {
         // No explicit sync/close here: the file stays open (and readable) for
-        // read_stream() calls after this. It's closed when BufFileSpillFile drops.
+        // read_stream() calls after this. The last holder closes the file.
         Ok(())
     }
 }
 
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
-// close while unwinding, after the owner released the file, and outside a transaction, and the
-// poison flag covers a panic that unwound through the writer earlier.
-impl Drop for BufFileSpillFile {
-    fn drop(&mut self) {
-        if !self.poisoned.load(Ordering::Relaxed) && self.release_guard.may_close() {
-            unsafe { pg_sys::BufFileClose(self.file.get()) }
-        }
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+    use pgrx::prelude::*;
+    use std::io::Write;
+
+    #[pg_test]
+    fn test_temp_spill_interleaved_io_and_shared_ownership() {
+        let factory = BufFileTempFileFactory {
+            on_spill: Arc::new(|| {}),
+            notified: AtomicBool::new(false),
+            release_guard: OnceLock::new(),
+        };
+        let spill = factory.create_temp_file("test").unwrap();
+        let mut writer = spill.open_writer().unwrap();
+        writer.write_all(b"first").unwrap();
+        let mut reader = spill.read_stream().unwrap();
+        let first = futures::executor::block_on(reader.next()).unwrap().unwrap();
+        assert_eq!(first.as_ref(), b"first");
+        drop(spill);
+        writer.write_all(b"second").unwrap();
+        writer.finish().unwrap();
+        drop(writer);
+        let second = futures::executor::block_on(reader.next()).unwrap().unwrap();
+        assert_eq!(second.as_ref(), b"second");
+        assert!(futures::executor::block_on(reader.next()).is_none());
     }
 }

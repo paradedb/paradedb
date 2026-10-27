@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793126635050,
+  "lastUpdate": 1793126710525,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -36408,6 +36408,71 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12756192125-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e2d48693517b88946d7ae0f30955f26a1849ce1",
+          "message": "chore: update datafusion-distributed version (#7059)\n\n## What\nBump the DataFusion Distributed tag and swap the use of\n`DesiredTaskCountEventResponse::maximum` to\n`DesiredTaskCountEventResponse::max`.\n\nSee upstream df-d PRs for the source of the change to\n`DesiredTaskCountEventResponse`:\n- https://github.com/datafusion-contrib/datafusion-distributed/pull/767\n- https://github.com/datafusion-contrib/datafusion-distributed/pull/802\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-27T11:59:37-06:00",
+          "tree_id": "5447c29779cef7e1aeed5203e07150064da15aa4",
+          "url": "https://github.com/paradedb/paradedb/commit/8e2d48693517b88946d7ae0f30955f26a1849ce1"
+        },
+        "date": 1793126677964,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 95.58454912146198,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 95.73619719744042,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 71.69180124591065,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 95.55166693941429,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 96.09529820950515,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 95.75724675726062,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 120.64155821216498,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 114.44491163319844,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12758726976-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [

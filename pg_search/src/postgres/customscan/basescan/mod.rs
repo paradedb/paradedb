@@ -73,7 +73,7 @@ use crate::postgres::customscan::orderby::{
     PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
 use crate::postgres::customscan::parallel::{
-    RowEstimate, compute_nworkers, max_useful_workers, segment_view,
+    RowEstimate, checkout_segment_for_source, compute_nworkers, max_useful_workers, segment_view,
 };
 use crate::postgres::customscan::projections::{
     PlaceholderColumn, PlaceholderColumns, inject_placeholders, pullout_funcexprs,
@@ -2016,6 +2016,7 @@ impl CustomScan for BaseScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().preclaimed_segment = None;
         // Drop the previous execution's scorers (whose cursors point into the
         // bitmap) and the stale source cell before the bitmap is freed; only then
         // rebuild for the new params. The exec method itself is preserved and
@@ -2059,6 +2060,19 @@ impl CustomScan for BaseScan {
             .as_ref()
             .map(|stats| stats.enter());
         if state.custom_state().search_reader.is_none() {
+            if let Some(parallel_state) = state.custom_state().parallel_state()
+                && matches!(
+                    &state.custom_state().exec_method_type,
+                    ExecMethodType::TopK { window_aggregates, .. } if window_aggregates.is_empty()
+                )
+            {
+                let Some(segment) = (unsafe { checkout_segment_for_source(parallel_state, 0) })
+                else {
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
+                    return std::ptr::null_mut();
+                };
+                state.custom_state_mut().preclaimed_segment = Some(segment);
+            }
             Self::init_search_reader(state);
         }
 

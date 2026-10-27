@@ -156,6 +156,7 @@ impl TopKScanExecState {
         &'s self,
         search_reader: &SearchIndexReader,
         parallel_state: Option<*mut ParallelScanState>,
+        mut first_segment: Option<SegmentId>,
     ) -> Box<dyn Iterator<Item = SegmentId> + 's> {
         match (parallel_state, self.claimed_segments.borrow().clone()) {
             (None, _) => {
@@ -177,8 +178,9 @@ impl TopKScanExecState {
                 let mut claimed_segments = Vec::new();
                 Box::new(std::iter::from_fn(move || {
                     check_for_interrupts!();
-                    let maybe_segment_id =
-                        unsafe { checkout_segment_for_source(parallel_state, 0) };
+                    let maybe_segment_id = first_segment
+                        .take()
+                        .or_else(|| unsafe { checkout_segment_for_source(parallel_state, 0) });
                     let Some(segment_id) = maybe_segment_id else {
                         // No more segments: record that we successfully claimed all segments, and
                         // then conclude iteration.
@@ -387,6 +389,7 @@ impl ExecMethod for TopKScanExecState {
         let next_offset = self.offset + local_limit;
 
         let prepared = self.prepare_aggregations(state);
+        let first_segment = state.preclaimed_segment.take();
 
         // Use the GUC for term aggregation bucket limits (single source of truth).
         let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
@@ -429,6 +432,7 @@ impl ExecMethod for TopKScanExecState {
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
                         state.parallel_state(),
+                        first_segment,
                     ),
                     orderby_info,
                     local_limit,
@@ -450,6 +454,7 @@ impl ExecMethod for TopKScanExecState {
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
                         state.parallel_state(),
+                        first_segment,
                     ),
                     local_limit,
                     self.offset,
@@ -481,6 +486,7 @@ impl ExecMethod for TopKScanExecState {
                 let segments = self.segments_to_query(
                     state.search_reader.as_ref().unwrap(),
                     state.parallel_state(),
+                    None,
                 );
                 if let Some(vischeck) = vischeck {
                     search_reader.collect_segments(

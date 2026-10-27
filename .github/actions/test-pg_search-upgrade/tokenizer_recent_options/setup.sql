@@ -181,7 +181,7 @@ SELECT 'jieba_filtered_t2s_rejects_original', ARRAY(
 UNION ALL
 SELECT 'jieba_filtered_folding_rejects_accent', ARRAY(
     SELECT id FROM tokenizer_recent_options
-    WHERE id @@@ paradedb.term('jb_filtered', 'CAFÉ') ORDER BY id
+    WHERE id @@@ paradedb.term('jb_filtered', 'é') ORDER BY id
 )
 ;
 

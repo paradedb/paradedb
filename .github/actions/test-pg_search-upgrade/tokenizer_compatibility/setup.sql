@@ -589,7 +589,7 @@ CREATE INDEX tokenizer_option_matrix_idx ON tokenizer_option_matrix USING parade
     (edge_letter_digit::pdb.edge_ngram(1, 2, 'token_chars=letter,digit')),
     (edge_space_punct::pdb.edge_ngram(1, 2, 'token_chars=whitespace,punctuation')),
     (edge_symbol_digit::pdb.edge_ngram(1, 2, 'token_chars=symbol,digit'))
-);
+) WITH (key_field = 'id');
 
 CREATE VIEW tokenizer_option_matrix_results AS
 SELECT 'simple_positive' AS query, true AS expected_match, ARRAY(
@@ -630,12 +630,15 @@ SELECT 'chinese_compatible_ascii_folding', true, ARRAY(
     SELECT id FROM tokenizer_option_matrix WHERE chinese_ascii ||| 'cafe' ORDER BY id
 )
 UNION ALL
+-- Jieba splits CAFÉ into "caf" and "é" before the folding filter runs.
 SELECT 'jieba_ascii_folding', true, ARRAY(
-    SELECT id FROM tokenizer_option_matrix WHERE jieba_ascii ||| 'CAFE' ORDER BY id
+    SELECT id FROM tokenizer_option_matrix
+    WHERE id @@@ paradedb.term('jieba_ascii', 'e') ORDER BY id
 )
 UNION ALL
-SELECT 'jieba_ascii_preserves_case', false, ARRAY(
-    SELECT id FROM tokenizer_option_matrix WHERE jieba_ascii ||| 'cafe' ORDER BY id
+SELECT 'jieba_ascii_rejects_accent', false, ARRAY(
+    SELECT id FROM tokenizer_option_matrix
+    WHERE id @@@ paradedb.term('jieba_ascii', 'é') ORDER BY id
 )
 UNION ALL
 SELECT 'icu_hindi_script', true, ARRAY(

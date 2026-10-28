@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793176564315,
+  "lastUpdate": 1793176742096,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -179110,6 +179110,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12718173161-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793176691341,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 149.30919427657938,
+            "unit": "median tps",
+            "extra": "avg tps: 148.8033490229369, max tps: 168.60334801045224, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 131.78060199594032,
+            "unit": "median tps",
+            "extra": "avg tps: 201.01817960985716, max tps: 5607.874071634641, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3282.210562115555,
+            "unit": "median tps",
+            "extra": "avg tps: 3303.3783244142624, max tps: 3600.220029347831, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 191.0805886226531,
+            "unit": "median tps",
+            "extra": "avg tps: 190.58908575442132, max tps: 218.10171197225156, count: 59307"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 249.9051736126426,
+            "unit": "median tps",
+            "extra": "avg tps: 216.08963001322292, max tps: 3119.3252005134186, count: 118614"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.188992563482916,
+            "unit": "median tps",
+            "extra": "avg tps: 21.054860910641082, max tps: 33.846076572957486, count: 59307"
+          }
+        ],
+        "publication_id": "12799933107-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [

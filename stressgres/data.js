@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793177861155,
+  "lastUpdate": 1793178030688,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -469544,6 +469544,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12719740729-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793177978407,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.444368555136236,
+            "unit": "median tps",
+            "extra": "avg tps: 57.19565361544661, max tps: 535.5600938491257, count: 58785"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.378659243696745,
+            "unit": "median tps",
+            "extra": "avg tps: 32.08491715395229, max tps: 356.06393229951624, count: 58785"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.82544812868646,
+            "unit": "median tps",
+            "extra": "avg tps: 133.49020436508388, max tps: 1200.7016900676756, count: 58785"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.44209538281761,
+            "unit": "median tps",
+            "extra": "avg tps: 30.93383943900675, max tps: 275.74934432397504, count: 58785"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 35.381090730178904,
+            "unit": "median tps",
+            "extra": "avg tps: 52.980636090500745, max tps: 563.814930943869, count: 58785"
+          }
+        ],
+        "publication_id": "12800768868-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [

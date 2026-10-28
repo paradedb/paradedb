@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793225896980,
+  "lastUpdate": 1793225985122,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -503311,6 +503311,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12800981553-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793225947784,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668139633957769, max cpu: 4.824121, count: 59250"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.892397349683545, max mem: 20.90625, count: 59250"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633836862933959, max cpu: 4.7999997, count: 59250"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.275290348101265, max mem: 20.27734375, count: 59250"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.088674402011351, max cpu: 33.61681, count: 59250"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.059240506329115, max mem: 21.0625, count: 59250"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.913670886075, max document_count: 10002.0, count: 59250"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.916, max document_count: 10002.0, count: 59250"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.631733,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.534944483800615, max cpu: 33.168808, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.58142866561182, max mem: 66.1640625, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.369906632224293, max cpu: 32.925037, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.550629021624474, max mem: 66.1640625, count: 59250"
+          }
+        ],
+        "publication_id": "12849509838-other"
       }
     ]
   }

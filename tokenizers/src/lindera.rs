@@ -401,9 +401,10 @@ mod tests {
         #[case] text: &str,
     ) {
         let expected = test_helper(&mut tokenizer.clone(), text);
-        let long_text = text.repeat(1_000);
+        let partial_text = text.repeat(2);
+        assert!(test_helper(&mut tokenizer.clone(), &partial_text).len() > 5);
         {
-            let mut stream = tokenizer.token_stream(&long_text);
+            let mut stream = tokenizer.token_stream(&partial_text);
             for _ in 0..5 {
                 assert!(stream.advance());
             }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793177454435,
+  "lastUpdate": 1793177549854,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -358949,6 +358949,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12717739310-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793177508038,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.129052287872216, max cpu: 37.227337, count: 59343"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.29743431459902, max mem: 59.45703125, count: 59343"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5263907058265094, max cpu: 4.678363, count: 59343"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.20515069700723, max mem: 21.26953125, count: 59343"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.711506608259665, max cpu: 9.384164, count: 59343"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.737780124656656, max mem: 29.73828125, count: 59343"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 8283,
+            "unit": "median pages",
+            "extra": "avg pages: 7334.8037173718885, max pages: 19246.0, count: 59343"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 64.7109375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 57.30315456856748, max relation_size:MB: 150.359375, count: 59343"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.02991085721989, max segment_count: 44.0, count: 59343"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.5867176,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7891250381716737, max cpu: 4.669261, count: 59343"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 21.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.015966434014963, max mem: 21.03125, count: 59343"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.110256,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.20164313522155, max cpu: 32.78049, count: 59343"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 49.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.11089779439024, max mem: 59.90234375, count: 59343"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.107869758458367, max cpu: 37.227337, count: 59343"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 44.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.514926465632, max mem: 55.13671875, count: 59343"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 91.96044921875,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 198.56994865451807, max replication_lag:MB: 963.8332595825195, count: 59343"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.110256,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.1944619280332, max cpu: 32.70073, count: 59343"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 51.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.35385998822523, max mem: 59.65625, count: 59343"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.2708845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.09869049567974, max cpu: 32.73259, count: 59343"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 21.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.384178038585006, max mem: 21.4609375, count: 59343"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.937353573855999, max cpu: 32.70073, count: 59343"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 21.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.395613148876027, max mem: 21.46484375, count: 59343"
+          }
+        ],
+        "publication_id": "12800466543-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

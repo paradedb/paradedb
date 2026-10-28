@@ -958,7 +958,14 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
 
         let join_clause = join_expr.to_sql();
 
-        let select_list = group_by_expr.to_select_list();
+        // Keep every join input observable. Otherwise PostgreSQL can remove an outer join
+        // on a unique key when only users columns are selected, bypassing DataFusion.
+        let joined_counts = tables_for_join[1..]
+            .iter()
+            .map(|table| format!("COUNT({table}.id)"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let select_list = format!("{}, {joined_counts}", group_by_expr.to_select_list());
         let group_by_clause = group_by_expr.to_sql();
 
         // Build WHERE clauses

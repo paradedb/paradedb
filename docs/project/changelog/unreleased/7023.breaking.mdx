@@ -6,6 +6,9 @@ title: Standalone index access permissions
 Standalone index reads now check permissions on the backing table. Content-reading APIs,
 including `paradedb.aggregate()`, require table-level `SELECT` and reject calls when row-level
 security applies to the effective caller.
+Callers who need a filtered result under RLS can be given a `SECURITY DEFINER` function,
+owned by the table owner, that applies the policy's filter in an ordinary `@@@` query.
+Wrapping `paradedb.aggregate()` itself does not filter rows.
 
 `paradedb.schema()`, `paradedb.index_info()`, `pdb.index_segments()`, and the
 statistics returned by `pdb.indexes()`

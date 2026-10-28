@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793220922812,
+  "lastUpdate": 1793221047054,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -45127,6 +45127,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12847022814-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "416da5d04c5d48c43d59f92abc0ed05d69a604a9",
+          "message": "fix: allow vacuum delete assertion to remain unreachable (#7078)\n\n## What\n\nUse `assert_always_or_unreachable!` for the immutable VACUUM\ndelete-count invariant.\n\n## Why\n\nAntithesis reported this property as failed with no examples in the\nOctober 28 Enterprise run. Reaching this assertion requires partially\ndeleting an immutable segment. A run may validly delete nothing, remove\nwhole segments, or only flush mutable segments.\n\n## How\n\nAllow the assertion site to remain unvisited while preserving every\nexisting invariant check whenever it executes. Document why reachability\nis optional. Existing Stressgres workloads are unchanged.\n\n## Tests\n\n`git diff --check` passed. No runtime tests added or run for this\nassertion classification change. Antithesis validation remains pending a\nsubsequent run.",
+          "timestamp": "2026-10-28T12:57:25-07:00",
+          "tree_id": "193ffc91d8d29efc0ff02a66abdab928272e5d43",
+          "url": "https://github.com/paradedb/paradedb/commit/416da5d04c5d48c43d59f92abc0ed05d69a604a9"
+        },
+        "date": 1793220980231,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 75.67594676852761,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 75.5392082857069,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 45.134040542308774,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 55.2702054972982,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 55.23336540371446,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 55.28015316969089,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 99.65728541614388,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 93.5394125211401,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 61.685697297760875,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12848298394-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [

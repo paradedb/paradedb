@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793178133449,
+  "lastUpdate": 1793178283422,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -427540,6 +427540,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12718397812-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793178239410,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 607.8839788182108,
+            "unit": "median tps",
+            "extra": "avg tps: 608.5495339583997, max tps: 649.7865957014487, count: 55285"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 565.2236449631644,
+            "unit": "median tps",
+            "extra": "avg tps: 566.119646839104, max tps: 611.3768316780795, count: 55285"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 210.50272765451297,
+            "unit": "median tps",
+            "extra": "avg tps: 210.80783011477908, max tps: 222.0864907515833, count: 55285"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 619.8171672647348,
+            "unit": "median tps",
+            "extra": "avg tps: 618.1341541768969, max tps: 626.4832801009791, count: 55285"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 413.42575411644026,
+            "unit": "median tps",
+            "extra": "avg tps: 413.8094058562283, max tps: 432.926130186985, count: 55285"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.695020602507045,
+            "unit": "median tps",
+            "extra": "avg tps: 14.689883853080627, max tps: 15.568025629243008, count: 55285"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 763.7502980278991,
+            "unit": "median tps",
+            "extra": "avg tps: 764.0298792742859, max tps: 794.9461753572867, count: 55285"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 773.5563631936976,
+            "unit": "median tps",
+            "extra": "avg tps: 773.7676213670445, max tps: 813.5875807794556, count: 55285"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 318.82933065195124,
+            "unit": "median tps",
+            "extra": "avg tps: 319.2310788646346, max tps: 341.1455890174965, count: 55285"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 663.3461732166777,
+            "unit": "median tps",
+            "extra": "avg tps: 663.6496396126487, max tps: 677.7673810243305, count: 55285"
+          }
+        ],
+        "publication_id": "12800337189-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [

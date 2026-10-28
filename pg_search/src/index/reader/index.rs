@@ -2095,7 +2095,11 @@ impl SearchIndexReader {
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
         self.search_top_k_in_segments_internal(
-            segment_batches.map(|ids| ids.into_iter().map(|id| (id, SegmentQueryKind::Unconstrained)).collect()),
+            segment_batches.map(|ids| {
+                ids.into_iter()
+                    .map(|id| (id, SegmentQueryKind::Unconstrained))
+                    .collect()
+            }),
             None,
             orderby_info,
             TopKWindow {
@@ -2363,7 +2367,7 @@ impl SearchIndexReader {
                         partition_bounds,
                         collector.build(),
                         aux_collector,
-                                ),
+                    ),
                     1 => self.collect_vector_maybe_auxiliary(
                         readers,
                         partition_bounds,
@@ -3049,7 +3053,7 @@ impl SearchIndexReader {
         &self,
         reader_batches: impl Iterator<Item = Vec<(SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>>,
         partition_bounds: Option<&SearchQueryInput>,
-        collector: tantivy::vector::TopDocsByVectorSimilarity<f32, S>,
+        collector: tantivy::vector::TopDocsByVectorSimilarityBuilder<f32, S>,
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (
         tantivy::vector::VectorSimilarityFruit,
@@ -3058,8 +3062,14 @@ impl SearchIndexReader {
     where
         S: SortKeyComputer + Send + Sync + 'static,
     {
+        let collector = collector.build();
         if aux_collector.is_some() || partition_bounds.is_some() {
-            return self.collect_maybe_auxiliary(reader_batches.flatten(), partition_bounds, collector, aux_collector);
+            return self.collect_maybe_auxiliary(
+                reader_batches.flatten(),
+                partition_bounds,
+                collector,
+                aux_collector,
+            );
         }
         collector
             .check_schema(self.searcher.schema())
@@ -3078,7 +3088,10 @@ impl SearchIndexReader {
         };
         let fruits = reader_batches
             .flat_map(|readers| {
-                let readers = readers.into_iter().map(|(ord, reader, _)| (ord, reader)).collect::<Vec<_>>();
+                let readers = readers
+                    .into_iter()
+                    .map(|(ord, reader, _)| (ord, reader))
+                    .collect::<Vec<_>>();
                 collector
                     .collect_segments(weight.as_ref(), &readers, on_segment)
                     .expect("vector collection should not fail")

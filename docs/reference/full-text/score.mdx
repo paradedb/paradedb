@@ -217,7 +217,7 @@ import { desc, eq, or, sql } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
 
 const score =
-  sql<number>`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`.as(
+  sql`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`.as(
     "score",
   );
 

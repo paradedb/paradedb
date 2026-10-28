@@ -182,6 +182,40 @@ impl ScoreCombiner {
         self.uses_side(AdvanceSide::Right)
     }
 
+    /// Returns whether `f(s_l, s_r)` satisfies disjunctive positivity over `s_l, s_r >= 0.0`:
+    /// - `f(s_l, s_r) > 0.0 <=> (s_l > 0.0 || s_r > 0.0)`, and
+    /// - `f(s_l, 0.0)` and `f(0.0, s_r)` are strictly increasing in `s_l` and `s_r` respectively.
+    ///
+    /// In a tagless disjunctive join (`ScanMode::Disjunctive` / `CursorMode::ScoredDisjunctive`),
+    /// each input yields `score > 0.0` iff the row matched at least one disjunctive search
+    /// predicate in that input's subtree, and `0.0` when fetched via `RA` without matching its own
+    /// disjunct. Disjunctive positivity guarantees that:
+    /// 1. An unmatched pair `(0.0, 0.0)` evaluates to `0.0` (`f(0.0, 0.0) == 0.0`), so a parent
+    ///    `RankJoinExec` never mistakes an unmatched `(0.0, 0.0)` pair for a disjunct match
+    ///    (`score > 0.0`), rejecting positive constant offsets such as `s_l + s_r + c`.
+    /// 2. A single-side match `(s_l > 0.0, 0.0)` or `(0.0, s_r > 0.0)` remains strictly positive
+    ///    and strictly monotonic in the matching side's score (`f(1.0, 0.0) > 0.0` and
+    ///    `f(0.0, 1.0) > 0.0`), so single-side matches are not annihilated to `0.0` (rejecting
+    ///    pure products `s_l * s_r` and single-sided `LeftScore` / `RightScore`).
+    ///
+    /// Because every [`ScoreCombiner`] constructed by `analyze_join_score_expr` is a polynomial in
+    /// `(s_l, s_r)` with non-negative coefficients, checking `(0.0, 0.0)`, `(1.0, 0.0)`, and
+    /// `(0.0, 1.0)` is both necessary and sufficient across all `s_l, s_r >= 0.0`.
+    pub fn preserves_disjunctive_positivity(&self) -> bool {
+        self.eval(InputScorePair {
+            left: 0.0,
+            right: 0.0,
+        }) == 0.0
+            && self.eval(InputScorePair {
+                left: 1.0,
+                right: 0.0,
+            }) > 0.0
+            && self.eval(InputScorePair {
+                left: 0.0,
+                right: 1.0,
+            }) > 0.0
+    }
+
     /// Given a required strict combined score floor `f(s_L, s_R) > min_combined` and an upper
     /// bound `0 <= s_opp <= max_opp` on the opposite side, returns a strict lower-bound threshold
     /// `t >= 0.0` on `side`'s score (`s_side > t`, suitable for `PruningScorer`) if one holds by
@@ -1709,6 +1743,10 @@ impl RankedInputCursor {
                 Some(Ok(batch)) => {
                     // Check if the child signaled SA exhaustion (`lit(false)` when staying alive
                     // for RA, or `lit(Boolean(None))` when both SA and RA are exhausted).
+                    // Resetting the sentinel back to `lit(true)` immediately is required before
+                    // the child is polled again for RA: `collect_filters` only ignores `lit(true)`,
+                    // so a sentinel left in place would reach `build_filters` at the leaf on a
+                    // subsequent RA poll and act as a prune-all pre-filter.
                     if let Some(curr) = current_lookup_filter(&self.lookup_filter)
                         && let Some(lit_expr) = curr.downcast_ref::<Literal>()
                     {
@@ -3121,5 +3159,38 @@ mod tests {
         let eq = crate::scan::deferred_lookup::preserved_ordering(&decoded, decoded_output_schema);
         assert_eq!(eq.output_ordering(), Some(output_ordering));
         Ok(())
+    }
+
+    #[test]
+    fn test_score_combiner_disjunctive_positivity() {
+        let l = || Box::new(ScoreCombiner::LeftScore);
+        let r = || Box::new(ScoreCombiner::RightScore);
+        let c = |v: f64| Box::new(ScoreCombiner::Constant(v));
+
+        // Plain sum `s_l + s_r` and weighted sum `2 * s_l + 3 * s_r` preserve disjunctive positivity.
+        assert!(ScoreCombiner::Add(l(), r()).preserves_disjunctive_positivity());
+        let weighted = ScoreCombiner::Add(
+            Box::new(ScoreCombiner::Mul(c(2.0), l())),
+            Box::new(ScoreCombiner::Mul(c(3.0), r())),
+        );
+        assert!(weighted.preserves_disjunctive_positivity());
+
+        // `s_l + s_r + s_l * s_r` also preserves disjunctive positivity.
+        let sum_plus_prod = ScoreCombiner::Add(
+            Box::new(ScoreCombiner::Add(l(), r())),
+            Box::new(ScoreCombiner::Mul(l(), r())),
+        );
+        assert!(sum_plus_prod.preserves_disjunctive_positivity());
+
+        // Pure product `s_l * s_r` annihilates single-side matches `(s_l > 0, 0)`.
+        assert!(!ScoreCombiner::Mul(l(), r()).preserves_disjunctive_positivity());
+
+        // Single-sided `LeftScore` / `RightScore` ignore the opposite side's disjunct.
+        assert!(!ScoreCombiner::LeftScore.preserves_disjunctive_positivity());
+        assert!(!ScoreCombiner::RightScore.preserves_disjunctive_positivity());
+
+        // Positive constant offset `s_l + s_r + 1` makes `(0, 0)` evaluate to `> 0`.
+        let with_offset = ScoreCombiner::Add(Box::new(ScoreCombiner::Add(l(), r())), c(1.0));
+        assert!(!with_offset.preserves_disjunctive_positivity());
     }
 }

@@ -906,11 +906,13 @@ fn try_rewrite_scored_branch(
     let uses_right = decomposed.combiner.uses_right();
     let has_disjunctive_scans = any_scan(node, PgSearchScanPlan::is_tagless_disjunctive);
 
-    // Single-sided (`NRJN`) joins disable SA on the unscored child (`initial_window = 0.0`),
-    // which is sound for `ScanMode::Standard` and `ScanMode::Tagged` (where the scored child
-    // scans `base_query` and the join's `filter` evaluates any cross-table tag disjunction),
-    // but not for tagless `ScanMode::Disjunctive`.
-    if uses_left != uses_right && has_disjunctive_scans {
+    // Tagless disjunctive (`ScanMode::Disjunctive`) joins require `combiner` to satisfy
+    // disjunctive positivity (`f(s_l, s_r) > 0 <=> s_l > 0 || s_r > 0`), rejecting both
+    // single-sided (`NRJN`) combiners (which remain on `ScanMode::Tagged` with the join's
+    // tag filter intact) and pure score products `s_l * s_r` or positive constant offsets
+    // (where a single-side match `(s_l > 0, 0)` would collapse to `0.0` or an unmatched
+    // `(0, 0)` pair would evaluate to `> 0.0`).
+    if has_disjunctive_scans && !decomposed.combiner.preserves_disjunctive_positivity() {
         return Ok(None);
     }
 

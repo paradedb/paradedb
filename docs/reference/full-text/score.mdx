@@ -197,7 +197,8 @@ USING paradedb (order_id, product_id, order_quantity, order_total, customer_name
 
 Next, let's compute a combined BM25 score over a join across both tables:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
   o.order_id,
   o.customer_name,
@@ -210,6 +211,113 @@ WHERE o.customer_name ||| 'Johnson'
 ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
+
+```ts Drizzle
+import { desc, eq, or, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const score =
+  sql<number>`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`.as(
+    "score",
+  );
+
+const results = await db
+  .select({
+    orderId: orders.orderId,
+    customerName: orders.customerName,
+    description: mockItems.description,
+    score,
+  })
+  .from(orders)
+  .innerJoin(mockItems, eq(orders.productId, mockItems.id))
+  .where(
+    or(
+      search.matchAny(orders.customerName, "Johnson"),
+      search.matchAny(mockItems.description, "running shoes"),
+    ),
+  )
+  .orderBy(desc(score), orders.orderId)
+  .limit(5);
+```
+
+```python Django
+from django.db.models import F, Q
+from paradedb import MatchAny, ParadeDB, Score
+
+results = list(
+    Order.objects.filter(
+        Q(customer_name=ParadeDB(MatchAny("Johnson")))
+        | Q(product__description=ParadeDB(MatchAny("running shoes")))
+    )
+    .annotate(
+        score=Score("order_id") + Score("product__description"),
+        description=F("product__description"),
+    )
+    .values("order_id", "customer_name", "description", "score")
+    .order_by("-score", "order_id")[:5]
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+score = (pdb.score(Order.order_id) + pdb.score(MockItem.id)).label("score")
+
+stmt = (
+    select(Order.order_id, Order.customer_name, MockItem.description, score)
+    .join(MockItem, MockItem.id == Order.product_id)
+    .where(
+        or_(
+            search.match_any(Order.customer_name, "Johnson"),
+            search.match_any(MockItem.description, "running shoes"),
+        )
+    )
+    .order_by(score.desc(), Order.order_id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    results = session.execute(stmt).all()
+```
+
+```ruby Rails
+orders = Order.arel_table
+products = MockItem.arel_table
+score = Arel::Nodes::Addition.new(
+  Arel::Nodes::NamedFunction.new("pdb.score", [orders[:order_id]]),
+  Arel::Nodes::NamedFunction.new("pdb.score", [products[:id]])
+)
+
+results = Order.joins(:mock_item)
+               .search(:customer_name).match_any("Johnson")
+               .or(Order.joins(:mock_item).search(products[:description]).match_any("running shoes"))
+               .select(orders[:order_id], orders[:customer_name],
+                       products[:description], score.as("score"))
+               .order(score.desc, orders[:order_id])
+               .limit(5).to_a
+```
+
+```cs EF Core
+var results = await (
+    from order in dbContext.Orders
+    join item in dbContext.MockItems on order.ProductId equals item.Id
+    where EF.Functions.MatchAny(order.CustomerName, "Johnson")
+       || EF.Functions.MatchAny(item.Description, "running shoes")
+    let score = EF.Functions.Score(order.OrderId) + EF.Functions.Score(item.Id)
+    orderby score descending, order.OrderId
+    select new
+    {
+        order.OrderId,
+        order.CustomerName,
+        item.Description,
+        Score = score,
+    }
+).Take(5).ToListAsync();
+```
+
+</CodeGroup>
 
 <Note>
   To combine full text and vector search, where scores operate on different

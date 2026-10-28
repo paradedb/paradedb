@@ -1950,6 +1950,7 @@ async fn generated_rank_join(database: Db) {
         (join, table_wheres, extra_base_where, mut order_parts) in join_and_where_strategy,
         disjunctive in proptest::bool::ANY,
         scored_tables in prop_oneof![Just(0usize), Just(1usize), Just(usize::MAX)],
+        multiply_scores in proptest::bool::ANY,
         descending in proptest::bool::ANY,
         limit in 1..=25usize,
         offset in 0..=10usize,
@@ -1978,15 +1979,20 @@ async fn generated_rank_join(database: Db) {
             scored_tables.min(used_tables.len())
         };
         let dir = if descending { "DESC" } else { "ASC" };
+        let score_sep = if !disjunctive && multiply_scores {
+            " * "
+        } else {
+            " + "
+        };
         let lead_order = if n_scored == 0 {
             format!("{first_table}.quantity {dir}")
         } else {
-            let sum = used_tables[..n_scored]
+            let combined = used_tables[..n_scored]
                 .iter()
                 .map(|t| format!("pdb.score({t}.id)"))
                 .collect::<Vec<_>>()
-                .join(" + ");
-            format!("{sum} {dir}")
+                .join(score_sep);
+            format!("{combined} {dir}")
         };
         order_parts.insert(0, lead_order);
         let order_by = order_parts.join(", ");

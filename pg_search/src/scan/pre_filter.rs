@@ -384,15 +384,15 @@ fn try_extract_score_threshold(
                 _ => None,
             }
         }
-        Operator::Eq => {
-            // Look for a binary expr that looks like: score = f32
+        Operator::Eq | Operator::GtEq => {
+            // Look for a binary expr that looks like: score = f32 or score >= f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
             if col.index() != score_col_schema_idx {
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
                 // PruningScorer's assume the threshold has greater-than semantics, so
-                // take the next representable value below the eq check to keep the threshold valid
+                // take the next representable value below the eq/gte check to keep the threshold valid
                 ScalarValue::Float32(Some(t)) => Some(t.next_down()),
                 _ => None,
             }

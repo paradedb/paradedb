@@ -44,9 +44,10 @@ const MAX_BATCH_SIZE: usize = 128_000;
 /// batch size, since we are not fetching string dictionaries during the scan phase.
 const DEFERRED_BATCH_SIZE: usize = 8_192;
 
-/// Compact `ids` and `memoized_columns` in-place based on a boolean mask.
+/// Compact `ids` (and optional `orig_indices`) and `memoized_columns` in-place based on a boolean mask.
 fn compact_with_mask(
     ids: &mut Vec<DocId>,
+    mut orig_indices: Option<&mut Vec<usize>>,
     memoized_columns: &mut [Option<ArrayRef>],
     mask: &BooleanArray,
 ) {
@@ -54,17 +55,23 @@ fn compact_with_mask(
         return;
     }
 
-    // Compact ids.
+    // Compact ids (and optional orig_indices).
     let mut write_idx = 0;
     for (read_idx, valid) in mask.iter().enumerate() {
         if valid == Some(true) {
             if read_idx != write_idx {
                 ids[write_idx] = ids[read_idx];
+                if let Some(orig) = orig_indices.as_deref_mut() {
+                    orig[write_idx] = orig[read_idx];
+                }
             }
             write_idx += 1;
         }
     }
     ids.truncate(write_idx);
+    if let Some(orig) = orig_indices {
+        orig.truncate(write_idx);
+    }
 
     // Compact memoized columns
     for opt_col in memoized_columns {
@@ -346,6 +353,29 @@ impl Scanner {
             .push(TaggedMatchQuery { tag_name, weight });
     }
 
+    /// Compiles and registers any `ScanMode::Tagged` match queries on this scanner.
+    pub fn register_tagged_queries(
+        &mut self,
+        scan_mode: &crate::scan::ScanMode,
+        reader: &crate::index::reader::index::SearchIndexReader,
+        need_scores: bool,
+    ) -> datafusion::common::Result<()> {
+        if let crate::scan::ScanMode::Tagged { local_queries, .. } = scan_mode {
+            for tq in local_queries {
+                let weight = reader
+                    .compile_match_weight(&tq.query, need_scores)
+                    .map_err(|e| {
+                        datafusion::common::DataFusionError::Internal(format!(
+                            "Failed to compile match weight for tag {}: {e}",
+                            tq.tag_name
+                        ))
+                    })?;
+                self.add_tagged_query(tq.tag_name.clone(), weight);
+            }
+        }
+        Ok(())
+    }
+
     fn ensure_segment_tag_scorers(&mut self, segment_ord: SegmentOrdinal) {
         if self.current_segment_ord != Some(segment_ord) {
             self.active_tag_scorers.clear();
@@ -475,7 +505,134 @@ impl Scanner {
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
-        let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
+        let (segment_ord, scores, ids) = self.try_get_batch_ids()?;
+        Some(self.materialize_segment_batch(
+            segment_ord,
+            scores,
+            ids,
+            None,
+            ffhelper,
+            visibility,
+            pre_filters,
+        ))
+    }
+
+    /// Materializes a Top-K window of `(SearchIndexScore, DocAddress)` hits across segments into
+    /// a single `RecordBatch` preserving the input Top-K row ordering.
+    ///
+    /// Hits are grouped by segment and sorted by `DocId` for sequential fast-field reads,
+    /// visibility checks, and pre-filter evaluation, then interleaved back into Top-K order.
+    /// Returns `None` if `results` is empty or if all rows in the window are filtered out.
+    pub(crate) fn materialize_topk_window(
+        &mut self,
+        results: &[(
+            crate::index::reader::index::SearchIndexScore,
+            tantivy::DocAddress,
+        )],
+        ffhelper: &Arc<FFHelper>,
+        visibility: &mut VisibilityChecker,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+        schema: &SchemaRef,
+    ) -> Option<RecordBatch> {
+        pgrx::check_for_interrupts!();
+        if results.is_empty() {
+            return None;
+        }
+        if self.can_pushdown_score_threshold() && self.score_threshold.is_some() {
+            self.score_threshold_pushed = true;
+        }
+        // Consecutive SA windows or RA lookups on a single-segment index can revisit the same
+        // `segment_ord` with smaller `DocId`s than the previous window; reset `current_segment_ord`
+        // so forward-only `ActiveTagScorer`s are re-instantiated from DocId 0 for each window.
+        self.current_segment_ord = None;
+
+        let num_segments = ffhelper.num_segments();
+        let mut slot_by_orig_idx: Vec<Option<(usize, usize)>> = vec![None; results.len()];
+        let mut seg_batches: Vec<RecordBatch> = Vec::new();
+
+        let doc_addresses = results
+            .iter()
+            .enumerate()
+            .map(|(orig_idx, (_, doc_addr))| (orig_idx, *doc_addr));
+
+        crate::index::fast_fields_helper::for_each_segment(
+            num_segments,
+            doc_addresses,
+            |segment_ord, rows| {
+                let mut orig_indices = Vec::with_capacity(rows.len());
+                let mut ids = Vec::with_capacity(rows.len());
+                let mut scores = Vec::with_capacity(rows.len());
+                for (orig_idx, doc_id) in rows {
+                    orig_indices.push(orig_idx);
+                    ids.push(doc_id);
+                    scores.push(results[orig_idx].0.bm25);
+                }
+                let batch = self.materialize_segment_batch(
+                    segment_ord,
+                    scores,
+                    ids,
+                    Some(&mut orig_indices),
+                    ffhelper,
+                    visibility,
+                    pre_filters,
+                );
+                if batch.num_rows > 0 {
+                    let seg_batch_idx = seg_batches.len();
+                    for (row_in_seg, &orig_idx) in orig_indices.iter().enumerate() {
+                        slot_by_orig_idx[orig_idx] = Some((seg_batch_idx, row_in_seg));
+                    }
+                    seg_batches.push(batch.to_record_batch(schema));
+                }
+                Ok(())
+            },
+        )
+        .expect("segment iteration should succeed");
+
+        let interleave_indices: Vec<(usize, usize)> =
+            slot_by_orig_idx.into_iter().flatten().collect();
+        if interleave_indices.is_empty() {
+            return None;
+        }
+
+        if seg_batches.len() == 1
+            && interleave_indices
+                .iter()
+                .enumerate()
+                .all(|(i, &(b, r))| b == 0 && r == i)
+        {
+            return seg_batches.pop();
+        }
+
+        let num_rows = interleave_indices.len();
+        let columns: Vec<ArrayRef> = (0..schema.fields().len())
+            .map(|col_idx| {
+                let col_refs: Vec<&dyn Array> = seg_batches
+                    .iter()
+                    .map(|rb| rb.column(col_idx).as_ref())
+                    .collect();
+                compute::interleave(&col_refs, &interleave_indices)
+                    .expect("Failed to interleave segment column")
+            })
+            .collect();
+
+        let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+        Some(
+            RecordBatch::try_new_with_options(schema.clone(), columns, &options)
+                .expect("Failed to create RecordBatch"),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn materialize_segment_batch(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        scores: Vec<Score>,
+        mut ids: Vec<DocId>,
+        mut orig_indices: Option<&mut Vec<usize>>,
+        ffhelper: &Arc<FFHelper>,
+        visibility: &mut VisibilityChecker,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+    ) -> Batch {
         self.ensure_segment_tag_scorers(segment_ord);
 
         // Memoize fetched columns to avoid redundant fetches.
@@ -519,7 +676,12 @@ impl Scanner {
                         ids.len(),
                     )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-                compact_with_mask(&mut ids, &mut memoized_columns, &mask);
+                compact_with_mask(
+                    &mut ids,
+                    orig_indices.as_deref_mut(),
+                    &mut memoized_columns,
+                    &mask,
+                );
             }
             self.pre_filter_rows_pruned += before - ids.len();
         }
@@ -529,6 +691,7 @@ impl Scanner {
             visibility,
             segment_ord,
             &mut ids,
+            orig_indices,
             &mut memoized_columns,
         );
 
@@ -693,20 +856,21 @@ impl Scanner {
             })
             .collect();
 
-        Some(Batch {
+        Batch {
             num_rows: ids.len(),
             fields,
-        })
+        }
     }
 
     /// Checks visibility and fetches the `ctid` column if needed, compacting `ids`
-    /// and `memoized_columns` in-place when invisible rows are encountered.
+    /// (and optional `orig_indices`) and `memoized_columns` in-place when invisible rows are encountered.
     fn fetch_ctids(
         &mut self,
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         segment_ord: SegmentOrdinal,
         ids: &mut Vec<DocId>,
+        orig_indices: Option<&mut Vec<usize>>,
         memoized_columns: &mut [Option<ArrayRef>],
     ) -> Option<ArrayRef> {
         if self.defer_visibility {
@@ -746,7 +910,12 @@ impl Scanner {
                 for maybe_visible_ctid in ctids_slice {
                     visibility_mask_builder.append_value(maybe_visible_ctid.is_some());
                 }
-                compact_with_mask(ids, memoized_columns, &visibility_mask_builder.finish());
+                compact_with_mask(
+                    ids,
+                    orig_indices,
+                    memoized_columns,
+                    &visibility_mask_builder.finish(),
+                );
             }
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         } else {
@@ -758,7 +927,7 @@ impl Scanner {
                 mask_builder.append_slice(mask);
                 let mask = BooleanArray::new(mask_builder.finish(), None);
 
-                compact_with_mask(ids, memoized_columns, &mask);
+                compact_with_mask(ids, orig_indices, memoized_columns, &mask);
             }
             None
         }

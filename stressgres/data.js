@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793225985122,
+  "lastUpdate": 1793226140740,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -179465,6 +179465,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12799933107-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793226104294,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 129.5141905635307,
+            "unit": "median tps",
+            "extra": "avg tps: 127.83972381833023, max tps: 140.0426317015557, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.13078418118914,
+            "unit": "median tps",
+            "extra": "avg tps: 294.80637138479125, max tps: 5277.7372876101535, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3305.5524758695988,
+            "unit": "median tps",
+            "extra": "avg tps: 3308.012364876985, max tps: 3421.45927756537, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 156.76084721391118,
+            "unit": "median tps",
+            "extra": "avg tps: 154.9755060048674, max tps: 170.0162301634735, count: 59304"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 258.7917303617226,
+            "unit": "median tps",
+            "extra": "avg tps: 257.4994180220173, max tps: 2880.139347159817, count: 118608"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.93992002563116,
+            "unit": "median tps",
+            "extra": "avg tps: 21.740907929200773, max tps: 34.95546498982971, count: 59304"
+          }
+        ],
+        "publication_id": "12849856324-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [

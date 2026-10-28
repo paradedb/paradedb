@@ -232,8 +232,9 @@ impl SearchQueryInput {
             };
             assert_eq!(unsafe { (*c).consttype }, sqi_typoid);
             let value = unsafe { SearchQueryInput::from_datum((*c).constvalue, (*c).constisnull) };
-            // NULL matches nothing at execution too (see `solve_postgres_expressions`).
-            *sqi = value.unwrap_or(SearchQueryInput::Empty);
+            // A NULL estimate means the predicate is NULL, so fold it to `Null`
+            // (see `solve_postgres_expressions`).
+            *sqi = value.unwrap_or(SearchQueryInput::Null);
         });
         all_folded.then_some(folded)
     }
@@ -279,13 +280,14 @@ impl SearchQueryInput {
                         if let Some(resolved_sqi) = expr.solve(expr_context, sqi_typoid) {
                             *sqi = resolved_sqi;
                         } else {
-                            // PostgresExpression evaluated to NULL (e.g., subquery returned no results)
-                            // Replace with a query that matches nothing
+                            // PostgresExpression evaluated to NULL (e.g., subquery returned no results).
+                            // Keep NULL distinct from `Empty` so a negation can treat `NOT NULL` as
+                            // NULL, which matches nothing, while `NOT Empty` matches every row.
                             pgrx::debug1!(
                                 "PostgresExpression evaluated to NULL for expression: {}",
                                 pgrx::node_to_string(expr.node()).unwrap_or("unknown")
                             );
-                            *sqi = SearchQueryInput::Empty;
+                            *sqi = SearchQueryInput::Null;
                         }
                     }
                     SearchQueryInput::HeapFilter {

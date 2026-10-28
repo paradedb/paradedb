@@ -75,6 +75,7 @@ Use `--auto` only when you intentionally want to replace the expected output of 
 1. **Non-deterministic Results**: Use fixed dates and ORDER BY clauses to ensure consistent results
 2. **Missing Data**: Verify that all test queries return at least one row of data
 3. **Timing Variations**: Use `COSTS OFF, TIMING OFF` in EXPLAIN to avoid timing-dependent output
+4. **Segment Layout**: Set `background_layer_sizes = '0'` on test indexes whose expected output depends on segment counts or retained mutable segments. Background workers can otherwise change that layout between statements.
 
 ## Contributing New Tests
 

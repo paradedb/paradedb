@@ -46,7 +46,11 @@ Since many write operations can be running concurrently, this value should be ra
 ## Increasing Mutable Segment Size
 
 The `mutable_segment_rows` setting enables use of mutable segments, which buffer new rows in order to amortize the cost of indexing them.
-By default, it is set to `1000`, which means that 1000 writes are buffered before being flushed.
+By default, it is set to `1000`, which means that up to 1000 writes are buffered before being flushed.
+
+A periodic background sweep also flushes underfilled mutable segments across databases.
+`paradedb.mutable_sweep_interval` defaults to `1s` and can be changed through server configuration and a config reload.
+Set it to `0` to disable periodic sweeps. Templates, databases that disallow connections, temporary indexes, and indexes with background merging disabled are skipped.
 
 ```sql
 ALTER INDEX search_idx SET (mutable_segment_rows = 1000);

@@ -31,7 +31,7 @@ CREATE TABLE mpp_mut_test (
 CREATE INDEX mpp_mut_test_idx ON mpp_mut_test
 USING paradedb (id, message, category_id);
 CREATE INDEX mpp_mut_categories_idx ON mpp_mut_categories
-USING paradedb (id, (name::pdb.literal));
+USING paradedb (id, (name::pdb.literal)) WITH (background_layer_sizes = '0');
 
 -- Several immutable segments on the probe side so the join runs on
 -- multiple MPP tasks; the categories stay in a mutable segment (default

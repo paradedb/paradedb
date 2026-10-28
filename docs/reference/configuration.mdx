@@ -121,11 +121,12 @@ These settings affect pushed-down `IN`, `ANY`, and term-set queries.
 
 These settings affect segment layout and background merging.
 
-| Setting                                     | Default | Context | Description                                                                           |
-| ------------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------- |
-| `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload. |
-| `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                  |
-| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.      |
+| Setting                                     | Default | Context | Description                                                                                                    |
+| ------------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload.                          |
+| `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                                           |
+| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.                               |
+| `paradedb.mutable_sweep_interval`           | `1s`    | sighup  | Interval between periodic mutable-segment sweeps. Set to `0` to disable; write-triggered merging is unchanged. |
 
 ## Per-Index Search Options
 

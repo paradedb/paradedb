@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793205900370,
+  "lastUpdate": 1793206936812,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -18804,6 +18804,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12830214600-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "73897ff6655da8b9f2a7cd98cb59d4a0157b1690",
+          "message": "test: stabilize immutable backpressure merge fixture (#7071)\n\n## What\n\nStabilize\n`test_ephemeral_mutable_backpressure_preserves_immutable_segments` by\nchanging its background layers from `1kb,10kb,100mb` to `20kb,100mb`.\n\n## Why\n\nThe test added in #6880 can report that immutable backpressure did not\nmerge even when it did. With 1 KB batches, the immutable segment\nproduced by mutable merging can merge with each new insert while all\ntwelve original immutable segments survive. The final assertion expects\nan original segment to be consumed.\n\nThis was reproduced on main while investigating the [CI failure on\n#7023](https://github.com/paradedb/paradedb/actions/runs/40688070883/job/122815502584?pr=7023).\n\n## How\n\nUse a configured layer larger than this small fixture. The existing\ntarget-size clamping then produces a larger merge group that includes\noriginal immutable segments. Both original assertions remain: mutable\nbackpressure preserves the original segments, and immutable backpressure\nsubsequently consumes at least one of them. Only this isolated fixture\nand its explanatory comment change.\n\n## Tests\n\nValidated locally on PostgreSQL 18 / macOS arm64 with a fresh build of\nmain:\n\n- 100/100 fresh fixture runs passed with the original assertions and\n`verify_index(heapallindexed => true)`.\n- Disabling immutable merging before the final phase made the test fail\nat the expected assertion.\n- Removed the temporary repetition/negative-control changes and ran the\nfull replication test suite: 11 passed.",
+          "timestamp": "2026-10-28T21:06:20+05:30",
+          "tree_id": "8704373d118a911fcb3019df2f8858be23bffc72",
+          "url": "https://github.com/paradedb/paradedb/commit/73897ff6655da8b9f2a7cd98cb59d4a0157b1690"
+        },
+        "date": 1793206898047,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.227,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 97.736,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 334.679,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.899,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.578,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 184.106,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.459,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 150.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.736,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.295,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 193.373,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.335,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.042,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 162.552,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12833669890-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [

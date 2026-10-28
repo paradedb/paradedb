@@ -232,6 +232,7 @@ fn inject_estimates_into_json(
         // Leaf query types - no children to process
         SearchQueryInput::All
         | SearchQueryInput::Empty
+        | SearchQueryInput::Null
         | SearchQueryInput::MoreLikeThis { .. }
         | SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }

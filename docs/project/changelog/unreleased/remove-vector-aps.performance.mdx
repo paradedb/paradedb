@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Stacked IVF list selection now scales with the number of clusters a query asks to probe, so every stacked IVF index can see different recall and latency. The probe stops only on the work budget (`paradedb.vector_cluster_max_probe`) or when the ranking runs out. L2 and cosine indexes at 128 dimensions or fewer also no longer stop early through geometry-based adaptive partition scanning. `paradedb.vector_router_recall_target` and `paradedb.vector_recall_target` remain accepted and have no effect.

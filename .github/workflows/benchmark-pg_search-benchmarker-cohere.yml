@@ -181,6 +181,13 @@ jobs:
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
             -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c "SELECT name, setting, unit FROM pg_settings
+                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                               'max_worker_processes', 'max_parallel_maintenance_workers',
+                               'parallel_leader_participation', 'paradedb.global_target_segment_count')
+                ORDER BY name;" \
+            | tee benchmark-artifacts/index-build-settings.log
           cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
           pdbench build --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
             --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \

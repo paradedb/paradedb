@@ -476,7 +476,15 @@ impl BM25IndexOptions {
     }
 
     pub fn partition_by(&self) -> Vec<FieldName> {
-        self.options_data().partition_by()
+        let options = self.options_data();
+        if options.partition_by_offset != 0 {
+            return options.partition_by();
+        }
+        self.attributes()
+            .iter()
+            .filter(|(_, attr)| matches!(attr.tantivy_type, SearchFieldType::Vector(..)))
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {

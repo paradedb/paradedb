@@ -767,38 +767,101 @@ mod tests {
                 "SET max_parallel_workers = 8; SET max_parallel_maintenance_workers = {workers};"
             ))
             .unwrap();
-            for metric in ["vector_l2_ops", "vector_cosine_ops", "vector_ip_ops"] {
-                Spi::run(&format!(
-                    r#"
+            for partition_option in ["", ", partition_by = 'emb'"] {
+                for metric in ["vector_l2_ops", "vector_cosine_ops", "vector_ip_ops"] {
+                    Spi::run(&format!(
+                        r#"
                     CREATE INDEX vector_partition_idx ON vector_partition_src
                     USING paradedb (id, region, emb {metric})
-                    WITH (partition_by = 'emb', target_segment_count = 2);
+                    WITH (target_segment_count = 2{partition_option});
                 "#
-                ))
-                .unwrap();
-                assert_eq!(
-                    Spi::get_one::<i64>(
-                        "SELECT count(*) FROM paradedb.index_info('vector_partition_idx')"
-                    )
-                    .unwrap(),
-                    Some(2)
-                );
-                assert_eq!(
-                    Spi::get_one::<i64>(
-                        "SELECT count(*) FROM vector_partition_src WHERE id @@@ pdb.all()"
-                    )
-                    .unwrap(),
-                    Some(4002)
-                );
-                assert_eq!(Spi::get_one::<bool>(r#"
+                    ))
+                    .unwrap();
+                    for rebuild in [false, true] {
+                        if rebuild {
+                            Spi::run("REINDEX INDEX vector_partition_idx").unwrap();
+                        }
+                        assert_eq!(
+                            Spi::get_one::<i64>(
+                                "SELECT count(*) FROM paradedb.index_info('vector_partition_idx')"
+                            )
+                            .unwrap(),
+                            Some(2)
+                        );
+                        assert_eq!(
+                            Spi::get_one::<i64>(
+                                "SELECT count(*) FROM vector_partition_src WHERE id @@@ pdb.all()"
+                            )
+                            .unwrap(),
+                            Some(4002)
+                        );
+                        assert_eq!(Spi::get_one::<bool>(r#"
                     SELECT bool_and(regions = 1) FROM (
                         SELECT unnest(paradedb.find_ctid('vector_partition_idx', ctid)), count(DISTINCT region) AS regions
                         FROM vector_partition_src GROUP BY 1
                     ) partitions
                 "#).unwrap(), Some(true));
-                Spi::run("DROP INDEX vector_partition_idx").unwrap();
+                    }
+                    Spi::run("DROP INDEX vector_partition_idx").unwrap();
+                }
             }
         }
+    }
+
+    #[pg_test]
+    fn vector_partition_default_respects_explicit_options() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE vector_partition_options (id BIGINT, emb vector(2), other vector(2));",
+        )
+        .unwrap();
+        for (option, expected) in [
+            ("", vec![FieldName::from("emb")]),
+            (", partition_by = 'emb'", vec![FieldName::from("emb")]),
+            (", partition_by = 'id'", vec![FieldName::from("id")]),
+            (", partition_by = ''", vec![]),
+        ] {
+            Spi::run(&format!(
+                "CREATE INDEX vector_partition_options_idx ON vector_partition_options
+                 USING paradedb (id, emb) WITH (target_segment_count = 4{option});"
+            ))
+            .unwrap();
+            let (heaprel, indexrel) =
+                open_rels("vector_partition_options", "vector_partition_options_idx");
+            assert_eq!(indexrel.options().partition_by(), expected);
+            let model = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4).unwrap();
+            match expected.first() {
+                Some(field) if field.as_ref() == "emb" => {
+                    assert!(matches!(model, Some(BuildPartitioning::Vector(_))));
+                }
+                Some(_) => assert!(matches!(model, Some(BuildPartitioning::Range(_)))),
+                None => assert!(model.is_none()),
+            }
+            drop(indexrel);
+            drop(heaprel);
+            Spi::run("DROP INDEX vector_partition_options_idx").unwrap();
+        }
+    }
+
+    #[pg_test(error = "a ParadeDB index may only index one vector field")]
+    fn vector_index_rejects_multiple_fields() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE multi_vector_src (id BIGINT, emb vector(2), other vector(3));
+             CREATE INDEX ON multi_vector_src USING paradedb (id, emb, other);",
+        )
+        .unwrap();
+    }
+
+    #[pg_test(error = "a ParadeDB index may only index one vector field")]
+    fn vector_index_rejects_multiple_fields_with_scalar_partition() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE multi_vector_src (id BIGINT, emb vector(2), other vector(3));
+             CREATE INDEX ON multi_vector_src USING paradedb
+             (id, emb vector_l2_ops, other vector_cosine_ops) WITH (partition_by = 'id');",
+        )
+        .unwrap();
     }
 
     #[pg_test(error = "a vector partition_by field must be the only partition field")]

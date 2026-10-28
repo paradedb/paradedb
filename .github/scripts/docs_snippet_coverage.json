@@ -126,7 +126,7 @@
         ["reference/indexing/indexing-arrays.mdx::fence-008", "b7f546e2d477cd006794004ab8b9ee22cc93725b905d4a418eed3c3c580d1b86"],
         ["reference/indexing/indexing-vectors.mdx::fence-007", "7415067b1ac5cfa7d3619a8d3732708b4a0a1d4836dda17547863dd3df81fbde"],
         ["reference/indexing/partition-by.mdx::fence-007", "5b50fbf20784a60b3e3564089a64a7db33bbd128fd768a6e56ee0e9efb71a978"],
-        ["reference/indexing/partition-by.mdx::fence-009", "b8d44dbb1dfe7d270e33d468d4ac10d5dbe4b9f76219ecd46fd199d426fd9e38"],
+        ["reference/indexing/partition-by.mdx::fence-008", "b8d44dbb1dfe7d270e33d468d4ac10d5dbe4b9f76219ecd46fd199d426fd9e38"],
         ["reference/joins/overview.mdx::fence-001", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
         ["reference/joins/overview.mdx::fence-002", "db9a4bd591e0dd34478b582d68b7ee1b2a06af6176f16ff2017bb8da0e756db9"],
         ["reference/operators-and-functions.mdx::fence-003", "6b3bce2d2ad18f9650347cfb6df27cbf733114415fdfe97c7f88c872e42fe136"],

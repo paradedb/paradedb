@@ -2027,43 +2027,44 @@ mod tests {
         )
         .unwrap();
 
-        for (partitioned, workers, target, leader) in [
-            (false, 0, 1, true),
-            (false, 0, 4, true),
-            (false, 2, 4, true),
-            (false, 2, 4, false),
-            (false, 8, 8, true),
-            (false, 8, 8, false),
-            (true, 0, 4, true),
-            (true, 2, 4, false),
+        for (partition_by, workers, target, leader) in [
+            (None, 0, 1, true),
+            (None, 0, 4, true),
+            (None, 2, 4, true),
+            (None, 2, 4, false),
+            (None, 8, 8, true),
+            (None, 8, 8, false),
+            (Some("tenant_id"), 0, 4, true),
+            (Some("tenant_id"), 2, 4, false),
+            (Some(""), 8, 8, false),
         ] {
             Spi::run(&format!(
                 "SET max_parallel_maintenance_workers = {workers};
                  SET parallel_leader_participation = {leader};"
             ))
             .unwrap();
-            let partition_by = if partitioned {
-                ", partition_by = 'tenant_id'"
-            } else {
-                ""
-            };
+            let partition_option = partition_by
+                .map(|field| format!(", partition_by = '{field}'"))
+                .unwrap_or_default();
             Spi::run(&format!(
                 "CREATE INDEX vector_build_idx ON vector_build USING paradedb
-                 (id, tenant_id, name, empty_emb vector_l2_ops, emb vector_l2_ops)
-                 WITH (target_segment_count = {target}{partition_by});"
+                 (id, tenant_id, name, emb vector_l2_ops)
+                 WITH (target_segment_count = {target}{partition_option});"
             ))
             .unwrap();
-            let segment_count =
+            let segments =
                 Spi::get_one::<i64>("SELECT count(*) FROM paradedb.index_info('vector_build_idx')")
                     .unwrap()
                     .unwrap();
-            if partitioned || workers == 0 {
-                assert_eq!(segment_count, target);
-            } else {
-                // Parallel heap scans can leave participants without rows to index.
+            if partition_by == Some("") && workers > 0 {
                 assert!(
-                    (1..=target).contains(&segment_count),
-                    "segments={segment_count}, target={target}, workers={workers}, leader={leader}"
+                    (1..=target).contains(&segments),
+                    "segments={segments}, workers={workers}, leader={leader}"
+                );
+            } else {
+                assert_eq!(
+                    segments, target,
+                    "partition_by={partition_by:?}, workers={workers}, leader={leader}"
                 );
             }
             assert_eq!(
@@ -2073,24 +2074,47 @@ mod tests {
                 .unwrap(),
                 Some(20000)
             );
-            for (field, vectors) in [("empty_emb", 0), ("emb", 20000)] {
-                assert_eq!(
-                    Spi::get_one::<bool>(&format!(
-                        "SELECT count(*) = {segment_count} AND bool_and(vector_format = 'ivf')
-                         AND sum(vector_num_vectors) = {vectors}
-                         FROM paradedb.vector_info('vector_build_idx', '{field}')"
-                    ))
-                    .unwrap(),
-                    Some(true),
-                    "field={field}, partitioned={partitioned}, workers={workers}, leader={leader}"
-                );
-            }
+            assert_eq!(
+                Spi::get_one::<bool>(&format!(
+                    "SELECT count(*) = {segments} AND bool_and(vector_format = 'ivf')
+                     AND sum(vector_num_vectors) = 20000
+                     FROM paradedb.vector_info('vector_build_idx', 'emb')"
+                ))
+                .unwrap(),
+                Some(true),
+                "partition_by={partition_by:?}, workers={workers}, leader={leader}"
+            );
             assert_eq!(
                 Spi::get_one::<i64>(
                     "SELECT sum(id)::bigint FROM vector_build WHERE name ||| 'even'"
                 )
                 .unwrap(),
                 Some(100010000)
+            );
+            Spi::run("DROP INDEX vector_build_idx").unwrap();
+        }
+        for (partition_option, segments) in [("", 1), (", partition_by = 'tenant_id'", 4)] {
+            Spi::run(&format!(
+                "CREATE INDEX vector_build_idx ON vector_build USING paradedb
+                 (id, tenant_id, empty_emb vector_l2_ops)
+                 WITH (target_segment_count = 4{partition_option});"
+            ))
+            .unwrap();
+            assert_eq!(
+                Spi::get_one::<bool>(&format!(
+                    "SELECT count(*) = {segments} AND bool_and(vector_format = 'ivf')
+                     AND sum(vector_num_vectors) = 0
+                     FROM paradedb.vector_info('vector_build_idx', 'empty_emb')"
+                ))
+                .unwrap(),
+                Some(true)
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('vector_build_idx')"
+                )
+                .unwrap(),
+                Some(20000)
             );
             Spi::run("DROP INDEX vector_build_idx").unwrap();
         }

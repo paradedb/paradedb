@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793225742732,
+  "lastUpdate": 1793225896980,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -489679,6 +489679,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12800981553-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793225859866,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3945.311987370489,
+            "unit": "median tps",
+            "extra": "avg tps: 3913.6423681823603, max tps: 4247.978185961282, count: 59250"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4646.271293883535,
+            "unit": "median tps",
+            "extra": "avg tps: 4681.706669127283, max tps: 5706.50568502237, count: 59250"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.33633972203195,
+            "unit": "median tps",
+            "extra": "avg tps: 168.9138960629647, max tps: 2974.9231711788525, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.092836485052914,
+            "unit": "median tps",
+            "extra": "avg tps: 40.60885154764649, max tps: 570.6866079454959, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.0327413232651,
+            "unit": "median tps",
+            "extra": "avg tps: 40.60214849200631, max tps: 571.1024730988388, count: 59250"
+          }
+        ],
+        "publication_id": "12849509838-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [

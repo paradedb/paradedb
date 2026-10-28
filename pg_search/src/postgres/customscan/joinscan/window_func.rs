@@ -441,12 +441,8 @@ pub fn extract_window_agg(
         };
         // verify each field the filter needs is columnar
         if f.collect_column_refs().iter().any(|cr| {
-            resolve_fast_field_from_join_sources(
-                &all_sources,
-                cr.rti as pg_sys::Index,
-                cr.attno as i32,
-            )
-            .is_none()
+            resolve_fast_field_from_join_sources(&all_sources, cr.rti as pg_sys::Index, cr.attno)
+                .is_none()
         }) {
             return Err("window function FILTER clause depends on non-columnar field".to_string());
         }
@@ -499,7 +495,7 @@ fn extract_column_info(
             let Some(ff) = resolve_fast_field_from_join_sources(
                 sources,
                 var.varno as pg_sys::Index,
-                var.varattno as i32,
+                var.varattno,
             ) else {
                 return Err("arguments to window aggregate must be fast fields".to_string());
             };

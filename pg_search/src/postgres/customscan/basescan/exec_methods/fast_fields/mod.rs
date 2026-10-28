@@ -33,14 +33,15 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
+use crate::postgres::customscan::pullup::{
+    Access, ColumnRef, SourceContext, field_type_for_pullup,
+};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
 
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
-use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
+use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 
 use pgrx::{PgList, pg_sys};
 
@@ -61,21 +62,12 @@ unsafe fn can_scan_evaluate_expr(rti: pg_sys::Index, expr: *mut pg_sys::Expr) ->
 pub unsafe fn collect_fast_fields(
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
-    rti: pg_sys::Index,
-    heaprel: &PgSearchRelation,
-    index: &PgSearchRelation,
+    context: &SourceContext,
     is_execution_time: bool,
 ) -> Vec<WhichFastField> {
-    pullup_fast_fields(
-        target_list,
-        referenced_columns,
-        heaprel,
-        index,
-        rti,
-        is_execution_time,
-    )
-    .filter(|fields| !fields.is_empty())
-    .unwrap_or_default()
+    pullup_fast_fields(target_list, referenced_columns, context, is_execution_time)
+        .filter(|fields| !fields.is_empty())
+        .unwrap_or_default()
 }
 
 fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
@@ -95,13 +87,14 @@ fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
 
 pub(crate) fn find_matching_fast_field(
     node: *mut pg_sys::Node,
-    index_expressions: &PgList<pg_sys::Expr>,
-    schema: SearchIndexSchema,
-    rti: pg_sys::Index,
+    context: &SourceContext,
 ) -> Option<WhichFastField> {
     if node.is_null() {
         return None;
     }
+    let Some(index) = &context.index else {
+        return None;
+    };
 
     // In PostgreSQL 17+, `Var` nodes on the nullable side of an outer join carry
     // `varnullingrels` tracking outer-join relids. Base table index expressions
@@ -113,13 +106,13 @@ pub(crate) fn find_matching_fast_field(
         unsafe { (*var).varnullingrels = std::ptr::null_mut() };
     }
 
-    let categorized_fields = schema.categorized_fields();
+    let categorized_fields = index.schema.categorized_fields();
 
     let matches_node = |candidate: *mut pg_sys::Node| {
         let unwrapped = strip_tokenizer_cast(candidate);
         let candidate_copy =
             unsafe { pg_sys::copyObjectImpl(unwrapped.cast()) }.cast::<pg_sys::Node>();
-        fix_varno_in_place(candidate_copy, 1, rti as i32);
+        fix_varno_in_place(candidate_copy, 1, context.heap_rti as i32);
         unsafe {
             pg_sys::equal(
                 node_copy as *const core::ffi::c_void,
@@ -142,7 +135,7 @@ pub(crate) fn find_matching_fast_field(
             None
         };
 
-    for (i, expr) in index_expressions.iter_ptr().enumerate() {
+    for (i, expr) in index.index_expressions().iter_ptr().enumerate() {
         if let Some(row_expr) = unsafe { row_expr_from_indexed_expr(expr) } {
             // ROW(...) composite: match each arg as if it were an independent expression.
             let composite_oid = unsafe { pg_sys::exprType(expr.cast()) };
@@ -191,30 +184,25 @@ pub(crate) fn find_matching_fast_field(
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
-    heaprel: &PgSearchRelation,
-    index: &PgSearchRelation,
-    rti: pg_sys::Index,
+    context: &SourceContext,
     is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
 
-    let tupdesc = heaprel.tuple_desc();
-
-    // Get index expressions to check for matching expressions
-    let index_expressions = index.index_expressions();
+    let tupdesc = context.tupdesc();
 
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
 
     // Process target list entries
     for te in targetlist.iter_ptr() {
-        if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
+        if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != context.heaprel.oid() {
             continue;
         }
 
         let maybe_var = if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Var) {
             if let Some(var) = (*te).expr.find_single_node::<pg_sys::Var>() {
-                if (*var).varno as i32 != rti as i32 {
+                if (*var).varno as i32 != context.heap_rti as i32 {
                     // We expect all Vars in the target list to be from the same range table as the
                     // index we're searching, so if we see a Var from a different range table, we skip it.
                     if is_execution_time {
@@ -224,13 +212,16 @@ pub unsafe fn pullup_fast_fields(
                         // be from the same range table as the index we're searching.
                         debug_assert_eq!(
                             (*var).varno as i32,
-                            rti as i32,
+                            context.heap_rti as i32,
                             "Encountered a Var with a different range table index.",
                         );
                     }
                     continue;
                 }
-                find_one_var_and_fieldname(VarContext::from_exec(heaprel.oid()), (*te).expr.cast())
+                find_one_var_and_fieldname(
+                    VarContext::from_exec(context.heaprel.oid()),
+                    (*te).expr.cast(),
+                )
             } else {
                 None
             }
@@ -240,8 +231,10 @@ pub unsafe fn pullup_fast_fields(
 
         if let Some((var, _fieldname)) = maybe_var {
             let start_len = matches.len();
-            if let Some(ff) = resolve_fast_field((*var).varattno as i32, &tupdesc, index) {
-                matches.push(ff);
+            if let Some(resolved) =
+                context.resolve(ColumnRef::Attno((*var).varattno), Access::Scalar)
+            {
+                matches.push(resolved.field);
             }
             // If the var was successfully added as a fast field, continue.
             // If not (e.g. source mismatch), fall through to expression matching.
@@ -251,28 +244,23 @@ pub unsafe fn pullup_fast_fields(
         }
 
         // Try to match complex expression (or Var with source mismatch) against index expressions
-        if let Some(ff) = find_matching_fast_field(
-            (*te).expr as *mut pg_sys::Node,
-            &index_expressions,
-            index.schema().ok()?,
-            rti,
-        ) {
+        if let Some(ff) = find_matching_fast_field((*te).expr as *mut pg_sys::Node, context) {
             matches.push(ff);
             continue;
         }
 
         if (*te)
             .expr
-            .contains_score_for_relation(score_funcoids(), rti)
+            .contains_score_for_relation(score_funcoids(), context.heap_rti)
         {
             // we can only pull up a score if the score is:
             // 1. directly a call to `pdb.score`, with no wrapping expression (i.e. `is_score_func`)
             // 2. a call to `pdb.score` inside of an expression which will be solved by a
             //    wrapping/outer scan because it contains vars from other relations.
-            if is_score_func((*te).expr.cast(), rti) {
+            if is_score_func((*te).expr.cast(), context.heap_rti) {
                 matches.push(WhichFastField::score());
                 continue;
-            } else if !can_scan_evaluate_expr(rti, (*te).expr.cast()) {
+            } else if !can_scan_evaluate_expr(context.heap_rti, (*te).expr.cast()) {
                 // The expression depends on other relations, so it will be evaluated by an upper node.
                 // We just need to provide the score.
                 matches.push(WhichFastField::score());
@@ -319,8 +307,8 @@ pub unsafe fn pullup_fast_fields(
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
         let start_len = matches.len();
-        if let Some(ff) = resolve_fast_field(attno as i32, &tupdesc, index) {
-            matches.push(ff);
+        if let Some(resolved) = context.resolve(ColumnRef::Attno(attno), Access::Scalar) {
+            matches.push(resolved.field);
         }
         // If not added (e.g. because of source mismatch), try expression matching for this column.
         if matches.len() == start_len {
@@ -330,7 +318,7 @@ pub unsafe fn pullup_fast_fields(
             // against index expressions.
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
                 let dummy_var = pg_sys::makeVar(
-                    rti as _,
+                    context.heap_rti as _,
                     attno as pg_sys::AttrNumber,
                     att.atttypid,
                     att.atttypmod,
@@ -338,12 +326,8 @@ pub unsafe fn pullup_fast_fields(
                     0,
                 );
 
-                if let Some(ff) = find_matching_fast_field(
-                    dummy_var as *mut pg_sys::Node,
-                    &index_expressions,
-                    index.schema().ok()?,
-                    rti,
-                ) {
+                if let Some(ff) = find_matching_fast_field(dummy_var as *mut pg_sys::Node, context)
+                {
                     matches.push(ff);
                 }
             }

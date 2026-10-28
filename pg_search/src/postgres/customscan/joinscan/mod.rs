@@ -159,7 +159,6 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
-use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::node::NodeExt;
 use crate::schema::SearchFieldType;
 
@@ -218,6 +217,7 @@ use std::sync::Arc;
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 use super::datafusion::topk_agg::bind_topk_agg_fetch;
+use super::pullup::{Access, ColumnRef};
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -785,32 +785,41 @@ impl JoinScan {
 
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
+        let columnar_decline = JoinDeclineReason::new(
+            "JoinScan not used: join conditions must reference columnar indexed fields",
+        );
         for jk in join_keys {
-            let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
-            let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
+            let outer_source = all_sources
+                .iter()
+                .find(|s| s.contains_rti(jk.outer_rti))
+                .map(|s| s.to_source_context());
+            let inner_source = all_sources
+                .iter()
+                .find(|s| s.contains_rti(jk.inner_rti))
+                .map(|s| s.to_source_context());
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
-                    let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
-                    let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
-                    let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
-                    let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                    let outer_ff = resolve_fast_field(
-                        jk.outer_attno as i32,
-                        &outer_hr.tuple_desc(),
-                        &outer_ir,
-                    );
-                    let inner_ff = resolve_fast_field(
-                        jk.inner_attno as i32,
-                        &inner_hr.tuple_desc(),
-                        &inner_ir,
-                    );
-                    match (&outer_ff, &inner_ff) {
-                        (Some(outer_ff), Some(inner_ff)) => {
-                            let either_numeric =
-                                outer_ff.field_type().is_some_and(|ft| ft.is_numeric())
-                                    || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
+                    let outer_resolved =
+                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Scalar);
+                    let inner_resolved =
+                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Scalar);
+                    match (&outer_resolved, &inner_resolved) {
+                        (Some(outer_resolved), Some(inner_resolved)) => {
+                            let either_numeric = outer_resolved
+                                .field
+                                .field_type()
+                                .is_some_and(|ft| ft.is_numeric())
+                                || inner_resolved
+                                    .field
+                                    .field_type()
+                                    .is_some_and(|ft| ft.is_numeric());
                             if either_numeric
-                                && !numeric_pushdown_safe(outer_ff, &outer_ir, inner_ff, &inner_ir)
+                                && !numeric_pushdown_safe(
+                                    &outer_resolved.field,
+                                    outer.indexrel().ok_or(columnar_decline.clone())?,
+                                    &inner_resolved.field,
+                                    inner.indexrel().ok_or(columnar_decline.clone())?,
+                                )
                             {
                                 return Err(JoinDeclineReason::new(
                                     "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",
@@ -818,9 +827,7 @@ impl JoinScan {
                             }
                         }
                         _ => {
-                            return Err(JoinDeclineReason::new(
-                                "JoinScan not used: join conditions must reference columnar indexed fields",
-                            ));
+                            return Err(columnar_decline);
                         }
                     }
                 }
@@ -2483,7 +2490,7 @@ impl JoinScan {
                     root,
                     rti as pg_sys::Index,
                 )
-                .is_some_and(|u| u.source_rti.0 == sources[0].rti)
+                .is_some_and(|u| u.source_rti.0 == sources[0].context.heap_rti)
             });
 
         if sources.len() < 2 && !has_lateral_unnest {
@@ -2497,7 +2504,9 @@ impl JoinScan {
 
         let aliases: Vec<String> = sources
             .iter()
-            .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.relid))
+            .map(|s| {
+                RelationAlias::new(s.alias.as_deref()).warning_context(s.context.heaprel.oid())
+            })
             .collect();
 
         let warn = |reason| JoinPathDecline::Warn {
@@ -2541,7 +2550,7 @@ impl JoinScan {
             && !plan.has_search_predicate()
             && !sources
                 .iter()
-                .any(|source| search_operator_relations::applies_to(root, source.rti))
+                .any(|source| search_operator_relations::applies_to(root, source.context.heap_rti))
         {
             return Err(JoinPathDecline::Quiet);
         }

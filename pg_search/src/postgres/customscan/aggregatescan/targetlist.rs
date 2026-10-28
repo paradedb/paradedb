@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::{
@@ -24,6 +23,7 @@ use crate::postgres::customscan::aggregatescan::{
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_unnest_and_relabel;
@@ -112,24 +112,18 @@ impl CustomScanClause<AggregateScan> for TargetList {
         self.groupby.add_to_custom_path(builder)
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
-        let schema = index.schema().expect("Could not get index schema");
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
+        let schema = context.schema().expect("Could not get index schema");
         let target_list =
             unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
         if target_list.is_empty() {
             return Err("Target list is empty".into());
         }
 
-        let groupby_clause = GroupByClause::from_pg(args, heap_rti, index)?;
+        let groupby_clause = GroupByClause::from_pg(args, context)?;
         let grouping_columns = groupby_clause.grouping_columns();
         let mut entries = Vec::new();
         let mut uses_our_operator = false;
-
-        let index_expressions = index.index_expressions();
 
         for expr in target_list.iter_ptr() {
             let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
@@ -141,8 +135,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
             {
                 Some(field_name.into_inner())
             } else {
-                find_matching_fast_field(actual_expr, &index_expressions, schema.clone(), heap_rti)
-                    .map(|ff| ff.name())
+                find_matching_fast_field(actual_expr, context).map(|ff| ff.name())
             };
 
             // Try to extract field name from the expression (handles both Var and JSON operators)
@@ -170,10 +163,9 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 let mut qual_state = QualExtractState::default();
-                let mut aggregate = unsafe {
-                    AggregateType::try_from(aggref, index, args.root, heap_rti, &mut qual_state)
-                }
-                .map_err(|error| error.to_string())?;
+                let mut aggregate =
+                    unsafe { AggregateType::try_from(aggref, args.root, &mut qual_state, context) }
+                        .map_err(|error| error.to_string())?;
                 uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
                 aggregate.mark_group_key(&grouping_columns);
 

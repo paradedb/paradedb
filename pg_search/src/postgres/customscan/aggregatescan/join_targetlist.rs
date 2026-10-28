@@ -63,9 +63,12 @@ fn find_source_by_rti<'a>(
     rti: pg_sys::Index,
     context_label: &str,
 ) -> Result<&'a JoinAggSource, String> {
-    sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-        format!("{context_label} references table at RTI {rti} which is not in the join")
-    })
+    sources
+        .iter()
+        .find(|s| s.context.heap_rti == rti)
+        .ok_or_else(|| {
+            format!("{context_label} references table at RTI {rti} which is not in the join")
+        })
 }
 
 /// Simplified aggregate classification for the DataFusion backend.
@@ -903,10 +906,11 @@ unsafe fn resolve_var_source<'a>(
     let field_name = match unnest_field {
         Some(field_name) => field_name,
         None => source.column_name(attno).ok_or_else(|| {
-            let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
+            let alias = RelationAlias::new(source.alias.as_deref())
+                .display(source.context.heap_rti as usize);
             format!(
                 "{what} {} is not columnar indexed",
-                get_attname_safe(Some(source.relid), attno, &alias)
+                get_attname_safe(Some(source.context.heaprel.oid()), attno, &alias)
             )
         })?,
     };
@@ -1017,8 +1021,7 @@ unsafe fn extract_raw_group_column(
         )
     };
     let numeric_info = numeric_source
-        .and_then(|source| source.bm25_index.as_ref())
-        .and_then(|index| index.schema().ok())
+        .and_then(|source| source.context.schema())
         .and_then(|schema| schema.numeric_field_type(&field_name))
         .map(|(field_type, scale)| {
             let scale = scale.ok_or_else(|| {
@@ -1466,9 +1469,8 @@ unsafe fn extract_aggref_field_refs(
         )?;
         let numeric = resolved
             .source
-            .bm25_index
-            .as_ref()
-            .and_then(|i| i.schema().ok())
+            .context
+            .schema()
             .and_then(|s| s.numeric_field_type(&resolved.field_name))
             .map(|(field_type, _)| field_type);
 

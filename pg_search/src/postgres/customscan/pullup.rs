@@ -65,7 +65,7 @@ pub struct Bm25IndexInfo {
     pub schema: SearchIndexSchema,
 }
 impl Bm25IndexInfo {
-    fn index_expressions(&self) -> PgList<pg_sys::Expr> {
+    pub fn index_expressions(&self) -> PgList<pg_sys::Expr> {
         self.indexrel.index_expressions()
     }
 }
@@ -77,10 +77,28 @@ pub struct SourceContext {
     pub index: Option<Bm25IndexInfo>,
 }
 impl SourceContext {
+    pub fn from_parts(
+        heap_rti: pg_sys::Index,
+        heaprel: PgSearchRelation,
+        indexrel: Option<PgSearchRelation>,
+    ) -> Self {
+        let index = indexrel.map(|indexrel| {
+            let schema = indexrel
+                .schema()
+                .expect("a valid index should always have a schema");
+            Bm25IndexInfo { indexrel, schema }
+        });
+        Self {
+            heap_rti,
+            heaprel,
+            index,
+        }
+    }
+
     pub fn tupdesc(&self) -> PgTupleDesc<'_> {
         self.heaprel.tuple_desc()
     }
-    fn index_expressions(&self) -> Option<PgList<pg_sys::Expr>> {
+    pub fn index_expressions(&self) -> Option<PgList<pg_sys::Expr>> {
         self.indexrel().map(|i| i.index_expressions())
     }
 
@@ -97,7 +115,7 @@ impl SourceContext {
         //consolidate their code here
         match col {
             ColumnRef::Attno(attno) => Some(ResolvedField::new(Some(attno), unsafe {
-                resolve_fast_field(attno as i32, &self.tupdesc(), self.indexrel()?)?
+                resolve_fast_field(attno as i32, self)?
             })),
             ColumnRef::Field(name) => Some(ResolvedField::new(
                 None,
@@ -105,12 +123,7 @@ impl SourceContext {
             )),
             ColumnRef::Expr(node) => Some(ResolvedField::new(
                 None,
-                find_matching_fast_field(
-                    node,
-                    &self.index_expressions()?,
-                    self.schema()?.clone(),
-                    self.heap_rti,
-                )?,
+                find_matching_fast_field(node, self)?,
             )),
             ColumnRef::Ctid => Some(ResolvedField::new(
                 Some(pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber),
@@ -134,11 +147,11 @@ impl SourceContext {
 ///
 /// Returns `Some(WhichFastField)` if the column can be pulled up from the index,
 /// or `None` if it cannot (e.g. not indexed, not a fast field, incompatible type).
-unsafe fn resolve_fast_field(
-    attno: i32,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-    index: &PgSearchRelation,
-) -> Option<WhichFastField> {
+unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<WhichFastField> {
+    let Some(index) = &context.index else {
+        return None;
+    };
+    let tupdesc = context.tupdesc();
     match attno {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber
@@ -158,10 +171,9 @@ unsafe fn resolve_fast_field(
             }
 
             let att = tupdesc.get((attno - 1) as usize)?;
-            let schema = index.schema().ok()?;
 
-            if let Some(search_field) = schema.search_field(att.name()) {
-                let categorized_fields = schema.categorized_fields();
+            if let Some(search_field) = index.schema.search_field(att.name()) {
+                let categorized_fields = index.schema.categorized_fields();
                 let field_data = categorized_fields
                     .iter()
                     .find(|(sf, _)| sf == &search_field)
@@ -204,12 +216,7 @@ unsafe fn resolve_fast_field(
                 att.attcollation,
                 0,
             );
-            find_matching_fast_field(
-                dummy_var as *mut pg_sys::Node,
-                &index.index_expressions(),
-                index.schema().ok()?,
-                1,
-            )
+            find_matching_fast_field(dummy_var as *mut pg_sys::Node, context)
         }
     }
 }

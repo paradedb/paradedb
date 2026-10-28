@@ -131,6 +131,8 @@ use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
+use super::pullup::SourceContext;
+
 #[derive(Default)]
 pub struct AggregateScan;
 
@@ -1308,11 +1310,7 @@ unsafe fn rte_alias_or_unknown(rte: *mut pg_sys::RangeTblEntry) -> String {
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;
 
-    fn from_pg(
-        args: &CS::Args,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError>
+    fn from_pg(args: &CS::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError>
     where
         Self: Sized;
 
@@ -1330,13 +1328,12 @@ pub trait CustomScanClause<CS: CustomScan> {
 
     fn build(
         builder: CustomPathBuilder<CS>,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
+        context: &SourceContext,
     ) -> Result<(CustomPathBuilder<CS>, Self), CustomScanBuildError>
     where
         Self: Sized,
     {
-        let clause = Self::from_pg(builder.args(), heap_rti, index)?;
+        let clause = Self::from_pg(builder.args(), context)?;
         let builder = clause.add_to_custom_path(builder);
         Ok((builder, clause))
     }
@@ -1649,7 +1646,10 @@ impl AggregateScan {
         let ungrouped_pdb_agg =
             has_paradedb_agg && unsafe { groupby::has_ungrouped_column(builder.args()) };
 
-        match AggregateCSClause::build(builder, heap_rti, &index) {
+        let index_oid = index.oid();
+        let source_context =
+            SourceContext::from_parts(heap_rti, PgSearchRelation::open(heap_relid), Some(index));
+        match AggregateCSClause::build(builder, &source_context) {
             Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
@@ -1657,14 +1657,14 @@ impl AggregateScan {
                     Self::attach_bitmap_intersection(
                         builder.set_rows(shape.rows()),
                         heap_rti,
-                        index.oid(),
+                        index_oid,
                         &mut aggregate_clause,
                     )
                 };
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
-                    indexrelid: index.oid(),
+                    indexrelid: index_oid,
                     aggregate_clause: Box::new(aggregate_clause),
                 })]
             }
@@ -1815,7 +1815,7 @@ impl AggregateScan {
                 crate::postgres::customscan::range_table::bms_iter(input_rel.relids).collect()
             };
             for rti in rtis {
-                if !sources.iter().any(|s| s.rti == rti) {
+                if !sources.iter().any(|s| s.context.heap_rti == rti) {
                     let rte = unsafe {
                         crate::postgres::customscan::range_table::get_rte(
                             (*root).simple_rel_array_size as usize,
@@ -1837,7 +1837,9 @@ impl AggregateScan {
                                 rti,
                                 rte_ptr,
                             )
-                        }) && sources.iter().any(|s| s.rti == unnest_info.source_rti.0)
+                        }) && sources
+                            .iter()
+                            .any(|s| s.context.heap_rti == unnest_info.source_rti.0)
                         {
                             continue;
                         }
@@ -1919,9 +1921,9 @@ impl AggregateScan {
             && !has_paradedb_agg
             && !gucs::enable_custom_scan_without_operator()
             && !plan.has_search_predicate()
-            && !sources
-                .iter()
-                .any(|source| unsafe { search_operator_relations::applies_to(root, source.rti) })
+            && !sources.iter().any(|source| unsafe {
+                search_operator_relations::applies_to(root, source.context.heap_rti)
+            })
         {
             return Err(AggregatePathDecline::Quiet);
         }

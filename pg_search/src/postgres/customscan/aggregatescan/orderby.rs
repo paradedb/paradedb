@@ -18,7 +18,6 @@
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::CustomScan;
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
@@ -26,6 +25,7 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::postgres::customscan::orderby::{
     PathKeyInfo, extract_pathkey_styles_with_sortability_check,
 };
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use pgrx::PgList;
 use pgrx::pg_sys;
@@ -74,14 +74,8 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
         builder
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let parse = args.root().parse;
-        let schema = index.schema().expect("could not get index schema");
-        let index_expressions = index.index_expressions();
 
         let sort_clause =
             unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
@@ -95,8 +89,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                     if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
                         Some(field_name.into_inner())
                     } else {
-                        find_matching_fast_field(expr, &index_expressions, schema.clone(), heap_rti)
-                            .map(|ff| ff.name())
+                        find_matching_fast_field(expr, context).map(|ff| ff.name())
                     }
                 })
                 .collect::<HashSet<String>>()
@@ -105,11 +98,9 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
         let pathkeys = unsafe {
             extract_pathkey_styles_with_sortability_check(
                 args.root,
-                heap_rti,
-                &schema,
+                context,
                 |f| f.is_fast(),
                 |_| false,
-                Some(&index_expressions),
             )
         };
 

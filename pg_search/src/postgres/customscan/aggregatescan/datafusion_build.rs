@@ -242,7 +242,7 @@ fn source_field_candidates<'a, 'b>(
 /// Collects all fast-field metadata for a base relation.
 ///
 /// Iterates across the relation's tuple descriptor, resolving each attribute to either
-/// a scalar fast field via [`resolve_fast_field`] or a multi-valued array fast field
+/// a scalar fast field via [`SourceContext::resolve`] or a multi-valued array fast field
 /// in the ParadeDB index schema. Returns an empty vector if `bm25_index` is None.
 unsafe fn collect_source_fields(source: &SourceContext) -> Vec<FieldInfo> {
     let Some(indexrel) = source.indexrel() else {
@@ -586,7 +586,7 @@ unsafe fn build_scan_node(
     rti: pg_sys::Index,
     sources: &[JoinAggSource],
 ) -> Result<RelNode, String> {
-    let source = match sources.iter().find(|s| s.rti == rti) {
+    let source = match sources.iter().find(|s| s.context.heap_rti == rti) {
         Some(s) => s,
         None => {
             let rel_name = crate::postgres::customscan::range_table::get_rte(
@@ -611,7 +611,7 @@ unsafe fn build_scan_node(
         }
     };
 
-    let bm25_index = source.bm25_index.as_ref().ok_or_else(|| {
+    let bm25_index = source.context.indexrel().ok_or_else(|| {
         format!(
             "table at RTI {} ({}) has no ParadeDB index",
             rti,
@@ -622,7 +622,7 @@ unsafe fn build_scan_node(
     // Build a JoinSourceCandidate progressively. `with_index` attaches index metadata
     // and `partition_by` so RangePartitioningRule can co-partition equi-joins.
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
-        .with_heaprelid(source.relid)
+        .with_heaprelid(source.context.heaprel.oid())
         .with_index(bm25_index);
 
     if let Some(ref alias) = source.alias {
@@ -1028,7 +1028,7 @@ unsafe fn try_extract_one_equi_key(
     op: *mut pg_sys::OpExpr,
     sources: &[JoinAggSource],
 ) -> Option<JoinKeyPair> {
-    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.rti).collect();
+    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.context.heap_rti).collect();
     try_extract_equi_key(op, &valid_rtis)
 }
 
@@ -2172,19 +2172,8 @@ pub unsafe fn populate_required_fields(
 
     let mut sources = plan.sources_mut();
 
-    // Open relations once per source and reuse throughout
-    let source_rels: Vec<_> = sources
-        .iter()
-        .map(|s| {
-            let heaprel = PgSearchRelation::open(s.scan_info.heaprelid);
-            let indexrel = PgSearchRelation::open(s.scan_info.indexrelid);
-            (heaprel, indexrel)
-        })
-        .collect();
-
-    for (idx, source) in sources.iter_mut().enumerate() {
-        let (heaprel, indexrel) = &source_rels[idx];
-        let tupdesc = heaprel.tuple_desc();
+    for source in sources.iter_mut() {
+        let context = source.to_source_context();
 
         // Always add Ctid so the provider schema is never empty (needed for COUNT(*))
         source.scan_info.add_field(
@@ -2203,7 +2192,7 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
-            require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
+            require_named_fast_field(source, &context, gc.attno, &gc.field_name, || {
                 format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
             })?;
         }
@@ -2214,7 +2203,7 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position == r.plan_position {
                     let attno = r.attno;
                     let field_name = &r.field_name;
-                    require_fast_field(source, &tupdesc, indexrel, attno, || {
+                    require_fast_field(source, &context, attno, || {
                         format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;
                 }
@@ -2226,7 +2215,7 @@ pub unsafe fn populate_required_fields(
         for agg in &targetlist.aggregates {
             for ob in &agg.order_by {
                 if source.plan_position == ob.plan_position {
-                    require_fast_field(source, &tupdesc, indexrel, ob.attno, || {
+                    require_fast_field(source, &context, ob.attno, || {
                         format!("aggregate ORDER BY column '{}'", ob.field_name)
                     })?;
                 }
@@ -2239,7 +2228,7 @@ pub unsafe fn populate_required_fields(
             let Some(ref filter) = agg.filter else {
                 continue;
             };
-            for ColumnRef {
+            for FilterColumnRef {
                 plan_position,
                 field_name,
                 ..
@@ -2248,8 +2237,8 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position != plan_position {
                     continue;
                 }
-                if let Some(attno) = get_attno_by_name(&field_name, &tupdesc) {
-                    require_fast_field(source, &tupdesc, indexrel, attno, || {
+                if let Some(attno) = get_attno_by_name(&field_name, &context.tupdesc()) {
+                    require_fast_field(source, &context, attno, || {
                         format!("FILTER column '{field_name}'")
                     })?;
                 }
@@ -2260,7 +2249,7 @@ pub unsafe fn populate_required_fields(
         // would have no data columns and produce empty RecordBatches.
         for &(plan_position, attno) in &join_key_projections {
             if source.plan_position == plan_position {
-                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                require_fast_field(source, &context, attno, || {
                     format!("join key (plan_position={plan_position}, attno={attno})")
                 })?;
             }
@@ -2270,7 +2259,7 @@ pub unsafe fn populate_required_fields(
         // `b.id > 5` that DataFusion evaluates at join time.
         for &(plan_position, attno) in &multi_table_var_positions {
             if source.plan_position == plan_position {
-                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                require_fast_field(source, &context, attno, || {
                     format!("multi-table predicate column (attno={attno})")
                 })?;
             }
@@ -2279,7 +2268,7 @@ pub unsafe fn populate_required_fields(
         // Join filter columns (from JoinNode.filter)
         for &(rti, attno) in &join_filter_vars {
             if source.contains_rti(rti) {
-                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                require_fast_field(source, &context, attno, || {
                     format!("join filter column (attno={attno})")
                 })?;
             }
@@ -2293,7 +2282,9 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != field.plan_position {
                 continue;
             }
-            let resolved = resolve_fast_field_by_name(&field.field_name, indexrel)
+            let resolved = context
+                .indexrel()
+                .and_then(|indexrel| resolve_fast_field_by_name(&field.field_name, indexrel))
                 .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source.scan_info.add_field_by_name(field.attno, resolved);
         }
@@ -2319,13 +2310,13 @@ unsafe fn all_vars_are_fast_fields_for_agg(
     for var_ref in vars {
         let mut source_found = false;
         for source in sources {
-            if source.rti == var_ref.rti {
-                let bm25_index = match &source.bm25_index {
-                    Some(idx) => idx,
-                    None => return false,
-                };
-                let heaprel = PgSearchRelation::open(source.relid);
-                if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), bm25_index)
+            if source.context.heap_rti == var_ref.rti {
+                if source
+                    .context
+                    .resolve(
+                        ColumnRef::Attno(var_ref.attno as pg_sys::AttrNumber),
+                        Access::Scalar,
+                    )
                     .is_none()
                 {
                     return false;
@@ -2340,7 +2331,9 @@ unsafe fn all_vars_are_fast_fields_for_agg(
                     root,
                     var_ref.rti,
                 )
-            && sources.iter().any(|s| s.rti == unnest_info.source_rti.0)
+            && sources
+                .iter()
+                .any(|s| s.context.heap_rti == unnest_info.source_rti.0)
         {
             source_found = true;
         }

@@ -33,6 +33,7 @@ use crate::postgres::customscan::collation_semantics::{CollationOperation, colla
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::index::is_partitioned_index;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,
@@ -40,6 +41,8 @@ use crate::postgres::var::{
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
 use pgrx::{FromDatum, PgList, pg_sys};
+
+use super::pullup::{Bm25IndexInfo, SourceContext};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,12 +201,6 @@ fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var
     }
 }
 
-pub struct IndexExpressionInfo<'a> {
-    pub index_expressions: &'a PgList<pg_sys::Expr>,
-    pub schema: &'a SearchIndexSchema,
-    pub heap_rti: pg_sys::Index,
-}
-
 /// Analyzes an ORDER BY expression to determine its type and extract the underlying variable.
 ///
 /// This function unifies the logic for identifying sort keys across the planner hook (validation)
@@ -219,7 +216,7 @@ pub struct IndexExpressionInfo<'a> {
 pub unsafe fn analyze_sort_expression(
     node: *mut pg_sys::Node,
     context: VarContext,
-    index_info: Option<&IndexExpressionInfo>,
+    source: &SourceContext,
 ) -> Option<(SortExpressionType, *mut pg_sys::Var, Option<FieldName>)> {
     // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
     // so that the expression reaches the pattern-matching below in canonical form.
@@ -234,22 +231,15 @@ pub unsafe fn analyze_sort_expression(
     // expressions like `lower(description)::pdb.literal('alias=literal_description')`
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
-    if let Some(info) = index_info
-        && let Some(fast_field) = find_matching_fast_field(
-            node,
-            info.index_expressions,
-            info.schema.clone(),
-            info.heap_rti,
-        )
-    {
+    if let Some(fast_field) = find_matching_fast_field(node, source) {
         let field_name = FieldName::from(fast_field.name());
         if let Some(var) = extract_any_var_from_expr(node) {
             return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
         }
     }
 
-    if let Some(info) = index_info
-        && let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema)
+    if let Some(info) = &source.index
+        && let Some((var, vector_sort)) = extract_vector_distance(node, context, &info.schema)
     {
         let (relid, attno) = context.var_relation(var);
         let field_name = fieldname_from_var(relid, var, attno);
@@ -479,11 +469,9 @@ fn sortable_at_position(search_field: &SearchField, position: usize) -> bool {
 /// This function must be kept in sync with `validate_topk_compatibility` below.
 pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
+    context: &SourceContext,
     regular_sortability_check: F1,
     lower_sortability_check: F2,
-    index_expressions: Option<&PgList<pg_sys::Expr>>,
 ) -> PathKeyInfo
 where
     F1: Fn(&SearchField) -> bool,
@@ -525,30 +513,32 @@ where
                 expr_to_analyze = funcexpr.cast();
             }
 
-            let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
-                index_expressions: idx_exprs,
-                schema,
-                heap_rti: rti,
-            });
-
             if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
                 expr_to_analyze.cast(),
                 VarContext::from_planner(root),
-                index_info.as_ref(),
+                context,
             ) {
                 // Verify the var belongs to the correct relation (either the relation itself or its parent)
-                if !is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
+                if !is_varno_valid_for_relation(
+                    root,
+                    (*var).varno as pg_sys::Index,
+                    context.heap_rti,
+                ) {
                     continue;
                 }
 
                 match sort_type {
                     SortExpressionType::Score => {
-                        pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
+                        pathkey_styles.push(OrderByStyle::Score {
+                            pathkey,
+                            rti: context.heap_rti,
+                        });
                         found_valid_member = true;
                         break;
                     }
                     SortExpressionType::Lower => {
                         if let Some(field_name) = field_name_opt
+                            && let Some(schema) = context.schema()
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && lower_sortability_check(&search_field)
                             && sortable_at_position(&search_field, pathkey_styles.len())
@@ -556,7 +546,7 @@ where
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
                                 name: field_name,
-                                rti,
+                                rti: context.heap_rti,
                             });
                             found_valid_member = true;
                             break;
@@ -564,6 +554,7 @@ where
                     }
                     SortExpressionType::Raw => {
                         if let Some(field_name) = field_name_opt
+                            && let Some(schema) = context.schema()
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && regular_sortability_check(&search_field)
                             && sortable_at_position(&search_field, pathkey_styles.len())
@@ -571,7 +562,7 @@ where
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
                                 name: field_name,
-                                rti,
+                                rti: context.heap_rti,
                             });
                             found_valid_member = true;
                             break;
@@ -579,6 +570,7 @@ where
                     }
                     SortExpressionType::IndexedExpression => {
                         if let Some(field_name) = field_name_opt
+                            && let Some(schema) = context.schema()
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && search_field.is_fast()
                             && sortable_at_position(&search_field, pathkey_styles.len())
@@ -586,7 +578,7 @@ where
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
                                 name: field_name,
-                                rti,
+                                rti: context.heap_rti,
                             });
                             found_valid_member = true;
                             break;
@@ -600,7 +592,7 @@ where
                             pathkey_styles.push(OrderByStyle::VectorDistance {
                                 pathkey,
                                 name: field_name,
-                                rti,
+                                rti: context.heap_rti,
                                 query_vector: query_vector.clone(),
                                 metric,
                             });
@@ -672,12 +664,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
     // We need to identify the single relation that this Top K query targets
     // Tuple: (varno, relid, schema, index_expressions)
-    let mut target_relation_info: Option<(
-        pg_sys::Index,
-        pg_sys::Oid,
-        SearchIndexSchema,
-        PgList<pg_sys::Expr>,
-    )> = None;
+    let mut target_relation_context: Option<SourceContext> = None;
 
     for (position, sort_clause) in sort_list.iter_ptr().enumerate() {
         let tle_ref = unsafe { (*sort_clause).tleSortGroupRef };
@@ -695,20 +682,20 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         }
 
         // Pass index expressions if we have them (after first sort clause identifies the relation)
-        let index_info = target_relation_info
-            .as_ref()
-            .map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
-                index_expressions: idx_exprs,
-                schema,
-                // TODO: heap_rti should use the actual varno from target_relation_info
-                // rather than hardcoded 1. Only matters for the #3455 window function path.
-                heap_rti: 1 as pg_sys::Index,
-            });
+        // let index_info = target_relation_info
+        //     .as_ref()
+        //     .map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
+        //         index_expressions: idx_exprs,
+        //         schema,
+        //         // TODO: heap_rti should use the actual varno from target_relation_info
+        //         // rather than hardcoded 1. Only matters for the #3455 window function path.
+        //         heap_rti: 1 as pg_sys::Index,
+        //     });
 
         // Use analyze_sort_expression to identify the sort key type and underlying variable
-        let sort_info = unsafe {
-            analyze_sort_expression(expr, VarContext::from_query(parse), index_info.as_ref())
-        };
+        let sort_info = target_relation_context.as_ref().and_then(|source| unsafe {
+            analyze_sort_expression(expr, VarContext::from_query(parse), source)
+        });
         let Some((sort_type, var, field_name_opt)) = sort_info else {
             return false;
         };
@@ -719,8 +706,8 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             return false;
         }
 
-        if let Some((expected_varno, _, _, _)) = &target_relation_info {
-            if varno != *expected_varno {
+        if let Some(source) = &target_relation_context {
+            if varno != source.heap_rti {
                 // Sorting by different relations
                 return false;
             }
@@ -748,13 +735,21 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 Err(_) => return false,
             };
 
-            let index_expressions = bm25_index.index_expressions();
-
-            target_relation_info = Some((varno, relid, schema, index_expressions));
+            target_relation_context = Some(SourceContext {
+                heap_rti: varno,
+                heaprel: PgSearchRelation::open(relid),
+                index: Some(Bm25IndexInfo {
+                    indexrel: bm25_index,
+                    schema,
+                }),
+            });
         }
 
         // Validate sortability
-        let (_, _, schema, _) = target_relation_info.as_ref().unwrap();
+        let schema = target_relation_context
+            .as_ref()
+            .and_then(|s| s.schema())
+            .unwrap();
 
         match sort_type {
             SortExpressionType::Score => {
@@ -808,5 +803,5 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         }
     }
 
-    target_relation_info.is_some()
+    target_relation_context.is_some()
 }

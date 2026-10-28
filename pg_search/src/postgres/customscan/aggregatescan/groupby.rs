@@ -15,13 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
 use crate::schema::SearchFieldType;
@@ -75,14 +75,9 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         Box::new(std::iter::once((String::from("Group By"), joined)))
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        _heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let mut grouping_columns = Vec::new();
-        let schema = index.schema().expect("could not get index schema");
-        let index_expressions = index.index_expressions();
+        let schema = context.schema().expect("could not get index schema");
         let categorized_fields = schema.categorized_fields();
 
         // Use PostgreSQL's processed pathkeys, not `parse.groupClause`: redundant
@@ -117,9 +112,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         continue;
                     }
                     (field_name.to_string(), attno)
-                } else if let Some(ff) =
-                    find_matching_fast_field(expr, &index_expressions, schema.clone(), _heap_rti)
-                {
+                } else if let Some(ff) = find_matching_fast_field(expr, context) {
                     (ff.name(), 0) // Complex expressions don't have a single attno
                 } else {
                     last_error =

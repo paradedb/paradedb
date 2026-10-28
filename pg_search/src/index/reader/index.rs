@@ -63,7 +63,7 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{ProbeParams, ProbeStats};
 use tantivy::{
@@ -269,6 +269,181 @@ fn probe_stats_to_segment_info(
         .collect()
 }
 
+/// Base filter applied to a segment during a Random Access (`RA`) point lookup.
+pub(crate) enum RaBaseFilter {
+    /// Base query is `AllQuery` and the segment is unconstrained by partition bounds
+    /// (every live document matches with base score `0.0`).
+    MatchAll,
+    /// Segment requires evaluating `weight` (either a non-`All` base query, a `partially_included`
+    /// segment's `partition_bounds` range filter, or their conjunction).
+    /// `contributes_score` is `true` only when the underlying base query itself contributes a
+    /// BM25 score (`!unconstrained_is_match_all && need_scores`); it is `false` when `weight`
+    /// only enforces `partition_bounds` on an `AllQuery` base scan so the range filter's
+    /// non-scoring `ConstScorer` (`1.0`) is never added to the document score.
+    Filtered {
+        weight: Arc<LazyWeight>,
+        contributes_score: bool,
+    },
+}
+
+/// Reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+pub(crate) struct RaLookupWeights {
+    /// Base filter for unconstrained segments (or all candidate segments when not range-partitioned).
+    unconstrained: RaBaseFilter,
+    /// Partition segment sets and range-constrained filter for boundary segments when range-partitioned.
+    constrained: Option<(PartitionSegments, RaBaseFilter)>,
+    /// Optional union of local disjunct queries (`ScanMode::Disjunctive`) used to score
+    /// documents fetched via `RA` without materializing boolean match-tag columns.
+    disjunct_weight: Option<Arc<LazyWeight>>,
+}
+
+/// Lazily initialized per-segment scorer for `ScanMode::Disjunctive` `RA` lookups.
+struct DisjunctScorer<'a> {
+    segment_reader: &'a SegmentReader,
+    weight: Option<&'a Arc<LazyWeight>>,
+    scorer: Option<Box<dyn Scorer>>,
+}
+
+impl<'a> DisjunctScorer<'a> {
+    fn new(segment_reader: &'a SegmentReader, weight: Option<&'a Arc<LazyWeight>>) -> Self {
+        Self {
+            segment_reader,
+            weight,
+            scorer: None,
+        }
+    }
+
+    fn score_for(&mut self, target_doc: DocId) -> Score {
+        let Some(weight) = self.weight else {
+            return 0.0;
+        };
+        let scorer = self.scorer.get_or_insert_with(|| {
+            weight
+                .get()
+                .scorer(self.segment_reader, 1.0)
+                .expect("disjunct scorer should be constructable")
+        });
+        let mut cur = scorer.doc();
+        if cur < target_doc {
+            cur = scorer.seek(target_doc);
+        }
+        if cur == target_doc {
+            scorer.score()
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Evaluates an [`RaBaseFilter::MatchAll`] segment when `score_threshold` does not prune the
+/// `0.0` base score, iterating `lookup_weight` directly and adding any [`DisjunctScorer`] score.
+fn collect_lookup_only_segment(
+    segment_ord: SegmentOrdinal,
+    segment_reader: &SegmentReader,
+    lookup_weight: &dyn Weight,
+    disjunct_weight: Option<&Arc<LazyWeight>>,
+    score_threshold: Option<Score>,
+    emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    results: &mut Vec<(SearchIndexScore, DocAddress)>,
+) {
+    let alive_bitset = segment_reader.alive_bitset();
+    let mut lookup_scorer = lookup_weight
+        .scorer(segment_reader, 1.0)
+        .expect("lookup scorer should be constructable");
+    let mut disjunct_scorer = DisjunctScorer::new(segment_reader, disjunct_weight);
+
+    let mut doc_id = lookup_scorer.doc();
+    while doc_id != tantivy::TERMINATED {
+        let addr = DocAddress::new(segment_ord, doc_id);
+        if alive_bitset.is_none_or(|b| b.is_alive(doc_id)) && !emitted_docs.contains(&addr) {
+            let score = disjunct_scorer.score_for(doc_id);
+            if score_threshold.is_none_or(|t| score > t) {
+                emitted_docs.insert(addr);
+                results.push((SearchIndexScore::new(score), addr));
+            }
+        }
+        doc_id = lookup_scorer.advance();
+    }
+}
+
+/// Intersects a driving [`Scorer`] (either a [`tantivy::query::PruningScorer`] or a standard
+/// [`Scorer`]) with `lookup_weight`'s candidate-aware [`TermSetQuery`](tantivy::query::TermSetQuery)
+/// scorer via `seek_danger`.
+#[allow(clippy::too_many_arguments)]
+fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
+    segment_ord: SegmentOrdinal,
+    segment_reader: &SegmentReader,
+    driver: &mut S,
+    driver_contributes_score: bool,
+    lookup_weight: &dyn Weight,
+    disjunct_weight: Option<&Arc<LazyWeight>>,
+    score_threshold: Option<Score>,
+    emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    results: &mut Vec<(SearchIndexScore, DocAddress)>,
+) {
+    if driver.doc() == tantivy::TERMINATED {
+        return;
+    }
+    let mut lookup_scorer = lookup_weight
+        .scorer_for_candidates_unpositioned(segment_reader, 1.0, driver.size_hint().max(1))
+        .expect("lookup scorer should be constructable");
+    let first_lookup_doc = lookup_scorer.doc();
+    if first_lookup_doc == tantivy::TERMINATED {
+        return;
+    }
+
+    let alive_bitset = segment_reader.alive_bitset();
+    let mut disjunct_scorer = DisjunctScorer::new(segment_reader, disjunct_weight);
+
+    let mut doc_id = driver.doc();
+    if doc_id < first_lookup_doc {
+        doc_id = driver.seek(first_lookup_doc);
+    }
+    while doc_id != tantivy::TERMINATED {
+        match lookup_scorer.seek_danger(doc_id) {
+            tantivy::SeekDangerResult::Found => {
+                let addr = DocAddress::new(segment_ord, doc_id);
+                if alive_bitset.is_none_or(|b| b.is_alive(doc_id)) && !emitted_docs.contains(&addr)
+                {
+                    let base_score = if driver_contributes_score {
+                        driver.score()
+                    } else {
+                        0.0
+                    };
+                    let score = base_score + disjunct_scorer.score_for(doc_id);
+                    if score_threshold.is_none_or(|t| score > t) {
+                        emitted_docs.insert(addr);
+                        results.push((SearchIndexScore::new(score), addr));
+                    }
+                }
+                if lookup_scorer.has_fast_bitset() {
+                    let next_target = lookup_scorer.advance();
+                    if next_target == tantivy::TERMINATED {
+                        break;
+                    }
+                    doc_id = if next_target > doc_id + 1 {
+                        driver.seek(next_target)
+                    } else {
+                        driver.advance()
+                    };
+                } else {
+                    doc_id = driver.advance();
+                }
+            }
+            tantivy::SeekDangerResult::SeekLowerBound(next_target) => {
+                if next_target == tantivy::TERMINATED {
+                    break;
+                }
+                doc_id = if next_target > doc_id + 1 {
+                    driver.seek(next_target)
+                } else {
+                    driver.advance()
+                };
+            }
+        }
+    }
+}
+
 /// A set of search results across multiple segments.
 ///
 /// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
@@ -404,6 +579,12 @@ pub struct TopKAuxiliaryCollector {
     pub vischeck: Option<VisibilityChecker>,
 }
 
+/// Reader over a ParadeDB Tantivy index snapshot, encapsulating segment checkout,
+/// query compilation, segment pruning, and search execution.
+///
+/// TODO: Decompose `SearchIndexReader` into smaller, focused components (e.g. separating
+/// index/segment lifecycle, query compilation & selectivity estimation, and `SA`/`RA`/Top-K
+/// search execution).
 pub struct SearchIndexReader {
     index_rel: PgSearchRelation,
     searcher: Searcher,
@@ -973,6 +1154,49 @@ impl SearchIndexReader {
         clone
     }
 
+    /// Compiles a non-empty slice of `disjunct_queries` into a single `Occur::Should` union query.
+    fn make_disjunct_union_query(
+        &self,
+        disjunct_queries: &[SearchQueryInput],
+    ) -> Option<Box<dyn Query>> {
+        if disjunct_queries.is_empty() {
+            return None;
+        }
+        let mut should_clauses: Vec<(tantivy::query::Occur, Box<dyn Query>)> = disjunct_queries
+            .iter()
+            .map(|q| (tantivy::query::Occur::Should, self.make_query(q, None)))
+            .collect();
+        if should_clauses.len() == 1 {
+            Some(should_clauses.pop().unwrap().1)
+        } else {
+            Some(Box::new(tantivy::query::BooleanQuery::new(should_clauses)))
+        }
+    }
+
+    /// Build a reader for Sorted Access (`SA`) over a disjunctive scan (`ScanMode::Disjunctive`) by
+    /// restricting `SA` to documents that match at least one of `disjunct_queries`.
+    /// When `replace_query` is true (i.e. `base_query` is `SearchQueryInput::All` and no
+    /// additional filter was pushed into `self`), the union of `disjunct_queries` replaces
+    /// the `AllQuery` directly so Tantivy can use Block-Max WAND over the disjunct postings.
+    pub(crate) fn with_disjunctive_sa_queries(
+        &self,
+        replace_query: bool,
+        disjunct_queries: &[SearchQueryInput],
+    ) -> Self {
+        let Some(disjunct_union) = self.make_disjunct_union_query(disjunct_queries) else {
+            return self.clone();
+        };
+        if replace_query {
+            let mut clone = self.clone();
+            clone.query = disjunct_union;
+            clone.pruning_estimate = OnceLock::new();
+            clone.estimate_from_statistics = false;
+            clone
+        } else {
+            self.and_query(disjunct_union)
+        }
+    }
+
     /// Compiled without an expression context: only the reader's own query carries resolved
     /// Params, and it is kept as is.
     #[cfg(any(test, feature = "pg_test"))]
@@ -1484,6 +1708,225 @@ impl SearchIndexReader {
         }
     }
 
+    /// Prepare reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+    ///
+    /// When `disjunct_queries` is non-empty (`ScanMode::Disjunctive` scans), also prepares an
+    /// optional `disjunct_weight` over the union of `disjunct_queries` so `search_ra_lookup` can
+    /// accumulate BM25 scores for documents fetched via `RA` without materializing boolean
+    /// match-tag columns in `Scanner`.
+    pub(crate) fn prepare_ra_lookup_weights(
+        &self,
+        range_target: Option<&(PartitionSegments, SearchQueryInput)>,
+        unconstrained_is_match_all: bool,
+        disjunct_queries: &[SearchQueryInput],
+    ) -> RaLookupWeights {
+        let unconstrained = if unconstrained_is_match_all {
+            RaBaseFilter::MatchAll
+        } else {
+            let contributes_score = self.need_scores && disjunct_queries.is_empty();
+            RaBaseFilter::Filtered {
+                weight: Arc::new(LazyWeight::new(
+                    self.query().box_clone(),
+                    contributes_score,
+                    self.searcher.clone(),
+                )),
+                contributes_score,
+            }
+        };
+        let constrained = range_target.map(|(segments, partition_bounds)| {
+            let range_query = Box::new(ConstScoreQuery::new(
+                self.make_query(partition_bounds, None),
+                0.0,
+            ));
+            let filter = match &unconstrained {
+                RaBaseFilter::MatchAll => RaBaseFilter::Filtered {
+                    weight: Arc::new(LazyWeight::new(range_query, false, self.searcher.clone())),
+                    contributes_score: false,
+                },
+                RaBaseFilter::Filtered {
+                    weight: base_weight,
+                    contributes_score,
+                } => RaBaseFilter::Filtered {
+                    weight: Arc::new(base_weight.and_query(range_query)),
+                    contributes_score: *contributes_score,
+                },
+            };
+            (segments.clone(), filter)
+        });
+        let disjunct_weight = self
+            .need_scores
+            .then(|| self.make_disjunct_union_query(disjunct_queries))
+            .flatten()
+            .map(|union_query| Arc::new(LazyWeight::new(union_query, true, self.searcher.clone())));
+
+        RaLookupWeights {
+            unconstrained,
+            constrained,
+            disjunct_weight,
+        }
+    }
+
+    /// Execute a Random Access (`RA`) point lookup against the index using pre-prepared
+    /// [`RaLookupWeights`], skipping segments that contain no un-emitted matching documents.
+    ///
+    /// When `score_threshold` is `Some(threshold)` (using strict `score > threshold` semantics),
+    /// pushes the threshold down into Tantivy's [`tantivy::query::PruningScorer`] so non-matching or low-scoring
+    /// segments and 128-doc blocks are skipped via Block-Max WAND before fast-field / CTID reads.
+    pub(crate) fn search_ra_lookup(
+        &self,
+        weights: &RaLookupWeights,
+        lookup_query: Box<dyn Query>,
+        score_threshold: Option<Score>,
+        emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    ) -> Vec<(SearchIndexScore, DocAddress)> {
+        let lookup_weight = lookup_query
+            .weight(EnableScoring::disabled_from_searcher(&self.searcher))
+            .expect("lookup weight should be constructable");
+        let mut results = Vec::new();
+
+        if let Some((ref segments, ref constrained_filter)) = weights.constrained {
+            for (segment_ord, segment_reader) in
+                self.segment_readers_in_segments(segments.included.iter().copied())
+            {
+                self.search_ra_segment(
+                    segment_ord,
+                    segment_reader,
+                    &weights.unconstrained,
+                    weights.disjunct_weight.as_ref(),
+                    lookup_weight.as_ref(),
+                    score_threshold,
+                    emitted_docs,
+                    &mut results,
+                );
+            }
+            for (segment_ord, segment_reader) in
+                self.segment_readers_in_segments(segments.partially_included.iter().copied())
+            {
+                self.search_ra_segment(
+                    segment_ord,
+                    segment_reader,
+                    constrained_filter,
+                    weights.disjunct_weight.as_ref(),
+                    lookup_weight.as_ref(),
+                    score_threshold,
+                    emitted_docs,
+                    &mut results,
+                );
+            }
+        } else {
+            for (segment_ord, segment_reader) in self.candidate_segment_readers() {
+                self.search_ra_segment(
+                    segment_ord,
+                    segment_reader,
+                    &weights.unconstrained,
+                    weights.disjunct_weight.as_ref(),
+                    lookup_weight.as_ref(),
+                    score_threshold,
+                    emitted_docs,
+                    &mut results,
+                );
+            }
+        }
+
+        results
+    }
+
+    /// Evaluates a single segment for [`Self::search_ra_lookup`] according to its [`RaBaseFilter`].
+    #[allow(clippy::too_many_arguments)]
+    fn search_ra_segment(
+        &self,
+        segment_ord: SegmentOrdinal,
+        segment_reader: &SegmentReader,
+        base_filter: &RaBaseFilter,
+        disjunct_weight: Option<&Arc<LazyWeight>>,
+        lookup_weight: &dyn Weight,
+        score_threshold: Option<Score>,
+        emitted_docs: &mut crate::api::HashSet<DocAddress>,
+        results: &mut Vec<(SearchIndexScore, DocAddress)>,
+    ) {
+        match base_filter {
+            RaBaseFilter::MatchAll => {
+                // Base score is 0.0, so a non-negative strict `score > threshold` can only be
+                // satisfied by documents matching `disjunct_weight` above `threshold`.
+                if let Some(threshold) = score_threshold
+                    && threshold >= 0.0
+                {
+                    if let Some(dw) = disjunct_weight {
+                        let mut pruning_scorer = dw
+                            .get()
+                            .pruning_scorer(segment_reader, 1.0, threshold)
+                            .expect("pruning scorer should be constructable");
+                        intersect_scorer_with_lookup(
+                            segment_ord,
+                            segment_reader,
+                            pruning_scorer.as_mut(),
+                            true,
+                            lookup_weight,
+                            None,
+                            Some(threshold),
+                            emitted_docs,
+                            results,
+                        );
+                    }
+                    return;
+                }
+
+                collect_lookup_only_segment(
+                    segment_ord,
+                    segment_reader,
+                    lookup_weight,
+                    disjunct_weight,
+                    score_threshold,
+                    emitted_docs,
+                    results,
+                );
+            }
+            RaBaseFilter::Filtered {
+                weight: base_weight,
+                contributes_score,
+            } => {
+                // When `base_weight` is the sole score source, push `threshold` directly into its
+                // `PruningScorer` (Block-Max WAND).
+                if disjunct_weight.is_none()
+                    && *contributes_score
+                    && let Some(threshold) = score_threshold
+                {
+                    let mut pruning_scorer = base_weight
+                        .get()
+                        .pruning_scorer(segment_reader, 1.0, threshold)
+                        .expect("pruning scorer should be constructable");
+                    intersect_scorer_with_lookup(
+                        segment_ord,
+                        segment_reader,
+                        pruning_scorer.as_mut(),
+                        true,
+                        lookup_weight,
+                        None,
+                        Some(threshold),
+                        emitted_docs,
+                        results,
+                    );
+                } else {
+                    let mut base_scorer = base_weight
+                        .get()
+                        .scorer(segment_reader, 1.0)
+                        .expect("base scorer should be constructable");
+                    intersect_scorer_with_lookup(
+                        segment_ord,
+                        segment_reader,
+                        base_scorer.as_mut(),
+                        *contributes_score,
+                        lookup_weight,
+                        disjunct_weight,
+                        score_threshold,
+                        emitted_docs,
+                        results,
+                    );
+                }
+            }
+        }
+    }
+
     /// Search all available index segments for matching documents using lazy checkout from the
     /// parallel state to allow load balancing across parallel workers.
     ///
@@ -1601,9 +2044,6 @@ impl SearchIndexReader {
     ///
     /// Fully included segments evaluate against the unconstrained base query, while partially
     /// included segments also evaluate `partition_bounds`.
-    ///
-    /// TODO(#6898): `PgSearchScanPlan::with_lazy_sort` currently forces single-partition
-    /// `Shared` execution; this entry point is wired up for range-partitioned rank joins.
     pub(crate) fn search_top_k_unordered_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,
@@ -1670,9 +2110,6 @@ impl SearchIndexReader {
     ///
     /// Fully included segments evaluate against the unconstrained base query, while partially
     /// included segments also evaluate `partition_bounds`.
-    ///
-    /// TODO(#6898): `PgSearchScanPlan::with_lazy_sort` currently forces single-partition
-    /// `Shared` execution; this entry point is wired up for range-partitioned rank joins.
     pub(crate) fn search_top_k_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,
@@ -2349,6 +2786,41 @@ impl SearchIndexReader {
             / candidate_docs as f64)
             * reader_proportion;
         Some((largest_reader, segment_doc_proportion))
+    }
+
+    /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
+    /// sampled on the largest candidate segment.
+    pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
+        if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
+            || query_input.has_postgres_expressions()
+            || query_input.has_parameters()
+        {
+            return query_input.selectivity_heuristic().clamp(0.0, 1.0);
+        }
+        let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)
+        else {
+            return 0.0;
+        };
+        let seg_docs = self.segment_num_docs(largest_reader);
+        if seg_docs == 0 {
+            return 0.0;
+        }
+        let query = self.make_query(query_input, None);
+        let count = query_input
+            .supports_statistics_estimation()
+            .then(|| query.estimate_docs(largest_reader).ok().flatten())
+            .flatten()
+            .map(|estimate| estimate.live_docs(largest_reader))
+            .unwrap_or_else(|| {
+                let weight = query
+                    .weight(EnableScoring::disabled_from_searcher(&self.searcher))
+                    .expect("weight should be constructable");
+                weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("creating scorer for estimation should not fail")
+                    .size_hint() as u64
+            });
+        (count as f64 / seg_docs as f64).clamp(0.0, 1.0)
     }
 
     /// The length of the shortest posting list this query walks for its positional terms, or

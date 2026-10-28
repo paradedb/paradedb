@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Join Scan now executes eligible `ORDER BY ... LIMIT` queries (including single-table sorts, combined multi-table `pdb.score(...)` expressions, and cross-table `OR` search predicates) using an iterative rank-join operator that streams top-K candidates and probes join partners on demand instead of materializing the full join inputs (#6898).

@@ -89,6 +89,7 @@ use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::plan_walk::{PathStep, transform_up_with_children, visit_with_path};
+use crate::scan::rank_join_exec::RankJoinExec;
 use crate::scan::segmented_topk_rule::resolve_physical_index;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
@@ -424,6 +425,15 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
                 _ => equi_join_expansion(other, other_keys, ctx),
             };
             summary.expansion = summary.expansion.worst(expansion);
+        } else if let Some(join) = node.downcast_ref::<RankJoinExec>() {
+            let on_left = *child_idx == 0;
+            // Both sides of RankJoinExec are scanned in score order and emitted in combined
+            // rank order, not doc order.
+            summary.out_of_order = true;
+            let other = if on_left { join.right() } else { join.left() };
+            let other_keys = join.on().iter().map(|(l, r)| if on_left { r } else { l });
+            let expansion = equi_join_expansion(other, other_keys, ctx);
+            summary.expansion = summary.expansion.worst(expansion);
         } else if let Some(join) = node.downcast_ref::<NestedLoopJoinExec>() {
             if *child_idx == 0 {
                 summary.out_of_order = true;
@@ -470,6 +480,7 @@ fn drops_rows(node: &Arc<dyn ExecutionPlan>) -> bool {
 /// `ProjectionExec` is on the list because `rewrite` rebuilds it by hand.
 fn rebuilds_with_new_types(node: &Arc<dyn ExecutionPlan>) -> bool {
     node.is::<HashJoinExec>()
+        || node.is::<RankJoinExec>()
         || node.is::<NestedLoopJoinExec>()
         || node.is::<CrossJoinExec>()
         || node.is::<FilterExec>()
@@ -550,39 +561,67 @@ fn is_unique(plan: &Arc<dyn ExecutionPlan>, col: usize, ctx: &mut Context) -> bo
     }
 
     if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
-        return join_keeps_uniqueness(join, col, ctx);
+        return join_keeps_uniqueness(
+            join.projection.as_deref(),
+            *join.join_type(),
+            join.left(),
+            join.right(),
+            join.on(),
+            col,
+            ctx,
+        );
+    }
+
+    if let Some(join) = plan.downcast_ref::<RankJoinExec>() {
+        return join_keeps_uniqueness(
+            join.projection(),
+            JoinType::Inner,
+            join.left(),
+            join.right(),
+            join.on(),
+            col,
+            ctx,
+        );
     }
 
     let children = plan.children();
     children.len() == 1 && same_columns(plan, children[0]) && is_unique(children[0], col, ctx)
 }
 
-/// Whether `col` of a hash join's output is still unique. A semi or anti join reads one side
+/// Whether `col` of a join's output is still unique. A semi or anti join reads one side
 /// and multiplies nothing. Any other join repeats a row of one side once per match on the
 /// other, so that side keeps its uniqueness only while the other side's keys are unique.
-fn join_keeps_uniqueness(join: &HashJoinExec, col: usize, ctx: &mut Context) -> bool {
-    let col = match &join.projection {
+fn join_keeps_uniqueness(
+    projection: Option<&[usize]>,
+    join_type: JoinType,
+    left: &Arc<dyn ExecutionPlan>,
+    right: &Arc<dyn ExecutionPlan>,
+    on: datafusion::physical_plan::joins::utils::JoinOnRef,
+    col: usize,
+    ctx: &mut Context,
+) -> bool {
+    let col = match projection {
         Some(projection) => match projection.get(col) {
             Some(mapped) => *mapped,
             None => return false,
         },
         None => col,
     };
-    let left_width = join.left().schema().fields().len();
-    let (side, col, other, other_is_left) = match join.join_type() {
+    let left_width = left.schema().fields().len();
+    let (side, col, other, other_is_left) = match join_type {
         JoinType::LeftSemi | JoinType::LeftAnti | JoinType::LeftMark => {
-            return is_unique(join.left(), col, ctx);
+            return is_unique(left, col, ctx);
         }
         JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
-            return is_unique(join.right(), col, ctx);
+            return is_unique(right, col, ctx);
         }
-        _ if col < left_width => (join.left(), col, join.right(), false),
-        _ => (join.right(), col - left_width, join.left(), true),
+        _ if col < left_width => (left, col, right, false),
+        _ => (right, col - left_width, left, true),
     };
     if !is_unique(side, col, ctx) {
         return false;
     }
-    join.on().iter().all(|(left, right)| {
+    on.iter().all(|(left, right)| {
         let key = if other_is_left { left } else { right };
         key.downcast_ref::<Column>()
             .is_some_and(|c| is_unique(other, c.index(), ctx))
@@ -640,6 +679,29 @@ fn moved(
         .get(&DeferredSource::of(field))
         .copied()
         .filter(Decision::moves)
+}
+
+/// Rewrites `plan` so that the specified deferred `fields` are decoded eagerly at their leaf
+/// `PgSearchScanPlan`, removing them from any intermediate `TantivyFetchExec` / `TantivyDecodeExec`
+/// and rebuilding the operators in between with the decoded column types.
+pub(crate) fn make_fields_eager(
+    plan: Arc<dyn ExecutionPlan>,
+    fields: &[PhysicalDeferredField],
+) -> Result<Arc<dyn ExecutionPlan>> {
+    if fields.is_empty() {
+        return Ok(plan);
+    }
+    let mut decisions = HashMap::default();
+    for field in fields {
+        decisions.insert(
+            DeferredSource::of(field),
+            Decision {
+                fetch_at_scan: false,
+                eager: true,
+            },
+        );
+    }
+    rewrite(plan, &decisions)
 }
 
 /// Applies the decisions bottom-up: a scan takes its columns over, and the fetch and decode

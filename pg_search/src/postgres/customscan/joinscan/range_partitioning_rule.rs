@@ -786,11 +786,7 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
                 return Ok(Transformed::no(node));
             }
 
-            let range_partitioned = |input: &Arc<dyn ExecutionPlan>| {
-                matches!(input.output_partitioning(), Partitioning::Range(_))
-                    && input.output_partitioning().partition_count() > 1
-            };
-            if !range_partitioned(join.left()) || !range_partitioned(join.right()) {
+            if !has_range_partitioned_inputs(join) {
                 return Ok(Transformed::no(node));
             }
 
@@ -807,16 +803,10 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
             // the join keys match the range keys through equivalences and the split
             // points are identical on both sides. Anything else keeps the CollectLeft
             // join (and its broadcast) untouched.
-            let children: Vec<&dyn ExecutionPlan> = candidate
-                .children()
-                .into_iter()
-                .map(|child| child.as_ref())
-                .collect();
-            let co_partitioned = candidate
-                .input_distribution_requirements()
-                .unsatisfied_co_partitioned_children(candidate.name(), &children)?
-                .is_empty();
-            if co_partitioned {
+            let Some(candidate_join) = candidate.downcast_ref::<HashJoinExec>() else {
+                return Ok(Transformed::no(node));
+            };
+            if is_hash_join_range_co_partitioned(candidate_join)? {
                 Ok(Transformed::yes(candidate))
             } else {
                 Ok(Transformed::no(node))
@@ -824,4 +814,29 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
         })
         .map(|transformed| transformed.data)
     }
+}
+
+fn has_range_partitioned_inputs(join: &HashJoinExec) -> bool {
+    let range_partitioned = |input: &Arc<dyn ExecutionPlan>| {
+        matches!(input.output_partitioning(), Partitioning::Range(_))
+            && input.output_partitioning().partition_count() > 1
+    };
+    range_partitioned(join.left()) && range_partitioned(join.right())
+}
+
+/// Returns whether `join` is in `PartitionMode::Partitioned`, has `Partitioning::Range` with
+/// `> 1` partitions on both inputs, and satisfies DataFusion's co-partitioning requirements on
+/// its join keys without requiring any network shuffle or broadcast.
+pub(crate) fn is_hash_join_range_co_partitioned(join: &HashJoinExec) -> Result<bool> {
+    if join.null_aware
+        || join.partition_mode() != &PartitionMode::Partitioned
+        || !has_range_partitioned_inputs(join)
+    {
+        return Ok(false);
+    }
+    let children = [join.left().as_ref(), join.right().as_ref()];
+    Ok(join
+        .input_distribution_requirements()
+        .unsatisfied_co_partitioned_children(join.name(), &children)?
+        .is_empty())
 }

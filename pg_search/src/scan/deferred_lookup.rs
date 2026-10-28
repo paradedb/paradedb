@@ -198,19 +198,41 @@ pub(crate) fn preserved_ordering(
     input: &Arc<dyn ExecutionPlan>,
     output_schema: SchemaRef,
 ) -> EquivalenceProperties {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+
+    let input_schema = input.schema();
     let mut eq_props = EquivalenceProperties::new(output_schema.clone());
     if let Some(input_ordering) = input.properties().output_ordering() {
         let rewritten: Vec<_> = input_ordering
             .iter()
             .filter_map(|sort_expr| {
-                let col = sort_expr.expr.downcast_ref::<Column>()?;
-                if col.index() >= output_schema.fields().len() {
-                    return None;
+                if let Some(col) = sort_expr.expr.downcast_ref::<Column>() {
+                    if col.index() >= output_schema.fields().len() {
+                        return None;
+                    }
+                    return Some(PhysicalSortExpr {
+                        expr: Arc::new(Column::new(col.name(), col.index()))
+                            as Arc<dyn PhysicalExpr>,
+                        options: sort_expr.options,
+                    });
                 }
-                Some(PhysicalSortExpr {
-                    expr: Arc::new(Column::new(col.name(), col.index())) as Arc<dyn PhysicalExpr>,
-                    options: sort_expr.options,
-                })
+                // For composite sort expressions (such as `score_a + score_b` from
+                // `RankJoinExec`), preserve the expression when every referenced column
+                // remains in bounds and keeps the same `DataType` in `output_schema`.
+                let mut valid = true;
+                let _ = sort_expr.expr.apply(|node| {
+                    if let Some(col) = node.downcast_ref::<Column>()
+                        && (col.index() >= output_schema.fields().len()
+                            || col.index() >= input_schema.fields().len()
+                            || output_schema.field(col.index()).data_type()
+                                != input_schema.field(col.index()).data_type())
+                    {
+                        valid = false;
+                        return Ok(TreeNodeRecursion::Stop);
+                    }
+                    Ok(TreeNodeRecursion::Continue)
+                });
+                valid.then(|| sort_expr.clone())
             })
             .collect();
         if rewritten.len() == input_ordering.len()

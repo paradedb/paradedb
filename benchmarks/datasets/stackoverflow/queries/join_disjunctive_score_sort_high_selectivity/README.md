@@ -8,7 +8,6 @@
   without paying the storage, memory, or ingestion cost of denormalizing parent/child entities.
 - **Note**: We benchmark the "score sort" variant separately from the "local sort" variant to track
   the impact of scoring and top-K sorting on disjunctive join scans.
-- **TODO**: Implement Block-Max WAND (BMW) scoring optimization for join scans: [https://github.com/paradedb/paradedb/issues/5301]
 
 ## Query Info (statistics from 20m dataset):
 

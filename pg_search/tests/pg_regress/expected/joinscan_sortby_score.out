@@ -685,11 +685,341 @@ LIMIT 10;
 (6 rows)
 
 -- =============================================================================
+-- TEST 8: RankJoinExec (2-way and 3-way joins with rank_join_min_rows = 0)
+-- =============================================================================
+SET paradedb.rank_join_min_rows = 0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+   Relation Tree: documents INNER files
+   Join Cond: documents.id = files.documentId
+   Limit: 10
+   Order By: pdb.score(documents) + pdb.score(files) desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(documents)@0 as col_3, pdb.score(files)@3 as col_4, pdb.score(documents)@0 + pdb.score(files)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=220.0 B, output_batches=1]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=5, output_bytes=200.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=1, ctids_fetched=10, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=1]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=1]
+     :           CooperativeExec
+     :             PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=100.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=3]
+     :           CooperativeExec
+     :             PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=140.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=5]
+(15 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+ doc_id | file_id | doc_score  | file_score |   score    
+--------+---------+------------+------------+------------
+ doc-1  | file-1  |  0.5231233 | 0.33802766 |   0.861151
+ doc-2  | file-3  |  0.5062484 | 0.32759193 | 0.83384037
+ doc-1  | file-2  |  0.5231233 |  0.2647028 |  0.7878261
+ doc-2  | file-4  |  0.5062484 |  0.2647028 |  0.7709512
+ doc-3  | file-5  | 0.41299206 |  0.2647028 | 0.67769486
+(5 rows)
+
+-- Force small lazy_sort window to verify queries metric > 1
+SET paradedb.max_topk_chunk_size = 2;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+   Relation Tree: documents INNER files
+   Join Cond: documents.id = files.documentId
+   Limit: 10
+   Order By: pdb.score(documents) + pdb.score(files) desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(documents)@0 as col_3, pdb.score(files)@3 as col_4, pdb.score(documents)@0 + pdb.score(files)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=220.0 B, output_batches=4]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=5, output_bytes=200.0 B, output_batches=4]
+     :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=4, ctids_fetched=10, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=4]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=4]
+     :           CooperativeExec
+     :             PgSearchScan: table=documents, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=108.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=3, ra_queries=1, rows_pruned=0, rows_scanned=3]
+     :           CooperativeExec
+     :             PgSearchScan: table=files, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=4, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=6, ra_queries=3, rows_pruned=0, rows_scanned=5]
+(15 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+ doc_id | file_id | doc_score  | file_score |   score    
+--------+---------+------------+------------+------------
+ doc-1  | file-1  |  0.5231233 | 0.33802766 |   0.861151
+ doc-2  | file-3  |  0.5062484 | 0.32759193 | 0.83384037
+ doc-1  | file-2  |  0.5231233 |  0.2647028 |  0.7878261
+ doc-2  | file-4  |  0.5062484 |  0.2647028 |  0.7709512
+ doc-3  | file-5  | 0.41299206 |  0.2647028 | 0.67769486
+(5 rows)
+
+RESET paradedb.max_topk_chunk_size;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
+ORDER BY pdb_score DESC
+LIMIT 10;
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=6.00 loops=1)
+   Relation Tree: (documents INNER files) INNER pages
+   Join Cond: pages.fileId = files.id, documents.id = files.documentId
+   Limit: 10
+   Order By: pdb.score(documents) + pdb.score(files) + pdb.score(pages) desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, NULL as col_3, pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 as col_4, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2], metrics=[output_rows=6, output_bytes=360.0 B, output_batches=2]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=6, output_bytes=408.0 B, output_batches=2]
+     :     VisibilityFilterExec: tables=[documents, files, pages], metrics=[output_rows=6, output_bytes=408.0 B, output_batches=2, ctids_fetched=18, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id, pdb.score(pages)@6 as pdb.score(pages), ctid_2@7 as ctid_2], metrics=[output_rows=6, output_bytes=408.0 B, output_batches=2]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@5, fileId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC], metrics=[output_rows=6, output_bytes=504.0 B, output_batches=2]
+     :           ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id], metrics=[output_rows=5, output_bytes=280.0 B, output_batches=3]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@3)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=5, output_bytes=360.0 B, output_batches=3]
+     :               CooperativeExec
+     :                 PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=100.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=3]
+     :               CooperativeExec
+     :                 PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=220.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=5]
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1, rows_pruned=0, rows_scanned=6]
+(19 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
+ORDER BY pdb_score DESC
+LIMIT 10;
+ doc_id | file_id | page_id | pdb_score 
+--------+---------+---------+-----------
+ doc-1  | file-1  | page-1  | 1.1616817
+ doc-2  | file-3  | page-4  | 1.1100234
+ doc-1  | file-1  | page-2  | 1.0833333
+ doc-1  | file-2  | page-3  | 1.0640091
+ doc-2  | file-4  | page-5  | 0.9931334
+ doc-3  | file-5  | page-6  | 0.8998771
+(6 rows)
+
+-- 8b: 2-way cross-table disjunctive join (ScanMode::Tagged with SA + RA point lookups)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: documents INNER files
+   Join Cond: documents.id = files.documentId
+   Join Predicate: (documents:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR files:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
+   Limit: 10
+   Order By: pdb.score(documents) + pdb.score(files) desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(documents)@0 as col_3, pdb.score(files)@3 as col_4, pdb.score(documents)@0 + pdb.score(files)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=88.0 B, output_batches=2]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=2, output_bytes=80.0 B, output_batches=2]
+     :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=2, output_bytes=80.0 B, output_batches=2, ctids_fetched=4, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=80.0 B, output_batches=2]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=2, output_bytes=112.0 B, output_batches=2]
+     :           CooperativeExec
+     :             PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=36.0 B, output_batches=2, dynamic_filter_pushdown_automaton=1, queries=2, ra_queries=1, rows_pruned=0, rows_scanned=1]
+     :           CooperativeExec
+     :             PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=2, dynamic_filter_pushdown_automaton=1, queries=2, ra_queries=1, rows_pruned=0, rows_scanned=2]
+(16 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+ doc_id | file_id | doc_score | file_score |   score   
+--------+---------+-----------+------------+-----------
+ doc-1  | file-1  | 1.0594962 |  1.2511479 | 2.3106441
+ doc-1  | file-2  | 1.0594962 |          0 | 1.0594962
+(2 rows)
+
+-- 8c: 3-way cross-table disjunctive join (cascading SA + RA point lookups across nested RankJoinExec)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(pages.id) AS page_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
+   Relation Tree: (documents INNER files) INNER pages
+   Join Cond: pages.fileId = files.id, documents.id = files.documentId
+   Join Predicate: (documents:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR files:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR pages:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
+   Limit: 10
+   Order By: pdb.score(documents) + pdb.score(files) + pdb.score(pages) desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, NULL as col_3, pdb.score(documents)@0 as col_4, pdb.score(files)@3 as col_5, pdb.score(pages)@6 as col_6, pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 as col_7, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2], metrics=[output_rows=4, output_bytes=288.0 B, output_batches=4]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=4, output_bytes=272.0 B, output_batches=4]
+     :     VisibilityFilterExec: tables=[documents, files, pages], metrics=[output_rows=4, output_bytes=272.0 B, output_batches=4, ctids_fetched=12, ctids_lazy=0]
+     :       ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id, pdb.score(pages)@6 as pdb.score(pages), ctid_2@7 as ctid_2], metrics=[output_rows=4, output_bytes=272.0 B, output_batches=4]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@5, fileId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 + pdb.score(pages)@6 DESC], metrics=[output_rows=4, output_bytes=336.0 B, output_batches=4]
+     :           ProjectionExec: expr=[pdb.score(documents)@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, pdb.score(files)@3 as pdb.score(files), ctid_1@4 as ctid_1, id@5 as id], metrics=[output_rows=3, output_bytes=168.0 B, output_batches=4]
+     :             RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@3)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], metrics=[output_rows=3, output_bytes=216.0 B, output_batches=4]
+     :               CooperativeExec
+     :                 PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=4, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=4, ra_queries=3, rows_pruned=0, rows_scanned=2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=2, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=180.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, queries=3, ra_queries=2, rows_pruned=0, rows_scanned=3]
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=4, output_bytes=120.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, queries=3, ra_queries=2, rows_pruned=0, rows_scanned=4]
+(20 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(pages.id) AS page_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+ doc_id | file_id | page_id | doc_score | file_score | page_score |   score   
+--------+---------+---------+-----------+------------+------------+-----------
+ doc-1  | file-1  | page-1  | 1.0594962 |  1.2511479 | 0.71042687 |  3.021071
+ doc-1  | file-1  | page-2  | 1.0594962 |  1.2511479 |          0 | 2.3106441
+ doc-1  | file-2  | page-3  | 1.0594962 |          0 |  0.7879951 | 1.8474913
+ doc-2  | file-3  | page-4  |         0 |          0 |  0.7879951 | 0.7879951
+(4 rows)
+
+-- 8d: 2-way single-sided score-sorted join (NRJN: SA on files, RA-only on documents)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(files.id) AS file_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY paradedb.score(files.id) DESC, documents.id ASC
+LIMIT 10;
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+   Relation Tree: documents INNER files
+   Join Cond: documents.id = files.documentId
+   Limit: 10
+   Order By: pdb.score(files) desc, documents.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb.score(files)@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=5, output_bytes=180.0 B, output_batches=2]
+     :   GlobalLimitExec: skip=0, fetch=10, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=2]
+     :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=180.0 B, output_batches=2, ctids_fetched=10, ctids_lazy=0]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, pdb.score(files)@2 as pdb.score(files), ctid_1@3 as ctid_1], metrics=[output_rows=5, output_bytes=180.0 B, output_batches=2]
+     :         RankJoinExec: mode=CollectLeft, on=[(id@1, documentId@2)], order=[pdb.score(files)@2 DESC, id@1 ASC NULLS LAST], metrics=[output_rows=5, output_bytes=260.0 B, output_batches=2]
+     :           CooperativeExec
+     :             PgSearchScan: table=documents, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=88.0 B, output_batches=1, dynamic_filter_pushdown_automaton=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=3]
+     :           CooperativeExec
+     :             PgSearchScan: table=files, segments=1, lazy_sort=26, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=140.0 B, output_batches=1, queries=1]
+(15 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(files.id) AS file_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY paradedb.score(files.id) DESC, documents.id ASC
+LIMIT 10;
+ doc_id | file_id | file_score 
+--------+---------+------------
+ doc-1  | file-1  | 0.33802766
+ doc-2  | file-3  | 0.32759193
+ doc-1  | file-2  |  0.2647028
+ doc-2  | file-4  |  0.2647028
+ doc-3  | file-5  |  0.2647028
+(5 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS pages CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
+RESET paradedb.rank_join_min_rows;
 RESET max_parallel_workers;
 RESET max_parallel_workers_per_gather;
 RESET parallel_leader_participation;

@@ -52,7 +52,7 @@ impl IndexOid {
     pub(crate) fn read(self) -> StandaloneIndexRead {
         let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
         if let Err(denied) = check_read(&relations.heap) {
-            denied.report(&relations.heap);
+            denied.report();
         }
         StandaloneIndexRead { relations }
     }
@@ -68,7 +68,7 @@ impl IndexOid {
     pub(crate) fn read_metadata(self) -> IndexMetadataRead {
         let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
         if let Err(denied) = check_metadata(&relations.heap) {
-            denied.report(&relations.heap);
+            denied.report();
         }
         IndexMetadataRead { relations }
     }
@@ -199,10 +199,21 @@ impl IndexMaintenance {
     }
 }
 
+/// A denial carries the object it was decided for, so it cannot be reported
+/// against a different relation than the one that was checked.
 enum ReadDenied {
-    Schema(pg_sys::AclResult::Type),
-    Table(pg_sys::AclResult::Type),
-    RowSecurity,
+    Schema {
+        acl: pg_sys::AclResult::Type,
+        namespace: pg_sys::Oid,
+    },
+    Table {
+        acl: pg_sys::AclResult::Type,
+        relation: pg_sys::Oid,
+    },
+    RowSecurity {
+        schema: String,
+        table: String,
+    },
 }
 
 fn check_metadata(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
@@ -239,44 +250,53 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
             pg_sys::ACL_USAGE as _,
         );
         if schema_acl != pg_sys::AclResult::ACLCHECK_OK {
-            return Err(ReadDenied::Schema(schema_acl));
+            return Err(ReadDenied::Schema {
+                acl: schema_acl,
+                namespace,
+            });
         }
         let table_acl = pg_sys::pg_class_aclcheck(heap.oid(), user, pg_sys::ACL_SELECT as _);
         if table_acl != pg_sys::AclResult::ACLCHECK_OK {
-            return Err(ReadDenied::Table(table_acl));
+            return Err(ReadDenied::Table {
+                acl: table_acl,
+                relation: heap.oid(),
+            });
         }
         // noError=true reports RLS_ENABLED even when row_security=off.
         if pg_sys::check_enable_rls(heap.oid(), user, true)
             == pg_sys::CheckEnableRlsResult::RLS_ENABLED as i32
         {
-            return Err(ReadDenied::RowSecurity);
+            return Err(ReadDenied::RowSecurity {
+                schema: heap.namespace().to_owned(),
+                table: heap.name().to_owned(),
+            });
         }
         Ok(())
     }
 }
 
 impl ReadDenied {
-    fn report(self, heap: &PgSearchRelation) -> ! {
+    fn report(self) -> ! {
         unsafe {
             match self {
-                Self::Schema(acl) => pg_sys::aclcheck_error(
+                Self::Schema { acl, namespace } => pg_sys::aclcheck_error(
                     acl,
                     pg_sys::ObjectType::OBJECT_SCHEMA,
-                    pg_sys::get_namespace_name((*heap.rd_rel).relnamespace),
+                    pg_sys::get_namespace_name(namespace),
                 ),
-                Self::Table(acl) => pg_sys::aclcheck_error(
+                Self::Table { acl, relation } => pg_sys::aclcheck_error(
                     acl,
                     pg_sys::ObjectType::OBJECT_TABLE,
-                    pg_sys::get_rel_name(heap.oid()),
+                    pg_sys::get_rel_name(relation),
                 ),
-                Self::RowSecurity => {
+                Self::RowSecurity { schema, table } => {
                     pg_sys::ereport!(
                         ERROR,
                         PgSqlErrorCode::ERRCODE_INSUFFICIENT_PRIVILEGE,
                         format!(
                             "direct index reads are not supported when row-level security applies to table {}.{}",
-                            pgrx::spi::quote_identifier(heap.namespace()),
-                            pgrx::spi::quote_identifier(heap.name()),
+                            pgrx::spi::quote_identifier(&schema),
+                            pgrx::spi::quote_identifier(&table),
                         )
                     );
                 }

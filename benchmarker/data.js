@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793222344514,
+  "lastUpdate": 1793222631526,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -44605,6 +44605,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12848298394-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T13:05:47-07:00",
+          "tree_id": "3c8b0b26291fc177a2f04c7a5b419bf3e7a04b40",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793222567743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.748,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.627,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.991,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.712,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.61,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.954,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 23.46,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 25.454,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 25.933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.672,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.719,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.738,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.64,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 9.377,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 10.037,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.381,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.264,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.781,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 15.811,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 18.08,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 18.859,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12849162976-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [

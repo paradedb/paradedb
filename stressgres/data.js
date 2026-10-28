@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793226670670,
+  "lastUpdate": 1793226758400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -483163,6 +483163,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12800768868-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793226720391,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 25.7265625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 25.644071996297242, max partition_index_size:MB: 35.5625, count: 58740"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.052470762175226, max cpu: 32.796486, count: 58740"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.070594595888664, max mem: 58.61328125, count: 58740"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.79132536273645, max cpu: 46.943764, count: 58740"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 57.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.277131346824994, max mem: 65.0546875, count: 58740"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.495549,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.9566003978811, max cpu: 23.774145, count: 58740"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.993587339334354, max mem: 43.03515625, count: 58740"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.791009356153214, max cpu: 42.249386, count: 58740"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.492767984444164, max mem: 63.9296875, count: 58740"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.029612300940776, max cpu: 33.07087, count: 58740"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.06341365285581, max mem: 62.69140625, count: 58740"
+          }
+        ],
+        "publication_id": "12849394227-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

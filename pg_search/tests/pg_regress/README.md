@@ -10,8 +10,6 @@ For a complete overview of ParadeDB's testing infrastructure (including unit tes
 - `expected/`: Contains expected output files for each test
 - `results/` (ignored under git): Stores actual output files generated during test runs
 - `common/`: Contains common setup and cleanup scripts used by multiple tests
-- `date_days/`: Full-range DATE tests run in CI with a temporary workspace version matching
-  `DATE_DAYS_STORAGE_VERSION`; ordinary regression tests cover the current legacy format.
 
 ## Adding New Tests
 

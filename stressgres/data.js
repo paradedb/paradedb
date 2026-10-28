@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793176988020,
+  "lastUpdate": 1793177071573,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -501265,6 +501265,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12718921825-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793177036592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.518209996117586, max cpu: 4.754829, count: 59209"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.30890699418585, max mem: 21.3359375, count: 59209"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5333652844308805, max cpu: 4.754829, count: 59209"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.954387476988295, max mem: 20.95703125, count: 59209"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.153407629243512, max cpu: 37.44515, count: 59209"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.491458949969598, max mem: 21.49609375, count: 59209"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.923204242597, max document_count: 10002.0, count: 59209"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.919573037883, max document_count: 10002.0, count: 59209"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.41153401268869, max cpu: 36.189167, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 45.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.78144106048067, max mem: 59.41015625, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.31887363535885, max cpu: 36.189167, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 45.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.04434536187488, max mem: 59.6875, count: 59209"
+          }
+        ],
+        "publication_id": "12800981553-other"
       }
     ]
   }

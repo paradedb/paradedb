@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector `ORDER BY` searches share a top-k pruning threshold across segments and parallel workers on the same query, so later segments can cut work using scores already found elsewhere.

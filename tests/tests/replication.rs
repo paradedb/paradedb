@@ -1026,8 +1026,11 @@ async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> R
     let mutable = "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE mutable";
     let mutable_before: i64 = sqlx::query_scalar(mutable).fetch_one(&mut conn).await?;
     anyhow::ensure!(mutable_before == 2, "expected two mutable segments");
+    // Use a layer larger than this fixture so target-size clamping groups enough
+    // immutable segments to include original segments. With 1KB batches, the newly
+    // frozen segment can repeatedly merge with new inserts instead.
     conn.execute(
-        "ALTER INDEX backpressure_idx SET (background_layer_sizes='1kb,10kb,100mb');
+        "ALTER INDEX backpressure_idx SET (background_layer_sizes='20kb,100mb');
         INSERT INTO backpressure VALUES (16, 'beer wine cheese');
         INSERT INTO backpressure VALUES (17, 'beer wine cheese');
         INSERT INTO backpressure VALUES (18, 'beer wine cheese')",

@@ -708,3 +708,127 @@ fn late_reader_does_not_cancel_autovacuum_waiting_for_merger() {
         fixture.index
     )));
 }
+
+#[test]
+fn periodic_sweep_cancellation_releases_vacuum_barriers() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for terminate in [false, true] {
+        let table = if terminate {
+            "mutable_sweep_terminated"
+        } else {
+            "mutable_sweep_cancelled"
+        };
+        let mut fixture = Fixture::new(table, true);
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(1,50) id"
+            ))
+            .unwrap();
+        let (ready, gate) = fixture.pause_keys();
+        fixture.controller.batch_execute(&format!(
+            "DO $$ BEGIN
+             EXECUTE format('ALTER DATABASE %I SET pg_search.test_merge_ready = %L', current_database(), '{ready}');
+             EXECUTE format('ALTER DATABASE %I SET pg_search.test_merge_gate = %L', current_database(), '{gate}');
+             END $$;
+             ALTER INDEX {} RESET (background_layer_sizes)", fixture.index
+        )).unwrap();
+        let mut pid = 0;
+        wait_until("periodic sweep reaching merge publication", || {
+            let row = fixture
+                .controller
+                .query_opt(
+                    "SELECT a.pid FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
+                 WHERE a.backend_type='pg_search mutable sweep' AND a.datname=current_database() AND a.query='merging'
+                   AND l.locktype='advisory' AND l.objid::bigint=$1 AND l.granted",
+                    &[&ready],
+                )
+                .unwrap();
+            if let Some(row) = row {
+                pid = row.get(0);
+                true
+            } else {
+                false
+            }
+        });
+        fixture.controller.batch_execute(
+            "DO $$ BEGIN
+             EXECUTE format('ALTER DATABASE %I RESET pg_search.test_merge_ready', current_database());
+             EXECUTE format('ALTER DATABASE %I RESET pg_search.test_merge_gate', current_database());
+             END $$"
+        ).unwrap();
+        fixture.cancel_pid(pid, terminate);
+        wait_until("cancelled sweep releasing its backend", || {
+            fixture
+                .controller
+                .query_one(
+                    "SELECT NOT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1)",
+                    &[&pid],
+                )
+                .unwrap()
+                .get(0)
+        });
+        fixture
+            .controller
+            .query_one("SELECT pg_advisory_unlock($1)", &[&gate])
+            .unwrap();
+        fixture
+            .controller
+            .batch_execute(&format!("VACUUM {table}"))
+            .unwrap();
+        fixture.assert_rows(50);
+        wait_until("next periodic sweep draining cancelled work", || {
+            fixture.value::<bool>(&format!("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)", fixture.index))
+        });
+        assert!(fixture.value::<bool>(&format!(
+            "SELECT bool_and(passed) FROM pdb.verify_index('{}', heapallindexed => true)",
+            fixture.index
+        )));
+    }
+}
+
+#[test]
+fn periodic_sweep_skips_exclusive_vacuum_admission() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("sweep_busy_admission", true);
+    fixture
+        .controller
+        .batch_execute(&format!(
+            "ALTER INDEX {} RESET (background_layer_sizes)",
+            fixture.index
+        ))
+        .unwrap();
+    let holder = fixture.actor(
+        "merge",
+        format!(
+            "SELECT paradedb.test_hold_cleanup_admission('{}')",
+            fixture.index
+        ),
+    );
+    fixture.stage(&holder);
+    fixture.controller.batch_execute(
+        "DROP TABLE IF EXISTS sweep_free_admission;
+         CREATE TABLE sweep_free_admission (id bigint,body text);
+         CREATE INDEX sweep_free_admission_idx ON sweep_free_admission USING paradedb(id,body) WITH(mutable_segment_rows=10000);
+         INSERT INTO sweep_free_admission VALUES(1,'alpha beta')"
+    ).unwrap();
+    wait_until("sweep skipping busy VACUUM admission", || {
+        assert!(!fixture.value::<bool>(
+            "SELECT EXISTS(SELECT FROM pg_locks l JOIN pg_stat_activity a ON l.pid=a.pid
+             WHERE a.backend_type='pg_search mutable sweep' AND l.locktype='page'
+               AND l.relation='sweep_busy_admission_idx'::regclass AND NOT l.granted)"
+        ));
+        fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_free_admission_idx') WHERE visible AND mutable)")
+    });
+    fixture.release(&holder);
+    holder.finish().1.unwrap();
+    fixture
+        .controller
+        .batch_execute("VACUUM sweep_busy_admission")
+        .unwrap();
+    fixture
+        .controller
+        .batch_execute("DROP TABLE sweep_free_admission")
+        .unwrap();
+    fixture.assert_rows(0);
+}

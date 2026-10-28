@@ -262,6 +262,20 @@ impl MetaPage {
         }
     }
 
+    pub(crate) fn try_pin_merge(&self) -> Option<MergePins> {
+        unsafe {
+            let relation = self.bman.buffer_access().rel().as_ptr();
+            let blockno = self.cleanup_lock_blockno();
+            let mode = pg_sys::ShareLock as pg_sys::LOCKMODE;
+            if !pg_sys::ConditionalLockPage(relation, blockno, mode) {
+                return None;
+            }
+            let pins = self.pin_merge();
+            pg_sys::UnlockPage(relation, blockno, mode);
+            Some(pins)
+        }
+    }
+
     pub fn vacuum_list(&self) -> VacuumList {
         assert!(block_number_is_valid(self.data.active_vacuum_list));
         VacuumList::open(

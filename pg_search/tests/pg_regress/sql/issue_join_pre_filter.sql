@@ -44,7 +44,8 @@ ORDER BY
     relevance DESC
 LIMIT 10;
 
--- Reproduce the bug
+-- Keep the original query and validate its tied results without assuming their order.
+WITH results AS MATERIALIZED (
 SELECT
     p.id,
     p.title,
@@ -57,7 +58,14 @@ WHERE
     AND u.reputation > 100
 ORDER BY
     relevance DESC
-LIMIT 10;
+LIMIT 10
+)
+SELECT count(*) AS row_count,
+       count(DISTINCT id) AS distinct_ids,
+       bool_and(title = 'how using get create') AS matching_titles,
+       min(relevance) AS min_score,
+       max(relevance) AS max_score
+FROM results;
 
 -- Teardown
 RESET paradedb.enable_rank_join;

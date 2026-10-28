@@ -531,6 +531,62 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     })
 }
 
+pub(crate) unsafe fn sweep_mutable(index: &PgSearchRelation) {
+    if !index.is_valid()
+        || index.options().background_layer_sizes().is_empty()
+        || VacuumSignal::new(index.oid()).wants_cancel()
+    {
+        return;
+    }
+    let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock() else {
+        return;
+    };
+    let metadata = MetaPage::open(index);
+    let Some(merge_pins) = metadata.try_pin_merge() else {
+        return;
+    };
+    let merge_lock = metadata.acquire_merge_lock();
+    PgTryBuilder::new(AssertUnwindSafe(|| {
+        if metadata.freeze_mutable_segments().is_empty() {
+            return;
+        }
+        set_ps_display_suffix(MERGING.as_ptr());
+        pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
+        let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)
+            .expect("should be able to open mutable sweeper merger");
+        let mut policy = LayeredMergePolicy::new(Vec::new());
+        policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+        let (candidates, _, skipped) = policy
+            .simulate_supported(&merger)
+            .expect("should be able to validate mutable sweep candidates");
+        warn_unsupported_vector_merge(index, skipped);
+        let candidates = candidates
+            .into_iter()
+            .map(|(_, candidate)| candidate)
+            .collect::<Vec<_>>();
+        let xid = pg_sys::GetCurrentFullTransactionId();
+        merge_index(
+            index,
+            merger,
+            &candidates,
+            merge_lock,
+            merge_pins,
+            MergeMode::Background,
+            xid,
+            xid,
+        );
+    }))
+    .catch_others(|caught| {
+        dst::observe!(|| {
+            if let Some(details) = merge_crash_details(&caught) {
+                dst::assert_unreachable!("pg_search mutable sweep crashed", &details);
+            }
+        });
+        caught.rethrow()
+    })
+    .execute();
+}
+
 #[inline]
 #[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn merge_index(

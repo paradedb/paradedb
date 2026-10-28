@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793211930279,
+  "lastUpdate": 1793213498595,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -42535,6 +42535,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12838764800-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb78a9469c2e31e2085248cda8c1dfd919d4c129",
+          "message": "chore: Break out a lazy sorted scan. (#7003)\n\n## Ticket(s) Closed\n\n- Prework for #6898\n\n## What\n\nExtracts `BaseScan`'s iterative, expanding-window Top-K execution\n(`TopKScanExecState`) into a `LazySortConfig` mode on `PgSearchScanPlan`\n(`pg_search/src/scan/lazy_sort.rs`), and rewires `TopKScanExecState` to\nconsume `PgSearchScanPlan` as its single caller in this PR.\n\n## Why\n\nRank joins (#6898) require `PgSearchScanPlan` leaf streams that pull\nexpanding Top-K windows in sort order (`SA`) rather than scanning all\nmatching documents segment-by-segment. Breaking out the lazy sorted scan\nmode and wiring `BaseScan`'s Top-K path through it first validates the\nshared execution path (`LazySortConfig`,\n`Scanner::materialize_topk_window`, `TopKSelectivity`, and dispatch\nserialization) against the existing Top-K and window-aggregation test\nsuite before introducing `RankJoinExec`.\n\n## How\n\n- Adds `pg_search/src/scan/lazy_sort.rs` (`LazySortConfig`,\n`TopKSelectivity`, `LazySortTelemetryState`, and\n`build_lazy_sort_stream`) and integrates it into `PgSearchScanPlan`\n(`with_lazy_sort`, `EquivalenceProperties`, and MPP dispatch\nencode/decode).\n- Adds `Scanner::materialize_topk_window` in\n`pg_search/src/scan/batch_scanner.rs` to group cross-segment Top-K hits\nby segment for fast-field and visibility evaluation before interleaving\nback into Top-K order.\n- Rewrites `TopKScanExecState` in\n`pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs` to\ndrive a lazy-sorted `PgSearchScanPlan` stream and drain metrics via\n`LazySortTelemetry`.\n\n## Tests\n\nNo change to the benchmarks.",
+          "timestamp": "2026-10-28T10:51:47-07:00",
+          "tree_id": "a7a25370abe599b58c5557dfb76bc80e45001499",
+          "url": "https://github.com/paradedb/paradedb/commit/cb78a9469c2e31e2085248cda8c1dfd919d4c129"
+        },
+        "date": 1793213398241,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 14.417,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 13.263,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 14.332,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 14.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 22.07,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 23.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 24.456,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 18.214,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 19.319,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 19.808,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 18.185,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 19.278,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 18.057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 19.2,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.663,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 9.573,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 10.363,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.762,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 11.045,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 12.133,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.738,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 19.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 22.038,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 23.864,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12840987192-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [

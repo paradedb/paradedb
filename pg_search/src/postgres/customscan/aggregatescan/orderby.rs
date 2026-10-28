@@ -21,11 +21,10 @@ use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::orderby::{
     PathKeyInfo, extract_pathkey_styles_with_sortability_check,
 };
-use crate::postgres::customscan::pullup::SourceContext;
+use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use pgrx::PgList;
 use pgrx::pg_sys;
@@ -89,7 +88,9 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                     if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
                         Some(field_name.into_inner())
                     } else {
-                        find_matching_fast_field(expr, context).map(|ff| ff.name())
+                        context
+                            .resolve(ColumnRef::Expr(expr), Access::Any)
+                            .map(|r| r.field.name())
                     }
                 })
                 .collect::<HashSet<String>>()

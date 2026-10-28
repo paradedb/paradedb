@@ -22,26 +22,20 @@
 pub mod columnar;
 
 use crate::api::HashSet;
-use crate::api::operator::row_expr_from_indexed_expr;
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
-use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{
-    Access, ColumnRef, SourceContext, field_type_for_pullup,
-};
+use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
 
-use crate::postgres::utils::strip_tokenizer_cast;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
-use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 
 use pgrx::{PgList, pg_sys};
 
@@ -68,113 +62,6 @@ pub unsafe fn collect_fast_fields(
     pullup_fast_fields(target_list, referenced_columns, context, is_execution_time)
         .filter(|fields| !fields.is_empty())
         .unwrap_or_default()
-}
-
-fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
-    if node.is_null() {
-        return;
-    }
-    for var in node.collect_nodes::<pg_sys::Var>() {
-        let var = unsafe { &mut *var };
-        if var.varno as i32 == old_varno {
-            var.varno = new_varno as _;
-        }
-        if var.varnosyn as i32 == old_varno {
-            var.varnosyn = new_varno as _;
-        }
-    }
-}
-
-pub(crate) fn find_matching_fast_field(
-    node: *mut pg_sys::Node,
-    context: &SourceContext,
-) -> Option<WhichFastField> {
-    if node.is_null() {
-        return None;
-    }
-    let Some(index) = &context.index else {
-        return None;
-    };
-
-    // In PostgreSQL 17+, `Var` nodes on the nullable side of an outer join carry
-    // `varnullingrels` tracking outer-join relids. Base table index expressions
-    // always have `varnullingrels == NULL`. Clone the candidate query expression
-    // and clear `varnullingrels` on all its `Var`s so `pg_sys::equal` can match.
-    let node_copy = unsafe { pg_sys::copyObjectImpl(node.cast()) }.cast::<pg_sys::Node>();
-    #[cfg(not(feature = "pg15"))]
-    for var in node_copy.collect_nodes::<pg_sys::Var>() {
-        unsafe { (*var).varnullingrels = std::ptr::null_mut() };
-    }
-
-    let categorized_fields = index.schema.categorized_fields();
-
-    let matches_node = |candidate: *mut pg_sys::Node| {
-        let unwrapped = strip_tokenizer_cast(candidate);
-        let candidate_copy =
-            unsafe { pg_sys::copyObjectImpl(unwrapped.cast()) }.cast::<pg_sys::Node>();
-        fix_varno_in_place(candidate_copy, 1, context.heap_rti as i32);
-        unsafe {
-            pg_sys::equal(
-                node_copy as *const core::ffi::c_void,
-                candidate_copy as *const core::ffi::c_void,
-            )
-        }
-    };
-
-    let to_fast_field =
-        |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
-            if search_field.is_fast()
-                && let Some(field_type) =
-                    field_type_for_pullup(search_field.field_type(), data.is_array)
-            {
-                return Some(WhichFastField::eager(
-                    search_field.field_name().to_string(),
-                    field_type,
-                ));
-            }
-            None
-        };
-
-    for (i, expr) in index.index_expressions().iter_ptr().enumerate() {
-        if let Some(row_expr) = unsafe { row_expr_from_indexed_expr(expr) } {
-            // ROW(...) composite: match each arg as if it were an independent expression.
-            let composite_oid = unsafe { pg_sys::exprType(expr.cast()) };
-            let Ok(fields) = (unsafe { get_composite_type_fields(composite_oid) }) else {
-                continue;
-            };
-
-            let row_args = unsafe { PgList::<pg_sys::Node>::from_pg((*row_expr).args) };
-            for (position, arg) in row_args.iter_ptr().enumerate() {
-                if position >= fields.len() || fields[position].is_dropped {
-                    continue;
-                }
-
-                let field_idx = fields[position].field_index;
-                if let Some((search_field, data)) = categorized_fields.iter().find(|(_, data)| {
-                    matches!(
-                        data.source,
-                        FieldSource::CompositeField {
-                            expression_idx,
-                            field_idx: idx,
-                            ..
-                        } if expression_idx == i && idx == field_idx
-                    )
-                }) && matches_node(arg as *mut pg_sys::Node)
-                    && let Some(ff) = to_fast_field(search_field, data)
-                {
-                    return Some(ff);
-                }
-            }
-        } else if let Some((search_field, data)) = categorized_fields.iter().find(
-            |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
-        ) && matches_node(expr as *mut pg_sys::Node)
-            && let Some(ff) = to_fast_field(search_field, data)
-        {
-            return Some(ff);
-        }
-    }
-
-    None
 }
 
 /// If all referenced fields in the given node can be fetched from the index as "fast fields",
@@ -243,8 +130,11 @@ pub unsafe fn pullup_fast_fields(
         }
 
         // Try to match complex expression (or Var with source mismatch) against index expressions
-        if let Some(ff) = find_matching_fast_field((*te).expr as *mut pg_sys::Node, context) {
-            matches.push(ff);
+        if let Some(resolved) = context.resolve(
+            ColumnRef::Expr((*te).expr as *mut pg_sys::Node),
+            Access::Any,
+        ) {
+            matches.push(resolved.field);
             continue;
         }
 
@@ -325,9 +215,10 @@ pub unsafe fn pullup_fast_fields(
                     0,
                 );
 
-                if let Some(ff) = find_matching_fast_field(dummy_var as *mut pg_sys::Node, context)
+                if let Some(resolved) =
+                    context.resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), Access::Any)
                 {
-                    matches.push(ff);
+                    matches.push(resolved.field);
                 }
             }
         }

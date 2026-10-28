@@ -27,7 +27,6 @@
 use crate::api::{FieldName, QueryVector};
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
@@ -42,7 +41,7 @@ use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
 use pgrx::{FromDatum, PgList, pg_sys};
 
-use super::pullup::{Bm25IndexInfo, SourceContext};
+use super::pullup::{Access, Bm25IndexInfo, ColumnRef, SourceContext};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -231,8 +230,8 @@ pub unsafe fn analyze_sort_expression(
     // expressions like `lower(description)::pdb.literal('alias=literal_description')`
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
-    if let Some(fast_field) = find_matching_fast_field(node, source) {
-        let field_name = FieldName::from(fast_field.name());
+    if let Some(resolved) = source.resolve(ColumnRef::Expr(node), Access::Any) {
+        let field_name = FieldName::from(resolved.field.name());
         if let Some(var) = extract_any_var_from_expr(node) {
             return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
         }

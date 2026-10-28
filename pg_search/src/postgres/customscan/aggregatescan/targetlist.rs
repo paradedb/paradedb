@@ -21,9 +21,8 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::SourceContext;
+use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_unnest_and_relabel;
@@ -135,7 +134,9 @@ impl CustomScanClause<AggregateScan> for TargetList {
             {
                 Some(field_name.into_inner())
             } else {
-                find_matching_fast_field(actual_expr, context).map(|ff| ff.name())
+                context
+                    .resolve(ColumnRef::Expr(actual_expr), Access::Any)
+                    .map(|r| r.field.name())
             };
 
             // Try to extract field name from the expression (handles both Var and JSON operators)

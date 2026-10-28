@@ -63,7 +63,6 @@ use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
 
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
 use pgrx::{PgList, pg_sys};
 
@@ -2145,7 +2144,10 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 let mut found = false;
                 for source in sources {
                     let context = source.to_source_context();
-                    if find_matching_fast_field(expr, &context).is_some() {
+                    if context
+                        .resolve(ColumnRef::Expr(expr), Access::Any)
+                        .is_some()
+                    {
                         found = true;
                         break;
                     }
@@ -2442,7 +2444,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     // Case 3: Check if expression matches an indexed expression (existing behavior)
     let matched_source = sources.iter().find_map(|source| {
         let context = source.to_source_context();
-        let search_field = find_matching_fast_field(expr, &context)?;
+        let search_field = context.resolve(ColumnRef::Expr(expr), Access::Any)?.field;
         Some((source.scan_info.heap_rti, search_field.name().to_string()))
     });
     if let Some((rti, field_name)) = matched_source {
@@ -2951,12 +2953,13 @@ impl JoinSortExprKind {
                 continue;
             }
             let context = source.to_source_context();
-            if let Some(search_field) =
-                find_matching_fast_field(check_expr as *mut pg_sys::Node, &context)
-            {
+            if let Some(resolved) = context.resolve(
+                ColumnRef::Expr(check_expr as *mut pg_sys::Node),
+                Access::Any,
+            ) {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Field {
-                        name: search_field.name().into(),
+                        name: resolved.field.name().into(),
                         rti: source.scan_info.heap_rti,
                     },
                     direction,

@@ -19,9 +19,8 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::SourceContext;
+use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
 use crate::schema::SearchFieldType;
@@ -112,8 +111,8 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         continue;
                     }
                     (field_name.to_string(), attno)
-                } else if let Some(ff) = find_matching_fast_field(expr, context) {
-                    (ff.name(), 0) // Complex expressions don't have a single attno
+                } else if let Some(resolved) = context.resolve(ColumnRef::Expr(expr), Access::Any) {
+                    (resolved.field.name(), 0) // Complex expressions don't have a single attno
                 } else {
                     last_error =
                         Some("could not resolve grouping column from expression".to_string());

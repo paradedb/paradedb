@@ -22,10 +22,9 @@ use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
-use crate::postgres::customscan::pullup::SourceContext;
+use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, expr_is_securely_promotable, extract_quals,
 };
@@ -837,11 +836,12 @@ impl ParsedAggregateField {
         let expression = AggregateFieldExpression::from_node(expr)?;
         let field_expr = expression.field_expression();
 
-        let field_name = if let Some(fast_field) = find_matching_fast_field(field_expr, source) {
-            FieldName::from(fast_field.name())
-        } else {
-            expression.field_name(context)?
-        };
+        let field_name =
+            if let Some(resolved) = source.resolve(ColumnRef::Expr(field_expr), Access::Any) {
+                FieldName::from(resolved.field.name())
+            } else {
+                expression.field_name(context)?
+            };
 
         Ok(Self {
             expression,

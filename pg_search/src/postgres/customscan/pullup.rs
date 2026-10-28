@@ -204,12 +204,11 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
             // which the check above skips, but find_matching_fast_field handles
             // by stripping the tokenizer cast and matching the underlying Var.
             //
-            // We use varno=1 because Postgres stores index expressions with
-            // varno=1 regardless of the table's actual range table index in
-            // the query. find_matching_fast_field compares via pg_sys::equal(),
-            // so both sides must use the same varno to match.
+            // We use context.heap_rti as varno because find_matching_fast_field
+            // compares via pg_sys::equal(), so both sides must use the same varno
+            // to match.
             let dummy_var = pg_sys::makeVar(
-                1,
+                context.heap_rti.try_into().expect("should always fit"),
                 attno as pg_sys::AttrNumber,
                 att.atttypid,
                 att.atttypmod,

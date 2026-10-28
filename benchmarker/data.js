@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793163776068,
+  "lastUpdate": 1793163967613,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -28879,6 +28879,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12782653942-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-27T20:46:43-07:00",
+          "tree_id": "006e5f68e20f0a9dbdc8adad8673cf45be801920",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793163933689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.287,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.658,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.849,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.515,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 3.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.886,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.04,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.443,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.206,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.086,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.849,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.116,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.9,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12792780029-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793226140740,
+  "lastUpdate": 1793226229243,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -227029,6 +227029,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12799933107-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793226192263,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.946732,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.31708900025212, max cpu: 28.713858, count: 59304"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.44307686612623, max mem: 47.4453125, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.181496376191356, max cpu: 42.772278, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 34.75,
+            "unit": "median mem",
+            "extra": "avg mem: 34.70480483767958, max mem: 34.75, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.934878476006344, max cpu: 18.82353, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 51.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.45618372337869, max mem: 51.0625, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16457,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16732.777755294752, max block_count: 32639.0, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.96778093033538, max cpu: 4.7058825, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 30.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.10743373128288, max mem: 30.15625, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.496509510319708, max segment_count: 36.0, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.430255,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.156724256294705, max cpu: 28.699553, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 53.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.29076657719125, max mem: 53.4140625, count: 59304"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.099525041481291, max cpu: 42.064266, count: 118608"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.629230453468566, max mem: 56.3828125, count: 118608"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.653769679102002, max cpu: 23.529411, count: 59304"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 47.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.88128587184254, max mem: 47.98828125, count: 59304"
+          }
+        ],
+        "publication_id": "12849856324-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

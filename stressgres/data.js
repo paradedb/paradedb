@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793178030688,
+  "lastUpdate": 1793178133449,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -481389,6 +481389,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12719740729-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793178088078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 34.0078125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 30.623315232414733, max partition_index_size:MB: 44.171875, count: 58785"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.1143317166097, max cpu: 33.633633, count: 58785"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.67398770413371, max mem: 56.5859375, count: 58785"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.813496068799225, max cpu: 43.243244, count: 58785"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 49.75,
+            "unit": "median mem",
+            "extra": "avg mem: 50.70531013438802, max mem: 57.75, count: 58785"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.514371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.982318303426423, max cpu: 23.821339, count: 58785"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 41.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.70139305307477, max mem: 41.73828125, count: 58785"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.800362514381895, max cpu: 38.496243, count: 58785"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 52.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.985541525793145, max mem: 62.38671875, count: 58785"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.75223687401004, max cpu: 28.628231, count: 58785"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 47.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.30151890894786, max mem: 55.78515625, count: 58785"
+          }
+        ],
+        "publication_id": "12800768868-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

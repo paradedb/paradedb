@@ -201,17 +201,13 @@ runs:
         fi
         ls -la _ghpages_html
 
-    - name: Publish Dashboards to gh-pages
+    - name: Stage Dashboards in Pages Checkout
       if: hashFiles('_ghpages_html/*.html') != ''
-      uses: peaceiris/actions-gh-pages@v4
-      with:
-        github_token: ${{ inputs.github_token }}
-        publish_dir: ./_ghpages_html
-        destination_dir: benchmarker-runs/${{ inputs.ref }}/${{ inputs.dataset }}
-        keep_files: true
-        user_name: "github-actions[bot]"
-        user_email: "github-actions[bot]@users.noreply.github.com"
-        commit_message: "benchmarker dashboards for ${{ inputs.ref }} (${{ inputs.dataset }})"
+      shell: bash
+      env:
+        COMMIT_SHA: ${{ inputs.ref }}
+        DATASET: ${{ inputs.dataset }}
+      run: .github/scripts/benchmark-pages.sh dashboards "$COMMIT_SHA" "$DATASET"
 
     - name: Comment Benchmark Comparison and Dashboard Links
       if: inputs.pr_number != '' && (hashFiles('_ghpages_html/*.html') != '' || inputs.context_file != '' || inputs.index_metrics_file != '')

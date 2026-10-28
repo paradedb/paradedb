@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Download Benchmark Results
         uses: actions/download-artifact@v8
@@ -100,6 +100,12 @@ jobs:
           echo "App token never became usable after 10 attempts" >&2
           exit 1
 
+      - name: Checkout Published Metrics
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BENCHMARK_TYPE: ${{ fromJSON(steps.metadata.outputs.json).benchmark_type }}
+        run: .github/scripts/benchmark-pages.sh checkout "https://github.com/${GITHUB_REPOSITORY}.git" "$BENCHMARK_TYPE"
+
       - name: Publish Benchmarker Results
         if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'benchmarker'
         uses: ./.github/actions/publish-benchmarker-results
@@ -132,6 +138,11 @@ jobs:
           test_file: ${{ fromJSON(steps.metadata.outputs.json).test_file }}
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
           github_token: ${{ steps.app-token.outputs.token }}
+
+      - name: Push Benchmark Results
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: .github/scripts/benchmark-pages.sh push "https://github.com/${GITHUB_REPOSITORY}.git" "$BENCHMARK_PUBLICATION_ID"
 
       - name: Record Successful Publication
         uses: actions/upload-artifact@v7

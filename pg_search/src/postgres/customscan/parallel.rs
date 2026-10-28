@@ -43,7 +43,7 @@ pub(crate) enum WorkerDecisionReason {
     /// workers would only add overhead.
     BlockWandPrunable,
     /// Unfiltered vector TopK shares its router budget and threshold across segments.
-    GlobalVectorSchedule,
+    UnfilteredVectorTopK,
     /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
     /// costable scan with no workers to split across also lands here -- it just emits serial.)
     CostModel,
@@ -63,7 +63,7 @@ impl std::fmt::Display for WorkerDecisionReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::BlockWandPrunable => "Prunable top-K",
-            Self::GlobalVectorSchedule => "Global vector schedule",
+            Self::UnfilteredVectorTopK => "Unfiltered vector TopK",
             Self::CostModel => "Cost model",
             Self::CostModelLimited => "Cost model (LIMIT)",
             Self::PerSegment => "Per-segment",

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793225204155,
+  "lastUpdate": 1793225383477,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112201,6 +112201,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12802655362-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793225333183,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1669.4340426618674,
+            "unit": "median tps",
+            "extra": "avg tps: 1687.9104412297906, max tps: 1834.5058230353197, count: 59425"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7831081892232437,
+            "unit": "median tps",
+            "extra": "avg tps: 3.0263543668285595, max tps: 5.063155087776958, count: 59425"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1941.9967014817853,
+            "unit": "median tps",
+            "extra": "avg tps: 1928.3687901952105, max tps: 1950.8555479025451, count: 59425"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2933.9500191397287,
+            "unit": "median tps",
+            "extra": "avg tps: 2886.383465572439, max tps: 3253.902909352605, count: 59425"
+          }
+        ],
+        "publication_id": "12851617971-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [

@@ -341,6 +341,8 @@ impl SegmentDeleter {
         // file), and (b) never resurrect a deleted doc -- num_deleted only grows and live docs
         // only shrink. A violation means the atomic swap would pair mismatched segments or
         // un-delete already-dead rows (wrong results / resurrected tuples).
+        // Partial immutable-segment deletes need not occur in every run: VACUUM may
+        // delete nothing, remove whole segments, or only flush mutable segments.
         dst::observe!(|| {
             let old_segment_id = old_meta.id();
             let new_segment_id = new_meta.id();
@@ -350,7 +352,7 @@ impl SegmentDeleter {
             let new_num_deleted_docs = new_meta.num_deleted_docs();
             let old_num_docs = old_meta.num_docs();
             let new_num_docs = new_meta.num_docs();
-            dst::assert_always!(
+            dst::assert_always_or_unreachable!(
                 new_segment_id == old_segment_id
                     && new_max_doc == old_max_doc
                     && new_num_deleted_docs >= old_num_deleted_docs

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793211160644,
+  "lastUpdate": 1793211248026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -40923,6 +40923,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12830317496-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1fe3b423518e0c2496394fa3233ef7aac4b2824",
+          "message": "fix: Track qgen recovery coverage per fault episode (#6955)\n\n## What\n\nReplace `qgen`'s process-wide Antithesis fault schedule counters with\nper-operation recovery tracking in `FaultRetry` (matching `stressgres`),\nand hold the `anytime_recovery_liveness.sh` pause declaration for the\nfull quiet window.\n\n## Why\n\nIf the first quiet window completed before `qgen` saw a transient fault,\nthe global counters in `fault_grace` could never report recovery\ncoverage on later fault cycles. In addition,\n`anytime_recovery_liveness.sh` removed its grace file after\n`RECOVER_SECONDS` (`90s`) while faults remained paused for\n`QUIET_SECONDS` (`120s`).\n\n## How\n\n- Remove the global schedule counters and\n`observe_schedule`/`note_fault` in `tests/src/fixtures/fault_grace.rs`,\nand instead record forward progress per operation via\n`FaultRetry::note_resolved()`.\n- Sleep for `QUIET_SECONDS` before removing the grace file in\n`tests/antithesis/anytime_recovery_liveness.sh`.\n\n## Tests\n\n- `cargo test -p tests --lib fixtures::fault_grace`\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-28T10:35:16-07:00",
+          "tree_id": "a647fa4be644ce0a92d7fa9b73933924471b3d68",
+          "url": "https://github.com/paradedb/paradedb/commit/f1fe3b423518e0c2496394fa3233ef7aac4b2824"
+        },
+        "date": 1793211210865,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 95.69650257327397,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 95.63519900606505,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 95.65455754011779,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 108.87543833684573,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 108.40093412456119,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 108.75291409749087,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 137.76702586157128,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 135.90357130656096,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 106.9889235608157,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12839870898-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [

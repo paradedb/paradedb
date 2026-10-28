@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793228503150,
+  "lastUpdate": 1793228607374,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -43803,6 +43803,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12851152440-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5995dd2f89b9c6a6bcfc7d82fc35e8317aed31c",
+          "message": "fix: debug-build panics in filtered Top K queries (#6793)\n\n## What\n\nPins Tantivy to the commit that fixes two panics in debug builds for Top\nK queries with a filter.\n\n## Why\n\nIn a Top K query such as:\n\n```sql\nSELECT id FROM t WHERE body === 'alpha' AND n >= 100 AND m >= 150\nORDER BY pdb.score(id) DESC LIMIT 10;\n```\n\nBlock-WAND asked the filter about the first row containing `alpha`, even\nwhen the filter's first match was a later row. Two filters fail on that\nin debug builds:\n\n- two range conditions: `ERROR:  attempt to subtract with overflow`\n- a constant-score phrase, such as `tag ### 'red apple'::pdb.const(1)`:\n`ERROR: target (0) should be greater than or equal to doc (150)`\n\nRelease builds return correct results. See paradedb/tantivy#316 for the\ncause.\n\n## How\n\nThe pin moves from `ff6099c7`, Tantivy `main` on Oct 27, to `7abd03c1`,\nthe squash merge of paradedb/tantivy#316 and the current head of Tantivy\n`main`. Between the two it also carries paradedb/tantivy#341 (faster\nTermSet filter lookups) and paradedb/tantivy#349, which turned\n`TopDocsByVectorSimilarity` into a builder. The five vector collector\ncall sites in `pg_search/src/index/reader/index.rs` now finish with\n`build()`. The `cargoHash` in `nix/pg_search.nix` is left for the bot to\nupdate.\n\nNot cherry-picked to 0.26.x: that branch pins Tantivy before\nparadedb/tantivy#349, so this pin does not apply there.\n\n## Tests\n\n- New `filtered_topk_late_filter`: Top K with two range filters, and\nwith a constant-score phrase. In both, the filter's first match is row\n150 and `alpha` starts at row 0. It fails on `main` with the two errors\nabove and passes with this pin.\n- `cargo pgrx regress pg18 filtered_topk_late_filter` against\n`7abd03c1`: passes.\n- Pre-commit: fmt, clippy, rustdoc, machete and taplo all pass.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T01:47:18+05:30",
+          "tree_id": "ad1cd4e84f2b4b4d8f25ad94fd9e630277afee8d",
+          "url": "https://github.com/paradedb/paradedb/commit/e5995dd2f89b9c6a6bcfc7d82fc35e8317aed31c"
+        },
+        "date": 1793228559380,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 91.87322858746076,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 92.91841060761745,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 92.56422133137265,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 104.15342093758292,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 103.80207547399844,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 105.11380548371169,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 134.1328260371705,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 126.79412812186739,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 106.40522387999096,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12849479078-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [

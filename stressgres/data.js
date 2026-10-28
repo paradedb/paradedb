@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793176844719,
+  "lastUpdate": 1793176988020,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -487734,6 +487734,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12718921825-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793176953515,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3935.0302368349635,
+            "unit": "median tps",
+            "extra": "avg tps: 3932.4720862885742, max tps: 4715.957858200579, count: 59209"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4573.31282775422,
+            "unit": "median tps",
+            "extra": "avg tps: 4620.382347147527, max tps: 6089.116367132884, count: 59209"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.35127235005538,
+            "unit": "median tps",
+            "extra": "avg tps: 168.4278157913243, max tps: 2888.475438155465, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.144949256041443,
+            "unit": "median tps",
+            "extra": "avg tps: 41.00395171013531, max tps: 586.7517539413939, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.131752685104846,
+            "unit": "median tps",
+            "extra": "avg tps: 41.16965649701001, max tps: 611.5005840835186, count: 59209"
+          }
+        ],
+        "publication_id": "12800981553-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [

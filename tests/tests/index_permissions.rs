@@ -177,7 +177,7 @@ fn partitioned_index_metadata_checks_the_requested_table(mut conn: PgConnection)
 fn standalone_index_reads_honor_definer_and_invoker(mut conn: PgConnection) {
     let owner = format!("index_owner_{}", uuid::Uuid::new_v4().simple());
     let caller = format!("index_caller_{}", uuid::Uuid::new_v4().simple());
-    // Transactional role creation also cleans up if an assertion fails.
+    // Roles are created inside the transaction so a failed assertion cleans them up.
     format!(
         r#"
         BEGIN;
@@ -229,7 +229,6 @@ fn standalone_index_reads_honor_definer_and_invoker(mut conn: PgConnection) {
     let (docs,) = "SELECT index_identity.definer_segments()".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(docs, 2);
 
-    // Recover each expected error without aborting the fixture transaction.
     for query in [
         "SELECT index_identity.invoker_segments()",
         "SELECT * FROM pdb.index_segments('index_identity.secrets_idx')",

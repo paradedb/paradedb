@@ -20,7 +20,6 @@ use std::ffi::CStr;
 ///
 /// `PgRelation::from_datum` locks the index before the function starts. Keeping
 /// only the OID lets acquisition follow PostgreSQL's table-before-index order.
-/// This value confers no authority; callers must explicitly request an operation.
 pub struct IndexOid(pg_sys::Oid);
 
 impl From<pg_sys::Oid> for IndexOid {
@@ -44,7 +43,6 @@ unsafe impl SqlTranslatable for IndexOid {
 }
 
 impl IndexOid {
-    /// The identifier alone permits catalog classification, not an index read.
     pub(crate) fn oid(&self) -> pg_sys::Oid {
         self.0
     }
@@ -95,7 +93,7 @@ impl IndexOid {
     }
 }
 
-// Field order also releases our index reference before our heap reference.
+// Fields drop in declaration order: the index closes before the heap.
 struct LockedIndexRelations {
     index: PgSearchRelation,
     heap: PgSearchRelation,
@@ -134,7 +132,6 @@ impl LockedIndexRelations {
     }
 }
 
-/// Raises for a relation that is not an index, naming it like PostgreSQL does.
 unsafe fn report_not_an_index(oid: pg_sys::Oid) -> ! {
     let name = unsafe { pg_sys::get_rel_name(oid) };
     if name.is_null() {
@@ -177,7 +174,6 @@ impl StandaloneIndexRead {
 }
 
 /// Authority for schema and segment statistics, not for document reads.
-/// Uses the same lock ownership as a standalone read with a distinct policy.
 pub(crate) struct IndexMetadataRead {
     relations: LockedIndexRelations,
 }
@@ -199,8 +195,6 @@ impl IndexMaintenance {
     }
 }
 
-/// A denial carries the object it was decided for, so it cannot be reported
-/// against a different relation than the one that was checked.
 enum ReadDenied {
     Schema {
         acl: pg_sys::AclResult::Type,
@@ -218,10 +212,8 @@ enum ReadDenied {
 
 fn check_metadata(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
     unsafe {
-        // Match pgstattuple's trusted diagnostic role. pg_monitor inherits it.
-        // Check effective privileges on every call, including inherited grants
-        // and revocation. These APIs intentionally expose whole-index counts
-        // under RLS, and numeric OIDs need no schema USAGE for this role.
+        // Same trusted role as pgstattuple; pg_monitor inherits it. It sees
+        // whole-index counts under RLS and needs no schema USAGE.
         if pg_sys::has_privs_of_role(
             pg_sys::GetUserId(),
             pg_sys::Oid::from(pg_sys::ROLE_PG_STAT_SCAN_TABLES),
@@ -255,6 +247,8 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
                 namespace,
             });
         }
+        // Table-level SELECT, not a column grant: query strings and index
+        // expressions can read columns other than the ones a caller names.
         let table_acl = pg_sys::pg_class_aclcheck(heap.oid(), user, pg_sys::ACL_SELECT as _);
         if table_acl != pg_sys::AclResult::ACLCHECK_OK {
             return Err(ReadDenied::Table {
@@ -262,7 +256,9 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
                 relation: heap.oid(),
             });
         }
-        // noError=true reports RLS_ENABLED even when row_security=off.
+        // These readers cannot apply row policies, so fail closed. noError=true
+        // still reports RLS_ENABLED when row_security=off, so the GUC is not a
+        // bypass. MVCC visibility is not a substitute for either check.
         if pg_sys::check_enable_rls(heap.oid(), user, true)
             == pg_sys::CheckEnableRlsResult::RLS_ENABLED as i32
         {

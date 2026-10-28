@@ -195,64 +195,137 @@ USING paradedb (order_id, product_id, order_quantity, order_total, customer_name
 WITH (key_field = 'order_id');
 ```
 
-Next, let's compute a "combined BM25 score" over a join across both tables.
-
-<Note>
-  Directly computing and ordering by the sum of scores across a join (e.g.
-  `ORDER BY pdb.score(t1) + pdb.score(t2)`) is currently not efficient. For more
-  details on implementing efficient support for this operation, please refer to
-  [Issue #5301](https://github.com/paradedb/paradedb/issues/5301).
-</Note>
-
-The recommended approach for combining scores from multiple tables is to use [Reciprocal Rank Fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion). RRF combines the ranked results from separate queries into a single unified ranking.
-
-<Note>
-  To combine full text and vector search over a single table, see [Reciprocal
-  Rank Fusion](/reference/hybrid/rrf).
-</Note>
+Next, let's compute a combined BM25 score over a join across both tables:
 
 <CodeGroup>
 ```sql SQL
-WITH order_search AS (
-  SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
-  FROM (
-    SELECT order_id, pdb.score(order_id) AS score
-    FROM orders
-    WHERE customer_name ||| 'Johnson'
-    ORDER BY pdb.score(order_id) DESC
-    LIMIT 20
-  )
-),
-product_search AS (
-  SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
-  FROM (
-    SELECT id, pdb.score(id) AS score
-    FROM mock_items
-    WHERE description ||| 'running shoes'
-    ORDER BY pdb.score(id) DESC
-    LIMIT 20
-  ) m
-  JOIN orders o ON o.product_id = m.id
-),
-rrf AS (
-  SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
-  UNION ALL
-  SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
-)
 SELECT
   o.order_id,
   o.customer_name,
   m.description,
-  sum(rrf.s) AS score
-FROM rrf
-JOIN orders o USING (order_id)
+  pdb.score(o.order_id) + pdb.score(m.id) AS score
+FROM orders o
 JOIN mock_items m ON o.product_id = m.id
-GROUP BY o.order_id, o.customer_name, m.description
+WHERE o.customer_name ||| 'Johnson'
+  OR m.description ||| 'running shoes'
 ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
 
+<<<<<<< HEAD
+=======
+```ts Drizzle
+import { desc, eq, or, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const score =
+  sql<number>`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`.as(
+    "score",
+  );
+
+const results = await db
+  .select({
+    orderId: orders.orderId,
+    customerName: orders.customerName,
+    description: mockItems.description,
+    score,
+  })
+  .from(orders)
+  .innerJoin(mockItems, eq(orders.productId, mockItems.id))
+  .where(
+    or(
+      search.matchAny(orders.customerName, "Johnson"),
+      search.matchAny(mockItems.description, "running shoes"),
+    ),
+  )
+  .orderBy(desc(score), orders.orderId)
+  .limit(5);
+```
+
+```python Django
+from django.db.models import F, Q
+from paradedb import MatchAny, ParadeDB, Score
+
+results = list(
+    Order.objects.filter(
+        Q(customer_name=ParadeDB(MatchAny("Johnson")))
+        | Q(product__description=ParadeDB(MatchAny("running shoes")))
+    )
+    .annotate(
+        score=Score("order_id") + Score("product__description"),
+        description=F("product__description"),
+    )
+    .values("order_id", "customer_name", "description", "score")
+    .order_by("-score", "order_id")[:5]
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+score = (pdb.score(Order.order_id) + pdb.score(MockItem.id)).label("score")
+
+stmt = (
+    select(Order.order_id, Order.customer_name, MockItem.description, score)
+    .join(MockItem, MockItem.id == Order.product_id)
+    .where(
+        or_(
+            search.match_any(Order.customer_name, "Johnson"),
+            search.match_any(MockItem.description, "running shoes"),
+        )
+    )
+    .order_by(score.desc(), Order.order_id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    results = session.execute(stmt).all()
+```
+
+```ruby Rails
+orders = Order.arel_table
+products = MockItem.arel_table
+score = Arel::Nodes::Addition.new(
+  Arel::Nodes::NamedFunction.new("pdb.score", [orders[:order_id]]),
+  Arel::Nodes::NamedFunction.new("pdb.score", [products[:id]])
+)
+
+results = Order.joins(:mock_item)
+               .search(:customer_name).match_any("Johnson")
+               .or(Order.joins(:mock_item).search(products[:description]).match_any("running shoes"))
+               .select(orders[:order_id], orders[:customer_name],
+                       products[:description], score.as("score"))
+               .order(score.desc, orders[:order_id])
+               .limit(5).to_a
+```
+
+```cs EF Core
+var results = await (
+    from order in dbContext.Orders
+    join item in dbContext.MockItems on order.ProductId equals item.Id
+    where EF.Functions.MatchAny(order.CustomerName, "Johnson")
+       || EF.Functions.MatchAny(item.Description, "running shoes")
+    let score = EF.Functions.Score(order.OrderId) + EF.Functions.Score(item.Id)
+    orderby score descending, order.OrderId
+    select new
+    {
+        order.OrderId,
+        order.CustomerName,
+        item.Description,
+        Score = score,
+    }
+).Take(5).ToListAsync();
+```
+
+>>>>>>> aa27f73 (perf: Implement rank joins (#6898))
 </CodeGroup>
+
+<Note>
+  To combine full text and vector search, where scores operate on different
+  scales, see [Reciprocal Rank Fusion](/reference/hybrid/rrf).
+</Note>
 
 ## Deterministic Sorting
 

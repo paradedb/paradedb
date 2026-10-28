@@ -58,7 +58,7 @@ use super::window_func::{
     SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
     WindowAggIndex,
 };
-use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
 use crate::postgres::customscan::aggregatescan::datafusion_exec::FilterExprExecContext;
@@ -533,8 +533,8 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .position(|r| r.name() == "optimize_projections")
         .expect("optimize_projections optimizer rule not found");
     // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
-    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
-    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
+    // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
     // DataFusion dropping `projection_beneficial` across extension nodes).
     // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
     // above `VisibilityFilterNode`.
@@ -553,11 +553,13 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     let mut physical_rules =
         datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
     let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+    let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
     let pos = physical_rules
         .iter()
         .position(|r| r.name() == "EnsureRequirements")
         .expect("EnsureRequirements physical optimizer rule not found");
     physical_rules.insert(pos, co_partitioned_rule);
+    physical_rules.insert(pos + 1, rank_join_rule);
     builder = builder.with_physical_optimizer_rules(physical_rules);
 
     // Placement reads the final join sides and modes, so it follows the co-partitioning
@@ -1590,38 +1592,48 @@ fn resolve_orderby_feature(
                     })
             }
         }
-        OrderByFeature::ScoreSum { rtis } => {
-            let score_cols: Result<Vec<Expr>> = rtis
-                .iter()
-                .map(|rti| {
-                    if !distinct_col_map.is_empty() {
-                        resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
-                            DataFusionError::Plan(format!(
-                                "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
-                            ))
-                        })
-                    } else {
-                        join_clause
-                            .plan
-                            .output_sources()
-                            .iter()
-                            .find(|s| s.scan_info.heap_rti == *rti)
-                            .map(|source| make_source_score_col(source))
-                            .ok_or_else(|| {
+        OrderByFeature::ScoreSum { expr, .. } => {
+            fn build_score_order_expr(
+                expr: &crate::api::ScoreOrderExpr,
+                join_clause: &JoinCSClause,
+                distinct_col_map: &DistinctColMap,
+            ) -> Result<Expr> {
+                match expr {
+                    crate::api::ScoreOrderExpr::Score { rti } => {
+                        if !distinct_col_map.is_empty() {
+                            resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
                                 DataFusionError::Plan(format!(
-                                    "JoinScan: could not find source for score sum RTI {rti}"
+                                    "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
                                 ))
                             })
+                        } else {
+                            join_clause
+                                .plan
+                                .output_sources()
+                                .iter()
+                                .find(|s| s.scan_info.heap_rti == *rti)
+                                .map(|source| make_source_score_col(source))
+                                .ok_or_else(|| {
+                                    DataFusionError::Plan(format!(
+                                        "JoinScan: could not find source for score sum RTI {rti}"
+                                    ))
+                                })
+                        }
                     }
-                })
-                .collect();
-
-            score_cols?
-                .into_iter()
-                .reduce(|acc, col_expr| acc + col_expr)
-                .ok_or_else(|| {
-                    DataFusionError::Plan("JoinScan: empty RTI list in ScoreSum".to_string())
-                })
+                    crate::api::ScoreOrderExpr::Constant(c) => {
+                        Ok(datafusion::prelude::lit(*c as f32))
+                    }
+                    crate::api::ScoreOrderExpr::Add(l, r) => {
+                        Ok(build_score_order_expr(l, join_clause, distinct_col_map)?
+                            + build_score_order_expr(r, join_clause, distinct_col_map)?)
+                    }
+                    crate::api::ScoreOrderExpr::Mul(l, r) => {
+                        Ok(build_score_order_expr(l, join_clause, distinct_col_map)?
+                            * build_score_order_expr(r, join_clause, distinct_col_map)?)
+                    }
+                }
+            }
+            build_score_order_expr(expr, join_clause, distinct_col_map)
         }
         OrderByFeature::Field { name, rti } => {
             if !distinct_col_map.is_empty() {
@@ -1916,15 +1928,7 @@ fn build_sort_exprs(
             other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
-        let asc = matches!(
-            info.direction,
-            SortDirection::AscNullsFirst | SortDirection::AscNullsLast
-        );
-        let nulls_first = matches!(
-            info.direction,
-            SortDirection::AscNullsFirst | SortDirection::DescNullsFirst
-        );
-        sort_exprs.push(expr.sort(asc, nulls_first));
+        sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
     }
 
     Ok(sort_exprs)

@@ -387,14 +387,34 @@ impl PgSearchScanPlan {
     }
 
     /// Configures this scan to execute iterative, expanding-window Top-K pulls via
-    /// `SearchIndexReader::search_top_k_in_segments` instead of streaming segment-by-segment.
+    /// `SearchIndexReader::search_top_k_in_segments` (or range-filtered variants when
+    /// range-partitioned) instead of streaming segment-by-segment.
     pub fn with_lazy_sort(mut self, lazy_sort: LazySortConfig) -> Self {
         let schema = self.properties.eq_properties.schema().clone();
-        let eq_properties =
-            build_equivalence_properties(schema, self.sort_order.as_ref(), Some(&lazy_sort));
-        // TODO(#6898): Lazy-sorted scans currently execute as a single `Shared` partition;
-        // `LazySegmentTarget::RangePartitioned` is wired up in `lazy_sort` for
-        // range-partitioned rank joins.
+        if self.range_split_points.is_none() {
+            self.global_partition_count = 1;
+            self.assigned_partition = None;
+            self.partition_segments = None;
+            if lazy_sort.shared_threshold == SharedThresholdMode::Disabled {
+                let mut state_guard = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let ExecutionState::Shared { parallel_state, .. } = &mut *state_guard {
+                    *parallel_state = None;
+                }
+            }
+        }
+        self.lazy_sort = Some(lazy_sort);
+        self.rebuild_properties_with_schema(schema);
+        self
+    }
+
+    /// Collapses a range-partitioned or multi-partition scan to a single `Shared` partition
+    /// (`UnknownPartitioning(1)`). Used when a rank join cannot be co-partitioned in a single
+    /// stage and therefore falls back to `PartitionMode::CollectLeft`
+    /// (TODO: <https://github.com/paradedb/paradedb/issues/5559>).
+    pub(crate) fn into_single_shared_partition(mut self) -> Self {
         self.global_partition_count = 1;
         self.range_split_points = None;
         self.assigned_partition = None;
@@ -410,30 +430,12 @@ impl PgSearchScanPlan {
                         parallel_state: None,
                         scan_state,
                     },
-                    ExecutionState::Shared {
-                        parallel_state,
-                        scan_state,
-                    } => ExecutionState::Shared {
-                        parallel_state: if lazy_sort.shared_threshold
-                            == SharedThresholdMode::Disabled
-                        {
-                            None
-                        } else {
-                            parallel_state
-                        },
-                        scan_state,
-                    },
                     other => other,
                 };
             *state_guard = new_state;
         }
-        self.properties = Arc::new(PlanProperties::new(
-            eq_properties,
-            Partitioning::UnknownPartitioning(1),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        ));
-        self.lazy_sort = Some(lazy_sort);
+        let schema = self.properties.eq_properties.schema().clone();
+        self.rebuild_properties_with_schema(schema);
         self
     }
 
@@ -673,10 +675,156 @@ impl PgSearchScanPlan {
         })
     }
 
+    /// Estimated fraction `[0.0, 1.0]` of index documents matched by this scan
+    /// (`planner_estimated_rows / total_docs`).
+    pub fn estimated_selectivity(&self) -> TopKSelectivity {
+        let total_docs = {
+            let state_guard = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match &*state_guard {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => {
+                    scan_state.0.reader.total_docs()
+                }
+                ExecutionState::Consumed | ExecutionState::Uninitialized => {
+                    self.planner_estimated_rows
+                }
+            }
+        };
+        if total_docs == 0 {
+            TopKSelectivity::ALL
+        } else {
+            TopKSelectivity(
+                (self.planner_estimated_rows as f64 / total_docs as f64).clamp(0.0, 1.0),
+            )
+        }
+    }
+
+    /// For `ScanMode::Tagged`, estimates the fraction `[0.0, 1.0]` of documents in this scan
+    /// matching at least one of its `local_queries` (`1 - prod_i (1 - s_i)`).
+    /// Returns `None` when the scan is not in `ScanMode::Tagged`.
+    pub fn estimated_tagged_selectivity(&self) -> Option<TopKSelectivity> {
+        let crate::scan::ScanMode::Tagged { local_queries, .. } = &self.scan_mode else {
+            return None;
+        };
+        if local_queries.is_empty() {
+            return Some(TopKSelectivity(0.0));
+        }
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                let reader = &scan_state.0.reader;
+                let combined = local_queries
+                    .iter()
+                    .map(|tq| TopKSelectivity(reader.estimate_query_selectivity(&tq.query)))
+                    .fold(TopKSelectivity(0.0), TopKSelectivity::or);
+                Some(combined)
+            }
+            ExecutionState::Consumed | ExecutionState::Uninitialized => {
+                drop(state_guard);
+                Some(self.estimated_selectivity())
+            }
+        }
+    }
+
+    pub fn resolved_query(&self) -> &SearchQueryInput {
+        &self.resolved_query
+    }
+
+    pub fn scan_mode(&self) -> &crate::scan::ScanMode {
+        &self.scan_mode
+    }
+
+    /// Returns `true` when this scan is in `ScanMode::Disjunctive` (`RankJoinRule`
+    /// elided predicate tagging for an eligible `RankJoinExec` subtree).
+    pub fn is_tagless_disjunctive(&self) -> bool {
+        matches!(self.scan_mode, crate::scan::ScanMode::Disjunctive { .. })
+    }
+
+    /// Converts a `ScanMode::Tagged` scan into a tagless `ScanMode::Disjunctive` scan for
+    /// `RankJoinExec` if `base_query` is `SearchQueryInput::All` and all of its `local_queries`
+    /// are in `elided_tags`. Strips the tag columns from the output schema and scanner
+    /// configuration, records the matched tag names in `matched_tags`, and returns the positional
+    /// `old_col_idx -> Option<new_col_idx>` mapping.
+    pub(crate) fn with_elided_disjunctive_tags(
+        &self,
+        elided_tags: &std::collections::BTreeSet<String>,
+        matched_tags: &mut std::collections::BTreeSet<String>,
+    ) -> Option<(Self, Vec<Option<usize>>)> {
+        let crate::scan::ScanMode::Tagged {
+            base_query,
+            local_queries,
+        } = &self.scan_mode
+        else {
+            return None;
+        };
+        if !matches!(**base_query, SearchQueryInput::All)
+            || local_queries.is_empty()
+            || !local_queries
+                .iter()
+                .all(|tq| elided_tags.contains(&tq.tag_name))
+        {
+            return None;
+        }
+        matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
+        let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();
+        let new_scan_mode = crate::scan::ScanMode::disjunctive(disjunct_queries);
+
+        let old_schema = self.properties.eq_properties.schema();
+        let mut fields = Vec::with_capacity(old_schema.fields().len());
+        let mut old_to_new = Vec::with_capacity(old_schema.fields().len());
+        for f in old_schema.fields() {
+            if elided_tags.contains(f.name()) {
+                old_to_new.push(None);
+            } else {
+                old_to_new.push(Some(fields.len()));
+                fields.push(f.as_ref().clone());
+            }
+        }
+
+        let mut plan = self.clone();
+        plan.scan_mode = new_scan_mode.clone();
+        plan.rebuild_properties_with_schema(Arc::new(arrow_schema::Schema::new(fields)));
+
+        let mut state = plan
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let ExecutionState::Shared { scan_state, .. }
+        | ExecutionState::RangePartitioned { scan_state, .. } = &mut *state
+        {
+            scan_state.0.scanner_config.which_fast_fields.retain(
+                |wff| !matches!(wff, WhichFastField::MatchTag(name) if elided_tags.contains(name)),
+            );
+            scan_state.0.scanner_config.scan_mode = new_scan_mode;
+            scan_state.0.ffhelper = Arc::new(FFHelper::with_fields(
+                &scan_state.0.reader,
+                &scan_state.0.scanner_config.which_fast_fields,
+            ));
+        }
+        drop(state);
+        Some((plan, old_to_new))
+    }
+
     fn rebuild_properties_with_schema(&mut self, schema: SchemaRef) {
+        let partitioning = if self.assigned_partition.is_some() {
+            Partitioning::UnknownPartitioning(1)
+        } else {
+            declared_partitioning(
+                &schema,
+                self.global_partition_count,
+                self.range_split_points.as_ref(),
+            )
+        };
         self.properties = Arc::new(PlanProperties::new(
             build_equivalence_properties(schema, self.sort_order.as_ref(), self.lazy_sort.as_ref()),
-            self.properties.output_partitioning().clone(),
+            partitioning,
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
@@ -684,6 +832,72 @@ impl PgSearchScanPlan {
 
     pub fn deferred_fields(&self) -> &[DeferredField] {
         &self.deferred_fields
+    }
+
+    /// Returns `true` if `col_idx` refers to a scalar, non-deferred fast-field column backed by
+    /// a static fast-value type (`U64`, `I64`, `F64`, `Bool`, or `Date`) that can be sorted via
+    /// Tantivy's specialized `SortByStaticFastValue` Top-K collector in `LazySortMode`.
+    pub fn is_sortable_fast_field(&self, col_idx: usize) -> bool {
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                let Some(WhichFastField::Named {
+                    name,
+                    cardinality: crate::index::fast_fields_helper::FieldCardinality::Scalar,
+                    delivery: crate::index::fast_fields_helper::FieldDelivery::Eager,
+                    ..
+                }) = scan_state.0.scanner_config.which_fast_fields.get(col_idx)
+                else {
+                    return false;
+                };
+                scan_state
+                    .0
+                    .reader
+                    .schema()
+                    .search_field(name)
+                    .is_some_and(|sf| sf.is_numeric_fast() && sf.is_raw_sortable())
+            }
+            ExecutionState::Uninitialized | ExecutionState::Consumed => false,
+        }
+    }
+
+    /// Returns `true` if `col_idx` refers to a scalar, eager index column whose name, Arrow
+    /// [`DataType`], and [`crate::schema::SearchIndexSchema`] entry are supported by
+    /// [`crate::scan::pre_filter::try_convert_rank_lookup_to_query`] for `RA` point lookups.
+    pub fn supports_ra_lookup_column(&self, col_idx: usize) -> bool {
+        let schema = self.schema();
+        let Some(arrow_field) = schema.fields().get(col_idx) else {
+            return false;
+        };
+        let state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state_guard {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                let Some(WhichFastField::Named {
+                    name,
+                    cardinality: crate::index::fast_fields_helper::FieldCardinality::Scalar,
+                    delivery: crate::index::fast_fields_helper::FieldDelivery::Eager,
+                    ..
+                }) = scan_state.0.scanner_config.which_fast_fields.get(col_idx)
+                else {
+                    return false;
+                };
+                name == arrow_field.name()
+                    && crate::scan::pre_filter::supports_ra_lookup_column(
+                        name,
+                        arrow_field.data_type(),
+                        scan_state.0.reader.schema(),
+                    )
+            }
+            ExecutionState::Uninitialized | ExecutionState::Consumed => false,
+        }
     }
 
     /// Rebuilds this scan with deferred columns moved into it: the `fetch_at_scan` names
@@ -1333,6 +1547,14 @@ impl DisplayAs for PgSearchScanPlan {
                     write!(f, ", tag_{}={}", tq.tag_idx.0, tq.query.explain_format())?;
                 }
             }
+            crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
+                if disjunct_queries.is_empty() {
+                    write!(f, ", query=\"all\"")?;
+                }
+                for q in disjunct_queries {
+                    write!(f, ", disjunct={}", q.explain_format())?;
+                }
+            }
         }
         Ok(())
     }
@@ -1472,6 +1694,17 @@ impl ExecutionPlan for PgSearchScanPlan {
         } = scan_state;
 
         let lazy_sort = self.lazy_sort.clone();
+        if lazy_sort.is_none()
+            && matches!(
+                scanner_config.scan_mode,
+                crate::scan::ScanMode::Disjunctive { .. }
+            )
+        {
+            return Err(DataFusionError::Internal(
+                "ScanMode::Disjunctive cannot execute without lazy_sort (RankJoinExec)".to_string(),
+            ));
+        }
+
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
@@ -1613,8 +1846,6 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 }
 
-/// Execution context extracted from [`PgSearchScanPlan`] at `execute()` time and passed
-/// to either [`build_standard_stream`] or [`build_lazy_sort_stream`].
 pub(super) struct ScanStreamContext {
     pub(super) source_idx: Option<usize>,
     pub(super) planner_estimated_rows: u64,
@@ -1636,8 +1867,6 @@ pub(super) struct ScanStreamContext {
     pub(super) rows_pruned: Option<Count>,
 }
 
-/// Tracks incremental dynamic-filter and pre-filter metric deltas across stream steps
-/// for both standard segment-by-segment scans and iterative lazy-sort window pulls.
 pub(super) struct FilterStepMetrics {
     pub(super) strategy_sink: Arc<AtomicU8>,
     pub(super) pushed: bool,
@@ -1684,25 +1913,12 @@ impl FilterStepMetrics {
         if self.pushed && !self.pushdown_metric_recorded {
             let tag = self.strategy_sink.load(Ordering::Relaxed);
             if tag > 0 || exhausted {
-                let strategy = tantivy::query::StrategyTag::try_from(tag)
-                    .unwrap_or(tantivy::query::StrategyTag::None);
-                let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
-                    "dynamic_filter_pushdown".to_string()
-                } else {
-                    format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
-                };
-                MetricBuilder::new(plan_metrics)
-                    .counter(metric_name, target_partition)
-                    .add(1);
-                self.pushdown_metric_recorded = true;
+                self.record_strategy_metric(plan_metrics, target_partition, tag);
             }
         }
 
         if scanner.score_threshold_pushed && !self.score_pushdown_metric_recorded {
-            MetricBuilder::new(plan_metrics)
-                .counter("dynamic_filter_pushdown_score", target_partition)
-                .add(1);
-            self.score_pushdown_metric_recorded = true;
+            self.record_score_metric(plan_metrics, target_partition);
         }
 
         if let Some(counter) = rows_scanned {
@@ -1719,6 +1935,64 @@ impl FilterStepMetrics {
                 self.flushed_rows_pruned = scanner.pre_filter_rows_pruned;
             }
         }
+    }
+
+    pub(super) fn flush_ra(
+        &mut self,
+        scanner: &Scanner,
+        plan_metrics: &ExecutionPlanMetricsSet,
+        target_partition: usize,
+        rows_scanned: &Option<Count>,
+        rows_pruned: &Option<Count>,
+        ra_score_pushed: bool,
+    ) {
+        if !self.pushdown_metric_recorded {
+            let tag = self.strategy_sink.load(Ordering::Relaxed);
+            if tag > 0 {
+                self.record_strategy_metric(plan_metrics, target_partition, tag);
+            }
+        }
+        if ra_score_pushed && !self.score_pushdown_metric_recorded {
+            self.record_score_metric(plan_metrics, target_partition);
+        }
+        self.flush(
+            scanner,
+            plan_metrics,
+            target_partition,
+            rows_scanned,
+            rows_pruned,
+            false,
+        );
+    }
+
+    fn record_strategy_metric(
+        &mut self,
+        plan_metrics: &ExecutionPlanMetricsSet,
+        target_partition: usize,
+        tag: u8,
+    ) {
+        let strategy =
+            tantivy::query::StrategyTag::try_from(tag).unwrap_or(tantivy::query::StrategyTag::None);
+        let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
+            "dynamic_filter_pushdown".to_string()
+        } else {
+            format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
+        };
+        MetricBuilder::new(plan_metrics)
+            .counter(metric_name, target_partition)
+            .add(1);
+        self.pushdown_metric_recorded = true;
+    }
+
+    fn record_score_metric(
+        &mut self,
+        plan_metrics: &ExecutionPlanMetricsSet,
+        target_partition: usize,
+    ) {
+        MetricBuilder::new(plan_metrics)
+            .counter("dynamic_filter_pushdown_score", target_partition)
+            .add(1);
+        self.score_pushdown_metric_recorded = true;
     }
 }
 
@@ -1963,15 +2237,16 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
     }
 }
 
-/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks (or `1` task for
-/// lazy-sorted scans).
-///
-/// This preserves useful scan parallelism: a single-segment or lazy-sorted scan has one task,
-/// while larger or range-partitioned scans expose their partitions to the distributed planner.
+/// Caps a `PgSearchScanPlan` or `RankJoinExec` stage at its `output_partitioning().partition_count()`
+/// tasks: `1` task for single-partition (`CollectLeft` / `Shared` lazy-sort) plans so all
+/// components of a non-co-partitioned rank join execute in a single task, and `N` tasks for
+/// range-partitioned (`Partitioned` / `RangePartitioned`) plans.
 pub(crate) fn pg_search_scan_desired_task_count(
     ev: DesiredTaskCountEvent,
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
-    if !ev.plan.is::<PgSearchScanPlan>() {
+    if !ev.plan.is::<crate::scan::rank_join_exec::RankJoinExec>()
+        && !ev.plan.is::<PgSearchScanPlan>()
+    {
         return None;
     }
     let partition_count = ev.plan.properties().output_partitioning().partition_count();

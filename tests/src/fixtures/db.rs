@@ -41,7 +41,10 @@ macro_rules! tolerate_transient_setup {
         let mut retry = crate::fixtures::fault_grace::FaultRetry::default();
         loop {
             match $op.await {
-                Ok(value) => break value,
+                Ok(value) => {
+                    retry.note_resolved();
+                    break value;
+                }
                 Err(err) => {
                     if !lost_connection(&err) {
                         panic!(concat!($what, ": {:#?}"), err);

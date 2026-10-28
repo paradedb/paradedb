@@ -1933,12 +1933,19 @@ mod tests {
                  WITH (target_segment_count = {target}{partition_by});"
             ))
             .unwrap();
-            assert_eq!(
+            let segment_count =
                 Spi::get_one::<i64>("SELECT count(*) FROM paradedb.index_info('vector_build_idx')")
-                    .unwrap(),
-                Some(target),
-                "partitioned={partitioned}, workers={workers}, leader={leader}"
-            );
+                    .unwrap()
+                    .unwrap();
+            if partitioned || workers == 0 {
+                assert_eq!(segment_count, target);
+            } else {
+                // Parallel heap scans can leave participants without rows to index.
+                assert!(
+                    (1..=target).contains(&segment_count),
+                    "segments={segment_count}, target={target}, workers={workers}, leader={leader}"
+                );
+            }
             assert_eq!(
                 Spi::get_one::<i64>(
                     "SELECT sum(num_docs)::bigint FROM paradedb.index_info('vector_build_idx')"
@@ -1949,7 +1956,7 @@ mod tests {
             for (field, vectors) in [("empty_emb", 0), ("emb", 20000)] {
                 assert_eq!(
                     Spi::get_one::<bool>(&format!(
-                        "SELECT count(*) = {target} AND bool_and(vector_format = 'ivf')
+                        "SELECT count(*) = {segment_count} AND bool_and(vector_format = 'ivf')
                          AND sum(vector_num_vectors) = {vectors}
                          FROM paradedb.vector_info('vector_build_idx', '{field}')"
                     ))

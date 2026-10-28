@@ -31,7 +31,9 @@
 
 // ---------------------------------------------------------------
 // Lock blocks
-// Two blocks are used as locks for merge and vacuum cleanup
+// The merge block provides the merge lock and initial VACUUM pin barrier.
+// The cleanup block is retained for its block number, which identifies the
+// shared/exclusive PAGE admission lock; its buffer is no longer pinned.
 // ---------------------------------------------------------------
 
 // +-------------------------------------------------------------+

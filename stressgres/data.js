@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793092193978,
+  "lastUpdate": 1793176481725,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -363246,6 +363246,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12717983907-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793176446651,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 14.094769249530883,
+            "unit": "median tps",
+            "extra": "avg tps: 12.345720998066996, max tps: 15.95414291685605, count: 59117"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.227276461082361,
+            "unit": "median tps",
+            "extra": "avg tps: 2.2549187489134805, max tps: 2.4905335021596993, count: 59117"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 181.45251007197535,
+            "unit": "median tps",
+            "extra": "avg tps: 188.80290704815704, max tps: 399.1014536829725, count: 59117"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 179.66751191903504,
+            "unit": "median tps",
+            "extra": "avg tps: 190.43009026828315, max tps: 461.0205291533561, count: 59117"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 186.62111915094928,
+            "unit": "median tps",
+            "extra": "avg tps: 194.6450767055059, max tps: 490.98271884604225, count: 59117"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 192.51496860415284,
+            "unit": "median tps",
+            "extra": "avg tps: 201.34473950412894, max tps: 387.0702157846435, count: 59117"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 184.29009077009923,
+            "unit": "median tps",
+            "extra": "avg tps: 196.2781004788635, max tps: 470.5344891516843, count: 59117"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 188.8179551566419,
+            "unit": "median tps",
+            "extra": "avg tps: 193.81364738389442, max tps: 324.9645226501747, count: 59117"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 155.54126811722625,
+            "unit": "median tps",
+            "extra": "avg tps: 166.82932124120305, max tps: 286.4022604988592, count: 59117"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 185.84788205866556,
+            "unit": "median tps",
+            "extra": "avg tps: 195.67018329599483, max tps: 380.8075883458892, count: 59117"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 179.0752961875505,
+            "unit": "median tps",
+            "extra": "avg tps: 187.38851746053246, max tps: 359.38356328551816, count: 59117"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 186.23734325029528,
+            "unit": "median tps",
+            "extra": "avg tps: 202.4577436711132, max tps: 506.6328087005946, count: 59117"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 182.50236113304598,
+            "unit": "median tps",
+            "extra": "avg tps: 185.80422293881506, max tps: 319.4810977561806, count: 59117"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 190.60037409311911,
+            "unit": "median tps",
+            "extra": "avg tps: 196.8086618322929, max tps: 431.2040441277884, count: 59117"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 176.99531552492377,
+            "unit": "median tps",
+            "extra": "avg tps: 188.59070644126786, max tps: 374.98364212860577, count: 59117"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 185.379357394117,
+            "unit": "median tps",
+            "extra": "avg tps: 195.5436551454989, max tps: 329.09119526448944, count: 59117"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 177.37770410396485,
+            "unit": "median tps",
+            "extra": "avg tps: 192.55358407145533, max tps: 493.01759700109426, count: 59117"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 170.93794067269172,
+            "unit": "median tps",
+            "extra": "avg tps: 182.36225950117776, max tps: 411.44131147265256, count: 59117"
+          }
+        ],
+        "publication_id": "12799757462-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [

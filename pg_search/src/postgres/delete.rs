@@ -15,6 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! VACUUM's bulk-delete callback coordinates with mergers before selecting segments, then
+//! publishes an exclusion list so other segments can still merge while deletion proceeds.
+//! After publishing deletes and flushing frozen mutable segments, it takes exclusive cleanup
+//! admission when cleanup is needed. This drains readers and mergers holding shared admission
+//! before heap cleanup can proceed. New readers queue behind VACUUM; the separate merge-page
+//! pin protects the initial segment-selection phase.
+
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
@@ -212,8 +219,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             }
         }
     }
-    // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
-    // will get in the way of our CLEANUP_LOCK barrier below
+    // Release our shared admission before requesting exclusive cleanup admission.
     drop(reader);
 
     if stats.is_null() {
@@ -241,12 +247,11 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         // As soon as ambulkdelete returns, Postgres will update the visibility map
         // This can cause concurrent scans that have just read ctids, which are dead but
         // are about to be marked visible, to return wrong results. To guard against this,
-        // we acquire a cleanup lock that guarantees that there are no pins on the index,
-        // which means that all concurrent scans have completed.
+        // we acquire exclusive cleanup admission, which waits for concurrent scans to finish.
         //
         // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
         // scans have finished too
-        drop(metadata.cleanup_lock_for_cleanup());
+        drop(metadata.cleanup_lock_for_vacuum());
         metadata.increment_ambulkdelete_epoch();
     }
 

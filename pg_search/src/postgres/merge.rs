@@ -520,7 +520,7 @@ pub(crate) unsafe fn merge_index(
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
 ) {
-    // Hold both pins until the output is published and the reservation removed. ambulkdelete must
+    // Hold both barriers until the output is published and the reservation removed. ambulkdelete must
     // see the final merged segment, not the originals about to be deleted, and must not deactivate
     // its exclusion list while this merger still works from an older metadata view.
     let metadata = MetaPage::open(indexrel);

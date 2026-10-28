@@ -33,7 +33,10 @@ fn connect() -> Client {
             pgrx_tests::run_test(
                 "bootstrap_test_server",
                 None,
-                vec!["shared_preload_libraries='pg_search'"],
+                vec![
+                    "shared_preload_libraries='pg_search'",
+                    "autovacuum_naptime='1s'",
+                ],
             )
             .unwrap();
         });
@@ -101,7 +104,7 @@ impl Fixture {
         };
         controller
             .batch_execute(&format!(
-                "DROP TABLE IF EXISTS {table}; CREATE TABLE {table}(id bigint, body text);
+                "DROP TABLE IF EXISTS {table}; CREATE TABLE {table}(id bigint, body text) WITH (autovacuum_enabled=false);
              CREATE INDEX {index} ON {table} USING paradedb(id,body) WITH ({options})"
             ))
             .unwrap();
@@ -363,7 +366,7 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
             fixture.index
         )) == 500
     });
-    fixture.waiting(&vacuum, "BufferPin");
+    fixture.waiting(&vacuum, "page");
     assert!(fixture.value::<bool>(&format!(
         "SELECT paradedb.test_vacuum_active('{}')",
         fixture.index
@@ -397,7 +400,7 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
     let vacuum = fixture.actor("vacuum", format!("VACUUM {}", fixture.table));
     fixture.stage(&vacuum);
     fixture.release(&vacuum);
-    fixture.waiting(&vacuum, "BufferPin");
+    fixture.waiting(&vacuum, "page");
     assert_eq!(
         fixture.value::<i64>(&format!(
             "SELECT paradedb.test_live_docs('{}')",
@@ -422,7 +425,7 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
     fixture.waiting(&merger, "BufferContent");
     fixture.release(&vacuum);
     fixture.stage(&merger);
-    fixture.waiting(&vacuum, "BufferPin");
+    fixture.waiting(&vacuum, "page");
     assert!(fixture.value::<bool>(&format!(
         "SELECT paradedb.test_vacuum_active('{}')",
         fixture.index
@@ -530,4 +533,172 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
         vacuum.finish().1.unwrap();
         fixture.assert_rows(if cancel { 200 } else { 500 });
     }
+}
+
+#[test]
+fn late_reader_does_not_cancel_autovacuum_waiting_for_merger() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("merge_cleanup_autovacuum", false);
+    fixture.segments();
+    let (ready, gate) = fixture.pause_keys();
+    fixture.controller.batch_execute(&format!(
+        "DO $$ BEGIN
+         EXECUTE format('ALTER DATABASE %I SET pg_search.test_vacuum_ready = %L', current_database(), '{ready}');
+         EXECUTE format('ALTER DATABASE %I SET pg_search.test_vacuum_gate = %L', current_database(), '{gate}');
+         END $$"
+    )).unwrap();
+    let previous_workers: Vec<i32> = fixture
+        .controller
+        .query(
+            "SELECT pid FROM pg_stat_activity WHERE backend_type='autovacuum worker'
+         AND datname=current_database()",
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    wait_until("workers with old database settings exiting", || {
+        fixture
+            .controller
+            .query_one(
+                "SELECT NOT EXISTS(SELECT FROM pg_stat_activity WHERE pid=ANY($1))",
+                &[&previous_workers],
+            )
+            .unwrap()
+            .get(0)
+    });
+    fixture
+        .controller
+        .batch_execute(
+            "ALTER TABLE merge_cleanup_autovacuum SET
+         (autovacuum_enabled=true, autovacuum_vacuum_threshold=0,
+          autovacuum_vacuum_scale_factor=0, autovacuum_vacuum_cost_delay=0);
+         SELECT pg_stat_force_next_flush()",
+        )
+        .unwrap();
+    let mut vacuum_pid = 0;
+    wait_until("autovacuum reaching the exclusion handoff", || {
+        let row = fixture
+            .controller
+            .query_opt(
+                "SELECT a.pid, a.query FROM pg_stat_activity a
+             JOIN pg_stat_progress_vacuum v ON v.pid=a.pid
+             JOIN pg_locks l ON l.pid=a.pid
+             WHERE a.backend_type='autovacuum worker'
+             AND v.relid='merge_cleanup_autovacuum'::regclass
+             AND v.datid=(SELECT oid FROM pg_database WHERE datname=current_database())
+             AND l.locktype='advisory' AND l.objid::bigint=$1 AND l.granted",
+                &[&ready],
+            )
+            .unwrap();
+        if let Some(row) = row {
+            vacuum_pid = row.get(0);
+            assert!(!row.get::<_, String>(1).contains("prevent wraparound"));
+            true
+        } else {
+            false
+        }
+    });
+    fixture
+        .controller
+        .batch_execute(
+            "DO $$ BEGIN
+         EXECUTE format('ALTER DATABASE %I RESET pg_search.test_vacuum_ready', current_database());
+         EXECUTE format('ALTER DATABASE %I RESET pg_search.test_vacuum_gate', current_database());
+         END $$",
+        )
+        .unwrap();
+    for batch in 4..8 {
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "INSERT INTO merge_cleanup_autovacuum SELECT id, 'alpha beta ' || md5(id::text)
+             FROM generate_series({},{}) id",
+                batch * 250 + 1,
+                (batch + 1) * 250
+            ))
+            .unwrap();
+    }
+    let merger = fixture.actor(
+        "merge",
+        format!("SELECT paradedb.test_merge_index('{}')", fixture.index),
+    );
+    fixture.stage(&merger);
+    fixture
+        .controller
+        .query_one("SELECT pg_advisory_unlock($1)", &[&gate])
+        .unwrap();
+    wait_until("autovacuum waiting for the overlapping merge", || {
+        fixture
+            .controller
+            .query_opt(
+                "SELECT wait_event FROM pg_stat_activity WHERE pid=$1",
+                &[&vacuum_pid],
+            )
+            .unwrap()
+            .is_some_and(|row| {
+                matches!(
+                    row.get::<_, Option<String>>(0).as_deref(),
+                    Some("BufferPin" | "page")
+                )
+            })
+    });
+    let mut reader = connect();
+    reader
+        .batch_execute("SET deadlock_timeout='100ms'; SET log_lock_waits=on")
+        .unwrap();
+    let reader_pid: i32 = reader
+        .query_one("SELECT pg_backend_pid()", &[])
+        .unwrap()
+        .get(0);
+    let late_reader = spawn(move || {
+        reader.query_one(
+            "SELECT count(*) FROM merge_cleanup_autovacuum WHERE id @@@ paradedb.all()",
+            &[],
+        )
+    });
+    wait_until("late reader queuing for admission", || {
+        fixture
+            .controller
+            .query_one(
+                "SELECT EXISTS(SELECT FROM pg_locks WHERE pid=$1 AND locktype='page'
+             AND mode='ShareLock' AND NOT granted)",
+                &[&reader_pid],
+            )
+            .unwrap()
+            .get(0)
+    });
+    sleep(Duration::from_millis(500));
+    let survived: bool = fixture
+        .controller
+        .query_one(
+            "SELECT EXISTS(SELECT FROM pg_stat_progress_vacuum WHERE pid=$1
+         AND relid='merge_cleanup_autovacuum'::regclass)",
+            &[&vacuum_pid],
+        )
+        .unwrap()
+        .get(0);
+    let reader_still_waiting = !late_reader.is_finished();
+    fixture.release(&merger);
+    assert!(merger.finish().1.unwrap()[0].get::<_, i64>(0) > 0);
+    assert_eq!(late_reader.join().unwrap().unwrap().get::<_, i64>(0), 1500);
+    assert!(
+        survived,
+        "late reader canceled autovacuum while the merger held its pins"
+    );
+    assert!(
+        reader_still_waiting,
+        "late reader bypassed autovacuum admission"
+    );
+    wait_until("successful automatic vacuum", || {
+        fixture.value::<i64>(
+        "SELECT autovacuum_count FROM pg_stat_user_tables WHERE relname='merge_cleanup_autovacuum'"
+    ) > 0
+    });
+    fixture.assert_rows(1500);
+    assert!(fixture.value::<bool>(&format!(
+        "SELECT bool_and(passed) FROM pdb.verify_index('{}',heapallindexed=>true)",
+        fixture.index
+    )));
 }

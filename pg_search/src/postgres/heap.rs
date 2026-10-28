@@ -587,7 +587,7 @@ impl VisibilityChecker {
                 break 'proof false;
             };
             let (first, last) = (*blocks.start(), *blocks.end());
-            // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
+            // Read CTID bounds before fresh VM bits; FFHelper retains shared cleanup admission.
             if first > last || last == pg_sys::InvalidBlockNumber {
                 break 'proof false;
             }

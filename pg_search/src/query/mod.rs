@@ -458,7 +458,6 @@ impl SearchQueryInput {
             SearchQueryInput::Uninitialized
             | SearchQueryInput::All
             | SearchQueryInput::Empty
-            | SearchQueryInput::Null
             | SearchQueryInput::ConstScore { .. }
             | SearchQueryInput::TermSet { .. } => true,
             SearchQueryInput::WithIndex { query, .. }
@@ -491,9 +490,7 @@ impl SearchQueryInput {
     /// `Boost`, `ConstScore`, `Boolean` sums, and `DisjunctionMax`.
     pub(crate) fn estimate_max_score(&self) -> f64 {
         match self {
-            SearchQueryInput::Uninitialized | SearchQueryInput::Empty | SearchQueryInput::Null => {
-                0.0
-            }
+            SearchQueryInput::Uninitialized | SearchQueryInput::Empty => 0.0,
             SearchQueryInput::All | SearchQueryInput::TermSet { .. } => 1.0,
             SearchQueryInput::ConstScore { score, .. } => (*score as f64).max(0.0),
             SearchQueryInput::Boost { query, factor } => {

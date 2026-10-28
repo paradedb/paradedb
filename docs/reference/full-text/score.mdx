@@ -212,8 +212,6 @@ ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
 
-<<<<<<< HEAD
-=======
 ```ts Drizzle
 import { desc, eq, or, sql } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
@@ -319,7 +317,6 @@ var results = await (
 ).Take(5).ToListAsync();
 ```
 
->>>>>>> aa27f73 (perf: Implement rank joins (#6898))
 </CodeGroup>
 
 <Note>

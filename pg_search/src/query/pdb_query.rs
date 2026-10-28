@@ -720,7 +720,6 @@ impl pdb::Query {
             | pdb::Query::RangeTerm { .. }
             | pdb::Query::RangeWithin { .. }
             | pdb::Query::Regex { .. }
-            | pdb::Query::StoredRange { .. }
             | pdb::Query::TermSet { .. } => true,
             pdb::Query::ScoreAdjusted { query, score } => match score {
                 Some(ScoreAdjustStyle::Const(_)) => true,

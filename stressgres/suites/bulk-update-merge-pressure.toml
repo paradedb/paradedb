@@ -22,7 +22,7 @@ SELECT
     END,
     (random() * 4 + 1)::int
 -- Reduce Antithesis tmpfs usage while retaining data for merge pressure.
-FROM generate_series(1, 900000) as id;
+FROM generate_series(1, 6300000) as id;
 
 DO $$
 DECLARE
@@ -168,7 +168,7 @@ SELECT assert_plan_contains(
 sql = """
 SELECT count(*) FROM test WHERE message ||| 'cheese';
 """
-assert = "300000"
+assert = "2100000"
 
 [[jobs]]
 window_height = 25

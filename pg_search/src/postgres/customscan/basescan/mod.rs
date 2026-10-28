@@ -935,6 +935,7 @@ impl CustomScan for BaseScan {
 
             // quick look at the target list to see if we might need to do our const projections.
             // Check both current root and any parent roots (e.g. under row-level security).
+            let target_list = (*(*builder.args().root).parse).targetList;
             let maybe_needs_const_projections = query_tree_needs_const_projections(root);
 
             //

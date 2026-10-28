@@ -57,6 +57,7 @@ impl ResolvedField {
 pub enum Access {
     Scalar,
     List,
+    Any,
 }
 
 #[derive(Debug)]
@@ -110,17 +111,33 @@ impl SourceContext {
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source
-    pub fn resolve(&self, col: ColumnRef, _access: Access) -> Option<ResolvedField> {
+    pub fn resolve(&self, col: ColumnRef, access: Access) -> Option<ResolvedField> {
         //TODO:  This will swtich on columnref and just call resovlers. (once that works,
         //consolidate their code here
         match col {
             ColumnRef::Attno(attno) => Some(ResolvedField::new(Some(attno), unsafe {
                 resolve_fast_field(attno as i32, self)?
             })),
-            ColumnRef::Field(name) => Some(ResolvedField::new(
-                None,
-                resolve_fast_field_by_name(name, self.indexrel()?)?,
-            )),
+            ColumnRef::Field(name) => {
+                let field = resolve_fast_field_by_name(name, self.indexrel()?)?;
+                match (access, field) {
+                    (
+                        Access::List,
+                        field @ WhichFastField::Named {
+                            cardinality: FieldCardinality::List,
+                            ..
+                        },
+                    ) => Some(ResolvedField::new(None, field)),
+                    (
+                        Access::Scalar,
+                        field @ WhichFastField::Named {
+                            cardinality: FieldCardinality::Scalar,
+                            ..
+                        },
+                    ) => Some(ResolvedField::new(None, field)),
+                    _ => None,
+                }
+            }
             ColumnRef::Expr(node) => Some(ResolvedField::new(
                 None,
                 find_matching_fast_field(node, self)?,
@@ -225,7 +242,7 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
 /// Used for JSON sub-fields where [`resolve_fast_field`] fails because the attno
 /// maps to the parent JSON column rather than the sub-field. Tantivy stores JSON
 /// sub-fields as separate fast fields with dotted names.
-pub fn resolve_fast_field_by_name(
+fn resolve_fast_field_by_name(
     field_name: &str,
     index: &PgSearchRelation,
 ) -> Option<WhichFastField> {

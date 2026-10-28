@@ -48,7 +48,7 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
-    Access, ColumnRef, field_type_for_pullup, get_attno_by_name, resolve_fast_field_by_name,
+    Access, ColumnRef, field_type_for_pullup, get_attno_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
@@ -757,8 +757,8 @@ unsafe fn collect_join_sources_join_rel(
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let (Some(outer_resolved), Some(inner_resolved)) = (
-                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Scalar),
-                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Scalar),
+                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Any),
+                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Any),
                     ) else {
                         return None;
                     };
@@ -1804,9 +1804,11 @@ pub(super) unsafe fn collect_required_fields(
                     else {
                         continue;
                     };
-                    let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
-                    match resolve_fast_field_by_name(&field.field_name, &indexrel) {
-                        Some(resolved) => source.scan_info.add_field_by_name(field.attno, resolved),
+                    let context = source.to_source_context();
+                    match context.resolve(ColumnRef::Field(&field.field_name), Access::Any) {
+                        Some(resolved) => source
+                            .scan_info
+                            .add_field_by_name(field.attno, resolved.field),
                         None => pgrx::warning!(
                             "JoinScan: pdb.agg field '{}' is not columnar",
                             field.field_name
@@ -1876,7 +1878,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
         return Some(());
     }
     let context = side.to_source_context();
-    let resolved = context.resolve(ColumnRef::Attno(attno), Access::Scalar)?;
+    let resolved = context.resolve(ColumnRef::Attno(attno), Access::Any)?;
     side.scan_info.add_field(attno, resolved.field);
     Some(())
 }
@@ -1886,9 +1888,9 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
     if side.scan_info.fields.iter().any(|f| f.attno == attno) {
         return;
     }
-    let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Some(field) = resolve_fast_field_by_name(field_name, &indexrel) {
-        side.scan_info.add_field(attno, field);
+    let context = side.to_source_context();
+    if let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any) {
+        side.scan_info.add_field(attno, resolved.field);
     }
 }
 
@@ -2120,7 +2122,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     if source.contains_rti(varno) {
                         let context = source.to_source_context();
                         if context
-                            .resolve(ColumnRef::Attno(varattno), Access::Scalar)
+                            .resolve(ColumnRef::Attno(varattno), Access::Any)
                             .is_some()
                         {
                             is_fast = true;
@@ -2330,7 +2332,7 @@ pub fn resolve_fast_field_from_join_sources(
         }
         let context = source.to_source_context();
         context
-            .resolve(ColumnRef::Attno(varattno), Access::Scalar)
+            .resolve(ColumnRef::Attno(varattno), Access::Any)
             .map(|r| r.field)
     })
 }
@@ -2531,7 +2533,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             Some(source) => {
                 let context = source.to_source_context();
                 if context
-                    .resolve(ColumnRef::Attno(varattno), Access::Scalar)
+                    .resolve(ColumnRef::Attno(varattno), Access::Any)
                     .is_none()
                 {
                     let col = column_name_for_var(&plan.sources(), varno, varattno);

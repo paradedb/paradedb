@@ -800,9 +800,9 @@ impl JoinScan {
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let outer_resolved =
-                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Scalar);
+                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Any);
                     let inner_resolved =
-                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Scalar);
+                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Any);
                     match (&outer_resolved, &inner_resolved) {
                         (Some(outer_resolved), Some(inner_resolved)) => {
                             let either_numeric = outer_resolved

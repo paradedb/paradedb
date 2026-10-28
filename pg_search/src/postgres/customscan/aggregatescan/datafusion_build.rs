@@ -31,7 +31,7 @@
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{ColumnRef as FilterColumnRef, CompareOp, FilterExpr};
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
-use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
@@ -47,7 +47,7 @@ use crate::postgres::customscan::joinscan::predicate::extract_single_table_predi
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
     Access, Bm25IndexInfo, ColumnRef, ResolvedIndexField, SourceContext, get_attno_by_name,
-    resolve_fast_field_by_name, resolve_index_field_by_name,
+    resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
@@ -245,15 +245,11 @@ fn source_field_candidates<'a, 'b>(
 /// a scalar fast field via [`SourceContext::resolve`] or a multi-valued array fast field
 /// in the ParadeDB index schema. Returns an empty vector if `bm25_index` is None.
 unsafe fn collect_source_fields(source: &SourceContext) -> Vec<FieldInfo> {
-    let Some(indexrel) = source.indexrel() else {
-        return Vec::new();
-    };
     let mut fields = Vec::new();
     for attno in 1..=source.tupdesc().len() {
-        if let Some(resolved) = source.resolve(
-            ColumnRef::Attno(attno as pg_sys::AttrNumber),
-            Access::Scalar,
-        ) {
+        if let Some(resolved) =
+            source.resolve(ColumnRef::Attno(attno as pg_sys::AttrNumber), Access::Any)
+        {
             fields.push(FieldInfo {
                 attno: attno as pg_sys::AttrNumber,
                 field: resolved.field,
@@ -261,16 +257,10 @@ unsafe fn collect_source_fields(source: &SourceContext) -> Vec<FieldInfo> {
         } else {
             let tupdesc = source.tupdesc();
             let att = tupdesc.get(attno - 1).unwrap();
-            if let Some(
-                field @ WhichFastField::Named {
-                    cardinality: FieldCardinality::List,
-                    ..
-                },
-            ) = resolve_fast_field_by_name(att.name(), indexrel)
-            {
+            if let Some(resolved) = source.resolve(ColumnRef::Field(att.name()), Access::List) {
                 fields.push(FieldInfo {
                     attno: attno as pg_sys::AttrNumber,
-                    field,
+                    field: resolved.field,
                 });
             }
         }
@@ -2088,10 +2078,7 @@ unsafe fn require_fast_field(
     attno: pg_sys::AttrNumber,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    match context.resolve(
-        ColumnRef::Attno(attno),
-        crate::postgres::customscan::pullup::Access::Scalar,
-    ) {
+    match context.resolve(ColumnRef::Attno(attno), Access::Any) {
         Some(resolved) => {
             source.scan_info.add_field(attno, resolved.field);
             Ok(())
@@ -2114,23 +2101,19 @@ unsafe fn require_named_fast_field(
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
     if field_name.contains('.')
-        && let Some(indexrel) = context.indexrel()
-        && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
+        && let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any)
     {
-        source.scan_info.add_field_by_name(attno, field);
+        source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
-    if let Some(resolved) = context.resolve(
-        ColumnRef::Attno(attno as pg_sys::AttrNumber),
-        Access::Scalar,
-    ) {
+    if let Some(resolved) =
+        context.resolve(ColumnRef::Attno(attno as pg_sys::AttrNumber), Access::Any)
+    {
         source.scan_info.add_field(attno, resolved.field);
         return Ok(());
     }
-    if let Some(indexrel) = context.indexrel()
-        && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
-    {
-        source.scan_info.add_field_by_name(attno, field);
+    if let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any) {
+        source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
     Err(format!("{} is not columnar", describe()))
@@ -2283,10 +2266,11 @@ pub unsafe fn populate_required_fields(
                 continue;
             }
             let resolved = context
-                .indexrel()
-                .and_then(|indexrel| resolve_fast_field_by_name(&field.field_name, indexrel))
+                .resolve(ColumnRef::Field(&field.field_name), Access::Any)
                 .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
-            source.scan_info.add_field_by_name(field.attno, resolved);
+            source
+                .scan_info
+                .add_field_by_name(field.attno, resolved.field);
         }
     }
 
@@ -2315,7 +2299,7 @@ unsafe fn all_vars_are_fast_fields_for_agg(
                     .context
                     .resolve(
                         ColumnRef::Attno(var_ref.attno as pg_sys::AttrNumber),
-                        Access::Scalar,
+                        Access::Any,
                     )
                     .is_none()
                 {

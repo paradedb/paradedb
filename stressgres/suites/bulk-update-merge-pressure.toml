@@ -21,7 +21,6 @@ SELECT
     WHEN 2 THEN 'eat some cheese'
     END,
     (random() * 4 + 1)::int
--- Reduce Antithesis tmpfs usage while retaining data for merge pressure.
 FROM generate_series(1, 6300000) as id;
 
 DO $$

@@ -21,7 +21,6 @@ SELECT
     WHEN 2 THEN 'eat some cheese'
     END,
     (random() * 4 + 1)::int
--- Reduce bootstrap data by 30% to lower Antithesis tmpfs usage.
 FROM generate_series(1, 700000) as id;
 
 CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (target_segment_count = 16, layer_sizes = '1kb', background_layer_sizes = '10kb, 100kb, 1mb, 10mb');

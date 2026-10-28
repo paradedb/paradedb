@@ -181,7 +181,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Preserve the wide schema and ngram index coverage with less bootstrap data.
 SELECT insert_random_data(700_000);
 
 CREATE INDEX wide_table_idx ON wide_table USING paradedb (id, text_3, text_2, field_1, field_2, field_4, text_1, text_4, text_5, text_6, text_11, text_15, text_13, number_1, bool_1, bool_3, bool_2, json_1, date_1, timestamp_3)

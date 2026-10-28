@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793178381034,
+  "lastUpdate": 1793225094320,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -387637,6 +387637,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12801536077-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793225044256,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 481.568374588544,
+            "unit": "median tps",
+            "extra": "avg tps: 481.063205635764, max tps: 484.399456161199, count: 57372"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 446.7613712799402,
+            "unit": "median tps",
+            "extra": "avg tps: 446.96445290523144, max tps: 451.42097483367445, count: 57372"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3691.2364776634386,
+            "unit": "median tps",
+            "extra": "avg tps: 3696.8521605872183, max tps: 3994.3433509542897, count: 57372"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 479.9643053213106,
+            "unit": "median tps",
+            "extra": "avg tps: 480.4772041475485, max tps: 486.5520936968028, count: 57372"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3312.6926976282252,
+            "unit": "median tps",
+            "extra": "avg tps: 3308.782519097326, max tps: 3365.5867415013577, count: 57372"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3272.7875690141946,
+            "unit": "median tps",
+            "extra": "avg tps: 3274.4179481992846, max tps: 3406.7751466461846, count: 57372"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 194.78261785894568,
+            "unit": "median tps",
+            "extra": "avg tps: 194.89482259939817, max tps: 196.18467490889324, count: 57372"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 347.85151542949995,
+            "unit": "median tps",
+            "extra": "avg tps: 349.21021507699186, max tps: 358.98178773140165, count: 57372"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 574.2143439228986,
+            "unit": "median tps",
+            "extra": "avg tps: 573.1781181809287, max tps: 576.7555555969069, count: 57372"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 665.6492099400215,
+            "unit": "median tps",
+            "extra": "avg tps: 664.7229028896912, max tps: 668.9495775159769, count: 57372"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1418.8050401226837,
+            "unit": "median tps",
+            "extra": "avg tps: 1417.7031421196018, max tps: 1430.3604358355694, count: 57372"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 479.7153333902353,
+            "unit": "median tps",
+            "extra": "avg tps: 479.3113029361272, max tps: 482.0042953220317, count: 57372"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 588.0682989533518,
+            "unit": "median tps",
+            "extra": "avg tps: 587.1197497967379, max tps: 589.957784131262, count: 57372"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2392.6081938205525,
+            "unit": "median tps",
+            "extra": "avg tps: 2385.3168885390714, max tps: 2400.7968026333683, count: 57372"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1904.2349783848529,
+            "unit": "median tps",
+            "extra": "avg tps: 1904.384050491349, max tps: 2113.821787443006, count: 57372"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.75912367842242,
+            "unit": "median tps",
+            "extra": "avg tps: 64.30548401886571, max tps: 1463.5074419353423, count: 57372"
+          }
+        ],
+        "publication_id": "12851650081-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793199857268,
+  "lastUpdate": 1793199936337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -39333,6 +39333,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12791047435-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10de31bb4570e393745029f061787aa40345b706",
+          "message": "fix: prevent readers from starving VACUUM cleanup (#6879)\n\nPrevent readers from starving VACUUM cleanup by retaining shared PAGE admission for readers and mergers and exclusive admission for VACUUM. Acquire merger admission before the separate merge-page pin, release the pin before admission, and remove redundant cleanup-page pins.\n\nCover actual autovacuum cancellation with an overlapping merge and late reader, plus reader admission lifetime and error cleanup. Update the module documentation and buffer-count snapshots. Allow empty participants in the parallel vector-clustering test while verifying every resulting segment and all documents and vectors.",
+          "timestamp": "2026-10-28T07:28:08-07:00",
+          "tree_id": "b5845bf28cbbb7b979cf034ee94dc12084802db8",
+          "url": "https://github.com/paradedb/paradedb/commit/10de31bb4570e393745029f061787aa40345b706"
+        },
+        "date": 1793199901559,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 95.258090768271,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 96.07156472985369,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 96.66428280887932,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 109.18964197999139,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 109.70368245621034,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 110.29830663084081,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 139.81970634389126,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 136.33031278859866,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 111.70385222906539,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12826215645-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [

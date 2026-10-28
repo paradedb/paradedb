@@ -1418,6 +1418,12 @@ impl HeapFetchState {
         std::ptr::copy_nonoverlapping((*src).tts_values, (*dst).tts_values, natts);
         std::ptr::copy_nonoverlapping((*src).tts_isnull, (*dst).tts_isnull, natts);
 
+        // `slot_getsysattr` reads `ctid` and `tableoid` from the slot itself, not
+        // from a tuple. Clearing the virtual slot set its `ctid` to an invalid
+        // item pointer, so give it the fetched tuple's identity.
+        (*dst).tts_tid = (*src).tts_tid;
+        (*dst).tts_tableOid = (*src).tts_tableOid;
+
         Some(pg_sys::ExecStoreVirtualTuple(dst))
     }
 

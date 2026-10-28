@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793151164107,
+  "lastUpdate": 1793151256771,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -32804,6 +32804,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12778300144-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "108605548+pavanmanishd@users.noreply.github.com",
+            "name": "Pavan Manish",
+            "username": "pavanmanishd"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f17a06fbc7e998c9de83bff3dfaea4bb8d8728ab",
+          "message": "fix: stop `NOT (field @@@ NULL)` from matching every row (#6998)\n\n# Ticket(s) Closed\n\n- Closes #6928\n\n## What\n\n`NOT (field @@@ <expr>)` returned every row when `<expr>` evaluated to\nNULL. A deferred right-hand side becomes\n`SearchQueryInput::PostgresExpression`; when it evaluated to NULL,\n`solve_postgres_expressions_no_reset` replaced it with `Empty`. `Empty`\ninside `must_not` means \"exclude nothing\", so the boolean matched the\nwhole table.\n\n## Why\n\nNULL and `Empty` differ under negation: `NOT (a query that matches\nnothing)` is true, while `NOT NULL` is NULL, and a filter keeps only\ntrue rows. Collapsing the two made the negation of an unknown predicate\nmatch everything.\n\n## How\n\nAdd `SearchQueryInput::Null` for the NULL case. It matches nothing in a\npositive position, and a `Boolean` with a direct `Null` in `must_not`\nbuilds an empty query. The planning fold, basescan predicate detection,\nEXPLAIN leaf handling, the sequential-scan match set, and segment\npruning treat it as matching nothing.\n\nA wrapped or nested NULL is not reachable from SQL because every\n`SearchQueryInput` builder is `STRICT`, so the `must_not` rule only\nneeds to handle a direct `Null` child.\n\n## Tests\n\nAdded `pg_search/tests/pg_regress/sql/issue_6928.sql`. It returns every\nrow before this change and none after it, for both the plain and negated\nforms, and covers a NULL parameter through a forced generic plan.\n\nLocal result with `cargo pgrx regress pg18 issue_6928`: `PASS setup`,\n`PASS issue_6928`, 2 passed, 0 failed. The control case returns 100\nrows; the positive and negated NULL cases and the generic-plan NULL\ncases return 0; `paradedb.all()` through the same prepared statement\nreturns 100. `cargo check -p pg_search --tests`, `cargo fmt --check` and\n`cargo clippy -p pg_search --all-targets` are clean.\n\nAdds a changelog fragment under `docs/project/changelog/unreleased/`.\n\n---------\n\nCo-authored-by: Philippe No\u00ebl <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-27T17:17:58-07:00",
+          "tree_id": "f53822ff0cb935204dda407ec587a2a4ce10d797",
+          "url": "https://github.com/paradedb/paradedb/commit/f17a06fbc7e998c9de83bff3dfaea4bb8d8728ab"
+        },
+        "date": 1793151213822,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 541.7277028245433,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 517.1570768256422,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 145.4297026614211,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 260.7367969049904,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 380.81983165265694,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12782653942-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

@@ -41,7 +41,7 @@ use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
 use pgrx::{FromDatum, PgList, pg_sys};
 
-use super::pullup::{Access, Bm25IndexInfo, ColumnRef, SourceContext};
+use super::pullup::{Access, ColumnRef, SourceContext};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -240,8 +240,13 @@ pub unsafe fn analyze_sort_expression(
     }
 
     if let Some(source_context) = source
-        && let Some(info) = &source_context.index
-        && let Some((var, vector_sort)) = extract_vector_distance(node, context, &info.schema)
+        && let Some((var, vector_sort)) = extract_vector_distance(
+            node,
+            context,
+            &source_context
+                .schema()
+                .expect("shouuld always have a valid schema"),
+        )
     {
         let (relid, attno) = context.var_relation(var);
         let field_name = fieldname_from_var(relid, var, attno);
@@ -725,19 +730,15 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 return false;
             }
 
-            let schema = match SearchIndexSchema::open(&bm25_index) {
-                Ok(s) => s,
-                Err(_) => return false,
-            };
+            if SearchIndexSchema::open(&bm25_index).is_err() {
+                return false;
+            }
 
-            target_relation_context = Some(SourceContext {
-                heap_rti: varno,
-                heaprel: PgSearchRelation::open(relid),
-                index: Some(Bm25IndexInfo {
-                    indexrel: bm25_index,
-                    schema,
-                }),
-            });
+            target_relation_context = Some(SourceContext::new(
+                varno,
+                PgSearchRelation::open(relid),
+                Some(bm25_index),
+            ));
         }
 
         // Validate sortability

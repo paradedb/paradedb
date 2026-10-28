@@ -46,7 +46,7 @@ use crate::postgres::customscan::joinscan::planning::{
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
-    Access, Bm25IndexInfo, ColumnRef, ResolvedIndexField, SourceContext, get_attno_by_name,
+    Access, ColumnRef, ResolvedIndexField, SourceContext, get_attno_by_name,
     resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
@@ -292,14 +292,10 @@ pub unsafe fn collect_join_agg_sources(
             continue;
         };
 
-        let index = bm25_index.map(|indexrel| Bm25IndexInfo {
-            schema: indexrel.schema().expect("should always provide a schema"),
-            indexrel,
-        });
         let context = SourceContext {
             heap_rti: rti,
             heaprel: PgSearchRelation::open(relid),
-            index,
+            indexrel: bm25_index,
         };
         sources.push(JoinAggSource {
             alias,

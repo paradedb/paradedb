@@ -67,38 +67,21 @@ pub enum Access {
 }
 
 #[derive(Debug)]
-pub struct Bm25IndexInfo {
-    pub indexrel: PgSearchRelation,
-    pub schema: SearchIndexSchema,
-}
-impl Bm25IndexInfo {
-    pub fn index_expressions(&self) -> PgList<pg_sys::Expr> {
-        self.indexrel.index_expressions()
-    }
-}
-
-#[derive(Debug)]
 pub struct SourceContext {
     pub heap_rti: pg_sys::Index,
     pub heaprel: PgSearchRelation,
-    pub index: Option<Bm25IndexInfo>,
+    pub indexrel: Option<PgSearchRelation>,
 }
 impl SourceContext {
-    pub fn from_parts(
+    pub fn new(
         heap_rti: pg_sys::Index,
         heaprel: PgSearchRelation,
         indexrel: Option<PgSearchRelation>,
     ) -> Self {
-        let index = indexrel.map(|indexrel| {
-            let schema = indexrel
-                .schema()
-                .expect("a valid index should always have a schema");
-            Bm25IndexInfo { indexrel, schema }
-        });
         Self {
             heap_rti,
             heaprel,
-            index,
+            indexrel,
         }
     }
 
@@ -110,10 +93,13 @@ impl SourceContext {
     }
 
     pub fn indexrel(&self) -> Option<&PgSearchRelation> {
-        self.index.as_ref().map(|i| &i.indexrel)
+        self.indexrel.as_ref()
     }
-    pub fn schema(&self) -> Option<&SearchIndexSchema> {
-        self.index.as_ref().map(|i| &i.schema)
+    pub fn schema(&self) -> Option<SearchIndexSchema> {
+        self.indexrel.as_ref().map(|i| {
+            i.schema()
+                .expect("a valid index should always have a schema")
+        })
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source
@@ -180,7 +166,7 @@ fn find_matching_fast_field(
     if node.is_null() {
         return None;
     }
-    let Some(index) = &context.index else {
+    let Some(index) = &context.indexrel else {
         return None;
     };
 
@@ -194,7 +180,8 @@ fn find_matching_fast_field(
         unsafe { (*var).varnullingrels = std::ptr::null_mut() };
     }
 
-    let categorized_fields = index.schema.categorized_fields();
+    let schema = index.schema().expect("should always have a valid schema");
+    let categorized_fields = schema.categorized_fields();
 
     let matches_node = |candidate: *mut pg_sys::Node| {
         let unwrapped = strip_tokenizer_cast(candidate);
@@ -279,7 +266,7 @@ fn find_matching_fast_field(
 /// Returns `Some(WhichFastField)` if the column can be pulled up from the index,
 /// or `None` if it cannot (e.g. not indexed, not a fast field, incompatible type).
 unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<WhichFastField> {
-    let Some(index) = &context.index else {
+    let Some(index) = &context.indexrel else {
         return None;
     };
     let tupdesc = context.tupdesc();
@@ -303,8 +290,9 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
 
             let att = tupdesc.get((attno - 1) as usize)?;
 
-            if let Some(search_field) = index.schema.search_field(att.name()) {
-                let categorized_fields = index.schema.categorized_fields();
+            let schema = index.schema().expect("should always have a valid schema");
+            if let Some(search_field) = schema.search_field(att.name()) {
+                let categorized_fields = schema.categorized_fields();
                 let field_data = categorized_fields
                     .iter()
                     .find(|(sf, _)| sf == &search_field)

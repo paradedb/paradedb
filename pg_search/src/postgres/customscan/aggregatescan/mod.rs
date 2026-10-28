@@ -1648,7 +1648,7 @@ impl AggregateScan {
 
         let index_oid = index.oid();
         let source_context =
-            SourceContext::from_parts(heap_rti, PgSearchRelation::open(heap_relid), Some(index));
+            SourceContext::new(heap_rti, PgSearchRelation::open(heap_relid), Some(index));
         match AggregateCSClause::build(builder, &source_context) {
             Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });

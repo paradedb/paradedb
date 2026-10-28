@@ -1016,7 +1016,7 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            let source_context = SourceContext::from_parts(rti, table, Some(bm25_index));
+            let source_context = SourceContext::new(rti, table, Some(bm25_index));
             let topk_pathkey_info = pullup_topk_pathkeys(&source_context, root);
 
             #[cfg(feature = "pg15")]
@@ -1133,7 +1133,7 @@ impl CustomScan for BaseScan {
             let segment_count = precomputed_segment_count.unwrap_or_else(|| {
                 SearchIndexReader::estimate_segment_count(
                     source_context.indexrel().unwrap(),
-                    source_context.schema().unwrap(),
+                    &source_context.schema().unwrap(),
                     estimation_query.resolve(&query).ok(),
                 )
             });
@@ -2636,8 +2636,7 @@ fn compute_exec_which_fast_fields(
         let execution_rti = custom_state.execution_rti;
         let heaprel = custom_state.heaprel();
 
-        let context =
-            SourceContext::from_parts(execution_rti, heaprel.clone(), Some(indexrel.clone()));
+        let context = SourceContext::new(execution_rti, heaprel.clone(), Some(indexrel.clone()));
         //
         // In order for our planned ExecMethodType to be accurate, this must always be a
         // subset of the fast fields which were extracted at planning time.

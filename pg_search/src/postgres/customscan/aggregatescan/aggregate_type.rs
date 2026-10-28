@@ -134,9 +134,10 @@ impl AggregateType {
         source_context: &SourceContext,
     ) -> anyhow::Result<Self> {
         let index = source_context
-            .index
+            .indexrel
             .as_ref()
             .expect("index should always exist at this point");
+        let schema = index.schema().expect("should always have a valid shcema");
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -151,7 +152,7 @@ impl AggregateType {
                     source_context.heap_rti,
                     (*aggref).aggfilter as *mut pg_sys::Node,
                     RestrictInfoType::BaseRelation,
-                    &index.indexrel,
+                    index,
                     false,
                     qual_state,
                     true,
@@ -192,7 +193,7 @@ impl AggregateType {
             // planner can reduce that join to this one relation. A qualifier
             // naming it is dropped so the spec runs the same on either path.
             if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, source_context.heap_rti) {
-                strip_relation_qualifier(&mut json_value, &alias, &index.schema);
+                strip_relation_qualifier(&mut json_value, &alias, &schema);
             }
 
             // Check if any existing fields in the custom aggregate are NUMERIC
@@ -202,8 +203,8 @@ impl AggregateType {
             extract_fields_from_agg_json(&json_value, &mut fields);
             for field_name in &fields {
                 // Only check NUMERIC support if field exists in schema
-                if index.schema.search_field(field_name).is_some()
-                    && !index.schema.supports_tantivy_aggregate(field_name)
+                if schema.search_field(field_name).is_some()
+                    && !schema.supports_tantivy_aggregate(field_name)
                 {
                     bail!(
                         "field '{}' does not support aggregate pushdown (NUMERIC)",
@@ -215,7 +216,7 @@ impl AggregateType {
             return Ok(AggregateType::Custom {
                 agg_json: json_value,
                 filter: filter_query,
-                indexrelid: index.indexrel.oid(),
+                indexrelid: index.oid(),
                 mvcc_visibility,
             });
         }
@@ -223,7 +224,7 @@ impl AggregateType {
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
             return Ok(AggregateType::CountAny {
                 filter: filter_query,
-                indexrelid: index.indexrel.oid(),
+                indexrelid: index.oid(),
             });
         }
 
@@ -238,21 +239,17 @@ impl AggregateType {
             source_context,
         )?;
         let field = aggregate_field.field_name().clone();
-        let missing = aggregate_field.missing_for(aggfnoid, || Some(index.schema.clone()))?;
+        let missing = aggregate_field.missing_for(aggfnoid, || Some(schema.clone()))?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
         // aggregates over them route to the DataFusion backend at path
         // creation time and never reach this classifier.
-        if !index
-            .indexrel
-            .supports_tantivy_aggregate(&field)
-            .unwrap_or(false)
-        {
+        if !index.supports_tantivy_aggregate(&field).unwrap_or(false) {
             bail!("field '{}' does not support aggregate pushdown", field);
         }
 
-        let agg_type = Self::from_oid(aggfnoid, field, missing, filter_query, index.indexrel.oid())
+        let agg_type = Self::from_oid(aggfnoid, field, missing, filter_query, index.oid())
             .with_context(|| {
                 if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
                     pg_sys::Oid::from(aggfnoid),

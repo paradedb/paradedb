@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793148926713,
+  "lastUpdate": 1793149120941,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -37716,6 +37716,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12775886373-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "108605548+pavanmanishd@users.noreply.github.com",
+            "name": "Pavan Manish",
+            "username": "pavanmanishd"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f17a06fbc7e998c9de83bff3dfaea4bb8d8728ab",
+          "message": "fix: stop `NOT (field @@@ NULL)` from matching every row (#6998)\n\n# Ticket(s) Closed\n\n- Closes #6928\n\n## What\n\n`NOT (field @@@ <expr>)` returned every row when `<expr>` evaluated to\nNULL. A deferred right-hand side becomes\n`SearchQueryInput::PostgresExpression`; when it evaluated to NULL,\n`solve_postgres_expressions_no_reset` replaced it with `Empty`. `Empty`\ninside `must_not` means \"exclude nothing\", so the boolean matched the\nwhole table.\n\n## Why\n\nNULL and `Empty` differ under negation: `NOT (a query that matches\nnothing)` is true, while `NOT NULL` is NULL, and a filter keeps only\ntrue rows. Collapsing the two made the negation of an unknown predicate\nmatch everything.\n\n## How\n\nAdd `SearchQueryInput::Null` for the NULL case. It matches nothing in a\npositive position, and a `Boolean` with a direct `Null` in `must_not`\nbuilds an empty query. The planning fold, basescan predicate detection,\nEXPLAIN leaf handling, the sequential-scan match set, and segment\npruning treat it as matching nothing.\n\nA wrapped or nested NULL is not reachable from SQL because every\n`SearchQueryInput` builder is `STRICT`, so the `must_not` rule only\nneeds to handle a direct `Null` child.\n\n## Tests\n\nAdded `pg_search/tests/pg_regress/sql/issue_6928.sql`. It returns every\nrow before this change and none after it, for both the plain and negated\nforms, and covers a NULL parameter through a forced generic plan.\n\nLocal result with `cargo pgrx regress pg18 issue_6928`: `PASS setup`,\n`PASS issue_6928`, 2 passed, 0 failed. The control case returns 100\nrows; the positive and negated NULL cases and the generic-plan NULL\ncases return 0; `paradedb.all()` through the same prepared statement\nreturns 100. `cargo check -p pg_search --tests`, `cargo fmt --check` and\n`cargo clippy -p pg_search --all-targets` are clean.\n\nAdds a changelog fragment under `docs/project/changelog/unreleased/`.\n\n---------\n\nCo-authored-by: Philippe No\u00ebl <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-27T17:17:58-07:00",
+          "tree_id": "f53822ff0cb935204dda407ec587a2a4ce10d797",
+          "url": "https://github.com/paradedb/paradedb/commit/f17a06fbc7e998c9de83bff3dfaea4bb8d8728ab"
+        },
+        "date": 1793149078220,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.59,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 11.241,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.548,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.608,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 11.287,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.601,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 11.255,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.08,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.453,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.68,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.063,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.438,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.067,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.443,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.692,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 7.071,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.82,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 8.125,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.104,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.866,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.133,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.497,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.346,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.769,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12782372268-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [

@@ -15,6 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! VACUUM's bulk-delete callback coordinates with mergers before selecting segments, then
+//! publishes an exclusion list so other segments can still merge while deletion proceeds.
+//! After publishing deletes and flushing frozen mutable segments, it takes exclusive cleanup
+//! admission when cleanup is needed. This drains readers and mergers holding shared admission
+//! before heap cleanup can proceed. New readers queue behind VACUUM; the separate merge-page
+//! pin protects the initial segment-selection phase.
+
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;

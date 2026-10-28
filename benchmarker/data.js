@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793224789643,
+  "lastUpdate": 1793224874534,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -39479,6 +39479,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12849896913-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "416da5d04c5d48c43d59f92abc0ed05d69a604a9",
+          "message": "fix: allow vacuum delete assertion to remain unreachable (#7078)\n\n## What\n\nUse `assert_always_or_unreachable!` for the immutable VACUUM\ndelete-count invariant.\n\n## Why\n\nAntithesis reported this property as failed with no examples in the\nOctober 28 Enterprise run. Reaching this assertion requires partially\ndeleting an immutable segment. A run may validly delete nothing, remove\nwhole segments, or only flush mutable segments.\n\n## How\n\nAllow the assertion site to remain unvisited while preserving every\nexisting invariant check whenever it executes. Document why reachability\nis optional. Existing Stressgres workloads are unchanged.\n\n## Tests\n\n`git diff --check` passed. No runtime tests added or run for this\nassertion classification change. Antithesis validation remains pending a\nsubsequent run.",
+          "timestamp": "2026-10-28T12:57:25-07:00",
+          "tree_id": "193ffc91d8d29efc0ff02a66abdab928272e5d43",
+          "url": "https://github.com/paradedb/paradedb/commit/416da5d04c5d48c43d59f92abc0ed05d69a604a9"
+        },
+        "date": 1793224835097,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.253918426425475,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.78659043088671,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.739955139426858,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.99214866634217,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.03190391274554,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12850954155-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

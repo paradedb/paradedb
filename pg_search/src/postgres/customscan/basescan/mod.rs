@@ -1262,7 +1262,7 @@ impl CustomScan for BaseScan {
                         if orderby.first().is_some_and(|order| order.is_vector_distance()))
                 {
                     WorkerPathPolicy::SerialOnly {
-                        reason: WorkerDecisionReason::GlobalVectorSchedule,
+                        reason: WorkerDecisionReason::UnfilteredVectorTopK,
                     }
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
@@ -1290,7 +1290,7 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable
-                    | WorkerDecisionReason::GlobalVectorSchedule
+                    | WorkerDecisionReason::UnfilteredVectorTopK
                     | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited

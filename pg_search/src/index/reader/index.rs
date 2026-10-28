@@ -65,7 +65,7 @@ use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::{ProbeParams, ProbeStats};
+use tantivy::vector::{ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSimilarityFruit};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -3053,16 +3053,15 @@ impl SearchIndexReader {
         &self,
         reader_batches: impl Iterator<Item = Vec<(SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>>,
         partition_bounds: Option<&SearchQueryInput>,
-        collector: tantivy::vector::TopDocsByVectorSimilarityBuilder<f32, S>,
+        collector: TopDocsByVectorSimilarity<f32, S>,
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (
-        tantivy::vector::VectorSimilarityFruit,
+        VectorSimilarityFruit,
         Option<IntermediateAggregationResults>,
     )
     where
         S: SortKeyComputer + Send + Sync + 'static,
     {
-        let collector = collector.build();
         if aux_collector.is_some() || partition_bounds.is_some() {
             return self.collect_maybe_auxiliary(
                 reader_batches.flatten(),

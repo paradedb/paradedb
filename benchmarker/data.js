@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793200432103,
+  "lastUpdate": 1793202062901,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -40465,6 +40465,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12827155237-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shininglhb@163.com",
+            "name": "puppylpg",
+            "username": "puppylpg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "29e8638d707164732eb02265c0f0785d9ce83cd8",
+          "message": "fix(tokenizers): avoid quadratic Lindera token consumption (#7066)\n\n# Ticket(s) Closed\n\n- Closes #7065\n\n## What\n\nConsume Lindera tokens in linear time for the Chinese, Japanese, and\nKorean tokenizers.\n\n## Why\n\n`LinderaTokenStream::advance()` removes element zero from a `Vec` for\nevery token, shifting the remaining elements each time. Large text\nfields therefore incur quadratic token-movement overhead after\nsegmentation.\n\nOn the synthetic release-mode benchmark in #7065, consuming 40,000\ntokens took 1,440.572 ms before this change and 0.557 ms after it. These\nare representative single-run measurements of token consumption, with\ndictionary loading excluded and segmentation timed separately; they do\nnot represent end-to-end SQL latency.\n\n## How\n\n- Store the token vector as `std::vec::IntoIter` and advance it with\n`next()`.\n- Preserve token order, text, byte offsets, positions, and position\nlengths.\n- Add CJK metadata and partial-stream reuse regression tests, a manually\ninvoked scaling benchmark, and a performance changelog fragment.\n\nThe change is limited to the Lindera adapter and its tests; it adds no\ndependencies, SQL migrations, or index-format changes.\n\n## Tests\n\n- `cargo test -p tokenizers --release --locked`: 92 passed; 1 manual\nbenchmark ignored.\n- `cargo test -p tokenizers --release --locked --lib\nbenchmark_lindera_token_stream_scaling -- --ignored --nocapture`:\npassed; results in #7065.\n- Repository `prek` hooks passed, including:\n  - `cargo fmt --all`\n  - `cargo clippy --workspace --all-targets -- -D warnings --no-deps`\n  - `cargo check --workspace`\n- `RUSTDOCFLAGS=\"-D warnings\" cargo doc --workspace --no-deps\n--document-private-items`\n  - `check_impl_drop.py` and applicable formatting/security checks.\n- `git diff --check`: passed.\n\nValidated locally on macOS aarch64 with Rust 1.99.0 and PostgreSQL 18.6\ndevelopment headers. PostgreSQL integration/pg_regress suites were not\nrun locally; this PR relies on the repository's CI matrix for those.\n\nMaintainer follow-up: the cherry-pick-label check requires either a\n`cherry-pick/*` label or `Do Not Cherry Pick`. I do not have permission\nto label upstream PRs; please select the appropriate backport policy.\nThe Mintlify fork preview also requires approval from someone with write\naccess.",
+          "timestamp": "2026-10-28T08:02:12-07:00",
+          "tree_id": "d9340a10c557aba9f20d72fb9d067a75ff010c92",
+          "url": "https://github.com/paradedb/paradedb/commit/29e8638d707164732eb02265c0f0785d9ce83cd8"
+        },
+        "date": 1793202026433,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.729,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.773,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.778,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 14.124,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 20.415,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 22.181,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 22.958,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.786,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.85,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 19.367,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.774,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.824,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.786,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.833,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.342,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 9.384,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 10.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.342,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.29,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.932,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 19.202,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 21.665,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 22.924,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12829735631-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [

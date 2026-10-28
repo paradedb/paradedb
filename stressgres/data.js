@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793177549854,
+  "lastUpdate": 1793177741073,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -387518,6 +387518,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12719074579-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793177688428,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 512.0183762158747,
+            "unit": "median tps",
+            "extra": "avg tps: 510.8701632993, max tps: 512.5685390296844, count: 57400"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 393.11213402556314,
+            "unit": "median tps",
+            "extra": "avg tps: 392.27471947323903, max tps: 394.433862654994, count: 57400"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3730.8002572666246,
+            "unit": "median tps",
+            "extra": "avg tps: 3735.8334549838924, max tps: 3935.303608673409, count: 57400"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 509.1209138640383,
+            "unit": "median tps",
+            "extra": "avg tps: 507.92612275797376, max tps: 509.7278102684501, count: 57400"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3314.852669419445,
+            "unit": "median tps",
+            "extra": "avg tps: 3312.2839839406956, max tps: 3355.478660279207, count: 57400"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3325.2157473130237,
+            "unit": "median tps",
+            "extra": "avg tps: 3318.226904369452, max tps: 3364.3675285374093, count: 57400"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 202.7365884605569,
+            "unit": "median tps",
+            "extra": "avg tps: 202.52833371047296, max tps: 203.04153106740682, count: 57400"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 388.3271528267397,
+            "unit": "median tps",
+            "extra": "avg tps: 387.74279254240173, max tps: 388.87282655533767, count: 57400"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 611.0610215050918,
+            "unit": "median tps",
+            "extra": "avg tps: 610.3868065631517, max tps: 614.2795065007194, count: 57400"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 715.3119584742719,
+            "unit": "median tps",
+            "extra": "avg tps: 713.9888740738443, max tps: 716.0704926731676, count: 57400"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1424.5281475233173,
+            "unit": "median tps",
+            "extra": "avg tps: 1423.8192999748326, max tps: 1429.6045714569873, count: 57400"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 525.5988057612619,
+            "unit": "median tps",
+            "extra": "avg tps: 524.9793542975525, max tps: 526.5797395988242, count: 57400"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 649.8843715451459,
+            "unit": "median tps",
+            "extra": "avg tps: 648.3999934315407, max tps: 651.166149884714, count: 57400"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2368.3672558182316,
+            "unit": "median tps",
+            "extra": "avg tps: 2362.7443202325044, max tps: 2374.015616037436, count: 57400"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1878.0387138069952,
+            "unit": "median tps",
+            "extra": "avg tps: 1880.4736822153711, max tps: 2027.0541929869362, count: 57400"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.181018866825095,
+            "unit": "median tps",
+            "extra": "avg tps: 50.91397180007162, max tps: 1583.2680235273626, count: 57400"
+          }
+        ],
+        "publication_id": "12801536077-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [

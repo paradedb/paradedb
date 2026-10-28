@@ -37,6 +37,7 @@ use lindera_analysis::token_filter::korean_reading_form::KoreanReadingFormTokenF
 use lindera_analysis::tokenizer::Tokenizer as LinderaTokenizer;
 use once_cell::sync::{Lazy, OnceCell};
 use std::sync::Arc;
+use std::vec::IntoIter;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 /// The set of configurable options that distinguish one cached Lindera
@@ -226,7 +227,8 @@ impl Tokenizer for LinderaChineseTokenizer {
         let lindera_token_stream = LinderaTokenStream {
             tokens: tokenizer
                 .tokenize(text)
-                .expect("Lindera Chinese tokenizer failed"),
+                .expect("Lindera Chinese tokenizer failed")
+                .into_iter(),
             token: &mut self.token,
         };
 
@@ -247,7 +249,8 @@ impl Tokenizer for LinderaJapaneseTokenizer {
         let lindera_token_stream = LinderaTokenStream {
             tokens: tokenizer
                 .tokenize(text)
-                .expect("Lindera Japanese tokenizer failed"),
+                .expect("Lindera Japanese tokenizer failed")
+                .into_iter(),
             token: &mut self.token,
         };
 
@@ -268,7 +271,8 @@ impl Tokenizer for LinderaKoreanTokenizer {
         let lindera_token_stream = LinderaTokenStream {
             tokens: tokenizer
                 .tokenize(text)
-                .expect("Lindera Korean tokenizer failed"),
+                .expect("Lindera Korean tokenizer failed")
+                .into_iter(),
             token: &mut self.token,
         };
 
@@ -282,7 +286,7 @@ pub enum MultiLanguageTokenStream<'a> {
 }
 
 pub struct LinderaTokenStream<'a> {
-    pub tokens: Vec<LinderaToken<'a>>,
+    pub tokens: IntoIter<LinderaToken<'a>>,
     pub token: &'a mut Token,
 }
 
@@ -315,10 +319,9 @@ impl TokenStream for MultiLanguageTokenStream<'_> {
 
 impl TokenStream for LinderaTokenStream<'_> {
     fn advance(&mut self) -> bool {
-        if self.tokens.is_empty() {
+        let Some(token) = self.tokens.next() else {
             return false;
-        }
-        let token = self.tokens.remove(0);
+        };
         self.token.text = token.surface.to_string();
         self.token.offset_from = token.byte_start;
         self.token.offset_to = token.byte_end;
@@ -350,6 +353,93 @@ mod tests {
             tokens.push(token_stream.token().clone());
         }
         tokens
+    }
+
+    #[rstest]
+    #[case::chinese(
+        LinderaChineseTokenizer::new,
+        chinese_tokenizer,
+        "北京 上海，搜索引擎。"
+    )]
+    #[case::japanese(
+        LinderaJapaneseTokenizer::new,
+        japanese_tokenizer,
+        "東京 大阪、検索エンジン。"
+    )]
+    #[case::korean(LinderaKoreanTokenizer::new, korean_tokenizer, "서울 부산, 검색 엔진.")]
+    fn test_lindera_token_stream_preserves_metadata<T: Tokenizer>(
+        #[case] make_tokenizer: fn(bool) -> T,
+        #[case] source: fn(LinderaOptions) -> &'static Arc<LinderaTokenizer>,
+        #[case] text: &str,
+        #[values(false, true)] keep_whitespace: bool,
+    ) {
+        let expected = source(LinderaOptions::new(keep_whitespace, false, false))
+            .tokenize(text)
+            .unwrap();
+        let mut tokenizer = make_tokenizer(keep_whitespace);
+        let mut stream = tokenizer.token_stream(text);
+
+        for expected_token in &expected {
+            assert!(stream.advance());
+            let actual = stream.token();
+            assert_eq!(actual.text, expected_token.surface.as_ref());
+            assert_eq!(actual.offset_from, expected_token.byte_start);
+            assert_eq!(actual.offset_to, expected_token.byte_end);
+            assert_eq!(actual.position, expected_token.position);
+            assert_eq!(actual.position_length, expected_token.position_length);
+        }
+        assert!(!stream.advance());
+        assert!(!stream.advance());
+    }
+
+    #[rstest]
+    #[case::chinese(LinderaChineseTokenizer::default(), "北京 上海。")]
+    #[case::japanese(LinderaJapaneseTokenizer::default(), "東京 大阪。")]
+    #[case::korean(LinderaKoreanTokenizer::default(), "서울 부산.")]
+    fn test_lindera_tokenizer_reuse_after_partial_stream<T: Tokenizer + Clone>(
+        #[case] mut tokenizer: T,
+        #[case] text: &str,
+    ) {
+        let expected = test_helper(&mut tokenizer.clone(), text);
+        let long_text = text.repeat(1_000);
+        {
+            let mut stream = tokenizer.token_stream(&long_text);
+            for _ in 0..5 {
+                assert!(stream.advance());
+            }
+        }
+        assert!(test_helper(&mut tokenizer, " \t\n").is_empty());
+        assert_eq!(test_helper(&mut tokenizer, text), expected);
+    }
+
+    // Run explicitly to compare token-stream consumption independently of
+    // dictionary loading and segmentation. Avoid a wall-clock assertion in CI.
+    #[test]
+    #[ignore = "manual token-stream scaling benchmark; run with --release --ignored --nocapture"]
+    fn benchmark_lindera_token_stream_scaling() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut tokenizer = LinderaChineseTokenizer::new(false);
+        let _ = test_helper(&mut tokenizer, "北京");
+        for repetitions in [2_000, 4_000, 8_000] {
+            let text = "北京 上海 广州 深圳。".repeat(repetitions);
+            let started = Instant::now();
+            let mut stream = tokenizer.token_stream(&text);
+            let segmentation = started.elapsed();
+            let started = Instant::now();
+            let mut count = 0;
+            while stream.advance() {
+                black_box(stream.token());
+                count += 1;
+            }
+            let consumption = started.elapsed();
+            assert!(count > 0);
+            eprintln!(
+                "bytes={}, tokens={count}, segmentation={segmentation:?}, consumption={consumption:?}",
+                text.len()
+            );
+        }
     }
 
     #[rstest]

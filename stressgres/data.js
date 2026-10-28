@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793177221416,
+  "lastUpdate": 1793177304935,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -155453,6 +155453,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12720845030-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793177270356,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07327252532731984, max background_merging: 2.0, count: 59422"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6400869916402465, max cpu: 9.500247, count: 59422"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.61673956510215, max mem: 26.6171875, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.861243109210989, max cpu: 9.696969, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 42.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.34728614822793, max mem: 42.3515625, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55766,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55485.46491198546, max block_count: 55766.0, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.410252095183601, max segment_count: 21.0, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.063441888357204, max cpu: 33.785824, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 93.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 89.07714459185992, max mem: 95.24609375, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.676122526136653, max cpu: 9.711684, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 43.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.98651403047272, max mem: 43.03125, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.779266093953551, max cpu: 9.696969, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 42.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.339446169979134, max mem: 42.3515625, count: 59422"
+          }
+        ],
+        "publication_id": "12802655362-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

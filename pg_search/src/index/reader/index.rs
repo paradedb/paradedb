@@ -4419,7 +4419,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn vector_parallelism_depends_on_filter() {
+    fn vector_topk_is_serial_with_and_without_filters() {
         Spi::run(
             "SET max_parallel_workers_per_gather = 2;
              SET parallel_setup_cost = 0;
@@ -4434,17 +4434,26 @@ mod tests {
              INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
              RESET paradedb.global_mutable_segment_rows;"
         ).unwrap();
-        for (predicate, workers, parallel, serial_unfiltered) in [
-            ("", 2, false, true),
-            ("AND category = 'keep'", 2, true, false),
-            ("AND id > 1", 2, true, false),
-            ("AND category = 'keep'", 0, false, false),
-            ("AND id > 1", 0, false, false),
+        for (predicate, workers, expected) in [
+            ("", 2, vec![1, 2, 3, 4, 5]),
+            ("AND category = 'keep'", 2, vec![2, 4, 6, 8, 10]),
+            ("AND id > 1", 2, vec![2, 3, 4, 5, 6]),
+            ("AND id % 2 = 0", 2, vec![2, 4, 6, 8, 10]),
+            ("", 0, vec![1, 2, 3, 4, 5]),
+            ("AND category = 'keep'", 0, vec![2, 4, 6, 8, 10]),
+            ("AND id > 1", 0, vec![2, 3, 4, 5, 6]),
+            ("AND id % 2 = 0", 0, vec![2, 4, 6, 8, 10]),
         ] {
             Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
+            let query = format!(
+                "SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+            );
             let plan = Spi::get_one::<pgrx::Json>(&format!(
-                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
-            )).unwrap().unwrap().0;
+                "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, FORMAT JSON) {query}"
+            ))
+            .unwrap()
+            .unwrap()
+            .0;
             let mut nodes = vec![&plan[0]["Plan"]];
             let mut found = false;
             let mut workers = false;
@@ -4452,12 +4461,8 @@ mod tests {
                 workers |= node["Workers Planned"].as_u64().unwrap_or(0) > 0;
                 if node["Index"] == "vector_parallelism_idx" {
                     found = true;
-                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
-                    assert_eq!(
-                        node["Worker Selection"] == "Unfiltered vector TopK",
-                        serial_unfiltered,
-                        "{plan}"
-                    );
+                    assert_eq!(node["Parallel Aware"], false, "{plan}");
+                    assert_eq!(node["Worker Selection"], "Vector TopK", "{plan}");
                     if predicate.contains("category") {
                         assert!(
                             node["Tantivy Query"].to_string().contains("category"),
@@ -4471,7 +4476,11 @@ mod tests {
                 }
             }
             assert!(found, "{plan}");
-            assert_eq!(workers, parallel, "{plan}");
+            assert!(!workers, "{plan}");
+            let actual = Spi::get_one::<Vec<i64>>(&format!("SELECT ARRAY({query})"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(actual, expected, "{predicate}");
         }
     }
 

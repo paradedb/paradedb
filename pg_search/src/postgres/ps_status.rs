@@ -22,7 +22,6 @@ use std::os::raw::c_char;
 pub const INDEXING: &CStr = c"indexing";
 pub const MERGING: &CStr = c"merging";
 pub const COMMITTING: &CStr = c"committing";
-pub const GARBAGE_COLLECTING: &CStr = c"gc-ing";
 pub const FINALIZING: &CStr = c"finalizing";
 
 pub unsafe fn set_ps_display_suffix(suffix: *const c_char) {

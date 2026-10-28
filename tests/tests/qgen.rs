@@ -31,7 +31,7 @@ use tests::fixtures::querygen::windowgen::arb_window_targets;
 use tests::fixtures::querygen::{
     Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
     compare_outcome_retrying, compare_outcome_retrying_on, compare_plan_retrying,
-    generated_queries_setup,
+    compare_plan_retrying_on, generated_queries_setup,
 };
 
 use tests::fixtures::*;
@@ -1855,10 +1855,10 @@ async fn generated_pdb_agg_single_table(database: Db) {
 
         // A spec that doesn't lower leaves the candidate on Tantivy too, and the comparison
         // below would then prove nothing.
-        qgen_oracle!("qgen: generated_pdb_agg_single_table - candidate runs on DataFusion", compare_plan_retrying(
+        qgen_oracle!("qgen: generated_pdb_agg_single_table - candidate runs on DataFusion", compare_plan_retrying_on(
+            &sides,
             &tantivy_query,
             &datafusion_query,
-            &gucs,
             &pool,
             &setup_sql,
             &["DataFusion Physical Plan"],
@@ -1872,7 +1872,6 @@ async fn generated_pdb_agg_single_table(database: Db) {
             &sides,
             &tantivy_query,
             &datafusion_query,
-            &gucs,
             &pool,
             &setup_sql,
             |query, side, conn| {
@@ -2022,7 +2021,6 @@ async fn generated_rank_join(database: Db) {
                 &sides,
                 &bm25_query,
                 &bm25_query,
-                &gucs,
                 &pool,
                 &setup_sql,
                 |query, _, conn| query.fetch_result::<(i64, String)>(conn),
@@ -2042,10 +2040,10 @@ async fn generated_rank_join(database: Db) {
         {
             qgen_oracle!(
                 "qgen: generated_rank_join - RankJoinExec planned",
-                compare_plan_retrying(
+                compare_plan_retrying_on(
+                    &sides,
                     &bm25_query,
                     &bm25_query,
-                    &gucs,
                     &pool,
                     &setup_sql,
                     &["RankJoinExec"],

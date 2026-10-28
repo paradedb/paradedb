@@ -101,10 +101,11 @@
 //! - *before* `EnsureRequirements`, so `EnforceSorting` sees that `RankJoinExec` satisfies the
 //!   `SortExec(fetch=K)` ordering and replaces `SortExec(fetch=K)` with `GlobalLimitExec(fetch=K)`
 //!   (or `SortPreservingMergeExec(fetch=K)` over `LocalLimitExec(fetch=K)` when `Partitioned`);
-//! - *before* `FilterPushdown` (post-optimization phase), so
-//!   `RankJoinExec::gather_filters_for_pushdown` can push its `DynamicFilterPhysicalExpr`
-//!   (`RankLookupPhysicalExpr`) down through `ProjectionExec` and nested `RankJoinExec`s to leaf
-//!   `PgSearchScanPlan`s;
+//! - *before* `ProjectionPushdown` and `FilterPushdown` (post-optimization phase), so
+//!   `ProjectionPushdown` embeds intermediate `ProjectionExec`s into `RankJoinExec` (via
+//!   `try_swapping_with_projection`) and `RankJoinExec::gather_filters_for_pushdown` can push its
+//!   `DynamicFilterPhysicalExpr` (`RankLookupPhysicalExpr`) down through nested `RankJoinExec`s
+//!   to leaf `PgSearchScanPlan`s;
 //! - *before* `DeferredPlacementRule`, so `make_fields_eager` can pull any secondary tie-breaker
 //!   columns referenced by `RankJoinExec` into the leaf scans before final placement.
 
@@ -1025,6 +1026,37 @@ fn is_passthrough_node(node: &Arc<dyn ExecutionPlan>) -> bool {
         || node.is::<TantivyFetchExec>()
 }
 
+/// Returns `true` when `proj` is a pure alias-free distinct-column projection whose child chain
+/// terminates at an operator that embeds projections (`HashJoinExec` -> `RankJoinExec` or
+/// `VisibilityFilterExec`), so `ProjectionPushdown` will absorb `proj` before `FilterPushdown`
+/// runs.
+fn projection_will_be_embedded(proj: &ProjectionExec) -> bool {
+    let mut seen = BTreeSet::new();
+    let is_pure_column_subset = proj.expr().iter().all(|pe| {
+        pe.expr
+            .downcast_ref::<Column>()
+            .is_some_and(|c| c.name() == pe.alias && seen.insert(c.index()))
+    });
+    if !is_pure_column_subset {
+        return false;
+    }
+    let mut child = proj.input();
+    while let Some(inner_proj) = child.downcast_ref::<ProjectionExec>() {
+        if !inner_proj.expr().iter().all(|pe| {
+            pe.expr
+                .downcast_ref::<Column>()
+                .is_some_and(|c| c.name() == pe.alias)
+        }) {
+            return false;
+        }
+        child = inner_proj.input();
+    }
+    if child.is::<CoalescePartitionsExec>() {
+        child = child.children()[0];
+    }
+    child.is::<HashJoinExec>() || child.is::<VisibilityFilterExec>()
+}
+
 /// Maps `key_sets` across a pass-through single-child operator (`ProjectionExec`,
 /// `VisibilityFilterExec`, `TantivyDecodeExec`, `TantivyFetchExec`, `CoalescePartitionsExec`),
 /// requiring every mapped key to remain a plain `Column`.
@@ -1037,14 +1069,28 @@ fn map_key_sets_through_passthrough(
     }
     if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
         let proj_exprs = proj.expr();
+        let will_embed = projection_will_be_embedded(proj);
         return key_sets
             .iter()
             .map(|keys| {
                 keys.iter()
                     .map(|key| {
                         let col = key.downcast_ref::<Column>()?;
-                        let expr = &proj_exprs.get(col.index())?.expr;
-                        expr.is::<Column>().then(|| Arc::clone(expr))
+                        let pe = proj_exprs.get(col.index())?;
+                        // DataFusion's `ProjectionExec::gather_filters_for_pushdown` resolves
+                        // output columns by alias name (`Schema::index_of` / `column_with_name`),
+                        // which collides when multiple output columns share the same alias and
+                        // the `ProjectionExec` is not absorbed into its child by `ProjectionPushdown`.
+                        if !will_embed
+                            && proj_exprs
+                                .iter()
+                                .filter(|other| other.alias == pe.alias)
+                                .count()
+                                > 1
+                        {
+                            return None;
+                        }
+                        pe.expr.is::<Column>().then(|| Arc::clone(&pe.expr))
                     })
                     .collect()
             })

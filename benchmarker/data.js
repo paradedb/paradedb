@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793216625620,
+  "lastUpdate": 1793216727794,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -38729,6 +38729,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12842062956-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb78a9469c2e31e2085248cda8c1dfd919d4c129",
+          "message": "chore: Break out a lazy sorted scan. (#7003)\n\n## Ticket(s) Closed\n\n- Prework for #6898\n\n## What\n\nExtracts `BaseScan`'s iterative, expanding-window Top-K execution\n(`TopKScanExecState`) into a `LazySortConfig` mode on `PgSearchScanPlan`\n(`pg_search/src/scan/lazy_sort.rs`), and rewires `TopKScanExecState` to\nconsume `PgSearchScanPlan` as its single caller in this PR.\n\n## Why\n\nRank joins (#6898) require `PgSearchScanPlan` leaf streams that pull\nexpanding Top-K windows in sort order (`SA`) rather than scanning all\nmatching documents segment-by-segment. Breaking out the lazy sorted scan\nmode and wiring `BaseScan`'s Top-K path through it first validates the\nshared execution path (`LazySortConfig`,\n`Scanner::materialize_topk_window`, `TopKSelectivity`, and dispatch\nserialization) against the existing Top-K and window-aggregation test\nsuite before introducing `RankJoinExec`.\n\n## How\n\n- Adds `pg_search/src/scan/lazy_sort.rs` (`LazySortConfig`,\n`TopKSelectivity`, `LazySortTelemetryState`, and\n`build_lazy_sort_stream`) and integrates it into `PgSearchScanPlan`\n(`with_lazy_sort`, `EquivalenceProperties`, and MPP dispatch\nencode/decode).\n- Adds `Scanner::materialize_topk_window` in\n`pg_search/src/scan/batch_scanner.rs` to group cross-segment Top-K hits\nby segment for fast-field and visibility evaluation before interleaving\nback into Top-K order.\n- Rewrites `TopKScanExecState` in\n`pg_search/src/postgres/customscan/basescan/exec_methods/top_k.rs` to\ndrive a lazy-sorted `PgSearchScanPlan` stream and drain metrics via\n`LazySortTelemetry`.\n\n## Tests\n\nNo change to the benchmarks.",
+          "timestamp": "2026-10-28T10:51:47-07:00",
+          "tree_id": "a7a25370abe599b58c5557dfb76bc80e45001499",
+          "url": "https://github.com/paradedb/paradedb/commit/cb78a9469c2e31e2085248cda8c1dfd919d4c129"
+        },
+        "date": 1793216679956,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.503086922752356,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.844976396603716,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.396422580536296,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.50506938161254,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.073154370348135,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12844146668-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

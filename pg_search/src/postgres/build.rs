@@ -192,6 +192,16 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    if options
+        .attributes()
+        .values()
+        .filter(|attr| matches!(attr.tantivy_type, SearchFieldType::Vector(..)))
+        .count()
+        > 1
+    {
+        panic!("a ParadeDB index may only index one vector field");
+    }
+
     let vector_configs = options.vector_config();
     for (field_name, config) in vector_configs.iter().flatten() {
         validate_field_config(field_name, config, options, |t| {

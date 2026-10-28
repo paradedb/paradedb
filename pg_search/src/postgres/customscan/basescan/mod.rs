@@ -2080,11 +2080,7 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::FromHeap {
-                    ctid,
-                    score,
-                    doc_address: _,
-                } => {
+                ExecState::FromHeap { ctid, score } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible

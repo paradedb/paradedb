@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793228285055,
+  "lastUpdate": 1793228503150,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -42476,6 +42476,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12851152440-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5995dd2f89b9c6a6bcfc7d82fc35e8317aed31c",
+          "message": "fix: debug-build panics in filtered Top K queries (#6793)\n\n## What\n\nPins Tantivy to the commit that fixes two panics in debug builds for Top\nK queries with a filter.\n\n## Why\n\nIn a Top K query such as:\n\n```sql\nSELECT id FROM t WHERE body === 'alpha' AND n >= 100 AND m >= 150\nORDER BY pdb.score(id) DESC LIMIT 10;\n```\n\nBlock-WAND asked the filter about the first row containing `alpha`, even\nwhen the filter's first match was a later row. Two filters fail on that\nin debug builds:\n\n- two range conditions: `ERROR:  attempt to subtract with overflow`\n- a constant-score phrase, such as `tag ### 'red apple'::pdb.const(1)`:\n`ERROR: target (0) should be greater than or equal to doc (150)`\n\nRelease builds return correct results. See paradedb/tantivy#316 for the\ncause.\n\n## How\n\nThe pin moves from `ff6099c7`, Tantivy `main` on Oct 27, to `7abd03c1`,\nthe squash merge of paradedb/tantivy#316 and the current head of Tantivy\n`main`. Between the two it also carries paradedb/tantivy#341 (faster\nTermSet filter lookups) and paradedb/tantivy#349, which turned\n`TopDocsByVectorSimilarity` into a builder. The five vector collector\ncall sites in `pg_search/src/index/reader/index.rs` now finish with\n`build()`. The `cargoHash` in `nix/pg_search.nix` is left for the bot to\nupdate.\n\nNot cherry-picked to 0.26.x: that branch pins Tantivy before\nparadedb/tantivy#349, so this pin does not apply there.\n\n## Tests\n\n- New `filtered_topk_late_filter`: Top K with two range filters, and\nwith a constant-score phrase. In both, the filter's first match is row\n150 and `alpha` starts at row 0. It fails on `main` with the two errors\nabove and passes with this pin.\n- `cargo pgrx regress pg18 filtered_topk_late_filter` against\n`7abd03c1`: passes.\n- Pre-commit: fmt, clippy, rustdoc, machete and taplo all pass.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T01:47:18+05:30",
+          "tree_id": "ad1cd4e84f2b4b4d8f25ad94fd9e630277afee8d",
+          "url": "https://github.com/paradedb/paradedb/commit/e5995dd2f89b9c6a6bcfc7d82fc35e8317aed31c"
+        },
+        "date": 1793228454066,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 11.496,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.763,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.725,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 11.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.572,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.764,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 11.381,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.608,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.561,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 10.074,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.595,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 10.101,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.476,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.792,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.983,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 7.398,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 8.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 8.389,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.783,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 8.48,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.812,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 9.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 10.114,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 10.447,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12849479078-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [

@@ -93,3 +93,15 @@ pub(crate) trait CustomScanNodeExt: NodeExt {
 }
 
 impl<T: NodeExt> CustomScanNodeExt for T {}
+
+pub unsafe fn query_tree_needs_const_projections(mut root: *mut pg_sys::PlannerInfo) -> bool {
+    while let Some(r) = unsafe { root.as_ref() } {
+        if let Some(parse) = unsafe { r.parse.as_ref() } {
+            if parse.targetList.maybe_needs_const_projections() {
+                return true;
+            }
+        }
+        root = r.parent_root;
+    }
+    false
+}

@@ -24,7 +24,7 @@ pub mod projections;
 mod scan_state;
 pub(crate) mod telemetry;
 
-use crate::postgres::customscan::node::CustomScanNodeExt;
+use crate::postgres::customscan::node::{CustomScanNodeExt, query_tree_needs_const_projections};
 use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
@@ -933,9 +933,9 @@ impl CustomScan for BaseScan {
 
             let root = builder.args().root;
 
-            // quick look at the target list to see if we might need to do our const projections
-            let target_list = (*(*builder.args().root).parse).targetList;
-            let maybe_needs_const_projections = target_list.maybe_needs_const_projections();
+            // quick look at the target list to see if we might need to do our const projections.
+            // Check both current root and any parent roots (e.g. under row-level security).
+            let maybe_needs_const_projections = query_tree_needs_const_projections(root);
 
             //
             // look for quals we can support.  we do this first so that we can get out early if this

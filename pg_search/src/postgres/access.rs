@@ -14,6 +14,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{PgSqlErrorCode, pg_sys};
+use std::ffi::CStr;
 
 /// A `regclass` argument without pgrx's implicit index lock.
 ///
@@ -116,10 +117,21 @@ impl LockedIndexRelations {
             // lock, lock the table first, then recheck the association.
             let heap_oid = pg_sys::IndexGetRelation(index_oid, true);
             if heap_oid == pg_sys::InvalidOid {
+                let name = pg_sys::get_rel_name(index_oid);
+                if name.is_null() {
+                    pg_sys::ereport!(
+                        ERROR,
+                        PgSqlErrorCode::ERRCODE_UNDEFINED_TABLE,
+                        format!("relation with OID {} does not exist", index_oid.to_u32())
+                    );
+                }
                 pg_sys::ereport!(
                     ERROR,
                     PgSqlErrorCode::ERRCODE_WRONG_OBJECT_TYPE,
-                    "expected a ParadeDB index"
+                    format!(
+                        "\"{}\" is not an index",
+                        CStr::from_ptr(name).to_string_lossy()
+                    )
                 );
             }
             let heap = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
@@ -135,7 +147,7 @@ impl LockedIndexRelations {
                 pg_sys::ereport!(
                     ERROR,
                     PgSqlErrorCode::ERRCODE_WRONG_OBJECT_TYPE,
-                    "expected a ParadeDB index"
+                    format!("\"{}\" is not a ParadeDB index", index.name())
                 );
             }
             Self { index, heap }

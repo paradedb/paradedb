@@ -94,7 +94,8 @@ modelBuilder.Entity<MockItem>()
 <Note>
   When an index includes a vector field, `partition_by` defaults to that field
   unless explicitly set. Vectors are grouped into coarse clusters during `CREATE
-  INDEX` and `REINDEX`.
+  INDEX` and `REINDEX`. Partition sizes are balanced approximately from a
+  sample, so exact sizes can vary.
 </Note>
 
 Partitioning an index provides two key benefits:

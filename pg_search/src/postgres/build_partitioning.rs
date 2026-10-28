@@ -110,6 +110,7 @@ pub(super) struct VectorPartitioning {
     dimensions: usize,
     metric: VectorMetric,
     centroids: Vec<f32>,
+    offsets: Vec<f64>,
 }
 
 impl VectorPartitioning {
@@ -174,7 +175,7 @@ impl VectorPartitioning {
                 },
             );
             let rows = data.len() / dimensions;
-            clusterer.train_owned(data, rows)
+            clusterer.train(&data, rows)
         } else {
             Vec::new()
         };
@@ -182,42 +183,159 @@ impl VectorPartitioning {
             centroids.iter().all(|v| v.is_finite()),
             "vector partition training produced non-finite centroids"
         );
-        Ok(Self {
+        let mut model = Self {
             field,
             dimensions,
             metric,
+            offsets: vec![0.0; centroids.len() / dimensions],
             centroids,
-        })
+        };
+        model.balance(&data);
+        Ok(model)
+    }
+
+    fn scores<'a>(&'a self, vector: &'a [f32]) -> impl Iterator<Item = f64> + 'a {
+        let norm = if self.metric == VectorMetric::Cosine {
+            vector
+                .iter()
+                .map(|&v| f64::from(v).powi(2))
+                .sum::<f64>()
+                .sqrt()
+        } else {
+            1.0
+        };
+        self.centroids
+            .chunks_exact(self.dimensions)
+            .map(move |centroid| {
+                if self.metric == VectorMetric::L2 {
+                    return -f64::from(l2_squared(vector, centroid));
+                }
+                let mut sums = [0.0; 8];
+                let (rows, row_tail) = vector.as_chunks::<8>();
+                let (centers, center_tail) = centroid.as_chunks::<8>();
+                for (row, center) in rows.iter().zip(centers) {
+                    for lane in 0..8 {
+                        sums[lane] += f64::from(row[lane]) * f64::from(center[lane]);
+                    }
+                }
+                let tail: f64 = row_tail
+                    .iter()
+                    .zip(center_tail)
+                    .map(|(&a, &b)| f64::from(a) * f64::from(b))
+                    .sum();
+                (sums.iter().sum::<f64>() + tail) / norm
+            })
+    }
+
+    fn assign(&self, scores: impl Iterator<Item = f64>) -> usize {
+        scores
+            .zip(&self.offsets)
+            .enumerate()
+            .map(|(partition, (score, offset))| (partition, score + offset))
+            .min_by(|a, b| b.1.total_cmp(&a.1))
+            .map_or(0, |(partition, _)| partition)
+    }
+
+    fn balance(&mut self, data: &[f32]) {
+        let partitions = self.offsets.len();
+        if partitions < 2 {
+            return;
+        }
+        let mut scores = Vec::with_capacity(data.len() / self.dimensions * partitions);
+        for vector in data
+            .chunks_exact(self.dimensions)
+            .filter(|vector| self.metric == VectorMetric::L2 || vector.iter().any(|&v| v != 0.0))
+        {
+            check_for_interrupts!();
+            scores.extend(self.scores(vector));
+        }
+        let rows = scores.len() / partitions;
+        if rows < partitions || scores.iter().any(|score| !score.is_finite()) {
+            return;
+        }
+        let mut assignments: Vec<_> = scores
+            .chunks_exact(partitions)
+            .map(|row| self.assign(row.iter().copied()))
+            .collect();
+        let mut counts = vec![0usize; partitions];
+        for &partition in &assignments {
+            counts[partition] += 1;
+        }
+        let mut best_imbalance: usize = counts.iter().map(|count| count * count).sum();
+        let mut best_offsets = self.offsets.clone();
+        let mut alternatives = vec![0; rows];
+        let mut margins = vec![0.0; rows];
+        let tolerance = (rows / partitions).div_ceil(20).max(1);
+        for _ in 0..64 {
+            if counts.iter().enumerate().all(|(partition, &count)| {
+                count.abs_diff(rows / partitions + usize::from(partition < rows % partitions))
+                    <= tolerance
+            }) {
+                break;
+            }
+            for partition in 0..partitions {
+                check_for_interrupts!();
+                for (i, row) in scores.chunks_exact(partitions).enumerate() {
+                    let other = if assignments[i] == partition {
+                        row.iter()
+                            .zip(&self.offsets)
+                            .enumerate()
+                            .filter(|(candidate, _)| *candidate != partition)
+                            .map(|(candidate, (score, offset))| (candidate, score + offset))
+                            .min_by(|a, b| b.1.total_cmp(&a.1))
+                            .unwrap()
+                            .0
+                    } else {
+                        assignments[i]
+                    };
+                    alternatives[i] = other;
+                    margins[i] = row[other] + self.offsets[other] - row[partition];
+                }
+                let target = rows / partitions + usize::from(partition < rows % partitions);
+                let (lower, upper, _) = margins.select_nth_unstable_by(target, f64::total_cmp);
+                let lower = lower.iter().copied().max_by(f64::total_cmp).unwrap();
+                // The midpoint puts the target number of sampled rows inside this cell.
+                self.offsets[partition] = lower * 0.5 + *upper * 0.5;
+                for (i, row) in scores.chunks_exact(partitions).enumerate() {
+                    let other = alternatives[i];
+                    let ordering = (row[partition] + self.offsets[partition])
+                        .total_cmp(&(row[other] + self.offsets[other]));
+                    assignments[i] = if ordering.is_gt() || (ordering.is_eq() && partition < other)
+                    {
+                        partition
+                    } else {
+                        other
+                    };
+                }
+            }
+            let mean = self.offsets.iter().sum::<f64>() / partitions as f64;
+            for offset in &mut self.offsets {
+                *offset -= mean;
+            }
+            counts.fill(0);
+            for (row, assignment) in scores.chunks_exact(partitions).zip(&mut assignments) {
+                *assignment = self.assign(row.iter().copied());
+                counts[*assignment] += 1;
+            }
+            let imbalance = counts.iter().map(|count| count * count).sum();
+            if imbalance < best_imbalance {
+                best_imbalance = imbalance;
+                best_offsets.clone_from(&self.offsets);
+            }
+        }
+        // Repeated vectors can make equal-sized cells impossible; keep the best fit.
+        self.offsets = best_offsets;
     }
 
     fn route(&self, vector: Option<&[f32]>) -> usize {
         let Some(vector) = vector else { return 0 };
         assert_eq!(vector.len(), self.dimensions);
-        self.centroids
-            .chunks_exact(self.dimensions)
-            .enumerate()
-            .map(|(partition, centroid)| {
-                let distance = match self.metric {
-                    VectorMetric::L2 => l2_squared(vector, centroid),
-                    // Angular training keeps centroids on the unit sphere; the row norm
-                    // is constant across centroids and does not affect its assignment.
-                    VectorMetric::Cosine | VectorMetric::InnerProduct => {
-                        let mut sums = [0.0; 8];
-                        let (rows, row_tail) = vector.as_chunks::<8>();
-                        let (centers, center_tail) = centroid.as_chunks::<8>();
-                        for (row, center) in rows.iter().zip(centers) {
-                            for lane in 0..8 {
-                                sums[lane] += row[lane] * center[lane];
-                            }
-                        }
-                        let tail: f32 = row_tail.iter().zip(center_tail).map(|(a, b)| a * b).sum();
-                        -(sums.iter().sum::<f32>() + tail)
-                    }
-                };
-                (partition, distance)
-            })
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map_or(0, |(partition, _)| partition)
+        if self.centroids.is_empty()
+            || (self.metric != VectorMetric::L2 && vector.iter().all(|&v| v == 0.0))
+        {
+            return 0;
+        }
+        self.assign(self.scores(vector))
     }
 }
 
@@ -250,6 +368,7 @@ pub(super) fn plan_partition_boundaries(
                 dimensions,
                 metric,
                 centroids: Vec::new(),
+                offsets: Vec::new(),
             }),
             None => BuildPartitioning::Range(KdTree::unpartitioned(partition_by)),
         }));
@@ -260,7 +379,9 @@ pub(super) fn plan_partition_boundaries(
         (budget
             / dimensions
                 .max(1)
-                .saturating_mul(std::mem::size_of::<f32>() * 4))
+                .saturating_mul(std::mem::size_of::<f32>() * 4)
+                .saturating_add(target_partitions.saturating_mul(std::mem::size_of::<f64>()))
+                .saturating_add(2 * std::mem::size_of::<usize>() + std::mem::size_of::<f64>()))
         .clamp(1, MAX_SAMPLE_ROWS)
     });
     let sample = unsafe {
@@ -746,6 +867,160 @@ mod tests {
         )
         .unwrap();
         assert_eq!(BuildPartitioning::Vector(model).partition_count(), 1);
+    }
+
+    #[pg_test]
+    fn vector_partition_balances_skewed_sample() {
+        for metric in [
+            VectorMetric::L2,
+            VectorMetric::Cosine,
+            VectorMetric::InnerProduct,
+        ] {
+            let data: Vec<_> = (0..1200)
+                .flat_map(|i| {
+                    let angle = if i < 1000 {
+                        i as f32 * 0.0006
+                    } else {
+                        1.2 + (i - 1000) as f32 * 0.0015
+                    };
+                    [angle.cos(), angle.sin()]
+                })
+                .collect();
+            for target in [2, 3, 8] {
+                let model = VectorPartitioning::train(
+                    FieldName::from("emb"),
+                    2,
+                    metric,
+                    data.as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|vector| PartitionPoint::Vector(Some(vector.to_vec())))
+                        .collect(),
+                    target,
+                )
+                .unwrap();
+                let mut unbalanced = model.clone();
+                unbalanced.offsets.fill(0.0);
+                let mut before = vec![0usize; target];
+                let mut after = vec![0usize; target];
+                for vector in data.as_chunks::<2>().0 {
+                    before[unbalanced.route(Some(vector))] += 1;
+                    after[model.route(Some(vector))] += 1;
+                }
+                if target == 2 {
+                    assert!(
+                        before.iter().max().unwrap() > &900,
+                        "{metric:?}: {before:?}"
+                    );
+                }
+                assert!(
+                    after
+                        .iter()
+                        .all(|&count| count.abs_diff(1200 / target)
+                            <= (1200 / target).div_ceil(20)),
+                    "{metric:?}: {after:?}"
+                );
+                let transported: VectorPartitioning =
+                    postcard::from_bytes(&postcard::to_allocvec(&model).unwrap()).unwrap();
+                let mut heldout = vec![0usize; target];
+                for i in 0..1200 {
+                    let angle = if i < 1000 {
+                        (i as f32 + 0.25) * 0.0006
+                    } else {
+                        1.2 + (i as f32 - 999.75) * 0.0015
+                    };
+                    let vector = [angle.cos(), angle.sin()];
+                    let partition = transported.route(Some(&vector));
+                    assert_eq!(partition, model.route(Some(&vector)));
+                    heldout[partition] += 1;
+                    if metric == VectorMetric::Cosine {
+                        for scale in [0.001, 1000.0, 1.0e30] {
+                            assert_eq!(partition, model.route(Some(&vector.map(|v| v * scale))));
+                        }
+                    }
+                }
+                assert!(
+                    heldout
+                        .iter()
+                        .all(|&count| count.abs_diff(1200 / target)
+                            <= (1200 / target).div_ceil(20) + 2),
+                    "{metric:?}: {heldout:?}"
+                );
+            }
+        }
+    }
+
+    #[pg_test]
+    fn vector_partition_offsets_preserve_metric_and_degenerate_routes() {
+        let mut model = VectorPartitioning {
+            field: FieldName::from("emb"),
+            dimensions: 2,
+            metric: VectorMetric::Cosine,
+            centroids: vec![1.0, 0.0, 0.0, 1.0],
+            offsets: vec![0.0, 0.3],
+        };
+        assert_eq!(model.route(Some(&[0.8, 0.6])), 1);
+        assert_eq!(model.route(Some(&[8.0, 6.0])), 1);
+        assert_eq!(model.route(Some(&[0.0, 0.0])), 0);
+        assert_eq!(model.route(None), 0);
+        model.metric = VectorMetric::InnerProduct;
+        assert_eq!(model.route(Some(&[0.8, 0.6])), 1);
+        assert_eq!(model.route(Some(&[8.0, 6.0])), 0);
+        model.metric = VectorMetric::L2;
+        model.centroids = vec![0.0, 0.0, 1.0, 0.0];
+        assert_eq!(model.route(Some(&[0.4, 0.0])), 1);
+        assert_eq!(model.route(Some(&[0.1, 0.0])), 0);
+
+        model.metric = VectorMetric::Cosine;
+        model.centroids = vec![1.0, 0.0, 0.0, 1.0];
+        model.offsets.fill(0.0);
+        let data: Vec<_> = (0..1000)
+            .flat_map(|i| if i < 900 { [1.0, 0.0] } else { [0.0, 1.0] })
+            .collect();
+        model.balance(&data);
+        assert_eq!(model.offsets, vec![0.0, 0.0]);
+        assert_eq!(model.route(Some(&[1.0, 0.0])), 0);
+        assert_eq!(model.route(Some(&[0.0, 1.0])), 1);
+    }
+
+    #[pg_test]
+    fn vector_partitions_balance_skewed_population() {
+        Spi::run(r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE TABLE balanced_vector_src AS
+            SELECT i AS id, ARRAY[cos(angle) * magnitude, sin(angle) * magnitude]::vector(2) AS emb
+            FROM (
+                SELECT i, CASE WHEN i <= 7200 THEN i * 0.00008 ELSE 1.3 + (i - 7200) * 0.00025 END AS angle,
+                       CASE WHEN i % 2 = 0 THEN 0.01 ELSE 100 END AS magnitude
+                FROM generate_series(1, 8000) i
+            ) sample;
+            INSERT INTO balanced_vector_src VALUES (8001, NULL), (8002, '[0,0]');
+            SET max_parallel_workers = 8;
+        "#).unwrap();
+        for workers in [0, 2] {
+            Spi::run(&format!("SET max_parallel_maintenance_workers = {workers}")).unwrap();
+            Spi::run(r#"
+                CREATE INDEX balanced_vector_idx ON balanced_vector_src USING paradedb (id, emb vector_cosine_ops)
+                WITH (target_segment_count = 2);
+            "#).unwrap();
+            for rebuild in [false, true] {
+                if rebuild {
+                    Spi::run("REINDEX INDEX balanced_vector_idx").unwrap();
+                }
+                assert_eq!(Spi::get_one::<bool>(r#"
+                    SELECT count(*) = 2 AND sum(num_docs) = 8002 AND min(num_docs) >= 3800 AND max(num_docs) <= 4202
+                    FROM paradedb.index_info('balanced_vector_idx')
+                "#).unwrap(), Some(true));
+                assert_eq!(
+                    Spi::get_one::<i64>(
+                        "SELECT count(*) FROM balanced_vector_src WHERE id @@@ pdb.all()"
+                    )
+                    .unwrap(),
+                    Some(8002)
+                );
+            }
+            Spi::run("DROP INDEX balanced_vector_idx").unwrap();
+        }
     }
 
     #[pg_test]

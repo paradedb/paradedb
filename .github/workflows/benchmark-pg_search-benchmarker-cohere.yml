@@ -177,22 +177,19 @@ jobs:
           (cd pg_search && cargo pgrx start pg18)
 
       - name: Refresh pg_search and build index
-        env:
-          LC_ALL: C
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
             -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
-            -f benchmarks/datasets/cohere/indexes/pg_search.sql \
+          cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
+          pdbench build --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
+            --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
+            --force-rebuild \
             | tee benchmark-artifacts/index-build.log
-          psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
-            -c "SELECT json_build_object(
-                  'index_bytes', pg_relation_size('cohere_wiki_bm25_idx'),
-                  'segments', count(*), 'indexed_docs', sum(num_docs))
-                FROM paradedb.index_info('cohere_wiki_bm25_idx');" \
-            > benchmark-artifacts/index-stats.json
-          python3 benchmarks/cohere/index_metrics.py benchmark-artifacts
+          jq '.data | [
+            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
+          ]' benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \

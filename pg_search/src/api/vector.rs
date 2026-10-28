@@ -19,14 +19,18 @@
 
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
+use crate::postgres::access::IndexOid;
 use crate::postgres::catalog::{OidExt, is_pgvector_oid};
+#[cfg(any(test, feature = "pg_test"))]
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
 use anyhow::{Context, Result, ensure};
 #[cfg(feature = "pg_test")]
 use pgrx::JsonB;
+#[cfg(feature = "pg_test")]
+use pgrx::PgRelation;
 use pgrx::prelude::*;
-use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
+use pgrx::{AnyArray, Spi, pg_sys};
 #[cfg(feature = "pg_test")]
 use tantivy::vector::diagnostics::{
     VectorAuditMoments, VectorErrorAuditMeasurements, VectorErrorConeAuditMeasurements,
@@ -131,7 +135,7 @@ AS 'MODULE_PATHNAME', 'vector_estimator_info_internal_wrapper';
 "#
 )]
 fn vector_estimator_info_internal(
-    index: Option<PgRelation>,
+    index: Option<IndexOid>,
     field: Option<String>,
     queries: Option<AnyArray>,
 ) -> Result<
@@ -149,11 +153,10 @@ fn vector_estimator_info_internal(
 > {
     let index = index.context("index must not be NULL")?;
     let field = field.context("field must not be NULL")?;
-    let index_oid = index.oid();
-    drop(index);
-
-    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    // Preserve the catalog-only parent diagnostic before opening index data.
     reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
+    let access = index.read();
+    let index = access.index().clone();
     ensure!(
         unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX
             && unsafe { (*index.rd_rel).relam.is_paradedb_am() },

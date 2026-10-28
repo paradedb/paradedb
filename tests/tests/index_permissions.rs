@@ -172,3 +172,84 @@ fn partitioned_index_metadata_checks_the_requested_table(mut conn: PgConnection)
     "RESET ROLE".execute(&mut conn);
     format!("DROP SCHEMA partition_permissions CASCADE; DROP ROLE {role}").execute(&mut conn);
 }
+
+#[rstest]
+fn standalone_index_reads_honor_definer_and_invoker(mut conn: PgConnection) {
+    let owner = format!("index_owner_{}", uuid::Uuid::new_v4().simple());
+    let caller = format!("index_caller_{}", uuid::Uuid::new_v4().simple());
+    // Transactional role creation also cleans up if an assertion fails.
+    format!(
+        r#"
+        BEGIN;
+        CREATE ROLE {owner} NOSUPERUSER NOBYPASSRLS NOINHERIT;
+        CREATE ROLE {caller} NOSUPERUSER NOBYPASSRLS NOINHERIT;
+        CREATE SCHEMA index_identity AUTHORIZATION {owner};
+        GRANT USAGE ON SCHEMA index_identity TO {caller};
+        CREATE TABLE index_identity.secrets(id integer PRIMARY KEY, email text);
+        INSERT INTO index_identity.secrets VALUES (1, 'first'), (2, 'second');
+        CREATE INDEX secrets_idx ON index_identity.secrets
+            USING paradedb (id, (email::pdb.literal));
+        ALTER TABLE index_identity.secrets OWNER TO {owner};
+        ALTER TABLE index_identity.secrets ENABLE ROW LEVEL SECURITY;
+        CREATE FUNCTION index_identity.definer_segments() RETURNS bigint
+        LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+          SELECT coalesce(sum(num_docs), 0)::bigint
+          FROM pdb.index_segments('index_identity.secrets_idx'::regclass)
+        $$;
+        CREATE FUNCTION index_identity.invoker_segments() RETURNS bigint
+        LANGUAGE sql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
+          SELECT coalesce(sum(num_docs), 0)::bigint
+          FROM pdb.index_segments('index_identity.secrets_idx'::regclass)
+        $$;
+        ALTER FUNCTION index_identity.definer_segments() OWNER TO {owner};
+        ALTER FUNCTION index_identity.invoker_segments() OWNER TO {owner};
+        REVOKE EXECUTE ON FUNCTION index_identity.definer_segments(),
+            index_identity.invoker_segments() FROM PUBLIC;
+        GRANT EXECUTE ON FUNCTION index_identity.definer_segments(),
+            index_identity.invoker_segments() TO {caller};
+        "#
+    )
+    .execute(&mut conn);
+    let ownership = "SELECT count(*), bool_and(p.proowner = c.relowner)
+        FROM pg_proc p JOIN pg_class c ON c.oid = 'index_identity.secrets'::regclass
+        WHERE p.pronamespace = 'index_identity'::regnamespace"
+        .fetch_one::<(i64, bool)>(&mut conn);
+    assert_eq!(ownership, (2, true));
+    let (privileged_owner,) =
+        format!("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = '{owner}'")
+            .fetch_one::<(bool,)>(&mut conn);
+    assert!(!privileged_owner);
+
+    format!("SET ROLE {caller}").execute(&mut conn);
+    let privileges = "SELECT
+        has_table_privilege(current_user, 'index_identity.secrets', 'SELECT'),
+        pg_has_role(current_user, 'pg_stat_scan_tables', 'USAGE')"
+        .fetch_one::<(bool, bool)>(&mut conn);
+    assert_eq!(privileges, (false, false));
+    let (docs,) = "SELECT index_identity.definer_segments()".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(docs, 2);
+
+    // Recover each expected error without aborting the fixture transaction.
+    for query in [
+        "SELECT index_identity.invoker_segments()",
+        "SELECT * FROM pdb.index_segments('index_identity.secrets_idx')",
+        "SELECT email FROM index_identity.secrets",
+    ] {
+        "SAVEPOINT denied_call".execute(&mut conn);
+        assert_denied(&mut conn, &[query.into()]);
+        "ROLLBACK TO SAVEPOINT denied_call".execute(&mut conn);
+    }
+    "RESET ROLE; ALTER TABLE index_identity.secrets FORCE ROW LEVEL SECURITY".execute(&mut conn);
+    format!("SET ROLE {caller}").execute(&mut conn);
+    "SAVEPOINT forced_rls".execute(&mut conn);
+    let err = "SELECT index_identity.definer_segments()"
+        .execute_result(&mut conn)
+        .expect_err("a non-superuser definer must honor FORCE RLS");
+    let db_err = err.as_database_error().expect("PostgreSQL error");
+    assert_eq!(db_err.code().as_deref(), Some("42501"));
+    assert_eq!(
+        db_err.message(),
+        "direct index reads are not supported when row-level security applies to table index_identity.secrets"
+    );
+    "ROLLBACK TO SAVEPOINT forced_rls; RESET ROLE; ROLLBACK".execute(&mut conn);
+}

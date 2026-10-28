@@ -1,0 +1,20 @@
+---
+header: breaking
+title: Standalone index access permissions
+---
+
+Standalone index reads now check permissions on the backing table. Content-reading APIs,
+including `paradedb.aggregate()`, require table-level `SELECT` and reject calls when row-level
+security applies to the effective caller.
+
+`paradedb.schema()`, `paradedb.index_info()`, `pdb.index_segments()`, and the
+statistics returned by `pdb.indexes()`
+also accept callers with the privileges of `pg_stat_scan_tables`, inherited by `pg_monitor`.
+These trusted monitoring roles can inspect whole-index metadata and document counts without
+table `SELECT`, including counts across rows hidden by RLS. Other callers still need schema
+`USAGE`, table-level `SELECT`, and no active RLS; inventory omits indexes they cannot inspect.
+The monitoring privilege does not authorize document reads, verification, or maintenance.
+
+Other diagnostics, including `merge_info()`, `vacuum_info()`, the layer-size functions,
+`index_created_at()`, and `index_created_by()`, require schema `USAGE`, table-level
+`SELECT`, and no active RLS. Monitoring-role membership alone does not authorize them.

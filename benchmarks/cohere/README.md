@@ -12,7 +12,8 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 workers. Both tools use the same database and index throughout a run.
 
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
-   extension, build `datasets/cohere/indexes/pg_search.sql`, and vacuum as before.
+   extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
+   pdbench records build time, index size, and segment diagnostics before vacuum.
    Snapshot generation continues to use `datasets/cohere/config.toml` and
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
@@ -29,10 +30,11 @@ workers. Both tools use the same database and index throughout a run.
    selected max_probe and all fixed search settings apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
-   Wikipedia/StackExchange publisher posts p50/p95/p99 and QPS with baseline
-   comparisons and dashboard links. Recall, max_probe, and mean
-   whole-query shared buffer hits/reads appear above those results. Buffer
-   diagnostics come from pdbench's separate EXPLAIN pass over all 100 vectors.
+   Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
+   and index size with baseline comparisons and dashboard links. Recall,
+   max_probe, and mean whole-query shared buffer hits/reads appear above those
+   results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
+   100 vectors.
 
 The workflow runs on main and via `benchmarks`, `benchmark-cohere-pg_search`, or
 `benchmark-benchmarker-cohere`. Manual runs can select a size, pg_search commit,
@@ -44,11 +46,13 @@ from its snapshot.
 
 Results begin new `benchmarker cohere-1m` and `benchmarker cohere-10m` histories.
 The old server-time samples are not comparable to k6's client-observed latency
-and throughput. PR runs compare with main and do not update its baseline.
+and throughput. Index build time (minutes) and size (MiB) have a separate
+`benchmarker cohere-<size> (index build)` history. Its first run has no previous
+baseline; subsequent PR runs compare with main and do not update its baseline.
 
-Artifacts retain index-build logs, complete pdbench search reports (including all
-sweep points, recall and buffer diagnostics), selected operating points, query
-vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in
+Artifacts retain index-build logs, pdbench build and search reports (including
+all sweep points, recall and buffer diagnostics), selected operating points,
+query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in
 on PRs; the small handoff tests can be run with:
 
 ```sh

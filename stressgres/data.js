@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793226518122,
+  "lastUpdate": 1793226670670,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -471229,6 +471229,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12800768868-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793226631929,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.74410497141868,
+            "unit": "median tps",
+            "extra": "avg tps: 57.63717710344977, max tps: 525.733624322596, count: 58740"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.42077069125176,
+            "unit": "median tps",
+            "extra": "avg tps: 31.98674187991595, max tps: 348.6412974703317, count: 58740"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.92915952717173,
+            "unit": "median tps",
+            "extra": "avg tps: 133.96293291915322, max tps: 1211.2321881282837, count: 58740"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.527580370045197,
+            "unit": "median tps",
+            "extra": "avg tps: 31.007411098051332, max tps: 272.6920970994263, count: 58740"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.812483572517266,
+            "unit": "median tps",
+            "extra": "avg tps: 59.901271078261516, max tps: 550.3014954127224, count: 58740"
+          }
+        ],
+        "publication_id": "12849394227-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [

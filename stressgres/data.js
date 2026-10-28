@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793226229243,
+  "lastUpdate": 1793226407258,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -364433,6 +364433,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12799757462-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793226357762,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 13.274512069374724,
+            "unit": "median tps",
+            "extra": "avg tps: 11.821721728090974, max tps: 15.040763860838622, count: 59129"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.234728386340779,
+            "unit": "median tps",
+            "extra": "avg tps: 2.261948370730562, max tps: 2.5912767203681564, count: 59129"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 187.09616186887135,
+            "unit": "median tps",
+            "extra": "avg tps: 198.32881217896323, max tps: 453.5690067924077, count: 59129"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 185.55280849430503,
+            "unit": "median tps",
+            "extra": "avg tps: 196.8057803025102, max tps: 508.7839775877421, count: 59129"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 182.66719609424254,
+            "unit": "median tps",
+            "extra": "avg tps: 194.43487680722905, max tps: 399.5474273611613, count: 59129"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 175.5431922770136,
+            "unit": "median tps",
+            "extra": "avg tps: 188.72709408727903, max tps: 466.4765904137561, count: 59129"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 188.24018604008293,
+            "unit": "median tps",
+            "extra": "avg tps: 198.80158190328385, max tps: 400.9932775691089, count: 59129"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 172.42103162676273,
+            "unit": "median tps",
+            "extra": "avg tps: 182.14939799654746, max tps: 356.82378843550174, count: 59129"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 195.42578504365432,
+            "unit": "median tps",
+            "extra": "avg tps: 208.2212117277659, max tps: 373.361708158392, count: 59129"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 180.69481261680767,
+            "unit": "median tps",
+            "extra": "avg tps: 189.99540945473868, max tps: 323.8371980892137, count: 59129"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 172.58290289537473,
+            "unit": "median tps",
+            "extra": "avg tps: 186.84235565460608, max tps: 374.47227532655734, count: 59129"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 187.11421599178914,
+            "unit": "median tps",
+            "extra": "avg tps: 196.91231114064783, max tps: 339.9176003042828, count: 59129"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 184.86851679191437,
+            "unit": "median tps",
+            "extra": "avg tps: 196.90437811426096, max tps: 428.074913226858, count: 59129"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 171.04344412809752,
+            "unit": "median tps",
+            "extra": "avg tps: 184.83863360884015, max tps: 376.9215683121312, count: 59129"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 184.79820701741284,
+            "unit": "median tps",
+            "extra": "avg tps: 193.08566691837305, max tps: 528.8886617361057, count: 59129"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 184.60670949500735,
+            "unit": "median tps",
+            "extra": "avg tps: 201.90871189173373, max tps: 350.00311900024633, count: 59129"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 169.756607633089,
+            "unit": "median tps",
+            "extra": "avg tps: 182.2498440390312, max tps: 460.6069159391457, count: 59129"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 184.04816711937377,
+            "unit": "median tps",
+            "extra": "avg tps: 196.86152922749463, max tps: 415.42254741064806, count: 59129"
+          }
+        ],
+        "publication_id": "12849357309-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [

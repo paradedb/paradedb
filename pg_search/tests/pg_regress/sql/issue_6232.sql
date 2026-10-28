@@ -43,6 +43,19 @@ SELECT COUNT(*)::text || category AS mixed, category
 FROM mixed_check WHERE mixed_check @@@ paradedb.all()
 GROUP BY category ORDER BY category;
 
+-- category is not a grouping column. Postgres accepts it because id is the
+-- primary key, so category is functionally dependent on id. The mixed
+-- expression must return one row per id (1 || category), matching native
+-- aggregation. Grouping only by category would collapse the two 'a' rows.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, COUNT(*)::text || category AS mixed
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY id ORDER BY id;
+
+SELECT id, COUNT(*)::text || category AS mixed
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY id ORDER BY id;
+
 -- Grouping by an indexed expression. The slot already holds reverse(category), so the
 -- mixed expression must read it from the slot rather than apply reverse() to it again.
 CREATE TABLE mixed_rev (id integer PRIMARY KEY, category text);
@@ -81,6 +94,15 @@ GROUP BY category ORDER BY 1;
 
 -- Same queries without the custom scan, as the reference.
 SET paradedb.enable_aggregate_custom_scan = off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, COUNT(*)::text || category AS mixed
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY id ORDER BY id;
+
+SELECT id, COUNT(*)::text || category AS mixed
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY id ORDER BY id;
 
 SELECT reverse(category), COUNT(*)::text || reverse(category) AS mixed
 FROM mixed_rev WHERE id @@@ pdb.all()

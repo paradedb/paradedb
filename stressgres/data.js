@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793225383477,
+  "lastUpdate": 1793225493196,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -155601,6 +155601,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12802655362-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793225444762,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07385780395456458, max background_merging: 2.0, count: 59425"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.621421677989142, max cpu: 9.6725445, count: 59425"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.65581825830879, max mem: 25.65625, count: 59425"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.907663590099064, max cpu: 9.653092, count: 59425"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 45.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.13205162757678, max mem: 45.1328125, count: 59425"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55750,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55471.11155237695, max block_count: 55750.0, count: 59425"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.385729911653344, max segment_count: 21.0, count: 59425"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.645319,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.13702861645889, max cpu: 33.853905, count: 59425"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 96.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.38939708666386, max mem: 96.59765625, count: 59425"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.69398007596062, max cpu: 9.402546, count: 59425"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 45.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.25314472023559, max mem: 45.25390625, count: 59425"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.749238306802268, max cpu: 9.585621, count: 59425"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 45.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.12445808792596, max mem: 45.1328125, count: 59425"
+          }
+        ],
+        "publication_id": "12851617971-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

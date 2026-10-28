@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793226758400,
+  "lastUpdate": 1793226925408,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -428897,6 +428897,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12800337189-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl",
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "189e0971e2feafc6265644847b9e7cc73be0a510",
+          "message": "fix: rewrite grouping Vars in mixed Tantivy AggregateScan projections (#6234)\n\n## Summary\n- On the Tantivy AggregateScan path, mixed output expressions like\n`COUNT(*)::text || category` left grouping `Var`s as heap attribute\nnumbers while the virtual slot is laid out as `[group columns...,\naggregates...]`, producing wrong values or `attribute number exceeds\nnumber of columns`.\n- Rewrite those grouping `Var`s to `INDEX_VAR`s at the grouping column's\nslot attribute in `create_placeholder_targetlist` (same idea as the\nDataFusion fix in #6172).\n- Add `issue_6232` regress coverage for both table shapes from the\nreport.\n\nCloses #6232\n\n## Test plan\n- [x] `cargo pgrx regress pg18 issue_6232`\n- [x] `cargo pgrx regress pg18 fn_wrapped_agg`\n- [x] Related AggregateScan suites (`groupby_aggregate`,\n`aggregate_scan_expressions`, `custom-agg`)\n- [x] Custom-scan vs native A/B for mixed agg+group expressions\n\n---------\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\nCo-authored-by: Walter Woodall <walter.woodall.iv@gmail.com>",
+          "timestamp": "2026-10-28T20:05:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/189e0971e2feafc6265644847b9e7cc73be0a510"
+        },
+        "date": 1793226885582,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 491.55631316696554,
+            "unit": "median tps",
+            "extra": "avg tps: 492.34550045271266, max tps: 617.084359935189, count: 55299"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 462.8662265608321,
+            "unit": "median tps",
+            "extra": "avg tps: 462.82388465752166, max tps: 561.2033758542983, count: 55299"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 190.76194518985344,
+            "unit": "median tps",
+            "extra": "avg tps: 190.77294971977685, max tps: 214.4031736317405, count: 55299"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 488.97156418528056,
+            "unit": "median tps",
+            "extra": "avg tps: 488.70873578650867, max tps: 572.3118134146399, count: 55299"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 362.03758485899857,
+            "unit": "median tps",
+            "extra": "avg tps: 362.7464082899575, max tps: 433.25365836896964, count: 55299"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.69110440939461,
+            "unit": "median tps",
+            "extra": "avg tps: 14.71044109397182, max tps: 15.174892515594298, count: 55299"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 592.9613391256586,
+            "unit": "median tps",
+            "extra": "avg tps: 592.7243894415224, max tps: 689.3568530906734, count: 55299"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 600.2102437226882,
+            "unit": "median tps",
+            "extra": "avg tps: 599.0331171323222, max tps: 696.4377165865135, count: 55299"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 288.9974879418264,
+            "unit": "median tps",
+            "extra": "avg tps: 289.002411224853, max tps: 329.0257386134293, count: 55299"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 514.2063398521252,
+            "unit": "median tps",
+            "extra": "avg tps: 513.4289205087772, max tps: 579.4038139631507, count: 55299"
+          }
+        ],
+        "publication_id": "12848388390-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [

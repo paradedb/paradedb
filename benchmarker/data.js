@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793203180234,
+  "lastUpdate": 1793203262948,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -33404,6 +33404,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12792780029-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10de31bb4570e393745029f061787aa40345b706",
+          "message": "fix: prevent readers from starving VACUUM cleanup (#6879)\n\nPrevent readers from starving VACUUM cleanup by retaining shared PAGE admission for readers and mergers and exclusive admission for VACUUM. Acquire merger admission before the separate merge-page pin, release the pin before admission, and remove redundant cleanup-page pins.\n\nCover actual autovacuum cancellation with an overlapping merge and late reader, plus reader admission lifetime and error cleanup. Update the module documentation and buffer-count snapshots. Allow empty participants in the parallel vector-clustering test while verifying every resulting segment and all documents and vectors.",
+          "timestamp": "2026-10-28T07:28:08-07:00",
+          "tree_id": "b5845bf28cbbb7b979cf034ee94dc12084802db8",
+          "url": "https://github.com/paradedb/paradedb/commit/10de31bb4570e393745029f061787aa40345b706"
+        },
+        "date": 1793203226473,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 538.8582687690592,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 514.5641549814269,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 142.20510267210676,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 257.14258991721795,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 380.2027618534333,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12825244925-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

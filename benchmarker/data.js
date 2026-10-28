@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793223299699,
+  "lastUpdate": 1793224493455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -30179,6 +30179,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12846334454-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "416da5d04c5d48c43d59f92abc0ed05d69a604a9",
+          "message": "fix: allow vacuum delete assertion to remain unreachable (#7078)\n\n## What\n\nUse `assert_always_or_unreachable!` for the immutable VACUUM\ndelete-count invariant.\n\n## Why\n\nAntithesis reported this property as failed with no examples in the\nOctober 28 Enterprise run. Reaching this assertion requires partially\ndeleting an immutable segment. A run may validly delete nothing, remove\nwhole segments, or only flush mutable segments.\n\n## How\n\nAllow the assertion site to remain unvisited while preserving every\nexisting invariant check whenever it executes. Document why reachability\nis optional. Existing Stressgres workloads are unchanged.\n\n## Tests\n\n`git diff --check` passed. No runtime tests added or run for this\nassertion classification change. Antithesis validation remains pending a\nsubsequent run.",
+          "timestamp": "2026-10-28T12:57:25-07:00",
+          "tree_id": "193ffc91d8d29efc0ff02a66abdab928272e5d43",
+          "url": "https://github.com/paradedb/paradedb/commit/416da5d04c5d48c43d59f92abc0ed05d69a604a9"
+        },
+        "date": 1793224455534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.289,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.672,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.261,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.547,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.019,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.274,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.811,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.789,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.116,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.112,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.902,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.169,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.026,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12849253507-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793217229606,
+  "lastUpdate": 1793218007617,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -43525,6 +43525,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12840987192-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa27f73c6dd422d0c7f387d84659b159e27bf505",
+          "message": "perf: Implement rank joins (#6898)\n\n## Ticket(s) Closed\n\n- Closes #5301\n\n## What\n\nIntroduces `RankJoinExec`, a pull-based Sorted Access (`SA`) + Random\nAccess (`RA`) top-`K` join operator and physical optimizer pass for\n`JoinScan`.\n\nThis supports:\n- Two-sided scored joins (`ORDER BY pdb.score(a.id) + pdb.score(b.id)\nDESC LIMIT K` and weighted/multiplicative combinations), including\ncross-table disjunctive (`OR`) search predicates and cascading `N`-way\njoins (`N >= 3`).\n- Single-sided (`NRJN`) joins where `ORDER BY ... LIMIT K` depends only\non one side's `pdb.score(...)` or indexed fast-field column while the\nother side is probed on demand via `RA` join-key lookups.\n\n## Why\n\nNormalized schemas frequently split searchable text across multiple\ntables (for example, `posts`, `comments`, and `users`) and query them\nwith cross-table disjunctive (`OR`) or conjunctive (`AND`) search\npredicates ordered by a combined relevance score or a single table's\nsort key with a `LIMIT K`.\n\nWith `HashJoinExec`:\n- A cross-table disjunction (`a.body ||| 'x' OR b.body ||| 'y'`) cannot\npush either table's search predicate into its leaf scan as a required\nfilter (`ScanMode::Tagged` must scan the entire base table on both sides\nand evaluate boolean match tags above the join), and the top-`K` sort\nabove the join cannot stop early.\n- Even when both sides are selective, `HashJoinExec` must materialize\nand join all matching rows before `SortExec(TopK)` can select the top\n`K`.\n\n`RankJoinExec` allows normalized multi-table search queries to execute\nat speeds approaching a denormalized single-table Top-`K` scan by\npulling only expanding top-`K` windows (`SA`) from scored inputs,\nprobing join partners on demand via `TermSetQuery` index lookups (`RA`),\nand terminating as soon as `K` results beat the upper bound on any\nunseen combination.\n\n## How\n\nThe detailed algorithm and planner invariants are documented in the\nmodule rustdocs of `pg_search/src/scan/rank_join_exec.rs` and\n`pg_search/src/scan/rank_join_rule.rs`. At a high level:\n\n- `RankJoinRule` rewrites eligible top-`K` `HashJoinExec` trees at\nphysical optimization time into `RankJoinExec`, configures leaf\n`PgSearchScanPlan`s with `LazySortConfig` (`SA + RA` or `RA`-only), and\nabsorbs `ScanMode::Tagged` cross-table disjunctions into tagless\n`ScanMode::Disjunctive` scans.\n- `PgSearchScanPlan` (see\nhttps://github.com/paradedb/paradedb/pull/7003) interleaves\nexpanding-window `SA` pulls with on-demand `RA` join-key lookups\n(`RankLookupPhysicalExpr` -> `TermSetQuery` with optional\n`PruningScorer` score thresholds), deduplicating emitted `DocAddress`es\nacross `SA` and `RA`.\n- `RankJoinExec` maintains per-side hash tables, a candidate heap, and\nupper bounds across `SA` and two-tier (`score > 0` vs `score == 0`) `RA`\nfrontiers to drain ready top-`K` batches and stop early.\n\n## Tests\n\n- Property-based tests comparing for equivalence to `HashJoinExec`\n(`enable_rank_join = off`) in `tests/tests/qgen.rs`.\n- Unit and `#[pg_test]` tests.\n- New regress tests.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T12:25:44-07:00",
+          "tree_id": "b5be97799759228ec8bcafad6fe94d83d4f91a5f",
+          "url": "https://github.com/paradedb/paradedb/commit/aa27f73c6dd422d0c7f387d84659b159e27bf505"
+        },
+        "date": 1793217964033,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.743,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.631,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.983,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.627,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 14.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 20.138,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 21.812,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 22.398,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.909,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 19.393,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 18.092,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 19.184,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 18.12,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 19.256,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.664,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 9.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 10.253,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.424,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.378,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.062,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 14.091,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 15.812,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 16.706,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12847022814-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [

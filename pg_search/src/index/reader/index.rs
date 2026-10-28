@@ -2353,31 +2353,33 @@ impl SearchIndexReader {
                     0 => self.collect_maybe_auxiliary(
                         readers,
                         partition_bounds,
-                        collector,
+                        collector.build(),
                         aux_collector,
                     ),
                     1 => self.collect_maybe_auxiliary(
                         readers,
                         partition_bounds,
-                        collector.with_tie_break(next()),
+                        collector.with_tie_break(next()).build(),
                         aux_collector,
                     ),
                     2 => self.collect_maybe_auxiliary(
                         readers,
                         partition_bounds,
-                        collector.with_tie_break((next(), next())),
+                        collector.with_tie_break((next(), next())).build(),
                         aux_collector,
                     ),
                     3 => self.collect_maybe_auxiliary(
                         readers,
                         partition_bounds,
-                        collector.with_tie_break((next(), next(), next())),
+                        collector.with_tie_break((next(), next(), next())).build(),
                         aux_collector,
                     ),
                     4 => self.collect_maybe_auxiliary(
                         readers,
                         partition_bounds,
-                        collector.with_tie_break((next(), next(), next(), next())),
+                        collector
+                            .with_tie_break((next(), next(), next(), next()))
+                            .build(),
                         aux_collector,
                     ),
                     x => panic!(

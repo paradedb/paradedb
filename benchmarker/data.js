@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793204586876,
+  "lastUpdate": 1793204845057,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -41385,6 +41385,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12829735631-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "73897ff6655da8b9f2a7cd98cb59d4a0157b1690",
+          "message": "test: stabilize immutable backpressure merge fixture (#7071)\n\n## What\n\nStabilize\n`test_ephemeral_mutable_backpressure_preserves_immutable_segments` by\nchanging its background layers from `1kb,10kb,100mb` to `20kb,100mb`.\n\n## Why\n\nThe test added in #6880 can report that immutable backpressure did not\nmerge even when it did. With 1 KB batches, the immutable segment\nproduced by mutable merging can merge with each new insert while all\ntwelve original immutable segments survive. The final assertion expects\nan original segment to be consumed.\n\nThis was reproduced on main while investigating the [CI failure on\n#7023](https://github.com/paradedb/paradedb/actions/runs/40688070883/job/122815502584?pr=7023).\n\n## How\n\nUse a configured layer larger than this small fixture. The existing\ntarget-size clamping then produces a larger merge group that includes\noriginal immutable segments. Both original assertions remain: mutable\nbackpressure preserves the original segments, and immutable backpressure\nsubsequently consumes at least one of them. Only this isolated fixture\nand its explanatory comment change.\n\n## Tests\n\nValidated locally on PostgreSQL 18 / macOS arm64 with a fresh build of\nmain:\n\n- 100/100 fresh fixture runs passed with the original assertions and\n`verify_index(heapallindexed => true)`.\n- Disabling immutable merging before the final phase made the test fail\nat the expected assertion.\n- Removed the temporary repetition/negative-control changes and ran the\nfull replication test suite: 11 passed.",
+          "timestamp": "2026-10-28T21:06:20+05:30",
+          "tree_id": "8704373d118a911fcb3019df2f8858be23bffc72",
+          "url": "https://github.com/paradedb/paradedb/commit/73897ff6655da8b9f2a7cd98cb59d4a0157b1690"
+        },
+        "date": 1793204802504,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.493,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.308,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.562,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.413,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 19.119,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 20.679,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 21.147,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.541,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.99,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.667,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.04,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.595,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.068,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 9.513,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 10.297,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.762,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.493,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.129,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 14.592,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 16.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 17.32,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12830902530-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [

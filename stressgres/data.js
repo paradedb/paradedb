@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793177071573,
+  "lastUpdate": 1793177221416,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112154,6 +112154,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12720845030-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793177186467,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1670.3036457672756,
+            "unit": "median tps",
+            "extra": "avg tps: 1688.2637053540154, max tps: 1831.0581097914521, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7754146735743435,
+            "unit": "median tps",
+            "extra": "avg tps: 3.0182582726811087, max tps: 4.983755896194385, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1936.4571471268257,
+            "unit": "median tps",
+            "extra": "avg tps: 1917.48346593618, max tps: 1945.3666395290088, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2930.400545553962,
+            "unit": "median tps",
+            "extra": "avg tps: 2882.7223882373933, max tps: 3254.650878651973, count: 59422"
+          }
+        ],
+        "publication_id": "12802655362-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [

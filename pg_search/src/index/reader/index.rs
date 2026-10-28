@@ -42,8 +42,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
-use crate::postgres::storage::buffer::PinnedBuffer;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{CleanupAdmission, MetaPage};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate::QueryEstimate;
@@ -401,11 +400,8 @@ pub struct SearchIndexReader {
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
 
-    // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
-    //
-    // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
-    // buffer dropped once
-    _cleanup_lock: Arc<PinnedBuffer>,
+    // Keep cleanup admission alive across reader clones.
+    _cleanup_lock: Arc<CleanupAdmission>,
 }
 
 /// A queryless snapshot of visible segments used to initialize parallel JoinScan and
@@ -588,7 +584,7 @@ pub(crate) mod test_support {
 
 #[derive(Clone)]
 struct IndexComponents {
-    cleanup_lock: Arc<PinnedBuffer>,
+    cleanup_lock: Arc<CleanupAdmission>,
     directory: MVCCDirectory,
     index: Index,
     /// Statistics of `searcher`'s segments, opened on first use. Built once per open, so readers
@@ -668,7 +664,7 @@ impl SearchIndexReader {
         let _metadata = io_stats.as_ref().map(|stats| stats.external("Metadata"));
         #[cfg(any(test, feature = "pg_test"))]
         test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
+        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_for_reader());
 
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
@@ -910,7 +906,7 @@ impl SearchIndexReader {
         self.directory.segment_pins()
     }
 
-    pub(crate) fn cleanup_pin(&self) -> Arc<PinnedBuffer> {
+    pub(crate) fn cleanup_admission(&self) -> Arc<CleanupAdmission> {
         self._cleanup_lock.clone()
     }
 
@@ -1760,8 +1756,6 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        router_recall_target: crate::gucs::vector_router_recall_target(),
-                        recall_target: crate::gucs::vector_recall_target(),
                         fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
                         ..Default::default()
                     })

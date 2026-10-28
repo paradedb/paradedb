@@ -1,0 +1,43 @@
+[dataset]
+name = "cohere"
+size = "1m"
+table = "cohere_wiki"
+expected_rows = 1000000
+dims = 1024
+vector_field = "emb"
+s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
+
+[postgres.build]
+shared_buffers = "12GB"
+maintenance_work_mem = "12GB"
+max_parallel_maintenance_workers = 8
+
+[postgres.search]
+shared_buffers = "12GB"
+max_parallel_workers = 8
+max_worker_processes = 8
+
+[index]
+training_sample_ratio = 0.32
+target_segment_count = 8
+
+[search]
+runs = 1
+warmup_runs = 1
+explain_sample = 100
+
+[search.session]
+"cohere.titles_1pct" = "battle"
+"cohere.titles_10pct" = "year"
+max_parallel_workers_per_gather = "8"
+jit = "off"
+plan_cache_mode = "force_custom_plan"
+
+[search.sweep]
+param = "paradedb.vector_cluster_max_probe"
+min = 0.0001
+max = 1.0
+start = 0.005
+targets = [0.9, 0.95, 0.99]
+tolerance = 0.000001
+max_probes = 20

@@ -267,6 +267,8 @@ impl<'a> SegmentPruner<'a> {
         match query {
             SearchQueryInput::All => true,
             SearchQueryInput::Empty => false,
+            // A NULL predicate matches no document.
+            SearchQueryInput::Null => false,
             SearchQueryInput::FieldedQuery { field, query } => {
                 self.field_can_match(segment, field, query)
             }
@@ -311,6 +313,8 @@ impl<'a> SegmentPruner<'a> {
         match query {
             SearchQueryInput::All => true,
             SearchQueryInput::Empty => false,
+            // A NULL predicate matches no document.
+            SearchQueryInput::Null => false,
             SearchQueryInput::FieldedQuery { field, query } => {
                 self.field_matches_all(segment, field, query)
             }

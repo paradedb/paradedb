@@ -19,12 +19,9 @@
   - Combined disjunctive (`OR`) joined selectivity: ~0.06% (~17.0K / 28.45M joined rows).
     Under database convention, this narrow filter represents high selectivity (filters out ~99.94% of joined rows).
 
-## Native PostgreSQL Variants
+## Native PostgreSQL Variant
 
-See `../join_disjunctive_score_sort_low_selectivity/README.md` for a detailed explanation of both PostgreSQL GIN + B-Tree rewrite strategies and their recall tradeoffs. High-selectivity (`'ocaml'`) behavior on the 20M dataset:
+See `../join_disjunctive_score_sort_low_selectivity/README.md` for a detailed explanation of the PostgreSQL GIN + B-Tree rewrite strategy. High-selectivity (`'ocaml'`) behavior on the 20M dataset:
 
 - **`postgres_union_agg.sql` (~372 ms, 100% exact recall)**:
   - Materializes and hash-aggregates all qualifying joined triples (~17K rows at high selectivity) before sorting.
-- **`postgres_early_topk.sql` (~73 ms, 20/20 recall on this dataset)**:
-  - Branch 1 (`users` only) halts after inspecting 2 users; Branch 2 (`posts LEFT JOIN users`) halts after inspecting ~15 posts; Branch 3 (`comments`) uses an in-memory `Parallel Hash Left Join` against the GIN-filtered `posts LEFT JOIN users` set and only probes `stackoverflow_posts_pkey` / `users_pkey` for the final 20 rows.
-  - All 20 top results are 3-way `(1,1,1)` matches, yielding 20/20 exact recall.

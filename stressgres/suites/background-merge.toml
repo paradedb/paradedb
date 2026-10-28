@@ -21,7 +21,8 @@ SELECT
     WHEN 2 THEN 'eat some cheese'
     END,
     (random() * 4 + 1)::int
-FROM generate_series(1, 1000000) as id;
+-- Small merge layers exercise merging without a million-row fixture.
+FROM generate_series(1, 100000) as id;
 
 CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (target_segment_count = 16, layer_sizes = '1kb', background_layer_sizes = '10kb, 100kb, 1mb, 10mb');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
@@ -116,7 +117,7 @@ SELECT assert_plan_contains(
 );
 """
 sql = """
-SELECT assert(COUNT(*), 333333) FROM test WHERE message ||| 'drink';
+SELECT assert(COUNT(*), 33333) FROM test WHERE message ||| 'drink';
 """
 
 [[jobs]]
@@ -154,7 +155,7 @@ refresh_ms = 5
 title = "Delete value"
 log_tps = true
 sql = """
-DELETE FROM test WHERE id > 1000001;
+DELETE FROM test WHERE id > 100001;
 """
 
 [[jobs]]

@@ -964,10 +964,6 @@ where
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
         match compare_outcome_on(sides, pg_query, bm25_query, gucs, conn, setup, &run_query) {
             CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
-            CaseOutcome::Match => {
-                crate::fixtures::fault_grace::note_case_completed();
-                Attempt::Done(CaseOutcome::Match)
-            }
             verdict => Attempt::Done(verdict),
         }
     });

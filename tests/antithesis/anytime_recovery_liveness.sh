@@ -69,9 +69,9 @@ echo "qgen recovery liveness: pausing faults for ${QUIET_SECONDS}s; qgen must fi
 
 UNPAUSE_AT_MS=$((($(date +%s) + QUIET_SECONDS) * 1000))
 poke "${UNPAUSE_AT_MS}" "$((RECOVER_SECONDS * 1000))"
-# Keep the declaration and single-flight lock for the entire requested pause.
-# The recovery deadline is still RECOVER_SECONDS; removing the declaration at
-# that deadline would report resumption while injection is still paused.
+# Keep the declaration and single-flight lock for the entire requested pause:
+# removing the grace file at RECOVER_SECONDS would disarm PauseWitness and
+# reset FaultRetry's clock while fault injection is still paused.
 sleep "${QUIET_SECONDS}"
 restore
 

@@ -215,7 +215,7 @@ fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var
 pub unsafe fn analyze_sort_expression(
     node: *mut pg_sys::Node,
     context: VarContext,
-    source: &SourceContext,
+    source: Option<&SourceContext>,
 ) -> Option<(SortExpressionType, *mut pg_sys::Var, Option<FieldName>)> {
     // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
     // so that the expression reaches the pattern-matching below in canonical form.
@@ -230,14 +230,17 @@ pub unsafe fn analyze_sort_expression(
     // expressions like `lower(description)::pdb.literal('alias=literal_description')`
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
-    if let Some(resolved) = source.resolve(ColumnRef::Expr(node), Access::Any) {
+    if let Some(source_context) = source
+        && let Some(resolved) = source_context.resolve(ColumnRef::Expr(node), Access::Any)
+    {
         let field_name = FieldName::from(resolved.field.name());
         if let Some(var) = extract_any_var_from_expr(node) {
             return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
         }
     }
 
-    if let Some(info) = &source.index
+    if let Some(source_context) = source
+        && let Some(info) = &source_context.index
         && let Some((var, vector_sort)) = extract_vector_distance(node, context, &info.schema)
     {
         let (relid, attno) = context.var_relation(var);
@@ -515,7 +518,7 @@ where
             if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
                 expr_to_analyze.cast(),
                 VarContext::from_planner(root),
-                context,
+                Some(context),
             ) {
                 // Verify the var belongs to the correct relation (either the relation itself or its parent)
                 if !is_varno_valid_for_relation(
@@ -680,21 +683,14 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             return false;
         }
 
-        // Pass index expressions if we have them (after first sort clause identifies the relation)
-        // let index_info = target_relation_info
-        //     .as_ref()
-        //     .map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
-        //         index_expressions: idx_exprs,
-        //         schema,
-        //         // TODO: heap_rti should use the actual varno from target_relation_info
-        //         // rather than hardcoded 1. Only matters for the #3455 window function path.
-        //         heap_rti: 1 as pg_sys::Index,
-        //     });
-
         // Use analyze_sort_expression to identify the sort key type and underlying variable
-        let sort_info = target_relation_context.as_ref().and_then(|source| unsafe {
-            analyze_sort_expression(expr, VarContext::from_query(parse), source)
-        });
+        let sort_info = unsafe {
+            analyze_sort_expression(
+                expr,
+                VarContext::from_query(parse),
+                target_relation_context.as_ref(),
+            )
+        };
         let Some((sort_type, var, field_name_opt)) = sort_info else {
             return false;
         };

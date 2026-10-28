@@ -141,6 +141,7 @@ impl SourceContext {
                             ..
                         },
                     ) => Some(ResolvedField::new(None, field)),
+                    (Access::Any, field) => Some(ResolvedField::new(None, field)),
                     _ => None,
                 }
             }

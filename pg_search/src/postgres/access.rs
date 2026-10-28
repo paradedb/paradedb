@@ -116,7 +116,10 @@ impl LockedIndexRelations {
                 pg_sys::ereport!(
                     ERROR,
                     PgSqlErrorCode::ERRCODE_UNDEFINED_TABLE,
-                    "could not open the backing table of the index"
+                    format!(
+                        "could not open the backing table of index \"{}\"",
+                        index.name()
+                    )
                 );
             }
             if !(*index.rd_rel).relam.is_paradedb_am() {

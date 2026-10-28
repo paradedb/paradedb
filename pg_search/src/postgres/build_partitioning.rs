@@ -196,14 +196,19 @@ impl VectorPartitioning {
 
     fn scores<'a>(&'a self, vector: &'a [f32]) -> impl Iterator<Item = f64> + 'a {
         let norm = if self.metric == VectorMetric::Cosine {
-            vector
-                .iter()
-                .map(|&v| f64::from(v).powi(2))
-                .sum::<f64>()
+            let mut squares = [0.0; 8];
+            let (rows, tail) = vector.as_chunks::<8>();
+            for row in rows {
+                for lane in 0..8 {
+                    squares[lane] += f64::from(row[lane]).powi(2);
+                }
+            }
+            (squares.iter().sum::<f64>() + tail.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>())
                 .sqrt()
         } else {
             1.0
         };
+        let use_f32 = norm >= f64::from(f32::MIN_POSITIVE) * self.dimensions as f64;
         self.centroids
             .chunks_exact(self.dimensions)
             .map(move |centroid| {
@@ -215,15 +220,21 @@ impl VectorPartitioning {
                 let (centers, center_tail) = centroid.as_chunks::<8>();
                 for (row, center) in rows.iter().zip(centers) {
                     for lane in 0..8 {
-                        sums[lane] += f64::from(row[lane]) * f64::from(center[lane]);
+                        sums[lane] += row[lane] * center[lane];
                     }
                 }
-                let tail: f64 = row_tail
-                    .iter()
-                    .zip(center_tail)
-                    .map(|(&a, &b)| f64::from(a) * f64::from(b))
-                    .sum();
-                (sums.iter().sum::<f64>() + tail) / norm
+                let tail: f32 = row_tail.iter().zip(center_tail).map(|(a, b)| a * b).sum();
+                let dot = sums.iter().sum::<f32>() + tail;
+                let dot = if use_f32 && dot.is_finite() {
+                    f64::from(dot)
+                } else {
+                    vector
+                        .iter()
+                        .zip(centroid)
+                        .map(|(&a, &b)| f64::from(a) * f64::from(b))
+                        .sum()
+                };
+                dot / norm
             })
     }
 
@@ -981,6 +992,16 @@ mod tests {
         assert_eq!(model.offsets, vec![0.0, 0.0]);
         assert_eq!(model.route(Some(&[1.0, 0.0])), 0);
         assert_eq!(model.route(Some(&[0.0, 1.0])), 1);
+        model.dimensions = 8;
+        model.centroids = vec![1.0 / 8.0_f32.sqrt(); 8];
+        model
+            .centroids
+            .extend([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        model.offsets = vec![0.0, 0.3];
+        for scale in [f32::from_bits(1), 1.0e-30, 1.0, 1.0e30, 3.0e38] {
+            assert_eq!(model.route(Some(&[scale; 8])), 0);
+            assert!(model.scores(&[scale; 8]).all(f64::is_finite));
+        }
     }
 
     #[pg_test]

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793176742096,
+  "lastUpdate": 1793176844719,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -226555,6 +226555,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12718173161-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "22ae5780ed3a343b0ba0e7971ef077f636301240",
+          "message": "ci: restore Cohere index build metrics in baselines and comments (#7061)\n\nRestore Cohere index build time and size in the published 1M/10M\nbenchmark comparisons. Use the existing pinned `pdbench build` command\nwith the existing index SQL, then map its JSON report into the shared\npublisher's metric format. pdbench records build duration, pre-vacuum\nindex size, and segment diagnostics; no custom measurement script is\nneeded.\n\nThe queued publisher carries the two metrics into a separate index-build\nhistory and the existing benchmark comparison. Main runs update the\nbaseline; PR runs only compare. Keep the recall rounding fix as a single\ntolerance check. Remove every test added by this PR; existing tests are\nunchanged.\n\nValidation: all five existing Cohere tests and commit hooks pass.\nVerified the metric conversion against a saved pdbench build report and\nchecked the pinned CLI/source, workflow shell syntax, and YAML.\nActionlint passes for the changed workflow; checking the entire PR\nrequires ignoring the pre-existing unsupported `concurrency.queue`\nfield. The full CI benchmark has not been rerun after switching to\npdbench build.",
+          "timestamp": "2026-10-28T03:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/22ae5780ed3a343b0ba0e7971ef077f636301240"
+        },
+        "date": 1793176799916,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.448819,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.443541128932996, max cpu: 28.656715, count: 59307"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.38480293746944, max mem: 47.39453125, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.80437157857097, max cpu: 42.49877, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.99396367892913, max mem: 32.01171875, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.373595770559379, max cpu: 18.768328, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.61601457774799, max mem: 50.515625, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16109,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16795.932503751665, max block_count: 33197.0, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3046966932849733, max cpu: 4.703577, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.331196478177112, max mem: 28.38671875, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.917497091405735, max segment_count: 38.0, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.411765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.330695792714176, max cpu: 23.976025, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 47.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.596720441410795, max mem: 47.6171875, count: 59307"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 7.5442047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.924144024722715, max cpu: 37.776684, count: 118614"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.84768974230487, max mem: 56.53515625, count: 118614"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.613384608090097, max cpu: 23.774145, count: 59307"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.7941342953825, max mem: 48.59765625, count: 59307"
+          }
+        ],
+        "publication_id": "12799933107-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

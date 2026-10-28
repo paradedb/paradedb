@@ -136,7 +136,7 @@ pub fn schema(
 #[pg_extern]
 pub unsafe fn index_fields(index: IndexOid) -> anyhow::Result<JsonB> {
     let access = index.read();
-    let index = access.index().clone();
+    let index = access.index();
     let schema = index.schema()?;
 
     let mut name_and_config = HashMap::default();
@@ -154,7 +154,7 @@ pub unsafe fn index_fields(index: IndexOid) -> anyhow::Result<JsonB> {
 #[pg_extern]
 pub unsafe fn layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
     let access = index.read();
-    let index = access.index().clone();
+    let index = access.index();
     index
         .options()
         .foreground_layer_sizes()
@@ -166,7 +166,7 @@ pub unsafe fn layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
 #[pg_extern]
 pub unsafe fn background_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
     let access = index.read();
-    let index = access.index().clone();
+    let index = access.index();
     index
         .options()
         .background_layer_sizes()
@@ -178,7 +178,7 @@ pub unsafe fn background_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
 #[pg_extern]
 pub unsafe fn combined_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
     let access = index.read();
-    let index = access.index().clone();
+    let index = access.index();
     let mut sizes: Vec<_> = index
         .options()
         .foreground_layer_sizes()
@@ -197,8 +197,8 @@ pub unsafe fn combined_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
 #[pg_extern]
 pub fn index_created_at(index: IndexOid) -> Option<pgrx::datum::TimestampWithTimeZone> {
     let access = index.read();
-    let index = access.index().clone();
-    MetaPage::open(&index)
+    let index = access.index();
+    MetaPage::open(index)
         .created_at()
         .and_then(|ts| pgrx::datum::TimestampWithTimeZone::try_from(ts).ok())
 }
@@ -208,8 +208,8 @@ pub fn index_created_at(index: IndexOid) -> Option<pgrx::datum::TimestampWithTim
 #[pg_extern]
 pub fn index_created_by(index: IndexOid) -> Option<String> {
     let access = index.read();
-    let index = access.index().clone();
-    MetaPage::open(&index)
+    let index = access.index();
+    MetaPage::open(index)
         .created_by_version()
         .map(|version| version.to_string())
 }
@@ -614,7 +614,7 @@ fn vector_clusters(
 #[pg_extern]
 fn find_ctid(index: IndexOid, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
     let access = index.read();
-    let index = access.index().clone();
+    let index = access.index();
     let ctid_u64 = item_pointer_to_u64(ctid);
     let query = SearchQueryInput::FieldedQuery {
         field: CTID_FIELD_NAME.into(),
@@ -622,7 +622,7 @@ fn find_ctid(index: IndexOid, ctid: pg_sys::ItemPointerData) -> Result<Option<Ve
             value: ctid_u64.into(),
         },
     };
-    let search_index = SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot)?;
+    let search_index = SearchIndexReader::open(index, query, false, MvccSatisfies::Snapshot)?;
     let results = search_index.search();
 
     let results = results
@@ -649,7 +649,7 @@ fn find_ctid(index: IndexOid, ctid: pg_sys::ItemPointerData) -> Result<Option<Ve
 #[pg_extern]
 fn validate_checksum(index: IndexOid) -> Result<SetOfIterator<'static, String>> {
     let access = index.read();
-    let index = access.index().clone();
+    let index = access.index();
     pgrx::warning!(
         "validate_checksum is deprecated. Use pdb.verify_index('{}') instead, \
          which includes checksum validation along with additional integrity checks.",
@@ -657,7 +657,7 @@ fn validate_checksum(index: IndexOid) -> Result<SetOfIterator<'static, String>> 
     );
 
     // open the specified index
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    let search_reader = SearchIndexReader::empty(index, MvccSatisfies::Snapshot)?;
 
     let failed = search_reader.validate_checksum()?;
     Ok(SetOfIterator::new(
@@ -917,8 +917,8 @@ fn storage_info(
     index: IndexOid,
 ) -> TableIterator<'static, (name!(block, i64), name!(max_offset, i32))> {
     let access = index.read();
-    let index = access.index().clone();
-    let segment_components = MetaPage::open(&index).segment_metas();
+    let index = access.index();
+    let segment_components = MetaPage::open(index).segment_metas();
     let bman = segment_components.bman();
     let (mut blockno, mut buffer) = segment_components.get_start_blockno();
     let mut data = vec![];
@@ -952,8 +952,8 @@ fn page_info(
     >,
 > {
     let access = index.read();
-    let index = access.index().clone();
-    let mut segment_components = MetaPage::open(&index).segment_metas();
+    let index = access.index();
+    let mut segment_components = MetaPage::open(index).segment_metas();
     let bman = segment_components.bman_mut();
     let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
     let page = buffer.page();
@@ -1021,8 +1021,8 @@ fn force_merge_raw_bytes(
 fn merge_lock_garbage_collect(index: IndexOid) -> SetOfIterator<'static, i32> {
     unsafe {
         let access = index.maintain();
-        let index = access.index().clone();
-        let metadata = MetaPage::open(&index);
+        let index = access.index();
+        let metadata = MetaPage::open(index);
         let merge_lock = metadata.acquire_merge_lock();
         let mut merge_list = merge_lock.merge_list();
         let before = merge_list.list();
@@ -1990,7 +1990,7 @@ pub mod pdb {
                 let indexname: String = row.get_by_name("indexname")?.unwrap_or_default();
                 let indexrelid: pg_sys::Oid =
                     row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
-                if IndexOid::from(indexrelid).read_if_permitted().is_some() {
+                if IndexOid::from(indexrelid).is_readable() {
                     indexes.push((schemaname, indexname, indexrelid));
                 }
             }

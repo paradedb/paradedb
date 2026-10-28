@@ -18,3 +18,4 @@ The monitoring privilege does not authorize document reads, verification, or mai
 Other diagnostics, including `merge_info()`, `vacuum_info()`, the layer-size functions,
 `index_created_at()`, and `index_created_by()`, require schema `USAGE`, table-level
 `SELECT`, and no active RLS. Monitoring-role membership alone does not authorize them.
+`merge_lock_garbage_collect()` requires ownership of the backing table.

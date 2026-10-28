@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793207305584,
+  "lastUpdate": 1793207403707,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -33904,6 +33904,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12829557481-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "73897ff6655da8b9f2a7cd98cb59d4a0157b1690",
+          "message": "test: stabilize immutable backpressure merge fixture (#7071)\n\n## What\n\nStabilize\n`test_ephemeral_mutable_backpressure_preserves_immutable_segments` by\nchanging its background layers from `1kb,10kb,100mb` to `20kb,100mb`.\n\n## Why\n\nThe test added in #6880 can report that immutable backpressure did not\nmerge even when it did. With 1 KB batches, the immutable segment\nproduced by mutable merging can merge with each new insert while all\ntwelve original immutable segments survive. The final assertion expects\nan original segment to be consumed.\n\nThis was reproduced on main while investigating the [CI failure on\n#7023](https://github.com/paradedb/paradedb/actions/runs/40688070883/job/122815502584?pr=7023).\n\n## How\n\nUse a configured layer larger than this small fixture. The existing\ntarget-size clamping then produces a larger merge group that includes\noriginal immutable segments. Both original assertions remain: mutable\nbackpressure preserves the original segments, and immutable backpressure\nsubsequently consumes at least one of them. Only this isolated fixture\nand its explanatory comment change.\n\n## Tests\n\nValidated locally on PostgreSQL 18 / macOS arm64 with a fresh build of\nmain:\n\n- 100/100 fresh fixture runs passed with the original assertions and\n`verify_index(heapallindexed => true)`.\n- Disabling immutable merging before the final phase made the test fail\nat the expected assertion.\n- Removed the temporary repetition/negative-control changes and ran the\nfull replication test suite: 11 passed.",
+          "timestamp": "2026-10-28T21:06:20+05:30",
+          "tree_id": "8704373d118a911fcb3019df2f8858be23bffc72",
+          "url": "https://github.com/paradedb/paradedb/commit/73897ff6655da8b9f2a7cd98cb59d4a0157b1690"
+        },
+        "date": 1793207367620,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 538.5242683718611,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 514.7296768592535,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 143.68059802953834,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 258.8107327651548,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 379.94055652762944,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12832980629-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

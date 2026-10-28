@@ -1,0 +1,81 @@
+-- A heap filter on `ctid` must see the fetched tuple's CTID (#7037).
+-- tests/tests/heap_filter_system_columns.rs compares the rows with PostgreSQL.
+-- This file shows the plans and the rows of the query from the issue.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.enable_join_custom_scan = on;
+CREATE TABLE heap_filter_a (id int PRIMARY KEY, val text, note text);
+CREATE TABLE heap_filter_b (id int PRIMARY KEY, a_id int, val text);
+INSERT INTO heap_filter_a SELECT i, 'val ' || i, 'n' FROM generate_series(1, 5) i;
+-- In insertion order, b.id 14 is at (0,1), 13 at (0,2), 12 at (0,3) and 11 at (0,4).
+INSERT INTO heap_filter_b VALUES (14, 99, 'val 14'), (13, 3, 'val 13'), (12, 2, 'val 12'), (11, 1, 'val 11');
+CREATE INDEX heap_filter_a_idx ON heap_filter_a USING paradedb (id, val);
+CREATE INDEX heap_filter_b_idx ON heap_filter_b USING paradedb (id, a_id, val);
+ANALYZE heap_filter_a;
+ANALYZE heap_filter_b;
+-- Join Scan must leave out b.id 13 at (0,2).
+EXPLAIN (COSTS OFF)
+SELECT a.id, b.id AS bid, b.ctid AS b_ctid
+FROM heap_filter_a a JOIN heap_filter_b b ON a.id = b.a_id
+WHERE a.val ||| 'val' AND b.ctid > '(0,2)'::tid
+ORDER BY a.id LIMIT 10;
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: a.id = b.a_id
+   Limit: 10
+   Order By: a.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_1@2 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[a, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(a_id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(ctid > '(0,2)'::tid)"}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(14 rows)
+
+SELECT a.id, b.id AS bid, b.ctid AS b_ctid
+FROM heap_filter_a a JOIN heap_filter_b b ON a.id = b.a_id
+WHERE a.val ||| 'val' AND b.ctid > '(0,2)'::tid
+ORDER BY a.id LIMIT 10;
+ id | bid | b_ctid 
+----+-----+--------
+  1 |  11 | (0,4)
+  2 |  12 | (0,3)
+(2 rows)
+
+-- Base Scan uses the same heap filter.
+EXPLAIN (COSTS OFF)
+SELECT id, ctid FROM heap_filter_b
+WHERE val ||| 'val' AND ctid > '(0,2)'::tid
+ORDER BY id;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on heap_filter_b
+         Table: heap_filter_b
+         Index: heap_filter_b_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(ctid > '(0,2)'::tid)"}]}}]}}
+(8 rows)
+
+SELECT id, ctid FROM heap_filter_b
+WHERE val ||| 'val' AND ctid > '(0,2)'::tid
+ORDER BY id;
+ id | ctid  
+----+-------
+ 11 | (0,4)
+ 12 | (0,3)
+(2 rows)
+
+DROP TABLE heap_filter_a, heap_filter_b;
+RESET paradedb.enable_join_custom_scan;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793230988687,
+  "lastUpdate": 1793231073491,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -39929,6 +39929,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12851294556-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T13:42:34-07:00",
+          "tree_id": "05189d58169f330ee2b2e88b7e797c3193ea6144",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793231035601,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.16021069617397,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.349949557646745,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.80352830786671,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.03504682448755,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.80439074844375,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12853759765-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

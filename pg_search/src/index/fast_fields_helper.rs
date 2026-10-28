@@ -23,7 +23,7 @@ use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::storage::metadata::CleanupPin;
+use crate::postgres::storage::metadata::CleanupAdmission;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::schema::{SearchFieldType, is_columnar_json_path};
@@ -79,7 +79,7 @@ struct FFInner {
     // segment pins alive. Initialize on the backend thread only.
     searcher: Searcher,
     segment_view: SegmentView,
-    _cleanup_pin: Arc<CleanupPin>,
+    _cleanup_admission: Arc<CleanupAdmission>,
     columns: Vec<WhichFastField>,
     segment_caches: Vec<SegmentCache>,
 }
@@ -108,7 +108,7 @@ impl FFHelper {
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),
             segment_view: reader.segment_view(),
-            _cleanup_pin: reader.cleanup_pin(),
+            _cleanup_admission: reader.cleanup_admission(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
             columns: fields.to_vec(),
         }))

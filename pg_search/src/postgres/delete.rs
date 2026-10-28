@@ -212,8 +212,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             }
         }
     }
-    // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
-    // will get in the way of our CLEANUP_LOCK barrier below
+    // Release our shared admission before requesting exclusive cleanup admission.
     drop(reader);
 
     if stats.is_null() {
@@ -241,8 +240,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         // As soon as ambulkdelete returns, Postgres will update the visibility map
         // This can cause concurrent scans that have just read ctids, which are dead but
         // are about to be marked visible, to return wrong results. To guard against this,
-        // we acquire a cleanup lock that guarantees that there are no pins on the index,
-        // which means that all concurrent scans have completed.
+        // we acquire exclusive cleanup admission, which waits for concurrent scans to finish.
         //
         // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
         // scans have finished too

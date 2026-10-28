@@ -868,7 +868,7 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
 /// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
 ///
 /// This test randomly combines:
-/// - 2 or 3 table INNER joins
+/// - 2 or 3 table INNER, LEFT, or FULL joins
 /// - BM25 predicates (@@@ on outer table)
 /// - GROUP BY with 0-2 grouping columns
 /// - Aggregate functions: COUNT(*), SUM, AVG, MIN, MAX
@@ -888,8 +888,21 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     // Three tables for 2-way and 3-way join testing
     let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
-    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
-    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
+    // The shared fixture leaves rating unindexed to exercise heap filters in other tests.
+    // This test aggregates rating, so it must be columnar indexed for DataFusion pushdown.
+    let columns: Vec<Column> = COLUMNS
+        .iter()
+        .cloned()
+        .map(|column| {
+            if column.name == "rating" {
+                column.indexed(true)
+            } else {
+                column
+            }
+        })
+        .collect();
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, &columns);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, &columns, churn_on);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
@@ -966,6 +979,16 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         gucs.aggregate_custom_scan = true;
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
+
+        qgen_oracle!("qgen: generated_aggregate_join - candidate runs on DataFusion", compare_plan_retrying(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &pool,
+            &setup_sql,
+            &["DataFusion Physical Plan"],
+            &[],
+        ))?;
 
         qgen_oracle!("qgen: generated_aggregate_join - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,

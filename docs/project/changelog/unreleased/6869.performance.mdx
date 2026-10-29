@@ -1,5 +1,0 @@
----
-header: performance
----
-
-Late materialization now covers array columns: a `text[]` or other string array column that a join or aggregate reads from the index is carried through the join as a doc address and read once, where it is used, instead of for every scanned row (#6164).

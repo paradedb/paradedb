@@ -1032,8 +1032,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.id, t1.val
    Relation Tree: t1 INNER t2
@@ -1044,13 +1044,12 @@ LIMIT 15;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=15
      :     VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
-     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@3 as ctid_1]
-     :         RankJoinExec: mode=CollectLeft, on=[(id@1, t1_id@0)], order=[id@1 DESC]
-     :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, lazy_sort=30, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
-     :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, lazy_sort=0, dynamic_filters=1, query="all"
-(16 rows)
+     :       RankJoinExec: mode=CollectLeft, on=[(id@1, t1_id@0)], order=[id@1 DESC], projection=[ctid_0@0, id@1, ctid_1@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=t1, segments=2, lazy_sort=30, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t2, segments=2, lazy_sort=0, dynamic_filters=1, query="all"
+(15 rows)
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1

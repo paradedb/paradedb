@@ -84,7 +84,7 @@ use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::lazy_sort::build_lazy_sort_stream;
 pub use crate::scan::lazy_sort::{
-    LazySortConfig, LazySortTelemetry, LazySortTelemetryState, SharedThresholdMode, TopKSelectivity,
+    LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, TopKSelectivity,
 };
 use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
@@ -395,7 +395,7 @@ impl PgSearchScanPlan {
             self.global_partition_count = 1;
             self.assigned_partition = None;
             self.partition_segments = None;
-            if lazy_sort.shared_threshold == SharedThresholdMode::Disabled {
+            if lazy_sort.parallel_mode == LazyParallelMode::Unpartitioned {
                 let mut state_guard = self
                     .state
                     .lock()
@@ -614,7 +614,7 @@ impl PgSearchScanPlan {
         if self
             .lazy_sort
             .as_ref()
-            .is_some_and(|ls| ls.shared_threshold == SharedThresholdMode::Disabled)
+            .is_some_and(|ls| ls.parallel_mode == LazyParallelMode::Unpartitioned)
         {
             return;
         }
@@ -1049,7 +1049,7 @@ impl PgSearchScanPlan {
                     orderby_info: ls.orderby_info.clone(),
                     ordering_proto,
                     initial_window: ls.initial_window,
-                    shared_threshold: ls.shared_threshold,
+                    parallel_mode: ls.parallel_mode,
                 })
             }
             None => None,
@@ -1253,7 +1253,7 @@ impl PgSearchScanPlan {
                     orderby_info: ls.orderby_info,
                     ordering,
                     initial_window: ls.initial_window,
-                    shared_threshold: ls.shared_threshold,
+                    parallel_mode: ls.parallel_mode,
                     telemetry: None,
                 })
             }
@@ -1301,7 +1301,7 @@ struct LazySortConfigDescriptor {
     orderby_info: Option<Vec<OrderByInfo>>,
     ordering_proto: Option<Vec<Vec<u8>>>,
     initial_window: f64,
-    shared_threshold: SharedThresholdMode,
+    parallel_mode: LazyParallelMode,
 }
 
 /// Transport-neutral description of a `PgSearchScanPlan` for leader dispatch. Carries the
@@ -2541,7 +2541,7 @@ mod tests {
         use datafusion::physical_plan::ExecutionPlan;
         use datafusion::physical_plan::expressions::Column;
 
-        use super::{LazySortConfig, SharedThresholdMode};
+        use super::{LazyParallelMode, LazySortConfig};
 
         let schema = Arc::new(Schema::new(vec![
             Field::new("__paradedb_ctid", DataType::UInt64, false),
@@ -2571,7 +2571,7 @@ mod tests {
             orderby_info: None,
             ordering: ordering.clone(),
             initial_window: 25.0,
-            shared_threshold: SharedThresholdMode::Disabled,
+            parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         });
 

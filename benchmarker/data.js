@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793306610466,
+  "lastUpdate": 1793306636343,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -50273,6 +50273,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12930946926-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2c4783428fb45629094829f2891a0cb978a382b",
+          "message": "perf: late materialization for array fast fields (#6869)\n\n# Ticket(s) Closed\n\n- Closes #6164\n\n## What\n\nA list column that a DataFusion plan reads from the index (`text[]` and\nother dictionary lists) can now be deferred: it leaves the scan as a\npacked doc address and `TantivyDecodeExec` reads it once, at its\nconsumer. Outside tests the change is +296/-163; the rest of the diff is\nunit tests and regress goldens.\n\n## Why\n\nA GROUP BY on an array, pdb.agg terms on an array or a LATERAL unnest\nover a join read the whole list for every scanned row, including the\nrows the join then dropped. A list projected by JoinScan still comes\nfrom the heap, so these are the shapes that reach DataFusion.\n\n## How\n\nA list has no term ordinal state, so it skips State 1: it never goes\nthrough `TantivyFetchExec`, `fetch_at_scan`, the ordinal grouping or the\nsegmented Top K, and the decode reads it per segment with the scan's own\nlist decode (`FFHelper::list_values`). The placement rule keeps it at\nthe decode point or reads it in the scan, and an MPP decode now rebuilds\na reader reused from a fetch when that reader does not lay out its\ncolumn.\n\n## Tests\n\nNew `deferred_array_columns` covers those shapes over two segments with\nNULL and empty arrays, an outer join and MPP, each checked against\n`defer_string_decode = off`; four goldens move in their plans only. Unit\ntests cover the fetch refusal, the placement and aggregate rules, and\nthe reader rebuild.",
+          "timestamp": "2026-10-29T13:09:23-07:00",
+          "tree_id": "9b3e22569cdd57bb17b03f6668e4b8c2d02a4a6f",
+          "url": "https://github.com/paradedb/paradedb/commit/c2c4783428fb45629094829f2891a0cb978a382b"
+        },
+        "date": 1793306635032,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.31,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 12.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 11.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.438,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 12.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 19.754,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 20.88,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 21.295,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 16.955,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 17.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.2,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.956,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.932,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.176,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 16.884,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 17.86,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.133,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.112,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 8.847,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 9.73,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.069,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 19.085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 20.166,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 20.941,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12930458902-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -51721,6 +51881,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12930946926-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2c4783428fb45629094829f2891a0cb978a382b",
+          "message": "perf: late materialization for array fast fields (#6869)\n\n# Ticket(s) Closed\n\n- Closes #6164\n\n## What\n\nA list column that a DataFusion plan reads from the index (`text[]` and\nother dictionary lists) can now be deferred: it leaves the scan as a\npacked doc address and `TantivyDecodeExec` reads it once, at its\nconsumer. Outside tests the change is +296/-163; the rest of the diff is\nunit tests and regress goldens.\n\n## Why\n\nA GROUP BY on an array, pdb.agg terms on an array or a LATERAL unnest\nover a join read the whole list for every scanned row, including the\nrows the join then dropped. A list projected by JoinScan still comes\nfrom the heap, so these are the shapes that reach DataFusion.\n\n## How\n\nA list has no term ordinal state, so it skips State 1: it never goes\nthrough `TantivyFetchExec`, `fetch_at_scan`, the ordinal grouping or the\nsegmented Top K, and the decode reads it per segment with the scan's own\nlist decode (`FFHelper::list_values`). The placement rule keeps it at\nthe decode point or reads it in the scan, and an MPP decode now rebuilds\na reader reused from a fetch when that reader does not lay out its\ncolumn.\n\n## Tests\n\nNew `deferred_array_columns` covers those shapes over two segments with\nNULL and empty arrays, an outer join and MPP, each checked against\n`defer_string_decode = off`; four goldens move in their plans only. Unit\ntests cover the fetch refusal, the placement and aggregate rules, and\nthe reader rebuild.",
+          "timestamp": "2026-10-29T13:09:23-07:00",
+          "tree_id": "9b3e22569cdd57bb17b03f6668e4b8c2d02a4a6f",
+          "url": "https://github.com/paradedb/paradedb/commit/c2c4783428fb45629094829f2891a0cb978a382b"
+        },
+        "date": 1793306635858,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 86.04129129054941,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 85.39537872625877,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 50.581976713043666,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 60.26169006764074,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 60.26959496060048,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 60.48315705658899,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 121.4760740399032,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 101.46675779207266,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 52.10134985372179,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12930458902-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -52279,6 +52509,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12930946926-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2c4783428fb45629094829f2891a0cb978a382b",
+          "message": "perf: late materialization for array fast fields (#6869)\n\n# Ticket(s) Closed\n\n- Closes #6164\n\n## What\n\nA list column that a DataFusion plan reads from the index (`text[]` and\nother dictionary lists) can now be deferred: it leaves the scan as a\npacked doc address and `TantivyDecodeExec` reads it once, at its\nconsumer. Outside tests the change is +296/-163; the rest of the diff is\nunit tests and regress goldens.\n\n## Why\n\nA GROUP BY on an array, pdb.agg terms on an array or a LATERAL unnest\nover a join read the whole list for every scanned row, including the\nrows the join then dropped. A list projected by JoinScan still comes\nfrom the heap, so these are the shapes that reach DataFusion.\n\n## How\n\nA list has no term ordinal state, so it skips State 1: it never goes\nthrough `TantivyFetchExec`, `fetch_at_scan`, the ordinal grouping or the\nsegmented Top K, and the decode reads it per segment with the scan's own\nlist decode (`FFHelper::list_values`). The placement rule keeps it at\nthe decode point or reads it in the scan, and an MPP decode now rebuilds\na reader reused from a fetch when that reader does not lay out its\ncolumn.\n\n## Tests\n\nNew `deferred_array_columns` covers those shapes over two segments with\nNULL and empty arrays, an outer join and MPP, each checked against\n`defer_string_decode = off`; four goldens move in their plans only. Unit\ntests cover the fetch refusal, the placement and aggregate rules, and\nthe reader rebuild.",
+          "timestamp": "2026-10-29T13:09:23-07:00",
+          "tree_id": "9b3e22569cdd57bb17b03f6668e4b8c2d02a4a6f",
+          "url": "https://github.com/paradedb/paradedb/commit/c2c4783428fb45629094829f2891a0cb978a382b"
+        },
+        "date": 1793306636333,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.7255611587833335,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.4765625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12930458902-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [

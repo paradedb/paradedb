@@ -1,4 +1,3 @@
-\set VERBOSITY terse
 -- Direct APIs share a read policy; maintenance has a separate privilege policy.
 -- Every negative assertion checks 42501, so a malformed call cannot pass.
 CREATE EXTENSION IF NOT EXISTS vector;

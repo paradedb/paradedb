@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793240136105,
+  "lastUpdate": 1793240342335,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -42936,6 +42936,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12849479078-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbf319762317f9937b747f2ea073752903169f0",
+          "message": "test: reduce Stressgres bootstrap data for Antithesis (#7086)\n\n## What\n\nReduce each of the three largest shared Stressgres bootstrap fixtures\nused by Antithesis by 30%:\n\n| Suite | Before | After |\n| --- | ---: | ---: |\n| Bulk update / merge pressure | 9,000,000 | 6,300,000 |\n| Background merge | 1,000,000 | 700,000 |\n| Wide table | 1,000,000 | 700,000 |\n\nUpdate aggregate expectations and the background-merge delete boundary\nto match. Preserve schemas, indexes, worker jobs, planner assertions,\nand the 200,000-row upsert fixture with its 16 writer ranges.\n\n## Why\n\nThe October 28 Enterprise Antithesis example selected\n`first_bulk-update-merge-pressure.sh` at 222.134s and completed schema\nsetup at 229.563s. At 278.325s, upsert writers failed to extend\n`base/17693/17719.1`; bulk updates and standby replay also reported disk\nexhaustion. At 278.469s the checkpointer panicked while writing\n`pg_logical/replorigin_checkpoint.tmp`. The checkpoint filename is a\ndownstream symptom of disk exhaustion in the bulk-update suite, not\nevidence that a logical replication suite was selected. The log\nidentifies the affected workload but does not establish how much space\nwas consumed by tables, indexes, or retained WAL. Antithesis disks use\ntmpfs, and support recommended reducing generated data before increasing\nthe VM memory budget so runs can explore more fault schedules. These\nfixtures are shared with Enterprise and also affect ordinary Stressgres\nruns.\n\n## Validation\n\n- Parsed every suite TOML file with Python tomllib.\n- Checked aggregate counts against the reduced seed sizes and the\nbackground delete boundary against its seed range.\n- `git diff --check` passed.\n- Runtime suites were not run because the local Docker daemon is\nunavailable. A subsequent Antithesis run must verify disk usage, planner\nassertions, and merge behavior; this change does not establish that disk\nexhaustion is resolved.",
+          "timestamp": "2026-10-28T16:24:23-07:00",
+          "tree_id": "fd7c6d601a7def8f2af0d46585ead92666fdbebe",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbf319762317f9937b747f2ea073752903169f0"
+        },
+        "date": 1793240305402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.234,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 11.018,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.224,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.219,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.987,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.167,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.278,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 11.046,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.267,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.029,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.836,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.064,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.738,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.637,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.864,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.147,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.811,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.081,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.876,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.636,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.989,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12861465197-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [

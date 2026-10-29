@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793236132552,
+  "lastUpdate": 1793236244583,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -227681,6 +227681,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12852461569-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "64d7d97fd75329662246cb7b3b20d7bb20beb569",
+          "message": "perf: eagerly flush mutable segments in background workers\n\nBatch unfrozen writes for up to 100ms and wake the collector when entries freeze. Preserve independent merger slots, foreground backpressure, cancellation, immediate visibility, and session ownership while waiting outside transactions.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/64d7d97fd75329662246cb7b3b20d7bb20beb569"
+        },
+        "date": 1793236195913,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.43489,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.551795071046978, max cpu: 28.988426, count: 59300"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.94631277666526, max mem: 49.94921875, count: 59300"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.582345529601315, max cpu: 36.67622, count: 59300"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.25,
+            "unit": "median mem",
+            "extra": "avg mem: 32.24943369255902, max mem: 32.25, count: 59300"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.665725652252296, max cpu: 9.533267, count: 59300"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.92695918528668, max mem: 38.94140625, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 3233,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3235.5700337268127, max block_count: 3271.0, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.4394359595469437, max cpu: 4.712813, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.43597188553963, max mem: 28.4921875, count: 59300"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 28,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 28.391129848229344, max segment_count: 42.0, count: 59300"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.393347,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.305528664892293, max cpu: 23.940151, count: 59300"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 54.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.04822762963744, max mem: 54.0546875, count: 59300"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.3305907309514975, max cpu: 36.67622, count: 118600"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 40.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.38459547586425, max mem: 42.375, count: 118600"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.393347,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.806725440308508, max cpu: 19.325617, count: 59300"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.97896342748735, max mem: 49.01953125, count: 59300"
+          }
+        ],
+        "publication_id": "12851208896-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

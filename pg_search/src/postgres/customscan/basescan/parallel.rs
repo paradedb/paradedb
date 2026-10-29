@@ -22,11 +22,14 @@ use std::os::raw::c_void;
 use std::ptr::NonNull;
 
 use crate::index::reader::io_stats::Trace;
+use crate::index::stats::SegmentStats;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::basescan::BaseScan;
+use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::vector::PgVector;
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
@@ -109,6 +112,69 @@ unsafe extern "C-unwind" fn collect_buffer_hits_on_detach(
     }
 }
 
+unsafe fn leader_order_vector_segments(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    parallel: &mut ParallelScanState,
+) {
+    parallel.set_vector_order(None);
+    let plan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+    let private = PrivateData::from((*plan).custom_private);
+    let Some(mut order) = private
+        .maybe_orderby_info()
+        .as_ref()
+        .and_then(|order| order.first())
+        .cloned()
+    else {
+        return;
+    };
+    if !order.is_vector_distance() || !order.direction.is_asc() {
+        return;
+    }
+    order.resolve_query_vector(state.csstate.ss.ps.state, state.planstate());
+    let (name, query, metric) = order.as_vector_distance().unwrap();
+    let query = PgVector(query.to_vec());
+    let reader = state.custom_state().search_reader.as_ref().unwrap();
+    let field = reader
+        .schema()
+        .tantivy_schema()
+        .get_field(&name.root())
+        .expect("vector field exists");
+    let mut known = 0;
+    let mut ranked = reader
+        .searcher()
+        .segment_readers()
+        .iter()
+        .enumerate()
+        .map(|(ordinal, segment)| {
+            let centroid = SegmentStats::of_reader(segment)
+                .expect("segment stats should be readable")
+                .and_then(|stats| {
+                    stats
+                        .vector_partition(field)
+                        .expect("partition centroid should be readable")
+                });
+            let distance = centroid
+                .filter(|c| c.len() == query.0.len() && c.iter().all(|v| v.is_finite()))
+                .map(|c| {
+                    known += 1;
+                    query.partition_distance(metric, &c)
+                })
+                .unwrap_or(f32::NEG_INFINITY);
+            (ordinal as u32, distance)
+        })
+        .collect::<Vec<_>>();
+    if known == 0 {
+        return;
+    }
+    ranked.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+    parallel.set_vector_order(Some(
+        &ranked
+            .into_iter()
+            .map(|(ordinal, _)| ordinal)
+            .collect::<Vec<_>>(),
+    ));
+}
+
 impl ParallelQueryCapable for BaseScan {
     fn estimate_dsm_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> Size {
         if state.custom_state().search_reader.is_none() {
@@ -138,6 +204,7 @@ impl ParallelQueryCapable for BaseScan {
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
             leader_publish_query(state, &mut *pscan_state);
+            leader_order_vector_segments(state, &mut *pscan_state);
 
             if !(*pcxt).seg.is_null()
                 && let Some(trace) = state.custom_state().io_trace.clone()
@@ -191,6 +258,7 @@ impl ParallelQueryCapable for BaseScan {
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
         unsafe { leader_publish_query(state, pscan_state) };
+        unsafe { leader_order_vector_segments(state, pscan_state) };
         unsafe { leader_publish_bitmap(state, pscan_state) };
     }
 

@@ -19,6 +19,7 @@
 //!
 //! Every immutable segment carries two facts about each fast field: the empirical `min` and
 //! `max` of the values it holds, and, after a partitioned build, the box the build assigned it.
+//! Vector partitions also carry their coarse centroid for routing and worker assignment.
 //! A missing file or entry means "unknown", and a consumer must keep the segment.
 //!
 //! `plugin` writes and merges the file, `pruning` reads it for range partitioning. The types
@@ -55,6 +56,14 @@ pub(crate) use pruning::{
 
 const EMPIRICAL_IDX: usize = 0;
 const LOGICAL_IDX: usize = 1;
+const VECTOR_PARTITION_IDX: usize = 2;
+
+/// The build's coarse centroid, used for vector routing and worker assignment.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VectorPartition {
+    pub(crate) field: String,
+    pub(crate) centroid: Vec<f32>,
+}
 
 /// Empirical `min`/`max` of one fast field within one segment. `nullable` is false only when
 /// every document holds exactly one value, so a segment without it may hide NULLs.
@@ -505,6 +514,10 @@ impl SegmentStats {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?
             .map(LogicalBounds::from))
+    }
+
+    pub(crate) fn vector_partition(&self, field: Field) -> io::Result<Option<Vec<f32>>> {
+        self.read(field, VECTOR_PARTITION_IDX)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

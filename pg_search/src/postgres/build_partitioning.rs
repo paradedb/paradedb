@@ -29,13 +29,13 @@
 
 use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
+use std::sync::Arc;
 
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{FromDatum, PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
-use superkmeans::distance::l2_squared;
 use superkmeans::{SuperKMeans, SuperKMeansConfig};
 use tantivy::schema::{Field, FieldType, Schema};
 
@@ -43,6 +43,7 @@ use crate::api::FieldName;
 use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::stats;
+use crate::index::stats::VectorPartition;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -96,6 +97,20 @@ impl BuildPartitioning {
             (Self::Vector(model), PartitionPoint::Vector(vector)) => model.route(vector.as_ref()),
             _ => unreachable!("partition projection must match its model"),
         }
+    }
+
+    pub(super) fn vector_partition(&self, partition: usize) -> Option<Arc<VectorPartition>> {
+        let Self::Vector(model) = self else {
+            return None;
+        };
+        let centroid = model
+            .centroids
+            .chunks_exact(model.dimensions)
+            .nth(partition)?;
+        Some(Arc::new(VectorPartition {
+            field: model.field.as_ref().to_string(),
+            centroid: centroid.to_vec(),
+        }))
     }
 }
 
@@ -188,12 +203,7 @@ impl VectorPartitioning {
             .chunks_exact(self.dimensions)
             .enumerate()
             .map(|(partition, centroid)| {
-                let distance = match self.metric {
-                    VectorMetric::L2 => l2_squared(&vector.0, centroid),
-                    // Angular training keeps centroids on the unit sphere; the row norm
-                    // is constant across centroids and does not affect its assignment.
-                    VectorMetric::Cosine | VectorMetric::InnerProduct => -vector.dot(centroid),
-                };
+                let distance = vector.partition_distance(self.metric, centroid);
                 (partition, distance)
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -658,6 +668,10 @@ unsafe fn project_row(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::open_index;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::query::SearchQueryInput;
     use pgrx::datum::DatumWithOid;
     use pgrx::prelude::*;
 
@@ -775,6 +789,22 @@ mod tests {
                             .unwrap(),
                             Some(4002)
                         );
+                        let (_, indexrel) =
+                            open_rels("vector_partition_src", "vector_partition_idx");
+                        let index =
+                            open_index(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+                        let field = index.schema().get_field("emb").unwrap();
+                        for segment in index.searchable_segments().unwrap() {
+                            let stats = stats::SegmentStats::of_segment(&segment).unwrap().unwrap();
+                            let centroid = stats
+                                .vector_partition(field)
+                                .unwrap()
+                                .expect("partition centroid survives build and reindex");
+                            assert_eq!(centroid.len(), 2);
+                            assert!(centroid.iter().all(|v| v.is_finite()));
+                        }
+                        drop(index);
+                        drop(indexrel);
                         assert_eq!(Spi::get_one::<bool>(r#"
                     SELECT bool_and(regions = 1) FROM (
                         SELECT unnest(paradedb.find_ctid('vector_partition_idx', ctid)), count(DISTINCT region) AS regions
@@ -786,6 +816,114 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[pg_test]
+    fn vector_partition_parallel_checkout_tracks_query_distance() {
+        Spi::run(r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE TABLE vector_checkout (id bigint, category text, emb vector(2));
+            INSERT INTO vector_checkout SELECT i, CASE WHEN i % 3 = 0 THEN 'keep' ELSE 'other' END,
+                ARRAY[(i % 64) * 100.0, (i % 7) * 0.01]::vector FROM generate_series(1, 8192) i;
+            CREATE INDEX vector_checkout_idx ON vector_checkout USING paradedb (id, (category::pdb.literal), emb vector_l2_ops)
+                WITH (partition_by = 'emb', target_segment_count = 64);
+            ANALYZE vector_checkout;
+            SET max_parallel_workers_per_gather = 2;
+            SET parallel_setup_cost = 0;
+            SET parallel_tuple_cost = 0;
+            SET paradedb.min_rows_per_worker = 0;
+            SET plan_cache_mode = force_generic_plan;
+            PREPARE vector_checkout_query(vector) AS SELECT id FROM vector_checkout
+                WHERE id @@@ pdb.all() AND category = 'keep' ORDER BY emb <-> $1 LIMIT 5;
+        "#).unwrap();
+        let (_, indexrel) = open_rels("vector_checkout", "vector_checkout_idx");
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let field = reader.schema().tantivy_schema().get_field("emb").unwrap();
+        let segment_count = reader.searcher().segment_readers().len();
+        assert!((32..=64).contains(&segment_count));
+        for x in [0.0, 6300.0] {
+            let query = PgVector(vec![x, 0.0]);
+            let mut nearest: Vec<_> = reader
+                .searcher()
+                .segment_readers()
+                .iter()
+                .map(|segment| {
+                    let centroid = stats::SegmentStats::of_reader(segment)
+                        .unwrap()
+                        .unwrap()
+                        .vector_partition(field)
+                        .unwrap()
+                        .unwrap();
+                    (
+                        segment.segment_id().short_uuid_string(),
+                        query.partition_distance(VectorMetric::L2, &centroid),
+                    )
+                })
+                .collect();
+            nearest.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+            let plan = Spi::get_one::<pgrx::Json>(&format!("EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, FORMAT JSON) EXECUTE vector_checkout_query('[{x},0]')")).unwrap().unwrap().0;
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            while let Some(node) = nodes.pop() {
+                if node["Index"] == "vector_checkout_idx" {
+                    found = true;
+                    assert_eq!(node["Parallel Aware"], true, "{plan}");
+                    assert!(
+                        node["Tantivy Query"].to_string().contains("category"),
+                        "{plan}"
+                    );
+                    assert!(node.get("Filter").is_none(), "{plan}");
+                    let workers: serde_json::Value = serde_json::from_str(
+                        node["Parallel Workers"]
+                            .as_str()
+                            .expect("parallel claim telemetry"),
+                    )
+                    .unwrap();
+                    let mut claims = workers
+                        .as_object()
+                        .unwrap()
+                        .iter()
+                        .flat_map(|(worker, data)| {
+                            data["claimed_segments"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(move |segment| (worker, segment))
+                        })
+                        .collect::<Vec<_>>();
+                    claims.sort_unstable_by_key(|(_, s)| s["claim_order"].as_u64().unwrap());
+                    assert_eq!(claims.len(), segment_count, "{plan}");
+                    assert_eq!(claims[0].1["id"].as_str().unwrap(), nearest[0].0);
+                    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+                    let (mut near, mut far) = (0, segment_count as u64 - 1);
+                    for (worker, segment) in claims {
+                        let count = counts.entry(worker).or_default();
+                        let expected = if (*count).is_multiple_of(2) {
+                            let rank = near;
+                            near += 1;
+                            rank
+                        } else {
+                            let rank = far;
+                            far -= 1;
+                            rank
+                        };
+                        *count += 1;
+                        assert_eq!(segment["vector_rank"].as_u64().unwrap(), expected);
+                    }
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
+        }
+        Spi::run("DEALLOCATE vector_checkout_query").unwrap();
     }
 
     #[pg_test]

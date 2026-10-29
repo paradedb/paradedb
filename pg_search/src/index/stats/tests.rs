@@ -55,6 +55,43 @@ mod tests {
         (field, stats)
     }
 
+    #[pg_test]
+    fn vector_partition_centroids_survive_staging_merges_and_exclude_new_segments() {
+        Spi::run(r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE TABLE stats_vectors (id bigint, emb vector(2), content text);
+            INSERT INTO stats_vectors SELECT i, ARRAY[CASE WHEN i % 2 = 0 THEN -10.0 ELSE 10.0 END, (i % 7) * 0.01]::vector,
+                (SELECT string_agg(md5((i * 32 + j)::text), ' ') FROM generate_series(1, 32) j)
+            FROM generate_series(1, 24000) i;
+            SET max_parallel_maintenance_workers = 0;
+            SET maintenance_work_mem = '16MB';
+            CREATE INDEX stats_vectors_idx ON stats_vectors USING paradedb (id, emb vector_l2_ops, content)
+            WITH (partition_by = 'emb', target_segment_count = 2, mutable_segment_rows = 0, layer_sizes = '0', background_layer_sizes = '0');
+        "#).unwrap();
+        let indexrel = open_index("stats_vectors_idx");
+        let (field, stats) = segment_stats(&indexrel, "emb");
+        assert_eq!(stats.len(), 2);
+        let centroids: Vec<_> = stats
+            .iter()
+            .map(|s| s.vector_partition(field).unwrap().unwrap())
+            .collect();
+        assert_ne!(centroids[0], centroids[1]);
+        Spi::run("INSERT INTO stats_vectors VALUES (25000, '[123,456]', 'new row')").unwrap();
+        let (_, stats) = segment_stats(&indexrel, "emb");
+        assert_eq!(stats.len(), 3);
+        assert_eq!(
+            stats
+                .iter()
+                .filter(|s| s.vector_partition(field).unwrap().is_none())
+                .count(),
+            1
+        );
+        let plan = Spi::get_one::<pgrx::Json>("EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM stats_vectors WHERE id @@@ pdb.all() ORDER BY emb <-> '[123,456]'::vector LIMIT 1").unwrap().unwrap().0;
+        assert!(plan.to_string().contains("stats_vectors_idx"), "{plan}");
+        assert_eq!(Spi::get_one::<i64>("SELECT id FROM stats_vectors WHERE id @@@ pdb.all() ORDER BY emb <-> '[123,456]'::vector LIMIT 1").unwrap(), Some(25000));
+        drop(indexrel);
+    }
+
     fn below(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
         a.total_cmp(b) == Ordering::Less
     }

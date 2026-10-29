@@ -5,5 +5,5 @@ USING paradedb (
     emb vector_cosine_ops
 ) WITH (
     training_sample_ratio = 0.32,
-    target_segment_count = 8
+    target_segment_count = 64
 );

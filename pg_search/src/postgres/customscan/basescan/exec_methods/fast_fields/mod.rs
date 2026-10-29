@@ -118,7 +118,8 @@ pub unsafe fn pullup_fast_fields(
 
         if let Some((var, _fieldname)) = maybe_var {
             let start_len = matches.len();
-            if let Some(resolved) = context.resolve(ColumnRef::Attno((*var).varattno), Access::Any)
+            if let Some(resolved) =
+                context.resolve(ColumnRef::Attno((*var).varattno), Access::Scalar)
             {
                 matches.push(resolved.field);
             }
@@ -196,7 +197,7 @@ pub unsafe fn pullup_fast_fields(
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
         let start_len = matches.len();
-        if let Some(resolved) = context.resolve(ColumnRef::Attno(attno), Access::Any) {
+        if let Some(resolved) = context.resolve(ColumnRef::Attno(attno), Access::Scalar) {
             matches.push(resolved.field);
         }
         // If not added (e.g. because of source mismatch), try expression matching for this column.

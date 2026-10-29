@@ -324,7 +324,7 @@ impl IndexOnlyField {
 
         Some(Self {
             tuple_index,
-            fast_field: WhichFastField::eager(
+            fast_field: WhichFastField::eager_scalar(
                 search_field.field_name().to_string(),
                 search_field.field_type(),
             ),

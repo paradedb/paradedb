@@ -544,6 +544,13 @@ impl FieldCardinality {
             FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
         }
     }
+
+    pub fn from_arrayness(is_array: bool) -> Self {
+        match is_array {
+            true => FieldCardinality::List,
+            false => FieldCardinality::Scalar,
+        }
+    }
 }
 
 /// The child field of an Arrow list, named "item" by Arrow convention.
@@ -601,7 +608,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
                         other.trim_start_matches("junk(").trim_end_matches(")"),
                     ))
                 } else {
-                    WhichFastField::eager(other, value.1)
+                    WhichFastField::eager_scalar(other, value.1)
                 }
             }
         }
@@ -693,7 +700,7 @@ impl WhichFastField {
     }
 
     /// The common case: one value per row, decoded during the scan.
-    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+    pub fn eager_scalar(name: impl Into<String>, field_type: SearchFieldType) -> Self {
         Self::named(
             name,
             field_type,
@@ -733,6 +740,25 @@ impl WhichFastField {
                 ..
             }
         )
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        match self {
+            WhichFastField::Junk(_)
+            | WhichFastField::Ctid
+            | WhichFastField::TableOid
+            | WhichFastField::Score(_)
+            | WhichFastField::DeferredCtid(_)
+            | WhichFastField::MatchTag(_) => true,
+            WhichFastField::Named { cardinality, .. } => match cardinality {
+                FieldCardinality::Scalar => true,
+                FieldCardinality::List => false,
+            },
+        }
+    }
+
+    pub fn is_array(&self) -> bool {
+        !self.is_scalar()
     }
 }
 
@@ -1170,7 +1196,7 @@ mod tests {
 
         let helper = FFHelper::with_fields(
             &reader,
-            &[WhichFastField::eager(
+            &[WhichFastField::eager_scalar(
                 "id",
                 SearchFieldType::I64(pg_sys::INT8OID),
             )],

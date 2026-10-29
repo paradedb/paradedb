@@ -157,7 +157,7 @@ use self::window_func::{
 };
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::explain::{
-    explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
+    explain_physical_plan, format_join_level_expr, get_plan_with_merged_metrics,
 };
 use crate::postgres::node::NodeExt;
 use crate::schema::SearchFieldType;
@@ -800,9 +800,9 @@ impl JoinScan {
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let outer_resolved =
-                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Any);
+                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Scalar);
                     let inner_resolved =
-                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Any);
+                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Scalar);
                     match (&outer_resolved, &inner_resolved) {
                         (Some(outer_resolved), Some(inner_resolved)) => {
                             let either_numeric = outer_resolved
@@ -1414,8 +1414,8 @@ impl CustomScan for JoinScan {
         let join_clause = &state.custom_state().join_clause;
         explainer.add_text("Relation Tree", join_clause.plan.explain());
 
-        let mut base_relations = Vec::new();
-        join_clause.collect_base_relations(&mut base_relations);
+        let mut contexts = Vec::new();
+        join_clause.collect_source_contexts(&mut contexts);
 
         fn collect_join_cond_strings(node: &RelNode, acc: &mut Vec<String>) {
             match node {
@@ -1451,16 +1451,12 @@ impl CustomScan for JoinScan {
 
                         acc.push(format!(
                             "{} = {}",
-                            get_attname_safe(
-                                Some(outer_source.scan_info.heaprelid),
-                                outer_attno,
-                                &outer_alias
-                            ),
-                            get_attname_safe(
-                                Some(inner_source.scan_info.heaprelid),
-                                inner_attno,
-                                &inner_alias
-                            )
+                            outer_source
+                                .to_source_context()
+                                .get_attname_safe(outer_attno, &outer_alias),
+                            inner_source
+                                .to_source_context()
+                                .get_attname_safe(inner_attno, &inner_alias)
                         ));
                     }
 
@@ -1556,11 +1552,10 @@ impl CustomScan for JoinScan {
                             format!("{} {}", scores.join(" + "), oi.direction.as_ref())
                         }
                         OrderByFeature::Var { rti, attno, name } => {
-                            if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
-                                let col_name = get_attname_safe(
-                                    Some(info.heaprelid),
+                            if let Some(context) = contexts.iter().find(|i| i.heap_rti == *rti) {
+                                let col_name = context.get_attname_safe(
                                     *attno,
-                                    info.alias.as_deref().unwrap_or("?"),
+                                    context.alias.as_deref().unwrap_or("?"),
                                 );
                                 format!("{} {}", col_name, oi.direction.as_ref())
                             } else {
@@ -2490,7 +2485,7 @@ impl JoinScan {
                     root,
                     rti as pg_sys::Index,
                 )
-                .is_some_and(|u| u.source_rti.0 == sources[0].context.heap_rti)
+                .is_some_and(|u| u.source_rti.0 == sources[0].heap_rti)
             });
 
         if sources.len() < 2 && !has_lateral_unnest {
@@ -2504,9 +2499,7 @@ impl JoinScan {
 
         let aliases: Vec<String> = sources
             .iter()
-            .map(|s| {
-                RelationAlias::new(s.alias.as_deref()).warning_context(s.context.heaprel.oid())
-            })
+            .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.heaprel.oid()))
             .collect();
 
         let warn = |reason| JoinPathDecline::Warn {
@@ -2550,7 +2543,7 @@ impl JoinScan {
             && !plan.has_search_predicate()
             && !sources
                 .iter()
-                .any(|source| search_operator_relations::applies_to(root, source.context.heap_rti))
+                .any(|source| search_operator_relations::applies_to(root, source.heap_rti))
         {
             return Err(JoinPathDecline::Quiet);
         }

@@ -738,6 +738,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 varno,
                 PgSearchRelation::open(relid),
                 Some(bm25_index),
+                None,
             ));
         }
 

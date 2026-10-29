@@ -551,6 +551,7 @@ impl JoinSource {
             heap_rti: self.scan_info.heap_rti,
             heaprel: PgSearchRelation::open(self.scan_info.heaprelid),
             indexrel: Some(indexrel),
+            alias: self.scan_info.alias.clone(),
         }
     }
 
@@ -1990,6 +1991,12 @@ impl JoinCSClause {
     ) -> Self {
         self.pg_projected_resnos = pg_projected_resnos;
         self
+    }
+
+    pub fn collect_source_contexts(&self, acc: &mut Vec<SourceContext>) {
+        for source in self.plan.sources() {
+            acc.push(source.to_source_context());
+        }
     }
 
     /// Recursively collect all base relations in this join tree.

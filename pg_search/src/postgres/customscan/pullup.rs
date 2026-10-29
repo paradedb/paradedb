@@ -46,20 +46,13 @@ pub enum ColumnRef<'a> {
 pub struct ResolvedField {
     pub attno: Option<pg_sys::AttrNumber>, // none for expression-only fields,
     pub field: WhichFastField,
-    pub is_array: bool,
     pub is_json: bool,
 }
 impl ResolvedField {
-    pub fn new(
-        attno: Option<pg_sys::AttrNumber>,
-        field: WhichFastField,
-        is_array: bool,
-        is_json: bool,
-    ) -> Self {
+    pub fn new(attno: Option<pg_sys::AttrNumber>, field: WhichFastField, is_json: bool) -> Self {
         Self {
             attno,
             field,
-            is_array,
             is_json,
         }
     }
@@ -77,17 +70,20 @@ pub struct SourceContext {
     pub heap_rti: pg_sys::Index,
     pub heaprel: PgSearchRelation,
     pub indexrel: Option<PgSearchRelation>,
+    pub alias: Option<String>,
 }
 impl SourceContext {
     pub fn new(
         heap_rti: pg_sys::Index,
         heaprel: PgSearchRelation,
         indexrel: Option<PgSearchRelation>,
+        alias: Option<String>,
     ) -> Self {
         Self {
             heap_rti,
             heaprel,
             indexrel,
+            alias,
         }
     }
 
@@ -115,8 +111,15 @@ impl SourceContext {
         match col {
             ColumnRef::Attno(attno) => {
                 let resolved = unsafe { resolve_fast_field(attno, self)? };
-                if !field_type_supported_for_pullup(resolved.field.field_type(), resolved.is_array)
-                {
+                let array_is_here_and_considered = match access {
+                    Access::List | Access::Any => false,
+                    Access::Scalar => resolved.field.is_array(),
+                };
+
+                if !field_type_supported_for_pullup(
+                    resolved.field.field_type(),
+                    array_is_here_and_considered,
+                ) {
                     return None;
                 }
                 Some(resolved)
@@ -157,24 +160,18 @@ impl SourceContext {
                 }
             }
             ColumnRef::Expr(node) => {
-                let (ff, is_array, is_json) = find_matching_fast_field(node, self)?;
-                if !field_type_supported_for_pullup(ff.field_type(), is_array) {
+                let (ff, is_json) = find_matching_fast_field(node, self)?;
+                if !field_type_supported_for_pullup(ff.field_type(), ff.is_array()) {
                     return None;
                 }
-                Some(ResolvedField::new(None, ff, is_array, is_json))
+                Some(ResolvedField::new(None, ff, is_json))
             }
             ColumnRef::Ctid => Some(ResolvedField::new(
                 Some(pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber),
                 WhichFastField::Ctid,
                 false,
-                false,
             )),
-            ColumnRef::Score => Some(ResolvedField::new(
-                None,
-                WhichFastField::score(),
-                false,
-                false,
-            )),
+            ColumnRef::Score => Some(ResolvedField::new(None, WhichFastField::score(), false)),
         }
     }
 
@@ -186,6 +183,21 @@ impl SourceContext {
             }
         }
         None
+    }
+
+    /// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
+    pub fn get_attname_safe(&self, attno: pg_sys::AttrNumber, rel_name: &str) -> String {
+        unsafe {
+            let attname_ptr = pg_sys::get_attname(self.heaprel.oid(), attno, true); // missing_ok = true
+            if attname_ptr.is_null() {
+                format!("{}.{}", rel_name, attno)
+            } else {
+                let attname = std::ffi::CStr::from_ptr(attname_ptr)
+                    .to_str()
+                    .unwrap_or("?");
+                format!("{}.{}", rel_name, attname)
+            }
+        }
     }
 }
 
@@ -207,7 +219,7 @@ fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
 fn find_matching_fast_field(
     node: *mut pg_sys::Node,
     context: &SourceContext,
-) -> Option<(WhichFastField, bool, bool)> {
+) -> Option<(WhichFastField, bool)> {
     if node.is_null() {
         return None;
     }
@@ -241,11 +253,13 @@ fn find_matching_fast_field(
         }
     };
 
-    let to_fast_field = |search_field: &SearchField| -> Option<WhichFastField> {
+    let to_fast_field = |search_field: &SearchField, is_array: bool| -> Option<WhichFastField> {
         if search_field.is_fast() {
-            return Some(WhichFastField::eager(
+            return Some(WhichFastField::named(
                 search_field.field_name().to_string(),
                 search_field.field_type(),
+                FieldCardinality::from_arrayness(is_array),
+                FieldDelivery::Eager,
             ));
         }
         None
@@ -276,17 +290,17 @@ fn find_matching_fast_field(
                         } if expression_idx == i && idx == field_idx
                     )
                 }) && matches_node(arg)
-                    && let Some(ff) = to_fast_field(search_field)
+                    && let Some(ff) = to_fast_field(search_field, data.is_array)
                 {
-                    return Some((ff, data.is_array, data.is_json));
+                    return Some((ff, data.is_json));
                 }
             }
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
             |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
         ) && matches_node(expr as *mut pg_sys::Node)
-            && let Some(ff) = to_fast_field(search_field)
+            && let Some(ff) = to_fast_field(search_field, data.is_array)
         {
-            return Some((ff, data.is_array, data.is_json));
+            return Some((ff, data.is_json));
         }
     }
 
@@ -323,17 +337,13 @@ unsafe fn resolve_fast_field(
 
         // these aren't _exactly_ fast fields, but we do have the information
         // readily available during the scan, so we'll pretend
-        pg_sys::SelfItemPointerAttributeNumber => Some(ResolvedField::new(
-            Some(attno),
-            WhichFastField::Ctid,
-            false,
-            false,
-        )),
+        pg_sys::SelfItemPointerAttributeNumber => {
+            Some(ResolvedField::new(Some(attno), WhichFastField::Ctid, false))
+        }
 
         pg_sys::TableOidAttributeNumber => Some(ResolvedField::new(
             Some(attno),
             WhichFastField::TableOid,
-            false,
             false,
         )),
 
@@ -360,8 +370,12 @@ unsafe fn resolve_fast_field(
                 {
                     return Some(ResolvedField::new(
                         Some(attno),
-                        WhichFastField::eager(att.name(), search_field.field_type()),
-                        data.is_array,
+                        WhichFastField::named(
+                            att.name(),
+                            search_field.field_type(),
+                            FieldCardinality::from_arrayness(data.is_array),
+                            FieldDelivery::Eager,
+                        ),
                         data.is_json,
                     ));
                 }
@@ -401,20 +415,14 @@ fn resolve_fast_field_by_name(field_name: &str, index: &PgSearchRelation) -> Opt
             .source
             .heap_attno(index)
             .map(|n| n as pg_sys::AttrNumber + 1); // convert index-based to pg-based attno
-        let cardinality = if data.is_array {
-            FieldCardinality::List
-        } else {
-            FieldCardinality::Scalar
-        };
         Some(ResolvedField::new(
             heap_attno,
             WhichFastField::named(
                 field_name,
                 search_field.field_type(),
-                cardinality,
+                FieldCardinality::from_arrayness(data.is_array),
                 FieldDelivery::Eager,
             ),
-            data.is_array,
             data.is_json,
         ))
     } else {

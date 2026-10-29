@@ -24,7 +24,7 @@
 
 use super::GroupingShape;
 use super::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, collect_join_agg_sources, resolve_source_field,
+    FilterExprBuildContext, collect_join_agg_sources, resolve_source_field,
 };
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
@@ -32,9 +32,9 @@ use crate::api::{SortDirection, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
-use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
+use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
@@ -58,16 +58,13 @@ use pgrx::pg_sys::{
 /// nearly-identical `ok_or_else(...)` formatters now share this helper so the
 /// error wording stays consistent across the file.
 fn find_source_by_rti<'a>(
-    sources: &'a [JoinAggSource],
+    sources: &'a [SourceContext],
     rti: pg_sys::Index,
     context_label: &str,
-) -> Result<&'a JoinAggSource, String> {
-    sources
-        .iter()
-        .find(|s| s.context.heap_rti == rti)
-        .ok_or_else(|| {
-            format!("{context_label} references table at RTI {rti} which is not in the join")
-        })
+) -> Result<&'a SourceContext, String> {
+    sources.iter().find(|s| s.heap_rti == rti).ok_or_else(|| {
+        format!("{context_label} references table at RTI {rti} which is not in the join")
+    })
 }
 
 /// Simplified aggregate classification for the DataFusion backend.
@@ -631,7 +628,7 @@ unsafe fn collect_output_nodes(
 /// indexed fields, and ambiguous plan positions.
 pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
     shape: GroupingShape,
     mut pdb_route: Option<PdbAggRoute>,
@@ -870,7 +867,7 @@ unsafe fn agg_group_clauses(root: *mut pg_sys::PlannerInfo) -> PgList<pg_sys::So
 
 struct RawColumnContext<'a> {
     root: *mut pg_sys::PlannerInfo,
-    sources: &'a [JoinAggSource],
+    sources: &'a [SourceContext],
     plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
     outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     shape: GroupingShape,
@@ -879,7 +876,7 @@ struct RawColumnContext<'a> {
 }
 
 struct ResolvedVar<'a> {
-    source: &'a JoinAggSource,
+    source: &'a SourceContext,
     attno: pg_sys::AttrNumber,
     field_name: String,
     plan_position: usize,
@@ -902,16 +899,20 @@ unsafe fn resolve_var_source<'a>(
         None => (rti, attno, None),
     };
     let source = find_source_by_rti(context.sources, source_rti, what)?;
+
     let field_name = match unnest_field {
         Some(field_name) => field_name,
-        None => source.column_name(attno).ok_or_else(|| {
-            let alias = RelationAlias::new(source.alias.as_deref())
-                .display(source.context.heap_rti as usize);
-            format!(
-                "{what} {} is not columnar indexed",
-                get_attname_safe(Some(source.context.heaprel.oid()), attno, &alias)
-            )
-        })?,
+        None => source
+            .resolve(ColumnRef::Attno(attno), Access::Any)
+            .map(|r| r.field.name())
+            .ok_or_else(|| {
+                let alias =
+                    RelationAlias::new(source.alias.as_deref()).display(source.heap_rti as usize);
+                format!(
+                    "{what} {} is not columnar indexed",
+                    source.get_attname_safe(attno, &alias)
+                )
+            })?,
     };
     let plan_position = context
         .plan
@@ -1020,7 +1021,7 @@ unsafe fn extract_raw_group_column(
         )
     };
     let numeric_info = numeric_source
-        .and_then(|source| source.context.schema())
+        .and_then(|source| source.schema())
         .and_then(|schema| schema.numeric_field_type(&field_name))
         .map(|(field_type, scale)| {
             let scale = scale.ok_or_else(|| {
@@ -1350,7 +1351,7 @@ pub unsafe fn pdb_agg_route(
 /// time, the same as on the Tantivy backend.
 unsafe fn lower_pdb_agg(
     aggref: *mut pg_sys::Aggref,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<PdbAggRequest, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
     let arg_expr = |i: usize| args.get_ptr(i).map(|arg| (*arg).expr as *mut pg_sys::Node);
@@ -1372,7 +1373,7 @@ pub unsafe fn lower_pdb_agg_call(
     funcoid: u32,
     spec_arg: Option<*mut pg_sys::Node>,
     visibility_arg: Option<*mut pg_sys::Node>,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<PdbAggRequest, String> {
     let (spec, visibility) = spec_arg
         .and_then(|spec_arg| pdb_agg_spec(funcoid, spec_arg, visibility_arg))
@@ -1467,7 +1468,6 @@ unsafe fn extract_aggref_field_refs(
         )?;
         let numeric = resolved
             .source
-            .context
             .schema()
             .and_then(|s| s.numeric_field_type(&resolved.field_name))
             .map(|(field_type, _)| field_type);
@@ -1492,7 +1492,7 @@ unsafe fn extract_aggref_field_refs(
 /// Returns an empty Vec for aggregates without ORDER BY (the common case).
 unsafe fn extract_aggref_order_by(
     aggref: *mut pg_sys::Aggref,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
     outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
 ) -> Result<Vec<AggOrderByEntry>, String> {
@@ -1530,12 +1530,15 @@ unsafe fn extract_aggref_order_by(
 
         let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
 
-        let field_name = source.column_name(attno).ok_or_else(|| {
-            format!(
-                "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
-                rti, attno
-            )
-        })?;
+        let field_name = source
+            .resolve(ColumnRef::Attno(attno), Access::Any)
+            .map(|r| r.field.name())
+            .ok_or_else(|| {
+                format!(
+                    "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
+                    rti, attno
+                )
+            })?;
 
         let direction =
             SortDirection::from_sort_op((*clause_ptr).sortop, (*clause_ptr).nulls_first)

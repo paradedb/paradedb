@@ -1647,8 +1647,12 @@ impl AggregateScan {
             has_paradedb_agg && unsafe { groupby::has_ungrouped_column(builder.args()) };
 
         let index_oid = index.oid();
-        let source_context =
-            SourceContext::new(heap_rti, PgSearchRelation::open(heap_relid), Some(index));
+        let source_context = SourceContext::new(
+            heap_rti,
+            PgSearchRelation::open(heap_relid),
+            Some(index),
+            None,
+        );
         match AggregateCSClause::build(builder, &source_context) {
             Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
@@ -1815,7 +1819,7 @@ impl AggregateScan {
                 crate::postgres::customscan::range_table::bms_iter(input_rel.relids).collect()
             };
             for rti in rtis {
-                if !sources.iter().any(|s| s.context.heap_rti == rti) {
+                if !sources.iter().any(|s| s.heap_rti == rti) {
                     let rte = unsafe {
                         crate::postgres::customscan::range_table::get_rte(
                             (*root).simple_rel_array_size as usize,
@@ -1839,7 +1843,7 @@ impl AggregateScan {
                             )
                         }) && sources
                             .iter()
-                            .any(|s| s.context.heap_rti == unnest_info.source_rti.0)
+                            .any(|s| s.heap_rti == unnest_info.source_rti.0)
                         {
                             continue;
                         }
@@ -1922,7 +1926,7 @@ impl AggregateScan {
             && !gucs::enable_custom_scan_without_operator()
             && !plan.has_search_predicate()
             && !sources.iter().any(|source| unsafe {
-                search_operator_relations::applies_to(root, source.context.heap_rti)
+                search_operator_relations::applies_to(root, source.heap_rti)
             })
         {
             return Err(AggregatePathDecline::Quiet);

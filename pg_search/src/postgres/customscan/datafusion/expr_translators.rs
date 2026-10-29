@@ -583,6 +583,24 @@ impl<'a> PredicateTranslator<'a> {
             }
         };
 
+        // Arrow wraps integer overflow where PostgreSQL raises an error, so let the
+        // UDF fallback evaluate integer arithmetic.
+        if matches!(op, Operator::Plus | Operator::Minus | Operator::Multiply)
+            && matches!(
+                (*op_expr).opresulttype,
+                pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
+            )
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: integer arithmetic left to PostgreSQL [OpExpr] op=\"{}\", types=({}, {}) | {}",
+                op_str,
+                type_name(left_type),
+                type_name(right_type),
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
         let collid = (*op_expr).inputcollid;
         if collid != pg_sys::Oid::INVALID {
             let required_op = match op_str {
@@ -965,7 +983,7 @@ mod tests {
             Just("length(e.pattern) > 3".to_string()),
             Just("upper(e.pattern) = upper(i.name)".to_string()),
             Just("COALESCE(e.pattern, '') = i.name".to_string()),
-            // Arithmetic operators — native via translate_op_expr (+, -, *, /, %).
+            // Arithmetic operators. Integer +, - and * go through the UDF fallback.
             Just("e.threshold + 10 > i.value".to_string()),
             Just("e.threshold * 2 > 50".to_string()),
             Just("i.value - e.threshold > 0".to_string()),
@@ -1023,7 +1041,7 @@ mod tests {
             Just("e.pattern = i.name OR length(e.pattern) > 100".to_string()),
             Just("e.pattern = i.name OR e.pattern IS NULL".to_string()),
             Just("upper(e.pattern) = i.name OR e.threshold > i.value".to_string()),
-            // Arithmetic cross-table predicates — now native OpExpr.
+            // Arithmetic cross-table predicates, absorbed via the UDF fallback.
             Just("e.threshold * 2 > i.value".to_string()),
             Just("e.threshold + i.value > 100".to_string()),
         ]

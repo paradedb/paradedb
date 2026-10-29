@@ -538,9 +538,6 @@ impl Scanner {
         if results.is_empty() {
             return None;
         }
-        if self.can_pushdown_score_threshold() && self.score_threshold.is_some() {
-            self.score_threshold_pushed = true;
-        }
         // Consecutive SA windows or RA lookups on a single-segment index can revisit the same
         // `segment_ord` with smaller `DocId`s than the previous window; reset `current_segment_ord`
         // so forward-only `ActiveTagScorer`s are re-instantiated from DocId 0 for each window.

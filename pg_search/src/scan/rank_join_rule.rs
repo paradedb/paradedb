@@ -140,7 +140,7 @@ use crate::query::SearchQueryInput;
 use crate::scan::ScanMode;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::{
-    LazySortConfig, PgSearchScanPlan, SharedThresholdMode, TopKSelectivity,
+    LazyParallelMode, LazySortConfig, PgSearchScanPlan, TopKSelectivity,
 };
 use crate::scan::rank_join_exec::{
     InputScorePair, RankJoinExec, RankJoinInputs, RankJoinSortExprs, ScoreCombiner,
@@ -1313,7 +1313,7 @@ fn try_rewrite_unscored_branch(
             orderby_info: None,
             ordering: None,
             initial_window: 0.0,
-            shared_threshold: SharedThresholdMode::Disabled,
+            parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         },
         join_mode,
@@ -1364,7 +1364,7 @@ fn try_rewrite_scored_leaf(
             orderby_info: Some(vec![order_by]),
             ordering: LexOrdering::new(vec![required_sort.clone()]),
             initial_window: 1.0,
-            shared_threshold: SharedThresholdMode::Disabled,
+            parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         },
         join_mode,

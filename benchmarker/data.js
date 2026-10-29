@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793308631817,
+  "lastUpdate": 1793308959151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20004,6 +20004,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12933263746-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2c4783428fb45629094829f2891a0cb978a382b",
+          "message": "perf: late materialization for array fast fields (#6869)\n\n# Ticket(s) Closed\n\n- Closes #6164\n\n## What\n\nA list column that a DataFusion plan reads from the index (`text[]` and\nother dictionary lists) can now be deferred: it leaves the scan as a\npacked doc address and `TantivyDecodeExec` reads it once, at its\nconsumer. Outside tests the change is +296/-163; the rest of the diff is\nunit tests and regress goldens.\n\n## Why\n\nA GROUP BY on an array, pdb.agg terms on an array or a LATERAL unnest\nover a join read the whole list for every scanned row, including the\nrows the join then dropped. A list projected by JoinScan still comes\nfrom the heap, so these are the shapes that reach DataFusion.\n\n## How\n\nA list has no term ordinal state, so it skips State 1: it never goes\nthrough `TantivyFetchExec`, `fetch_at_scan`, the ordinal grouping or the\nsegmented Top K, and the decode reads it per segment with the scan's own\nlist decode (`FFHelper::list_values`). The placement rule keeps it at\nthe decode point or reads it in the scan, and an MPP decode now rebuilds\na reader reused from a fetch when that reader does not lay out its\ncolumn.\n\n## Tests\n\nNew `deferred_array_columns` covers those shapes over two segments with\nNULL and empty arrays, an outer join and MPP, each checked against\n`defer_string_decode = off`; four goldens move in their plans only. Unit\ntests cover the fetch refusal, the placement and aggregate rules, and\nthe reader rebuild.",
+          "timestamp": "2026-10-29T13:09:23-07:00",
+          "tree_id": "9b3e22569cdd57bb17b03f6668e4b8c2d02a4a6f",
+          "url": "https://github.com/paradedb/paradedb/commit/c2c4783428fb45629094829f2891a0cb978a382b"
+        },
+        "date": 1793308958303,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.987,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.441,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 328.017,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 14.636,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 100.65,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 176.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.112,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.943,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.84,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 190.575,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.031,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.422,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 185.065,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12933488137-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -41629,6 +41729,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12933263746-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2c4783428fb45629094829f2891a0cb978a382b",
+          "message": "perf: late materialization for array fast fields (#6869)\n\n# Ticket(s) Closed\n\n- Closes #6164\n\n## What\n\nA list column that a DataFusion plan reads from the index (`text[]` and\nother dictionary lists) can now be deferred: it leaves the scan as a\npacked doc address and `TantivyDecodeExec` reads it once, at its\nconsumer. Outside tests the change is +296/-163; the rest of the diff is\nunit tests and regress goldens.\n\n## Why\n\nA GROUP BY on an array, pdb.agg terms on an array or a LATERAL unnest\nover a join read the whole list for every scanned row, including the\nrows the join then dropped. A list projected by JoinScan still comes\nfrom the heap, so these are the shapes that reach DataFusion.\n\n## How\n\nA list has no term ordinal state, so it skips State 1: it never goes\nthrough `TantivyFetchExec`, `fetch_at_scan`, the ordinal grouping or the\nsegmented Top K, and the decode reads it per segment with the scan's own\nlist decode (`FFHelper::list_values`). The placement rule keeps it at\nthe decode point or reads it in the scan, and an MPP decode now rebuilds\na reader reused from a fetch when that reader does not lay out its\ncolumn.\n\n## Tests\n\nNew `deferred_array_columns` covers those shapes over two segments with\nNULL and empty arrays, an outer join and MPP, each checked against\n`defer_string_decode = off`; four goldens move in their plans only. Unit\ntests cover the fetch refusal, the placement and aggregate rules, and\nthe reader rebuild.",
+          "timestamp": "2026-10-29T13:09:23-07:00",
+          "tree_id": "9b3e22569cdd57bb17b03f6668e4b8c2d02a4a6f",
+          "url": "https://github.com/paradedb/paradedb/commit/c2c4783428fb45629094829f2891a0cb978a382b"
+        },
+        "date": 1793308959143,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.015495372864276,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.49077733650767,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.605215913451097,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.805874364564822,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.43660093196318,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12933488137-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

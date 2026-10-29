@@ -1,0 +1,164 @@
+-- Preserve NULL keys, nested paths, missing filtered groups, and output ordering.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CREATE TABLE flatten_paths (id int, a int, b int, value int);
+INSERT INTO flatten_paths VALUES
+ (1, NULL, NULL, 2), (2, NULL, 1, 3), (3, 1, NULL, 4),
+ (4, 1, 1, 5), (5, 1, 1, 6), (6, 2, 2, 7);
+CREATE INDEX flatten_paths_idx ON flatten_paths USING paradedb (id, a, b, value);
+EXPLAIN (COSTS OFF)
+SELECT a, b, count(*), sum(value) FROM flatten_paths
+WHERE id @@@ pdb.all() GROUP BY a, b ORDER BY a, b;
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on flatten_paths
+   Index: flatten_paths_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*), SUM(value)
+     Group By: a, b
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null,"none_if_no_match":true}}},"terms":{"field":"b","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"a","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT a, b, count(*), sum(value) FROM flatten_paths
+WHERE id @@@ pdb.all() GROUP BY a, b ORDER BY a, b;
+ a | b | count | sum 
+---+---+-------+-----
+ 1 | 1 |     2 |  11
+ 1 |   |     1 |   4
+ 2 | 2 |     1 |   7
+   | 1 |     1 |   3
+   |   |     1 |   2
+(5 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT a, b, count(*), count(*) FILTER (WHERE value > 4),
+ sum(value) FILTER (WHERE value < 4) FROM flatten_paths
+WHERE id @@@ pdb.all() GROUP BY a, b ORDER BY a DESC, b DESC;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on flatten_paths
+   Index: flatten_paths_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*), COUNT(*), SUM(value)
+     Group By: a, b
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"filter":"*"}},"terms":{"field":"b","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"terms":{"field":"a","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"filter":"*"}},"terms":{"field":"b","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"terms":{"field":"a","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"value","lower_bound":{"excluded":4},"upper_bound":null}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null,"none_if_no_match":true}}},"terms":{"field":"b","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"terms":{"field":"a","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":4}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"filter":"*"},"1":{"sum":{"field":"value","missing":null,"none_if_no_match":true}}},"terms":{"field":"b","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"terms":{"field":"a","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"all":{"field":"id"}}}},"type":"FilterQuery"}}}
+(6 rows)
+
+SELECT a, b, count(*), count(*) FILTER (WHERE value > 4),
+ sum(value) FILTER (WHERE value < 4) FROM flatten_paths
+WHERE id @@@ pdb.all() GROUP BY a, b ORDER BY a DESC, b DESC;
+ a | b | count | count | sum 
+---+---+-------+-------+-----
+   |   |     1 |     0 |   2
+   | 1 |     1 |     0 |   3
+ 2 | 2 |     1 |     1 |    
+ 1 |   |     1 |     0 |    
+ 1 | 1 |     2 |     2 |    
+(5 rows)
+
+-- Many groups, with groups 35-39 missing from the second filter
+CREATE TABLE flatten_many (id int, g int, value int);
+INSERT INTO flatten_many SELECT i, i % 40, i FROM generate_series(1, 400) i;
+CREATE INDEX flatten_many_idx ON flatten_many USING paradedb (id, g, value);
+EXPLAIN (COSTS OFF)
+SELECT g, count(*), count(*) FILTER (WHERE value > 200),
+ sum(value) FILTER (WHERE g < 35) FROM flatten_many
+WHERE id @@@ pdb.all() GROUP BY g ORDER BY g;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on flatten_many
+   Index: flatten_many_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*), COUNT(*), SUM(value)
+     Group By: g
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"filter":"*"}},"terms":{"field":"g","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"filter":"*"}},"terms":{"field":"g","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"value","lower_bound":{"excluded":200},"upper_bound":null}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null,"none_if_no_match":true}}},"terms":{"field":"g","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"g","lower_bound":null,"upper_bound":{"excluded":35}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"filter":"*"},"1":{"sum":{"field":"value","missing":null,"none_if_no_match":true}}},"terms":{"field":"g","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"all":{"field":"id"}}}},"type":"FilterQuery"}}}
+(6 rows)
+
+SELECT g, count(*), count(*) FILTER (WHERE value > 200),
+ sum(value) FILTER (WHERE g < 35) FROM flatten_many
+WHERE id @@@ pdb.all() GROUP BY g ORDER BY g;
+ g  | count | count | sum  
+----+-------+-------+------
+  0 |    10 |     5 | 2200
+  1 |    10 |     5 | 1810
+  2 |    10 |     5 | 1820
+  3 |    10 |     5 | 1830
+  4 |    10 |     5 | 1840
+  5 |    10 |     5 | 1850
+  6 |    10 |     5 | 1860
+  7 |    10 |     5 | 1870
+  8 |    10 |     5 | 1880
+  9 |    10 |     5 | 1890
+ 10 |    10 |     5 | 1900
+ 11 |    10 |     5 | 1910
+ 12 |    10 |     5 | 1920
+ 13 |    10 |     5 | 1930
+ 14 |    10 |     5 | 1940
+ 15 |    10 |     5 | 1950
+ 16 |    10 |     5 | 1960
+ 17 |    10 |     5 | 1970
+ 18 |    10 |     5 | 1980
+ 19 |    10 |     5 | 1990
+ 20 |    10 |     5 | 2000
+ 21 |    10 |     5 | 2010
+ 22 |    10 |     5 | 2020
+ 23 |    10 |     5 | 2030
+ 24 |    10 |     5 | 2040
+ 25 |    10 |     5 | 2050
+ 26 |    10 |     5 | 2060
+ 27 |    10 |     5 | 2070
+ 28 |    10 |     5 | 2080
+ 29 |    10 |     5 | 2090
+ 30 |    10 |     5 | 2100
+ 31 |    10 |     5 | 2110
+ 32 |    10 |     5 | 2120
+ 33 |    10 |     5 | 2130
+ 34 |    10 |     5 | 2140
+ 35 |    10 |     5 |     
+ 36 |    10 |     5 |     
+ 37 |    10 |     5 |     
+ 38 |    10 |     5 |     
+ 39 |    10 |     5 |     
+(40 rows)
+
+-- A NaN group gets its aggregates. Ordered by text, since the scan's key order puts NaN first
+-- while Postgres sorts it last.
+CREATE TABLE flatten_nan (id int, f float8, value int);
+INSERT INTO flatten_nan VALUES (1, 'NaN', 2), (2, 'NaN', 3), (3, 1.5, 4);
+CREATE INDEX flatten_nan_idx ON flatten_nan USING paradedb (id, f, value);
+EXPLAIN (COSTS OFF)
+WITH groups AS MATERIALIZED (
+ SELECT f, count(*), sum(value) FROM flatten_nan WHERE id @@@ pdb.all() GROUP BY f)
+SELECT * FROM groups ORDER BY f::text;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: ((groups.f)::text)
+   CTE groups
+     ->  Custom Scan (ParadeDB Aggregate Scan) on flatten_nan
+           Index: flatten_nan_idx
+           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+             Applies to Aggregates: COUNT(*), SUM(value)
+             Group By: f
+             Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null,"none_if_no_match":true}}},"terms":{"field":"f","segment_size":65000,"size":65000}}}
+   ->  CTE Scan on groups
+(10 rows)
+
+WITH groups AS MATERIALIZED (
+ SELECT f, count(*), sum(value) FROM flatten_nan WHERE id @@@ pdb.all() GROUP BY f)
+SELECT * FROM groups ORDER BY f::text;
+  f  | count | sum 
+-----+-------+-----
+ 1.5 |     1 |   4
+ NaN |     2 |   5
+(2 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE flatten_paths;
+DROP TABLE flatten_many;
+DROP TABLE flatten_nan;

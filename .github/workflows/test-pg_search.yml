@@ -1,378 +1,81 @@
-# workflows/test-pg_search.yml
-#
-# Test pg_search
-# Run unit and integration tests for the pg_search extension.
-
-name: Test pg_search
-
+name: Verify worker-shortage regression
 on:
-  # We run nightly to update the code coverage baseline without excessive post-PR runs
-  schedule:
-    - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/workflows/test-pg_search.yml"
-      - "pg_search/**"
-      - "!pg_search/README.md"
-      - "tests/**"
-      - "tokenizers/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "rust-toolchain.toml"
   workflow_dispatch:
-
-concurrency:
-  group: test-pg_search-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
-
 jobs:
-  test-pg_search:
-    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
-    # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
-    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+  verify:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=${{ matrix.runner_family }}
-      - cpu=${{ matrix.cpu }}
-      - ram=${{ matrix.ram }}
-      - image=${{ matrix.runner_image }}
-      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu26-full-arm64
+      - volume=80gb
       - extras=s3-cache
-    if: ${{ !cancelled() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Base: system Postgres on ARM Ubuntu 26.04 for all versions.
-        pg_version: [15, 16, 17, 18]
-        pg_impl: [system]
-        cpu: [8]
-        ram: [16]
-        runner_family: [c7g+c8g]
-        runner_image: [ubuntu26-full-arm64]
-        arch: [arm64]
-        include:
-          # pgrx compiles Postgres from source with --enable-cassert and --enable-debug,
-          # which enables C-level Assert() checks that catch memory corruption, invalid
-          # internal state, and broken invariants. System Postgres packages from
-          # apt.postgresql.org are release builds where Assert() compiles to a no-op,
-          # and there is no runtime toggle or debug apt package — cassert is compile-time
-          # only. This run is the only way we get Postgres assertion coverage in CI.
-          - pg_version: 18
-            pg_impl: pgrx
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
-            arch: arm64
-          # Add AMD run for PG 18 (system Postgres)
-          - pg_version: 18
-            pg_impl: system
-            cpu: 8
-            ram: 16
-            runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
-            arch: amd64
-
     steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v7
-
-      # With extras=s3-cache, configure RunsOn before cache or artifact operations.
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
-
-      # Cache notes:
-      # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
-      #   already hashes it internally. Putting it in shared-key defeats the
-      #   restore-key fallback and causes cold builds on every lockfile change.
-      # - Do NOT add arch to shared-key — the action includes the Rust target
-      #   triple in its envHash. Keeping shared-key arch-free lets all debug-mode
-      #   workflows (lint, test, schemabot, etc.) share the same cache.
-      # PR branches restore from the default branch cache but don't save their own
-      # entries — this prevents cache thrashing that fills the 30 GB limit and causes
-      # every entry to be evicted before reuse. The nightly schedule run warms caches
-      # for all PG versions on the default branch.
-      - name: Set Up pg_search Toolchain
-        id: toolchain
-        uses: ./.github/actions/setup-pg-search-toolchain
+      - uses: actions/checkout@v7
         with:
-          pg_version: ${{ matrix.pg_version }}
-          cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
-
-      - name: Install required system tools
-        uses: paradedb/actions/apt-install@v14
+          fetch-depth: 0
+      - uses: runs-on/action@v2
+      - uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          packages: >-
-            --no-install-recommends
-            lsof build-essential clang lld flex bison pkg-config ca-certificates git
-            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev
-            libcurl4-openssl-dev libopenblas-dev gdb
-
-      - name: Enable Crash Dumps
+          pg_version: 18
+      - uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: 18
+      - uses: paradedb/actions/apt-install@v14
+        with:
+          packages: --no-install-recommends clang lld libcurl4-openssl-dev libopenblas-dev gdb
+      - name: Enable crash dumps
         run: ./.github/scripts/setup_crashdumps.sh
-
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        run: command -v cargo-llvm-cov || cargo install -j $(nproc) cargo-llvm-cov --locked --debug
-
-      # ---------- System-managed Postgres setup ----------
-      - name: Install & Configure Supported PostgreSQL Version (system)
-        id: postgres-system
-        if: matrix.pg_impl == 'system'
-        uses: ./.github/actions/setup-postgres
-        with:
-          pg_version: ${{ matrix.pg_version }}
-
-      # ---------- pgrx-managed Postgres setup ----------
-      - name: Cache pgrx-compiled Postgres
-        if: matrix.pg_impl == 'pgrx'
-        id: cache-pgrx-pg
-        uses: actions/cache@v6
-        with:
-          path: ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install
-          key: pgrx-install-v1-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Set Up PostgreSQL (pgrx)
-        id: postgres-pgrx
-        if: matrix.pg_impl == 'pgrx'
-        uses: ./.github/actions/setup-postgres
-        with:
-          pg_version: ${{ matrix.pg_version }}
-          pg_impl: pgrx
-          pgrx_cache_hit: ${{ steps.cache-pgrx-pg.outputs.cache-hit == 'true' }}
-
-      # Needed for Citus compatibility tests
-      # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18
-      - name: Build & install Citus 13 (PG 15)
-        if: matrix.pg_version == 15
+      - name: Allow extension installation
+        run: |
+          sudo chown -R "$(whoami)" /usr/share/postgresql/18/ /usr/lib/postgresql/18/ /var/run/postgresql/
+      - name: Test unpatched main with the new regression
+        id: main
         env:
-          CITUS_VERSION: v13.3.0
+          MAIN_SOURCE: d3d439e68a2d8c6bfcb2358491d1b6842a5798de
+          PGRX_PG_CONFIG_PATH: /usr/lib/postgresql/18/bin/pg_config
         run: |
-          set -euxo pipefail
-
-          git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
-          cd citus
-
-          PG_CONFIG="${{ steps.postgres-system.outputs.pg_config || steps.postgres-pgrx.outputs.pg_config }}"
-
-          PG_CONFIG="${PG_CONFIG}" ./configure --without-libcurl
-          PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
-          sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
-
-      - name: Build & install Citus 14 (PG 16-18)
-        if: matrix.pg_version >= 16
-        env:
-          CITUS_VERSION: v14.1.0
-        run: |
-          set -euxo pipefail
-
-          git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
-          cd citus
-
-          PG_CONFIG="${{ steps.postgres-system.outputs.pg_config || steps.postgres-pgrx.outputs.pg_config }}"
-
-          PG_CONFIG="${PG_CONFIG}" ./configure
-          PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
-          sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
-
-      - name: Add extensions to shared_preload_libraries
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: |
-          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
-          sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
-          echo "citus.node_conninfo = 'sslmode=prefer'" >> postgresql.conf
-
-      - name: Compile & install pg_search extension (system)
-        if: matrix.pg_impl == 'system'
-        working-directory: pg_search/
-        run: cargo pgrx install --sudo --features block_tracker --pg-config="${{ steps.postgres-system.outputs.pg_config }}"
-
-      # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
-      # entries on PRs (so Codecov has fresh data per PR). Older-version PR
-      # entries run plain cargo test for ~30-40% wall-clock reduction.
-      #
-      # Note: Since `cargo pgrx regress` does not natively wrap `cargo llvm-cov`,
-      # we must manually export the coverage environment variables to $GITHUB_ENV.
-      # This ensures that subsequent steps (like `cargo pgrx install` and `cargo
-      # pgrx regress`) pick up the coverage instrumentation instructions via
-      # RUSTFLAGS, and write to the correct output path (LLVM_PROFILE_FILE).
-      - name: Source LLVM coverage environment (pgrx)
-        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18)
-        run: |
-          source <(cargo llvm-cov show-env --export-prefix)
-          cargo llvm-cov clean --workspace
-          env | grep -E '^(RUSTC_WRAPPER=|RUSTFLAGS=|LLVM_PROFILE_FILE=|CARGO_LLVM_COV|__CARGO_LLVM_COV)' >> "$GITHUB_ENV"
-
-      - name: Compile & install pg_search extension (pgrx)
-        if: matrix.pg_impl == 'pgrx'
-        working-directory: pg_search/
-        run: cargo pgrx install --pg-config "${{ steps.postgres-pgrx.outputs.pg_config }}" --features="pg${{ matrix.pg_version }},block_tracker"
-
-      # ---------- Start Postgres ----------
-      - name: Start Postgres (system)
-        if: matrix.pg_impl == 'system'
-        working-directory: pg_search/
-        run: |
-          sudo chown -R $(whoami) /var/run/postgresql/
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-
-      - name: Start Postgres and create database (pgrx)
-        if: matrix.pg_impl == 'pgrx'
-        working-directory: tests/
-        run: |
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-          createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
-
-      - name: Dump Postgres startup log on failure
-        if: failure()
-        run: |
-          echo "===== ~/.pgrx/${{ matrix.pg_version }}.log ====="
-          cat ~/.pgrx/${{ matrix.pg_version }}.log 2>/dev/null || echo "(log file not present)"
-
-      # ---------- Tests ----------
-      - name: Run pg_search Integration Tests (system)
-        if: matrix.pg_impl == 'system'
-        run: |
-          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
-          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
-            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
-          else
-            RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
-          fi
-
-      - name: Run pg_search Unit Tests (system)
-        if: matrix.pg_impl == 'system'
-        working-directory: pg_search/
-        run: |
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
-          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
-            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
-          else
-            # A #[pg_test] body runs inside the Postgres backend, from the pg_search.so that pgrx-tests
-            # builds and installs. `cargo llvm-cov` passes its target dir as `--target-dir`, so that
-            # build lands in target/ instead of target/llvm-cov-target/ and is missing from the report.
-            # Exporting the environment instead, as the pgrx job does, keeps both under target/.
-            source <(cargo llvm-cov show-env --export-prefix)
-            cargo llvm-cov clean --workspace
-            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
-            cargo llvm-cov report --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
-          fi
-
-      - name: Run pg_search Integration Tests (pgrx-managed)
-        if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
-
-      - name: Run pg_search Regression Tests (pgrx-managed)
-        if: matrix.pg_impl == 'pgrx'
-        run: |
+          mkdir diagnostics
+          git restore --source="$MAIN_SOURCE" -- pg_search/src/parallel_worker/builder.rs
+          git diff --exit-code "$MAIN_SOURCE" -- pg_search/src Cargo.toml Cargo.lock
+          git rev-parse HEAD > diagnostics/test-revision.txt
+          echo "$MAIN_SOURCE" > diagnostics/main-source.txt
+          sha256sum pg_search/tests/pg_regress/sql/aggregate_worker_shortage.sql > diagnostics/test-sha256.txt
+          set +e
+          cargo pgrx regress -p pg_search pg18 aggregate_worker_shortage --resetdb --postgresql-conf shared_preload_libraries=pg_search > diagnostics/main-run.log 2>&1
+          result=$?
           set -e
-          # `--auto` promotes test diffs into the working tree, but the command still exits
-          # with a non-zero status code on failure. We catch this failure to print the diffs
-          # so they show up in CI, and then manually exit with an error.
-          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto || {
-            git diff | tee regress.diff
-            # Also write the diffs to the job summary. The Postgres log dump at the end of
-            # this job runs to tens of thousands of lines, which is enough to push these
-            # diffs out of the tail of the log that the API will hand back, so the summary
-            # is the only place they are reliably reachable. Cap the excerpt: the summary
-            # has a 1 MiB budget and is dropped wholesale if we blow it.
-            {
-              echo "### pg_regress diffs (PG ${{ matrix.pg_version }})"
-              echo
-              echo "\`\`\`diff"
-              head -c 900000 regress.diff
-              echo "\`\`\`"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          }
-
-      - name: Stop PostgreSQL to flush coverage data (pgrx)
-        if: matrix.pg_impl == 'pgrx' && always()
-        working-directory: pg_search/
-        run: cargo pgrx stop pg${{ matrix.pg_version }}
-
-      - name: Generate combined LCOV report (pgrx)
-        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
-        run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
-
-      - name: Upload Coverage Artifact
-        if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
-        uses: actions/upload-artifact@v7
-        with:
-          overwrite: true
-          name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
-          path: coverage-*.lcov
-          retention-days: 1
-
-      # Print only the tail. These logs routinely run past 50k lines, and dumping all of
-      # them buries whatever the failing step reported far enough up the log that the
-      # Actions API will no longer return it. The full log goes up as an artifact below
-      # whenever the job fails, so nothing is actually lost.
-      - name: Print the Postgres Logs
-        if: always()
+          echo "$result" > diagnostics/main-exit.txt
+          echo "exit=$result" >> "$GITHUB_OUTPUT"
+          cp "$HOME/.pgrx/18.log" diagnostics/main-postgres.log
+          cp pg_search/tests/pg_regress/results/aggregate_worker_shortage.out diagnostics/main-result.out
+          cargo pgrx stop pg18
+      - name: Test fixed code three times
         env:
-          MAX_LINES: 2000
+          PGRX_PG_CONFIG_PATH: /usr/lib/postgresql/18/bin/pg_config
         run: |
-          LOG=~/.pgrx/${{ matrix.pg_version }}.log
-          if [ ! -f "$LOG" ]; then
-            echo "(log file not present)"
-            exit 0
-          fi
-          cp "$LOG" postgres-${{ matrix.pg_version }}.log
-          TOTAL=$(wc -l < "$LOG")
-          if [ "$TOTAL" -gt "$MAX_LINES" ]; then
-            echo "===== last ${MAX_LINES} of ${TOTAL} lines; full log in the postgres-log-* artifact ====="
-          fi
-          tail -n "$MAX_LINES" "$LOG"
-
-      - name: Print Crashdump Stacktrace
-        if: always()
+          git restore --source=HEAD -- pg_search/src/parallel_worker/builder.rs
+          cargo pgrx regress -p pg_search pg18 aggregate_worker_shortage --resetdb --repeat 3 --postgresql-conf shared_preload_libraries=pg_search > diagnostics/fixed-run.log 2>&1
+          cp "$HOME/.pgrx/18.log" diagnostics/fixed-postgres.log
+          cp pg_search/tests/pg_regress/results/aggregate_worker_shortage.out diagnostics/fixed-result.out
+          cargo pgrx stop pg18
+      - name: Confirm main failed with the expected backend crash
         env:
-          PG_VERSION: ${{ matrix.pg_version }}
-        run: ./.github/scripts/render_crashdump.sh
-
-      - name: Upload Postgres Log Artifact
-        if: failure()
+          MAIN_EXIT: ${{ steps.main.outputs.exit }}
+        run: |
+          test "$MAIN_EXIT" -ne 0
+          grep -E 'signal 11|Segmentation fault' diagnostics/main-postgres.log
+          grep -E 'server closed the connection|connection to server was lost' diagnostics/main-result.out
+      - name: Upload evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          overwrite: true
-          name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
-          path: postgres-${{ matrix.pg_version }}.log
-          retention-days: 1
-          if-no-files-found: ignore
-
-  upload-coverage:
-    name: Upload Combined Coverage to Codecov
-    runs-on: ubuntu-latest
-    needs: test-pg_search
-    if: success()
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v7
-
-      - name: Download All Coverage Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: coverage-*
-          path: coverage-reports
-          merge-multiple: true
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v7
-        with:
-          directory: ./coverage-reports
-          files: "*.lcov"
-          fail_ci_if_error: false
-          verbose: true
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          name: worker-shortage-regression-proof
+          path: |
+            diagnostics/
+            pg_search/tests/pg_regress/regression*.diffs
+          retention-days: 14

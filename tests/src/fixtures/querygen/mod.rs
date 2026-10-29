@@ -110,6 +110,10 @@ impl Column {
     }
 
     pub const fn groupable(mut self, is_groupable: bool) -> Self {
+        assert!(
+            !is_groupable || self.is_indexed,
+            "unindexed columns exist only to test heap-filter pushdown and cannot be grouped on",
+        );
         self.is_groupable = is_groupable;
         self
     }
@@ -119,8 +123,17 @@ impl Column {
         self
     }
 
+    /// Whether this column is included in the BM25 index.
+    ///
+    /// Columns are marked unindexed almost exclusively to exercise heap-filter
+    /// pushdown in `WHERE` clauses. Because ParadeDB's aggregate backends read
+    /// grouping keys and aggregate inputs from indexed columnar fast fields,
+    /// marking a column unindexed also marks it non-groupable.
     pub const fn indexed(mut self, is_indexed: bool) -> Self {
         self.is_indexed = is_indexed;
+        if !is_indexed {
+            self.is_groupable = false;
+        }
         self
     }
 

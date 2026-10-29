@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793241232453,
+  "lastUpdate": 1793241338338,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -40229,6 +40229,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12853759765-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbf319762317f9937b747f2ea073752903169f0",
+          "message": "test: reduce Stressgres bootstrap data for Antithesis (#7086)\n\n## What\n\nReduce each of the three largest shared Stressgres bootstrap fixtures\nused by Antithesis by 30%:\n\n| Suite | Before | After |\n| --- | ---: | ---: |\n| Bulk update / merge pressure | 9,000,000 | 6,300,000 |\n| Background merge | 1,000,000 | 700,000 |\n| Wide table | 1,000,000 | 700,000 |\n\nUpdate aggregate expectations and the background-merge delete boundary\nto match. Preserve schemas, indexes, worker jobs, planner assertions,\nand the 200,000-row upsert fixture with its 16 writer ranges.\n\n## Why\n\nThe October 28 Enterprise Antithesis example selected\n`first_bulk-update-merge-pressure.sh` at 222.134s and completed schema\nsetup at 229.563s. At 278.325s, upsert writers failed to extend\n`base/17693/17719.1`; bulk updates and standby replay also reported disk\nexhaustion. At 278.469s the checkpointer panicked while writing\n`pg_logical/replorigin_checkpoint.tmp`. The checkpoint filename is a\ndownstream symptom of disk exhaustion in the bulk-update suite, not\nevidence that a logical replication suite was selected. The log\nidentifies the affected workload but does not establish how much space\nwas consumed by tables, indexes, or retained WAL. Antithesis disks use\ntmpfs, and support recommended reducing generated data before increasing\nthe VM memory budget so runs can explore more fault schedules. These\nfixtures are shared with Enterprise and also affect ordinary Stressgres\nruns.\n\n## Validation\n\n- Parsed every suite TOML file with Python tomllib.\n- Checked aggregate counts against the reduced seed sizes and the\nbackground delete boundary against its seed range.\n- `git diff --check` passed.\n- Runtime suites were not run because the local Docker daemon is\nunavailable. A subsequent Antithesis run must verify disk usage, planner\nassertions, and merge behavior; this change does not establish that disk\nexhaustion is resolved.",
+          "timestamp": "2026-10-28T16:24:23-07:00",
+          "tree_id": "fd7c6d601a7def8f2af0d46585ead92666fdbebe",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbf319762317f9937b747f2ea073752903169f0"
+        },
+        "date": 1793241290056,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.69808373110085,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.96050751532181,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.558519068564188,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.72106482837755,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.5220978840826,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12862998335-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

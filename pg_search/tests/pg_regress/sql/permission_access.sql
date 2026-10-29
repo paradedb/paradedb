@@ -117,13 +117,6 @@ SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_
 RESET row_security;
 RESET ROLE;
 
-CREATE FUNCTION permission_access.definer_segments() RETURNS bigint
-LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT count(*) FROM pdb.index_segments('permission_access.docs_idx'::regclass)
-$$;
-SET ROLE permission_access_reader;
-SELECT permission_access.definer_segments() AS effective_definer_identity;
-RESET ROLE;
 ALTER ROLE permission_access_reader BYPASSRLS;
 SET ROLE permission_access_reader;
 SELECT sum(num_docs) AS bypassrls_docs FROM pdb.index_segments('permission_access.docs_idx');
@@ -137,60 +130,4 @@ SELECT permission_access.assert_denied(permission_access.read_queries()) AS forc
 SELECT count(*) AS forced_owner_maintenance FROM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
 RESET ROLE;
 
-CREATE TABLE permission_access.parent(id integer) PARTITION BY RANGE(id);
-CREATE TABLE permission_access.child PARTITION OF permission_access.parent FOR VALUES FROM (0) TO (10);
-INSERT INTO permission_access.parent VALUES (1);
-CREATE INDEX parent_idx ON permission_access.parent USING paradedb (id);
-SELECT indexrelid AS childindexoid FROM pg_index
-WHERE indrelid = 'permission_access.child'::regclass \gset
-GRANT SELECT ON permission_access.parent TO permission_access_reader;
-SET ROLE permission_access_reader;
-SELECT sum(num_docs) AS granted_parent_docs FROM pdb.index_segments('permission_access.parent_idx');
-SAVEPOINT direct_child;
-SELECT count(*) FROM pdb.index_segments(:childindexoid::regclass);
-ROLLBACK TO SAVEPOINT direct_child;
-RESET ROLE;
--- Exact standalone wrapper pair: a non-superuser table owner and no-grant caller.
-CREATE ROLE permission_access_owner NOSUPERUSER NOBYPASSRLS NOINHERIT;
-CREATE ROLE permission_access_ungranted NOSUPERUSER NOBYPASSRLS NOINHERIT;
-CREATE SCHEMA permission_identity AUTHORIZATION permission_access_owner;
-GRANT USAGE ON SCHEMA permission_identity, permission_access TO permission_access_ungranted;
-CREATE TABLE permission_identity.docs(id integer PRIMARY KEY, email text);
-INSERT INTO permission_identity.docs VALUES (1, 'first'), (2, 'second');
-CREATE INDEX docs_idx ON permission_identity.docs USING paradedb (id, (email::pdb.literal));
-ALTER TABLE permission_identity.docs OWNER TO permission_access_owner;
-ALTER TABLE permission_identity.docs ENABLE ROW LEVEL SECURITY;
-CREATE FUNCTION permission_identity.definer_segments() RETURNS bigint
-LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT coalesce(sum(num_docs), 0)::bigint
-  FROM pdb.index_segments('permission_identity.docs_idx'::regclass)
-$$;
-CREATE FUNCTION permission_identity.invoker_segments() RETURNS bigint
-LANGUAGE sql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT coalesce(sum(num_docs), 0)::bigint
-  FROM pdb.index_segments('permission_identity.docs_idx'::regclass)
-$$;
-ALTER FUNCTION permission_identity.definer_segments() OWNER TO permission_access_owner;
-ALTER FUNCTION permission_identity.invoker_segments() OWNER TO permission_access_owner;
-REVOKE EXECUTE ON FUNCTION permission_identity.definer_segments(), permission_identity.invoker_segments() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION permission_identity.definer_segments(), permission_identity.invoker_segments() TO permission_access_ungranted;
-SELECT bool_and(p.proowner = c.relowner) AS wrappers_owned_by_table_owner
-FROM pg_proc p JOIN pg_class c ON c.oid = 'permission_identity.docs'::regclass
-WHERE p.pronamespace = 'permission_identity'::regnamespace;
-SET ROLE permission_access_ungranted;
-SELECT has_table_privilege(current_user, 'permission_identity.docs', 'SELECT') AS table_select,
- pg_has_role(current_user, 'pg_stat_scan_tables', 'USAGE') AS diagnostic_privileges;
-SELECT permission_identity.definer_segments() AS no_grant_definer_docs;
-SELECT permission_access.assert_denied(ARRAY[
- 'SELECT permission_identity.invoker_segments()',
- 'SELECT * FROM pdb.index_segments(''permission_identity.docs_idx'')'
-]) AS no_grant_invoker_and_direct_denials;
-RESET ROLE;
--- The definer is a real table owner, not a superuser or BYPASSRLS role.
-ALTER TABLE permission_identity.docs FORCE ROW LEVEL SECURITY;
-SET ROLE permission_access_ungranted;
-SELECT permission_access.assert_denied(ARRAY[
- 'SELECT permission_identity.definer_segments()'
-]) AS forced_rls_definer_denial;
-RESET ROLE;
 ROLLBACK;

@@ -32,7 +32,6 @@ CREATE INDEX docs_idx ON permission_monitoring.docs USING paradedb (id, body);
 CREATE INDEX rls_docs_idx ON permission_monitoring.rls_docs USING paradedb (id, body);
 CREATE INDEX docs_idx ON permission_monitoring_private.docs USING paradedb (id, body);
 SELECT 'permission_monitoring_private.docs_idx'::regclass::oid AS private_index_oid \gset
-SELECT 'permission_monitoring.rls_docs'::regclass::oid AS rls_table_oid \gset
 ALTER TABLE permission_monitoring.rls_docs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permission_monitoring.rls_docs FORCE ROW LEVEL SECURITY;
 CREATE POLICY only_one ON permission_monitoring.rls_docs USING (id = 1);

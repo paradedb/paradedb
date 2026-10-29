@@ -277,8 +277,8 @@ fn partitioned_index_metadata_checks_the_requested_table(mut conn: PgConnection)
         .fetch_one::<(i64,)>(&mut conn);
     let metadata = |oid| {
         vec![
-            format!("SELECT * FROM paradedb.index_info({oid}::regclass)"),
-            format!("SELECT * FROM pdb.index_segments({oid}::regclass)"),
+            format!("SELECT sum(num_docs)::bigint FROM paradedb.index_info({oid}::regclass)"),
+            format!("SELECT sum(num_docs)::bigint FROM pdb.index_segments({oid}::regclass)"),
         ]
     };
     format!("SET ROLE {role}").execute(&mut conn);
@@ -289,10 +289,16 @@ fn partitioned_index_metadata_checks_the_requested_table(mut conn: PgConnection)
         .execute(&mut conn);
     // Access via the parent follows the parent's grants, as a SQL scan does.
     for query in metadata(parent_oid) {
-        query.execute(&mut conn);
+        let (docs,) = query.as_str().fetch_one::<(i64,)>(&mut conn);
+        assert_eq!(docs, 1, "{query}");
     }
     // Naming the child directly requires its own privileges.
-    assert_denied(&mut conn, &metadata(child_oid));
+    for query in metadata(child_oid) {
+        let error = query.as_str().execute_result(&mut conn).expect_err(&query);
+        let db_error = error.as_database_error().expect("PostgreSQL error");
+        assert_eq!(db_error.code().as_deref(), Some("42501"));
+        assert_eq!(db_error.message(), "permission denied for table child");
+    }
     "RESET ROLE".execute(&mut conn);
     "ALTER TABLE partition_permissions.parent ENABLE ROW LEVEL SECURITY".execute(&mut conn);
     format!("SET ROLE {role}").execute(&mut conn);

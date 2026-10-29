@@ -1001,10 +1001,11 @@ pub fn compare_plan_retrying(
     };
 
     let outcome = retry_transient(pool, "qgen plan check", |conn| {
-        sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
-            format!("EXPLAIN (FORMAT JSON) {bm25_query}")
-                .fetch_one_result::<(serde_json::Value,)>(conn)
-        }))
+        sql_attempt(
+            gucs.set()
+                .execute_result(conn)
+                .and_then(|()| format!("EXPLAIN {bm25_query}").fetch_result::<(String,)>(conn)),
+        )
     });
 
     let plan = match outcome {
@@ -1018,7 +1019,11 @@ pub fn compare_plan_retrying(
         Err(RetryError::GraceExpired(reason)) => return fail(reason),
     };
 
-    let plan_str = format!("{:#?}", plan.0);
+    let plan_str = plan
+        .into_iter()
+        .map(|(line,)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
     if !expected_any
         .iter()
         .any(|expected| plan_str.contains(expected))

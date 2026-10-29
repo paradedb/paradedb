@@ -1248,19 +1248,9 @@ impl CustomScan for JoinScan {
                 if !needs_rebake_snapshot || node.custom_exprs.is_null() {
                     None
                 } else {
-                    // Non-lossy round-trip: fail loudly on invalid UTF-8 (should never happen —
-                    // nodeToString produces ASCII-safe output) rather than to_string_lossy()
-                    // silently mangling bytes stringToNode would later fail to parse, or worse,
-                    // parse into a different node than what was captured. Mirrors
-                    // PostgresPointer::serialize's handling of the same nodeToString/stringToNode
-                    // round-trip in query/mod.rs.
-                    let s = pg_sys::nodeToString(node.custom_exprs.cast());
-                    let owned = std::ffi::CStr::from_ptr(s)
-                        .to_str()
-                        .expect("nodeToString output must be valid UTF-8")
-                        .to_owned();
-                    pg_sys::pfree(s.cast());
-                    Some(owned)
+                    Some(crate::postgres::deparse::node_to_string_owned(
+                        node.custom_exprs.cast(),
+                    ))
                 };
 
             // Collect all required fields for execution
@@ -1468,9 +1458,12 @@ impl CustomScan for JoinScan {
                         OrderByFeature::Score { rti } => {
                             format!("{} {}", score_name(rti), oi.direction.as_ref())
                         }
-                        OrderByFeature::ScoreSum { rtis } => {
-                            let scores: Vec<String> = rtis.iter().map(score_name).collect();
-                            format!("{} {}", scores.join(" + "), oi.direction.as_ref())
+                        OrderByFeature::ScoreSum { expr, .. } => {
+                            format!(
+                                "{} {}",
+                                expr.format_with(&score_name),
+                                oi.direction.as_ref()
+                            )
                         }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
@@ -2224,12 +2217,9 @@ unsafe fn build_output_projection(
                                 &private_data.join_clause.window_aggs,
                             )
                         };
-                        let expr_string = {
-                            let node_str = pg_sys::nodeToString(expr_for_serialization.cast());
-                            std::ffi::CStr::from_ptr(node_str)
-                                .to_string_lossy()
-                                .into_owned()
-                        };
+                        let expr_string = crate::postgres::deparse::node_to_string_owned(
+                            expr_for_serialization.cast(),
+                        );
                         let primary_rti = input_vars.first().map_or(0, |v| v.rti);
                         build::ChildProjection::Expression {
                             rti: primary_rti,
@@ -2457,6 +2447,7 @@ impl JoinScan {
         let (mut plan, multi_table_clauses) =
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
+
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
         // The planner can simplify the operator out of the quals, so the query as written counts too.

@@ -787,7 +787,8 @@ pub fn init() {
         c"When 'auto' (default), the placement rule keeps the fetch with the decode unless the \
           rows reach it out of doc order or multiplied by a join, in which case the scan \
           resolves the term ordinals itself. 'on' keeps the fetch with the decode, wherever \
-          the decode runs; 'off' always runs it in the scan.",
+          the decode runs; 'off' always runs it in the scan. A list column has no fetch step \
+          of its own, so this setting does not apply to it.",
         &DEFER_COLUMN_FETCH,
         GucContext::Userset,
         GucFlags::default(),
@@ -799,7 +800,8 @@ pub fn init() {
         c"When 'auto' (default), the placement rule defers the decode to the point where the \
           string is consumed unless a join multiplies the rows on the way and nothing above \
           bounds them, in which case the scan decodes the column. 'on' always defers the \
-          decode; 'off' never defers a string column.",
+          decode; 'off' never defers a string column. A list column such as text[] follows \
+          this setting as a whole and is read and decoded in one step where it is consumed.",
         &DEFER_STRING_DECODE,
         GucContext::Userset,
         GucFlags::default(),

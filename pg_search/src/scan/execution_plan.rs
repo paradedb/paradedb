@@ -80,6 +80,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
+use crate::scan::deferred_lookup::decoded_data_type;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::lazy_sort::build_lazy_sort_stream;
@@ -923,14 +924,7 @@ impl PgSearchScanPlan {
             .deferred_fields
             .iter()
             .filter(|d| eager.contains(&d.name))
-            .map(|d| {
-                let ty = if d.is_bytes {
-                    DataType::BinaryView
-                } else {
-                    DataType::Utf8View
-                };
-                (d.name.clone(), ty)
-            })
+            .map(|d| (d.name.clone(), decoded_data_type(d.is_bytes, d.cardinality)))
             .collect();
         plan.deferred_fields.retain(|d| !eager.contains(&d.name));
         plan.eager_fields

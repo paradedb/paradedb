@@ -81,7 +81,7 @@ use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
 use crate::gucs::{self, DeferredPlacement};
-use crate::index::fast_fields_helper::FFIndex;
+use crate::index::fast_fields_helper::{FFIndex, FieldCardinality};
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_aggregate_rule::ordinal_group_keys;
@@ -90,7 +90,7 @@ use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::plan_walk::{PathStep, transform_up_with_children, visit_with_path};
 use crate::scan::rank_join_exec::RankJoinExec;
-use crate::scan::segmented_topk_rule::resolve_physical_index;
+use crate::scan::segmented_topk_rule::deferred_sort_keys;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
@@ -291,7 +291,12 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
                 .filter(|(_, f)| f.heap_rti == heap_rti)
             {
                 let consumer = consumer_for(column);
-                let decision = decide(&summary, consumer, ctx);
+                let mut decision = decide(&summary, consumer, ctx);
+                // A list has no term ordinals for the scan to resolve: it stays at the decode
+                // point, which reads it whole, unless the decode moves into the scan with it.
+                if field.cardinality == FieldCardinality::List {
+                    decision.fetch_at_scan = false;
+                }
                 let source = DeferredSource::of(field);
                 let merged = match ctx.decisions.get(&source) {
                     Some(existing) => existing.merge(decision),
@@ -356,23 +361,21 @@ fn grouped_columns(
 }
 
 /// Whether `SegmentedTopKRule` will take a Top-K sort with this order over from `decode`:
-/// at least one sort key is a deferred column of the decode, and every such key comes from
-/// one index. Shares that rule's column resolution, so the two agree on a self-join.
+/// at least one sort key is a deferred column of the decode, none is a list, and every such
+/// key comes from one index. Shares that rule's key resolution, so the two agree on a
+/// self-join and on a list.
 fn segmented_topk_takes(order: &LexOrdering, decode: &TantivyDecodeExec) -> bool {
     if !gucs::enable_segmented_topk() {
         return false;
     }
     let input_schema = decode.children()[0].schema();
-    let mut indexes: HashSet<u32> = HashSet::default();
-    for sort in order.iter() {
-        if let Some(col) = sort.expr.downcast_ref::<Column>()
-            && let Some(idx) = resolve_physical_index(col, &input_schema)
-            && let Some(field) = decode.deferred_fields().iter().find(|f| f.col_idx == idx)
-        {
-            indexes.insert(field.canonical.indexrelid);
-        }
-    }
-    indexes.len() == 1
+    deferred_sort_keys(order, decode, &input_schema).is_some_and(|keys| {
+        let indexes: HashSet<u32> = keys
+            .iter()
+            .map(|(_, field)| field.canonical.indexrelid)
+            .collect();
+        indexes.len() == 1
+    })
 }
 
 /// Collects the scans under `node` whose deferred columns the decode point reads, each with
@@ -798,6 +801,7 @@ mod tests {
     use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
     use arrow_schema::{DataType, Field, Schema};
+    use datafusion::physical_expr::PhysicalSortExpr;
     use datafusion::physical_expr::projection::ProjectionExpr;
     use pgrx::prelude::*;
 
@@ -956,6 +960,7 @@ mod tests {
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: CanonicalColumn {
                     indexrelid,
                     ff_index: 1,
@@ -1095,6 +1100,134 @@ mod tests {
         ) as Arc<dyn ExecutionPlan>
     }
 
+    /// A decode of a deferred `tags` column whose rows reach it through a sort, so out of doc
+    /// order: the path on which a scalar's fetch moves into the scan.
+    fn decode_through_sort(cardinality: FieldCardinality) -> Arc<dyn ExecutionPlan> {
+        decode_of_through_sort(&[("tags", cardinality)])
+    }
+
+    /// A decode of the deferred `columns`, laid out after an `id` column in both the scan and
+    /// its index, whose rows reach it through a sort by `id`.
+    fn decode_of_through_sort(columns: &[(&str, FieldCardinality)]) -> Arc<dyn ExecutionPlan> {
+        let indexrelid = 42;
+        let canonical = |ff_index| CanonicalColumn {
+            indexrelid,
+            ff_index,
+        };
+        let mut schema = vec![Field::new("id", DataType::Int64, true)];
+        schema.extend(columns.iter().map(|(name, _)| deferred_field(name)));
+        let scan = Arc::new(PgSearchScanPlan::new(
+            None,
+            Arc::new(Schema::new(schema)),
+            SearchQueryInput::All,
+            None,
+            columns
+                .iter()
+                .enumerate()
+                .map(|(i, (name, cardinality))| DeferredField {
+                    name: (*name).into(),
+                    is_bytes: false,
+                    cardinality: *cardinality,
+                    canonical: canonical(i + 1),
+                    heap_rti: 1,
+                    rebuild: None,
+                    fetch_at_scan: false,
+                })
+                .collect(),
+            Some(Arc::new(FFHelper::empty())),
+            indexrelid,
+            None,
+            1,
+            None,
+            None,
+        )) as Arc<dyn ExecutionPlan>;
+        let by_id = LexOrdering::new(vec![PhysicalSortExpr::new_default(Arc::new(Column::new(
+            "id", 0,
+        )))])
+        .unwrap();
+        let sort = Arc::new(SortExec::new(by_id, scan)) as Arc<dyn ExecutionPlan>;
+        let mut ffhelpers = HashMap::default();
+        ffhelpers.insert(indexrelid, Arc::new(FFHelper::empty()));
+        Arc::new(
+            TantivyDecodeExec::new(
+                sort,
+                columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (name, cardinality))| PhysicalDeferredField {
+                        col_idx: i + 1,
+                        display_name: (*name).into(),
+                        is_bytes: false,
+                        cardinality: *cardinality,
+                        canonical: canonical(i + 1),
+                        heap_rti: 1,
+                        rebuild: None,
+                    })
+                    .collect(),
+                ffhelpers,
+            )
+            .unwrap(),
+        )
+    }
+
+    /// Rows that reach the decode out of doc order move a scalar's fetch into the scan. A list
+    /// has no term ordinals for the scan to fetch, so it stays at its decode point.
+    #[pg_test]
+    fn a_list_is_never_fetched_in_the_scan() {
+        let decided = |cardinality| {
+            let mut ctx = ctx(true, true);
+            collect_decisions(&decode_through_sort(cardinality), Bound::None, &mut ctx).unwrap();
+            ctx.decisions[&DeferredSource {
+                heap_rti: 1,
+                ff_index: 1,
+            }]
+        };
+        assert!(decided(FieldCardinality::Scalar).fetch_at_scan);
+        assert!(!decided(FieldCardinality::List).moves());
+    }
+
+    /// The segmented Top-K ranks rows by term ordinal, and a list row holds many, so a list
+    /// sort key is left to the plain sort.
+    #[pg_test]
+    fn a_list_sort_key_is_left_to_the_plain_sort() {
+        let by_tags = LexOrdering::new(vec![PhysicalSortExpr::new_default(Arc::new(Column::new(
+            "tags", 1,
+        )))])
+        .unwrap();
+        let takes = |cardinality| {
+            let decode = decode_through_sort(cardinality);
+            segmented_topk_takes(
+                &by_tags,
+                decode.downcast_ref::<TantivyDecodeExec>().unwrap(),
+            )
+        };
+        assert!(takes(FieldCardinality::Scalar));
+        assert!(!takes(FieldCardinality::List));
+    }
+
+    /// A sort by a scalar key with a list key as the tie break is left whole to the plain
+    /// sort. Taking it because of the scalar would rank the tie break by the list's doc
+    /// address, which is what a list is below the decode.
+    #[pg_test]
+    fn a_list_tie_break_keeps_the_sort_out_of_the_top_k() {
+        let decode = decode_of_through_sort(&[
+            ("name", FieldCardinality::Scalar),
+            ("tags", FieldCardinality::List),
+        ]);
+        let decode = decode.downcast_ref::<TantivyDecodeExec>().unwrap();
+        let by = |columns: &[(&str, usize)]| {
+            LexOrdering::new(columns.iter().map(|(name, idx)| {
+                PhysicalSortExpr::new_default(Arc::new(Column::new(name, *idx)))
+            }))
+            .unwrap()
+        };
+        assert!(segmented_topk_takes(&by(&[("name", 1)]), decode));
+        assert!(!segmented_topk_takes(
+            &by(&[("name", 1), ("tags", 2)]),
+            decode
+        ));
+    }
+
     /// A projection between the scan and its decode point caches its output schema, so the
     /// eager rewrite must rebuild it for the scan's new column type to reach the root.
     #[pg_test]
@@ -1115,6 +1248,7 @@ mod tests {
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
                 canonical: canonical.clone(),
                 heap_rti: 1,
                 rebuild: None,
@@ -1146,6 +1280,7 @@ mod tests {
                     col_idx: 0,
                     display_name: "title".into(),
                     is_bytes: false,
+                    cardinality: FieldCardinality::Scalar,
                     canonical: canonical.clone(),
                     heap_rti: 1,
                     rebuild: None,

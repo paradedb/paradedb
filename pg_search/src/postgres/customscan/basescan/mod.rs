@@ -1175,12 +1175,6 @@ impl CustomScan for BaseScan {
                 }
                 _ => RowEstimate::Unknown,
             };
-            let base_result_rows = match row_estimate.known_rows() {
-                Some(rows) => rows.min(float_limit.unwrap_or(f64::MAX)),
-                None => float_limit.unwrap_or(1.0),
-            }
-            .max(1.0);
-
             let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
                 root,
                 builder.args().rel,
@@ -1218,6 +1212,21 @@ impl CustomScan for BaseScan {
             // calls for: one serial path, one partial (parallel) path, or -- for a costable no-LIMIT
             // scan -- both, so PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
             for method in exec_method_types {
+                // Only TopK bounds the scan's output. A Sort above Normal or Columnar
+                // still consumes every matching row.
+                // Use the same bound for cardinality, scan work, and worker selection.
+                let scan_limit = if matches!(method, ExecMethodType::TopK { .. }) {
+                    float_limit
+                } else {
+                    None
+                };
+                let is_limit_fallback = float_limit.is_some() && scan_limit.is_none();
+                let base_result_rows = match row_estimate.known_rows() {
+                    Some(rows) => rows.min(scan_limit.unwrap_or(f64::MAX)),
+                    None => scan_limit.unwrap_or(1.0),
+                }
+                .max(1.0);
+
                 let per_tuple_cost = match &method {
                     // returning fields from fast fields
                     ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
@@ -1262,7 +1271,7 @@ impl CustomScan for BaseScan {
                     drive_cost,
                     row_estimate,
                     is_sorted,
-                    limit: float_limit,
+                    limit: scan_limit,
                     base_result_rows,
                     segment_count,
                     consider_parallel: consider_parallel_local,
@@ -1295,7 +1304,7 @@ impl CustomScan for BaseScan {
                     per_tuple_cost,
                     base_result_rows,
                     drive,
-                    float_limit,
+                    scan_limit,
                 );
 
                 // We must force this path (not interchangeable with native paths) if we need const
@@ -1371,26 +1380,20 @@ impl CustomScan for BaseScan {
                         custom_paths.push(make_path(None, false, force));
                     }
                     WorkerPathPolicy::ParallelOnly { nworkers, .. } => {
-                        custom_paths.push(make_path(Some(nworkers), false, force));
+                        // An uncostable fallback can have a useful native ordered path too.
+                        // Offer its partial scan without forcing away those alternatives.
+                        let offer_parallel = is_limit_fallback && !force;
+                        custom_paths.push(make_path(Some(nworkers), offer_parallel, force));
                     }
                     WorkerPathPolicy::CostedBoth { nworkers, .. } => {
-                        // Force the serial sibling so the hook clears PostgreSQL's native paths (same
-                        // mechanism as TopK / score-snippet / `all()`), leaving only our serial and
-                        // partial paths for PostgreSQL to choose between -- the honest scan-work cost
-                        // would otherwise let PostgreSQL's own (correct, but fast-field/Block-WAND-
-                        // less) index scan over the ParadeDB index undercut us on cost (see module docs).
-                        // Today the only multi-method emitter is Columnar: it emits unsorted first
-                        // and the index-sort variant second, and the sorted variant exists only for
-                        // an ORDER BY shape where it is the useful survivor. If another multi-method
-                        // emitter is added, re-check this forced clear because a later forced serial
-                        // sibling clears paths installed by earlier methods.
+                        // Retain the existing custom preference for bulk scans. A LIMIT fallback
+                        // must also consider native paths: an ordered index can avoid the Sort,
+                        // and an index-only scan can avoid heap fetches. Score/snippet projections
+                        // and other mandatory custom cases still require the forced path.
                         //
-                        // Order is load-bearing (see `hook::add_path`): emit the serial sibling
-                        // FIRST so the forced clear happens before the partial sibling is added. The
-                        // partial sibling (OfferParallel, never forced) then only adds a partial path
-                        // and leaves the serial in place; reversing the order would let the forced
-                        // serial sibling clear the partial path.
-                        custom_paths.push(make_path(None, false, true));
+                        // Emit serial first so any forced clear precedes the partial sibling.
+                        // OfferParallel adds that sibling without clearing native or serial paths.
+                        custom_paths.push(make_path(None, false, force || !is_limit_fallback));
                         custom_paths.push(make_path(Some(nworkers), true, false));
                     }
                 }
@@ -2540,14 +2543,12 @@ fn choose_exec_method(
     // Otherwise, see if we can use a fast fields method.
     let is_capable = fast_fields::is_columnar_capable(privdata);
     if is_capable {
-        let mut methods = Vec::new();
-
-        let lo = privdata.limit_offset().clone();
-
-        methods.push(ExecMethodType::Columnar {
+        let methods = vec![ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit_offset: lo,
-        });
+            // Retain the execution batch hint without bounding external-sort input
+            // or the full scan estimates used for costing and worker selection.
+            limit_offset: privdata.limit_offset().clone(),
+        }];
 
         // Validate expectations for the first method (Unsorted)
         validate_topk_expectation(
@@ -2581,12 +2582,10 @@ fn choose_exec_method(
 /// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData>) {
-    let limit_offset = builder.custom_private().limit_offset().clone();
     match builder.custom_state_ref().exec_method_type.clone() {
-        ExecMethodType::Normal => builder.custom_state().assign_exec_method(
-            NormalScanExecState::new(limit_offset),
-            Some(ExecMethodType::Normal),
-        ),
+        ExecMethodType::Normal => builder
+            .custom_state()
+            .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),
         ExecMethodType::TopK {
             heaprelid,
             limit_offset,
@@ -2610,7 +2609,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                 )
             } else {
                 builder.custom_state().assign_exec_method(
-                    NormalScanExecState::new(limit_offset),
+                    NormalScanExecState::default(),
                     Some(ExecMethodType::Normal),
                 )
             }

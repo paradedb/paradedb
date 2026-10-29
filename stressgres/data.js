@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793238234368,
+  "lastUpdate": 1793238397400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -495042,6 +495042,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12853202224-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793238358267,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3944.185493522496,
+            "unit": "median tps",
+            "extra": "avg tps: 3941.9852658021086, max tps: 4601.844572699557, count: 59243"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4565.179953808466,
+            "unit": "median tps",
+            "extra": "avg tps: 4615.573891328548, max tps: 6443.565171544761, count: 59243"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.39002200743025,
+            "unit": "median tps",
+            "extra": "avg tps: 168.7896877085583, max tps: 3051.542776804058, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.859362357704597,
+            "unit": "median tps",
+            "extra": "avg tps: 40.24843945979434, max tps: 547.1898101669798, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.854501188878324,
+            "unit": "median tps",
+            "extra": "avg tps: 40.38945365991348, max tps: 563.5751595183614, count: 59243"
+          }
+        ],
+        "publication_id": "12861202593-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [

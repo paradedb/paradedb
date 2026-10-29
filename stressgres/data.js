@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793232834760,
+  "lastUpdate": 1793233015267,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -429326,6 +429326,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12848388390-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793232961522,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 488.5244541296897,
+            "unit": "median tps",
+            "extra": "avg tps: 488.26840591138415, max tps: 606.0575818944903, count: 55289"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 462.34859469731856,
+            "unit": "median tps",
+            "extra": "avg tps: 462.16826578936116, max tps: 547.2175688337973, count: 55289"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 189.55709212207347,
+            "unit": "median tps",
+            "extra": "avg tps: 189.51775216738383, max tps: 211.4190258259968, count: 55289"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 491.247137105491,
+            "unit": "median tps",
+            "extra": "avg tps: 490.9275783824489, max tps: 596.2540582064834, count: 55289"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 365.7433413802798,
+            "unit": "median tps",
+            "extra": "avg tps: 365.56460196723214, max tps: 429.95757483046316, count: 55289"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.747033418483376,
+            "unit": "median tps",
+            "extra": "avg tps: 14.73989497060465, max tps: 16.24071181220913, count: 55289"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 588.9897280343275,
+            "unit": "median tps",
+            "extra": "avg tps: 588.4942441895222, max tps: 722.7074573239656, count: 55289"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 597.5388772763198,
+            "unit": "median tps",
+            "extra": "avg tps: 596.8740763444807, max tps: 734.6145818737766, count: 55289"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 288.5778540036298,
+            "unit": "median tps",
+            "extra": "avg tps: 288.46702199395827, max tps: 329.1765559637007, count: 55289"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 510.81270390261784,
+            "unit": "median tps",
+            "extra": "avg tps: 510.26787860125694, max tps: 602.3683340681812, count: 55289"
+          }
+        ],
+        "publication_id": "12851878768-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [

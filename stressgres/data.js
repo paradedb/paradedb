@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793261484890,
+  "lastUpdate": 1793261516171,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112389,6 +112389,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12861472080-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f",
+          "message": "fix: Fix filter pushdown in RankJoinExec (#7085)\n\n## What\n\n- Fix a `generated_rank_join` (`qgen`) failure on multi-way rank joins\nby implementing `EmbeddedProjection` and\n`ExecutionPlan::try_swapping_with_projection` on `RankJoinExec`.\n- Emit `Sides` (`baseline` and `candidate`) `SET` statements in `qgen`\nreproduction scripts to ensure that they are actually reproducible.\n- Address post-merge review feedback from\nhttps://github.com/paradedb/paradedb/pull/7003#pullrequestreview-5675848845.\n\n## Why\n\n- DataFusion's `PushDownProjection` inserts narrowing `ProjectionExec`\nnodes between nested joins; without `try_swapping_with_projection` on\n`RankJoinExec`, `RankJoinRule` could not peel those projections when\nrewriting multi-way rank joins.\n- `qgen` reproduction scripts previously omitted the `Sides` GUC\nsettings required to reproduce candidate vs baseline failures in\n`pg_regress`.\n\n## How\n\n- Implement `EmbeddedProjection` and `try_swapping_with_projection` on\n`RankJoinExec` (and guard against duplicate output field names in\n`RankJoinRule::map_key_sets_through_passthrough`).\n- Thread `Sides` into `ReproScript::new` and generalize `qgen` output\nlabels to `Baseline` / `Candidate`.\n- Check `cancel_pending()` per segment in `LazySegmentTarget`, remove\nfalse `score_threshold_pushed` reporting in\n`Scanner::materialize_topk_window`, rename `SharedThresholdMode` to\n`LazyParallelMode`, and share a `TaskContext` across `BaseScan` exec\nmethods.\n\n## Tests\n\nFixed repro scripts for rank join comparison failures.",
+          "timestamp": "2026-10-29T04:23:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f"
+        },
+        "date": 1793261512931,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1781.850663998142,
+            "unit": "median tps",
+            "extra": "avg tps: 1808.3026164963003, max tps: 2015.7279699945952, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.062556608660248,
+            "unit": "median tps",
+            "extra": "avg tps: 6.103822676760127, max tps: 7.126256147398057, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1968.2861970336105,
+            "unit": "median tps",
+            "extra": "avg tps: 1950.2343604545222, max tps: 1973.4797171716816, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3125.4794738335995,
+            "unit": "median tps",
+            "extra": "avg tps: 3050.784832715573, max tps: 3447.313385406396, count: 59404"
+          }
+        ],
+        "publication_id": "12881674346-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -156146,6 +156193,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12861472080-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f",
+          "message": "fix: Fix filter pushdown in RankJoinExec (#7085)\n\n## What\n\n- Fix a `generated_rank_join` (`qgen`) failure on multi-way rank joins\nby implementing `EmbeddedProjection` and\n`ExecutionPlan::try_swapping_with_projection` on `RankJoinExec`.\n- Emit `Sides` (`baseline` and `candidate`) `SET` statements in `qgen`\nreproduction scripts to ensure that they are actually reproducible.\n- Address post-merge review feedback from\nhttps://github.com/paradedb/paradedb/pull/7003#pullrequestreview-5675848845.\n\n## Why\n\n- DataFusion's `PushDownProjection` inserts narrowing `ProjectionExec`\nnodes between nested joins; without `try_swapping_with_projection` on\n`RankJoinExec`, `RankJoinRule` could not peel those projections when\nrewriting multi-way rank joins.\n- `qgen` reproduction scripts previously omitted the `Sides` GUC\nsettings required to reproduce candidate vs baseline failures in\n`pg_regress`.\n\n## How\n\n- Implement `EmbeddedProjection` and `try_swapping_with_projection` on\n`RankJoinExec` (and guard against duplicate output field names in\n`RankJoinRule::map_key_sets_through_passthrough`).\n- Thread `Sides` into `ReproScript::new` and generalize `qgen` output\nlabels to `Baseline` / `Candidate`.\n- Check `cancel_pending()` per segment in `LazySegmentTarget`, remove\nfalse `score_threshold_pushed` reporting in\n`Scanner::materialize_topk_window`, rename `SharedThresholdMode` to\n`LazyParallelMode`, and share a `TaskContext` across `BaseScan` exec\nmethods.\n\n## Tests\n\nFixed repro scripts for rank join comparison failures.",
+          "timestamp": "2026-10-29T04:23:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f"
+        },
+        "date": 1793261516062,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06287455390209414, max background_merging: 2.0, count: 59404"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623876812177628, max cpu: 9.726444, count: 59404"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.40971166451333, max mem: 26.41015625, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.836257253707178, max cpu: 9.726444, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 43.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.819792359310824, max mem: 43.82421875, count: 59404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45116,
+            "unit": "median block_count",
+            "extra": "avg block_count: 44860.60511076695, max block_count: 45116.0, count: 59404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.4148373846879, max segment_count: 20.0, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.66864,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.70999827119705, max cpu: 34.008095, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 39.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 39.751589947120564, max mem: 39.7734375, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.680746344109983, max cpu: 9.60961, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 46.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.19453485350313, max mem: 46.1953125, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.720300371414607, max cpu: 9.628887, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.79996191333917, max mem: 43.8125, count: 59404"
+          }
+        ],
+        "publication_id": "12881674346-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

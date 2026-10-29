@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793227019989,
+  "lastUpdate": 1793232173389,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -490810,6 +490810,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12849509838-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793232114779,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3965.7932821722775,
+            "unit": "median tps",
+            "extra": "avg tps: 3948.3890042120543, max tps: 4495.285864691895, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4572.119950577531,
+            "unit": "median tps",
+            "extra": "avg tps: 4580.084269741906, max tps: 5891.7593694569805, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.43265281010952,
+            "unit": "median tps",
+            "extra": "avg tps: 168.2877646223239, max tps: 2967.7027606470383, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.13250459019087,
+            "unit": "median tps",
+            "extra": "avg tps: 40.423922368223835, max tps: 553.3024258055825, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.15445444196736,
+            "unit": "median tps",
+            "extra": "avg tps: 40.67532635715241, max tps: 564.6692011290162, count: 59236"
+          }
+        ],
+        "publication_id": "12853821261-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [

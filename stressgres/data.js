@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793239031181,
+  "lastUpdate": 1793239208737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -432618,6 +432618,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12852920300-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793239170919,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 533.8666956576692,
+            "unit": "median tps",
+            "extra": "avg tps: 534.4065224455649, max tps: 577.9601996766908, count: 55300"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 495.5260984643963,
+            "unit": "median tps",
+            "extra": "avg tps: 495.82398283734494, max tps: 528.6560418136648, count: 55300"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 198.9690871274389,
+            "unit": "median tps",
+            "extra": "avg tps: 198.8720671839724, max tps: 204.34332764628823, count: 55300"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 527.7475785826745,
+            "unit": "median tps",
+            "extra": "avg tps: 527.8614073039746, max tps: 558.3549182721947, count: 55300"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 390.9100990938913,
+            "unit": "median tps",
+            "extra": "avg tps: 390.7732735485421, max tps: 409.8909104589784, count: 55300"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.728594598426751,
+            "unit": "median tps",
+            "extra": "avg tps: 14.728385131932955, max tps: 14.951209837696418, count: 55300"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 644.7729143216907,
+            "unit": "median tps",
+            "extra": "avg tps: 644.9837752596438, max tps: 689.0466539077721, count: 55300"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 657.8479804815345,
+            "unit": "median tps",
+            "extra": "avg tps: 657.8252221841408, max tps: 700.5437529651531, count: 55300"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 299.135869394073,
+            "unit": "median tps",
+            "extra": "avg tps: 298.6010741834895, max tps: 303.77846723880936, count: 55300"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 558.7053833137154,
+            "unit": "median tps",
+            "extra": "avg tps: 558.1072167743229, max tps: 572.7273187801225, count: 55300"
+          }
+        ],
+        "publication_id": "12860666567-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [

@@ -10,15 +10,19 @@ Callers who need a filtered result under RLS can be given a `SECURITY DEFINER` f
 owned by the table owner, that applies the policy's filter in an ordinary `@@@` query.
 Wrapping `paradedb.aggregate()` itself does not filter rows.
 
-`paradedb.schema()`, `paradedb.index_info()`, `pdb.index_segments()`, and the
-statistics returned by `pdb.indexes()`
+Metadata APIs, including `paradedb.schema()`, `index_fields()`, the layer-size
+functions, `index_created_at()`, `index_created_by()`, `merge_info()` (and its
+`is_merging()` alias), `vacuum_info()`, `fsm_info()`, `fsm_size()`,
+`paradedb.index_info()`, `pdb.index_segments()`, and the statistics returned by
+`pdb.indexes()`
 also accept callers with the privileges of `pg_stat_scan_tables`, inherited by `pg_monitor`.
 These trusted monitoring roles can inspect whole-index metadata and document counts without
 table `SELECT`, including counts across rows hidden by RLS. Other callers still need schema
 `USAGE`, table-level `SELECT`, and no active RLS; inventory omits indexes they cannot inspect.
 The monitoring privilege does not authorize document reads, verification, or maintenance.
 
-Other diagnostics, including `merge_info()`, `vacuum_info()`, the layer-size functions,
-`index_created_at()`, and `index_created_by()`, require schema `USAGE`, table-level
-`SELECT`, and no active RLS. Monitoring-role membership alone does not authorize them.
-`merge_lock_garbage_collect()` requires ownership of the backing table.
+The metadata policy covers configuration, counts, and operational status; APIs
+that read document contents or verify heap references keep the stricter read policy.
+`merge_lock_garbage_collect()` requires `MAINTAIN` on the backing table on PostgreSQL 17
+and later, including privileges inherited from `pg_maintain`. Table owners qualify
+implicitly. PostgreSQL 15 and 16 require ownership of the backing table.

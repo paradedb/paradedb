@@ -20,7 +20,7 @@
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
 use crate::postgres::access::IndexOid;
-use crate::postgres::catalog::{OidExt, is_pgvector_oid};
+use crate::postgres::catalog::is_pgvector_oid;
 #[cfg(any(test, feature = "pg_test"))]
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
@@ -157,11 +157,6 @@ fn vector_estimator_info_internal(
     reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
     let access = index.read();
     let index = access.index().clone();
-    ensure!(
-        unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX
-            && unsafe { (*index.rd_rel).relam.is_paradedb_am() },
-        "vector_estimator_info requires a ParadeDB index"
-    );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
     let (search_reader, vector_field, vector_options) = open_vector_field(&index, &field)?;

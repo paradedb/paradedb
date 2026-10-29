@@ -1,4 +1,4 @@
--- Direct APIs share a read policy; maintenance has an ownership policy.
+-- Direct APIs share a read policy; maintenance has a separate privilege policy.
 -- Every negative assertion checks 42501, so a malformed call cannot pass.
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
@@ -36,6 +36,8 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT * FROM paradedb.merge_info(''permission_access.docs_idx'')',
   'SELECT paradedb.is_merging(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.vacuum_info(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.fsm_info(''permission_access.docs_idx'')',
+  'SELECT paradedb.fsm_size(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.index_info(''permission_access.docs_idx'')',
   'SELECT * FROM pdb.index_segments(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.vector_info(''permission_access.docs_idx'', ''missing'')',
@@ -67,6 +69,8 @@ RESET ROLE;
 GRANT SELECT ON permission_access.docs TO permission_access_reader;
 SET ROLE permission_access_reader;
 SELECT count(*) AS allowed_fields FROM paradedb.schema('permission_access.docs_idx');
+SELECT paradedb.fsm_size('permission_access.docs_idx') > 0 AS allowed_fsm_size;
+SELECT count(*) >= 0 AS allowed_fsm_info FROM paradedb.fsm_info('permission_access.docs_idx');
 SELECT sum(num_docs) AS allowed_docs FROM pdb.index_segments('permission_access.docs_idx');
 SELECT count(*) AS visible_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';
 SELECT bool_and(passed) AS allowed_verification FROM pdb.verify_index('permission_access.docs_idx');

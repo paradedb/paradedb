@@ -63,7 +63,7 @@ impl IndexOid {
 
     pub(crate) fn read(self) -> StandaloneIndexRead {
         let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        if let Err(denied) = check_read(&relations.heap) {
+        if let Err(denied) = check_read(relations.heap()) {
             denied.report();
         }
         StandaloneIndexRead { relations }
@@ -73,13 +73,13 @@ impl IndexOid {
     /// Missing relations, wrong kinds and operational failures still raise errors.
     pub(crate) fn is_readable(&self) -> bool {
         let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        check_read(&relations.heap).is_ok()
+        check_read(relations.heap()).is_ok()
     }
 
     /// Trusted diagnostics may inspect metadata without table SELECT or RLS.
     pub(crate) fn read_metadata(self) -> IndexMetadataRead {
         let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        if let Err(denied) = check_metadata(&relations.heap) {
+        if let Err(denied) = check_metadata(relations.heap()) {
             denied.report();
         }
         IndexMetadataRead { relations }
@@ -88,16 +88,30 @@ impl IndexOid {
     /// Like metadata reads, but inventory omits entries denied to this caller.
     pub(crate) fn read_metadata_if_permitted(self) -> Option<IndexMetadataRead> {
         let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        check_metadata(&relations.heap).ok()?;
+        check_metadata(relations.heap()).ok()?;
         Some(IndexMetadataRead { relations })
     }
 
     pub(crate) fn maintain(self) -> IndexMaintenance {
         let relations = LockedIndexRelations::open(self.0, pg_sys::RowExclusiveLock as _);
-        if !owns_table(&relations.heap) {
-            unsafe {
+        unsafe {
+            // Follow REINDEX: PG17 introduced MAINTAIN, including pg_maintain.
+            // Earlier versions require ownership of the indexed table.
+            #[cfg(any(feature = "pg17", feature = "pg18"))]
+            let acl = pg_sys::pg_class_aclcheck(
+                relations.heap.oid(),
+                pg_sys::GetUserId(),
+                pg_sys::ACL_MAINTAIN as pg_sys::AclMode,
+            );
+            #[cfg(any(feature = "pg15", feature = "pg16"))]
+            let acl = if owns_table(relations.heap()) {
+                pg_sys::AclResult::ACLCHECK_OK
+            } else {
+                pg_sys::AclResult::ACLCHECK_NOT_OWNER
+            };
+            if acl != pg_sys::AclResult::ACLCHECK_OK {
                 pg_sys::aclcheck_error(
-                    pg_sys::AclResult::ACLCHECK_NOT_OWNER,
+                    acl,
                     pg_sys::ObjectType::OBJECT_TABLE,
                     pg_sys::get_rel_name(relations.heap.oid()),
                 );
@@ -107,42 +121,50 @@ impl IndexOid {
     }
 }
 
+/// Locks a table before its index and retains both relations. This guard does
+/// not authorize reads; SQL entry points must apply their own access policy.
 // Fields drop in declaration order: the index closes before the heap.
-struct LockedIndexRelations {
+pub(crate) struct LockedIndexRelations {
     index: PgSearchRelation,
     heap: PgSearchRelation,
 }
 
 impl LockedIndexRelations {
-    fn open(index_oid: pg_sys::Oid, index_lock: pg_sys::LOCKMODE) -> Self {
-        unsafe {
-            // Like amcheck_lock_relation_and_check: resolve without an index
-            // lock, lock the table first, then recheck the association.
-            let heap_oid = pg_sys::IndexGetRelation(index_oid, true);
-            if heap_oid == pg_sys::InvalidOid {
-                report_not_an_index(index_oid);
-            }
-            let heap = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
-            let index = PgSearchRelation::with_lock(index_oid, index_lock);
-            if index.rd_index.is_null() || (*index.rd_index).indrelid != heap_oid {
-                pg_sys::ereport!(
-                    ERROR,
-                    PgSqlErrorCode::ERRCODE_UNDEFINED_TABLE,
-                    format!(
-                        "could not open the backing table of index \"{}\"",
-                        index.name()
-                    )
-                );
-            }
-            if !(*index.rd_rel).relam.is_paradedb_am() {
-                pg_sys::ereport!(
-                    ERROR,
-                    PgSqlErrorCode::ERRCODE_WRONG_OBJECT_TYPE,
-                    format!("\"{}\" is not a ParadeDB index", index.name())
-                );
-            }
-            Self { index, heap }
+    pub(crate) fn open(index_oid: pg_sys::Oid, index_lock: pg_sys::LOCKMODE) -> Self {
+        // Like amcheck_lock_relation_and_check: resolve without an index
+        // lock, lock the table first, then recheck the association.
+        let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, true) };
+        if heap_oid == pg_sys::InvalidOid {
+            unsafe { report_not_an_index(index_oid) };
         }
+        let heap = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
+        let index = PgSearchRelation::with_lock(index_oid, index_lock);
+        if index.rd_index.is_null() || unsafe { (*index.rd_index).indrelid } != heap_oid {
+            pg_sys::ereport!(
+                ERROR,
+                PgSqlErrorCode::ERRCODE_UNDEFINED_TABLE,
+                format!(
+                    "could not open the backing table of index \"{}\"",
+                    index.name()
+                )
+            );
+        }
+        if !unsafe { (*index.rd_rel).relam }.is_paradedb_am() {
+            pg_sys::ereport!(
+                ERROR,
+                PgSqlErrorCode::ERRCODE_WRONG_OBJECT_TYPE,
+                format!("\"{}\" is not a ParadeDB index", index.name())
+            );
+        }
+        Self { index, heap }
+    }
+
+    pub(crate) fn index(&self) -> &PgSearchRelation {
+        &self.index
+    }
+
+    pub(crate) fn heap(&self) -> &PgSearchRelation {
+        &self.heap
     }
 }
 
@@ -163,6 +185,7 @@ unsafe fn report_not_an_index(oid: pg_sys::Oid) -> ! {
     );
 }
 
+#[cfg(any(feature = "pg15", feature = "pg16"))]
 fn owns_table(heap: &PgSearchRelation) -> bool {
     unsafe {
         #[cfg(feature = "pg15")]
@@ -183,7 +206,7 @@ pub(crate) struct StandaloneIndexRead {
 
 impl StandaloneIndexRead {
     pub(crate) fn index(&self) -> &PgSearchRelation {
-        &self.relations.index
+        self.relations.index()
     }
 }
 
@@ -194,7 +217,7 @@ pub(crate) struct IndexMetadataRead {
 
 impl IndexMetadataRead {
     pub(crate) fn index(&self) -> &PgSearchRelation {
-        &self.relations.index
+        self.relations.index()
     }
 }
 
@@ -205,7 +228,7 @@ pub(crate) struct IndexMaintenance {
 
 impl IndexMaintenance {
     pub(crate) fn index(&self) -> &PgSearchRelation {
-        &self.relations.index
+        self.relations.index()
     }
 }
 

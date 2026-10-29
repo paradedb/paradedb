@@ -1,4 +1,4 @@
--- Direct APIs share a read policy; maintenance has an ownership policy.
+-- Direct APIs share a read policy; maintenance has a separate privilege policy.
 -- Every negative assertion checks 42501, so a malformed call cannot pass.
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
@@ -40,6 +40,8 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT * FROM paradedb.merge_info(''permission_access.docs_idx'')',
   'SELECT paradedb.is_merging(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.vacuum_info(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.fsm_info(''permission_access.docs_idx'')',
+  'SELECT paradedb.fsm_size(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.index_info(''permission_access.docs_idx'')',
   'SELECT * FROM pdb.index_segments(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.vector_info(''permission_access.docs_idx'', ''missing'')',
@@ -56,7 +58,7 @@ SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;
  no_grant_denials 
 ------------------
-               21
+               23
 (1 row)
 
 SELECT permission_access.assert_denied(ARRAY[
@@ -91,7 +93,7 @@ SELECT count(id) AS ordinary_id_access FROM permission_access.docs;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS column_grant_denials;
  column_grant_denials 
 ----------------------
-                   21
+                   23
 (1 row)
 
 RESET ROLE;
@@ -101,6 +103,18 @@ SELECT count(*) AS allowed_fields FROM paradedb.schema('permission_access.docs_i
  allowed_fields 
 ----------------
               3
+(1 row)
+
+SELECT paradedb.fsm_size('permission_access.docs_idx') > 0 AS allowed_fsm_size;
+ allowed_fsm_size 
+------------------
+ t
+(1 row)
+
+SELECT count(*) >= 0 AS allowed_fsm_info FROM paradedb.fsm_info('permission_access.docs_idx');
+ allowed_fsm_info 
+------------------
+ t
 (1 row)
 
 SELECT sum(num_docs) AS allowed_docs FROM pdb.index_segments('permission_access.docs_idx');
@@ -161,7 +175,7 @@ ROLLBACK TO SAVEPOINT named_rls_error;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_denials;
  rls_denials 
 -------------
-          21
+          23
 (1 row)
 
 SELECT count(*) AS rls_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';
@@ -174,7 +188,7 @@ SET LOCAL row_security = off;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_off_denials;
  rls_off_denials 
 -----------------
-              21
+              23
 (1 row)
 
 RESET row_security;
@@ -213,7 +227,7 @@ ALTER TABLE permission_access.docs FORCE ROW LEVEL SECURITY;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS forced_owner_denials;
  forced_owner_denials 
 ----------------------
-                   21
+                   23
 (1 row)
 
 SELECT count(*) AS forced_owner_maintenance FROM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');

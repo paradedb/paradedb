@@ -15,13 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::access::IndexOid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::v1::V1FSM;
 use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::iter::TableIterator;
-use pgrx::{PgRelation, name, pg_extern, pg_sys};
+use pgrx::{name, pg_extern, pg_sys};
 
 /// Denotes what the data on an FSM block looks like
 #[allow(non_camel_case_types)]
@@ -1860,7 +1861,7 @@ pub fn convert_v1_to_v2(bman1: &mut BufferManager, mut v1: V1FSM, mut v2: V2FSM)
 
 #[pg_extern]
 unsafe fn fsm_info(
-    index: PgRelation,
+    index: IndexOid,
 ) -> TableIterator<
     'static,
     (
@@ -1873,11 +1874,11 @@ unsafe fn fsm_info(
     use crate::postgres::storage::fsm::v2::AvlLeaf;
     use crate::postgres::storage::fsm::v2::V2FSM;
 
-    let index =
-        PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    let access = index.read_metadata();
+    let index = access.index();
 
-    let meta = MetaPage::open(&index);
-    let bman = BufferManager::new(&index);
+    let meta = MetaPage::open(index);
+    let bman = BufferManager::new(index);
 
     let root = bman.get_buffer(meta.fsm());
     let page = root.page();
@@ -1920,13 +1921,13 @@ unsafe fn fsm_info(
 }
 
 #[pg_extern]
-unsafe fn fsm_size(index: PgRelation) -> i64 {
+unsafe fn fsm_size(index: IndexOid) -> i64 {
     use crate::postgres::storage::fsm::v2::V2FSM;
-    let index =
-        PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    let access = index.read_metadata();
+    let index = access.index();
 
-    let meta = MetaPage::open(&index);
-    let bman = BufferManager::new(&index);
+    let meta = MetaPage::open(index);
+    let bman = BufferManager::new(index);
 
     let root = bman.get_buffer(meta.fsm());
     let page = root.page();

@@ -50,6 +50,97 @@ fn assert_denied(conn: &mut PgConnection, queries: &[String]) {
 }
 
 #[rstest]
+fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnection) {
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let owner = format!("maintenance_owner_{suffix}");
+    let caller = format!("maintenance_caller_{suffix}");
+    format!(
+        "BEGIN;
+        CREATE ROLE {owner} NOSUPERUSER NOBYPASSRLS;
+        CREATE ROLE {caller} NOSUPERUSER NOBYPASSRLS INHERIT;
+        CREATE SCHEMA index_maintenance;
+        CREATE TABLE index_maintenance.docs(id integer);
+        INSERT INTO index_maintenance.docs VALUES (1);
+        CREATE INDEX docs_idx ON index_maintenance.docs USING paradedb (id);
+        ALTER TABLE index_maintenance.docs OWNER TO {owner};
+        GRANT USAGE ON SCHEMA index_maintenance TO {owner}, {caller};"
+    )
+    .execute(&mut conn);
+    let (version,) =
+        "SELECT current_setting('server_version_num')::integer".fetch_one::<(i32,)>(&mut conn);
+    let query =
+        "SELECT count(*) FROM paradedb.merge_lock_garbage_collect('index_maintenance.docs_idx')";
+
+    // Permission errors abort a transaction; savepoints keep each probe independent.
+    let denied = |conn: &mut PgConnection| {
+        "SAVEPOINT maintenance_denied".execute(conn);
+        assert_denied(conn, &[query.into()]);
+        "ROLLBACK TO SAVEPOINT maintenance_denied; RELEASE SAVEPOINT maintenance_denied"
+            .execute(conn);
+    };
+    format!("SET ROLE {caller}").execute(&mut conn);
+    denied(&mut conn);
+    "RESET ROLE".execute(&mut conn);
+
+    // Reading data or monitoring an index does not authorize its maintenance.
+    format!(
+        "GRANT SELECT ON index_maintenance.docs TO {caller};
+        GRANT pg_monitor TO {caller}; SET ROLE {caller}"
+    )
+    .execute(&mut conn);
+    denied(&mut conn);
+    format!(
+        "RESET ROLE; REVOKE SELECT ON index_maintenance.docs FROM {caller};
+        REVOKE pg_monitor FROM {caller}"
+    )
+    .execute(&mut conn);
+
+    // Owners qualify on every supported PostgreSQL version, even under FORCE RLS.
+    "ALTER TABLE index_maintenance.docs ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE index_maintenance.docs FORCE ROW LEVEL SECURITY"
+        .execute(&mut conn);
+    format!("SET ROLE {owner}").execute(&mut conn);
+    query.execute(&mut conn);
+    "RESET ROLE".execute(&mut conn);
+
+    if version >= 170000 {
+        // A table-level MAINTAIN grant needs neither SELECT nor RLS bypass.
+        format!("GRANT MAINTAIN ON index_maintenance.docs TO {caller}; SET ROLE {caller}")
+            .execute(&mut conn);
+        let privileges = "SELECT
+            has_table_privilege(current_user, 'index_maintenance.docs', 'SELECT'),
+            has_table_privilege(current_user, 'index_maintenance.docs', 'MAINTAIN')"
+            .fetch_one::<(bool, bool)>(&mut conn);
+        assert_eq!(privileges, (false, true));
+        query
+            .execute_result(&mut conn)
+            .expect("table-level MAINTAIN must authorize index maintenance");
+        format!(
+            "RESET ROLE; REVOKE MAINTAIN ON index_maintenance.docs FROM {caller}; SET ROLE {caller}"
+        )
+        .execute(&mut conn);
+        denied(&mut conn);
+        "RESET ROLE".execute(&mut conn);
+
+        // Cloud operators inherit pg_maintain without owning customer tables.
+        format!("GRANT pg_maintain TO {caller}; SET ROLE {caller}").execute(&mut conn);
+        let (owns_table,) = "SELECT relowner = current_user::regrole
+            FROM pg_class WHERE oid = 'index_maintenance.docs'::regclass"
+            .fetch_one::<(bool,)>(&mut conn);
+        assert!(!owns_table);
+        query
+            .execute_result(&mut conn)
+            .expect("inherited pg_maintain must authorize index maintenance");
+        format!("RESET ROLE; REVOKE pg_maintain FROM {caller}; SET ROLE {caller}")
+            .execute(&mut conn);
+        denied(&mut conn);
+        "RESET ROLE".execute(&mut conn);
+    }
+    // The entire fixture, including its cluster-wide roles, is transactional.
+    "ROLLBACK".execute(&mut conn);
+}
+
+#[rstest]
 fn standalone_index_reads_enforce_permissions(mut conn: PgConnection) {
     // Roles are cluster-wide; use a unique name so parallel tests cannot share
     // grants and accidentally turn a negative assertion into an authorized read.

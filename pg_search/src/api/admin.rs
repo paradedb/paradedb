@@ -135,7 +135,7 @@ pub fn schema(
 
 #[pg_extern]
 pub unsafe fn index_fields(index: IndexOid) -> anyhow::Result<JsonB> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index();
     let schema = index.schema()?;
 
@@ -153,7 +153,7 @@ pub unsafe fn index_fields(index: IndexOid) -> anyhow::Result<JsonB> {
 
 #[pg_extern]
 pub unsafe fn layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index();
     index
         .options()
@@ -165,7 +165,7 @@ pub unsafe fn layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
 
 #[pg_extern]
 pub unsafe fn background_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index();
     index
         .options()
@@ -177,7 +177,7 @@ pub unsafe fn background_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
 
 #[pg_extern]
 pub unsafe fn combined_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index();
     let mut sizes: Vec<_> = index
         .options()
@@ -196,7 +196,7 @@ pub unsafe fn combined_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
 /// before build-time stamping was added.
 #[pg_extern]
 pub fn index_created_at(index: IndexOid) -> Option<pgrx::datum::TimestampWithTimeZone> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index();
     MetaPage::open(index)
         .created_at()
@@ -207,7 +207,7 @@ pub fn index_created_at(index: IndexOid) -> Option<pgrx::datum::TimestampWithTim
 /// created before version stamping was added.
 #[pg_extern]
 pub fn index_created_by(index: IndexOid) -> Option<String> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index();
     MetaPage::open(index)
         .created_by_version()
@@ -226,7 +226,7 @@ unsafe fn merge_info(
         name!(segno, String),
     ),
 > {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index().clone();
     let index_kind = IndexKind::for_index(index).unwrap();
 
@@ -263,7 +263,7 @@ fn is_merging(index: IndexOid) -> bool {
 unsafe fn vacuum_info(
     index: IndexOid,
 ) -> TableIterator<'static, (name!(index_name, String), name!(segno, String))> {
-    let access = index.read();
+    let access = index.read_metadata();
     let index = access.index().clone();
     let index_kind = IndexKind::for_index(index).unwrap();
 

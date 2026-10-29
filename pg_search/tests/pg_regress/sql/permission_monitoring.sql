@@ -45,13 +45,45 @@ BEGIN
  END LOOP;
  RETURN n;
 END $$;
+CREATE FUNCTION permission_monitoring.assert_allowed(queries text[]) RETURNS integer
+LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE q text; n integer := 0;
+BEGIN
+ FOREACH q IN ARRAY queries LOOP
+  EXECUTE q;
+  n := n + 1;
+ END LOOP;
+ RETURN n;
+END $$;
 CREATE FUNCTION permission_monitoring.metadata_queries() RETURNS text[]
 LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
  'SELECT * FROM paradedb.schema(''permission_monitoring.docs_idx'')',
  'SELECT * FROM paradedb.index_info(''permission_monitoring.docs_idx'')',
  'SELECT * FROM paradedb.index_info(''permission_monitoring.rls_docs_idx'', true)',
  'SELECT * FROM pdb.index_segments(''permission_monitoring.docs_idx'')',
- 'SELECT * FROM pdb.index_segments(''permission_monitoring.rls_docs_idx'')'
+ 'SELECT * FROM pdb.index_segments(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.index_fields(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.index_fields(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.layer_sizes(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.layer_sizes(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.background_layer_sizes(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.background_layer_sizes(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.combined_layer_sizes(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.combined_layer_sizes(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.index_created_at(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.index_created_at(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.index_created_by(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.index_created_by(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.merge_info(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.merge_info(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.is_merging(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.is_merging(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.vacuum_info(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.vacuum_info(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.fsm_info(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.fsm_info(''permission_monitoring.rls_docs_idx'')',
+ 'SELECT * FROM paradedb.fsm_size(''permission_monitoring.docs_idx'')',
+ 'SELECT * FROM paradedb.fsm_size(''permission_monitoring.rls_docs_idx'')'
 ] $$;
 CREATE FUNCTION permission_monitoring.content_queries() RETURNS text[]
 LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
@@ -75,6 +107,7 @@ RESET ROLE;
 
 -- Direct pg_stat_scan_tables membership, with no table SELECT.
 SET ROLE permission_monitoring_scan;
+SELECT permission_monitoring.assert_allowed(permission_monitoring.metadata_queries()) AS metadata_calls;
 SELECT count(*) AS schema_fields FROM paradedb.schema('permission_monitoring.docs_idx');
 SELECT sum(num_docs) AS ordinary_docs FROM pdb.index_segments('permission_monitoring.docs_idx');
 SELECT sum(num_docs) AS global_rls_docs FROM pdb.index_segments('permission_monitoring.rls_docs_idx');
@@ -94,6 +127,7 @@ RESET ROLE;
 
 -- pg_monitor inherits the diagnostic privilege, including through another role.
 SET ROLE permission_monitoring_inherited;
+SELECT permission_monitoring.assert_allowed(permission_monitoring.metadata_queries()) AS inherited_metadata_calls;
 SELECT pg_has_role(current_user, 'pg_stat_scan_tables', 'USAGE') AS inherited_diagnostic;
 SELECT sum(num_docs) AS inherited_rls_docs FROM pdb.index_segments('permission_monitoring.rls_docs_idx');
 SELECT permission_monitoring.assert_denied(permission_monitoring.content_queries()) AS inherited_content_denials;
@@ -104,6 +138,7 @@ RESET ROLE;
 REVOKE pg_monitor FROM permission_monitoring_monitor;
 SET ROLE permission_monitoring_inherited;
 SELECT permission_monitoring.assert_denied(ARRAY['EXECUTE permission_monitoring_cached']) AS revoked_prepared_denial;
+SELECT permission_monitoring.assert_denied(permission_monitoring.metadata_queries()) AS revoked_metadata_denials;
 SELECT count(*) AS revoked_inventory FROM pdb.indexes() WHERE schemaname = 'permission_monitoring';
 RESET ROLE;
 GRANT pg_monitor TO permission_monitoring_monitor;

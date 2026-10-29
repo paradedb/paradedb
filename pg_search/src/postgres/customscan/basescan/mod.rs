@@ -1188,7 +1188,7 @@ impl CustomScan for BaseScan {
                 custom_private.set_query(query.clone());
             }
 
-            let exec_method_types = choose_exec_method(
+            let method = choose_exec_method(
                 &custom_private,
                 &topk_pathkey_info,
                 limit_is_explicit,
@@ -1208,194 +1208,192 @@ impl CustomScan for BaseScan {
             // any), so the cost computation opens the index at most once per query.
             let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
 
-            // For each execution method variant, decide a `WorkerPathPolicy` and emit the path(s) it
-            // calls for: one serial path, one partial (parallel) path, or -- for a costable no-LIMIT
-            // scan -- both, so PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
-            for method in exec_method_types {
-                // Only TopK bounds the scan's output. A Sort above Normal or Columnar
-                // still consumes every matching row.
-                // Use the same bound for cardinality, scan work, and worker selection.
-                let scan_limit = if matches!(method, ExecMethodType::TopK { .. }) {
-                    float_limit
-                } else {
-                    None
-                };
-                let is_limit_fallback = float_limit.is_some() && scan_limit.is_none();
-                let base_result_rows = match row_estimate.known_rows() {
-                    Some(rows) => rows.min(scan_limit.unwrap_or(f64::MAX)),
-                    None => scan_limit.unwrap_or(1.0),
-                }
-                .max(1.0);
+            // Decide a `WorkerPathPolicy` and emit the path(s) it calls for: one serial path,
+            // one partial (parallel) path, or -- for a costable no-LIMIT scan -- both, so
+            // PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
+            // Only TopK bounds the scan's output. A Sort above Normal or Columnar
+            // still consumes every matching row.
+            // Use the same bound for cardinality, scan work, and worker selection.
+            let scan_limit = if matches!(method, ExecMethodType::TopK { .. }) {
+                float_limit
+            } else {
+                None
+            };
+            let is_limit_fallback = float_limit.is_some() && scan_limit.is_none();
+            let base_result_rows = match row_estimate.known_rows() {
+                Some(rows) => rows.min(scan_limit.unwrap_or(f64::MAX)),
+                None => scan_limit.unwrap_or(1.0),
+            }
+            .max(1.0);
 
-                let per_tuple_cost = match &method {
-                    // returning fields from fast fields
-                    ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
-                    // requires heap access to return fields
-                    _ => pg_sys::cpu_tuple_cost,
-                };
+            let per_tuple_cost = match &method {
+                // returning fields from fast fields
+                ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
+                // requires heap access to return fields
+                _ => pg_sys::cpu_tuple_cost,
+            };
 
-                let drive_cost = match (&method, row_estimate) {
-                    // Posting costs omit vector work; preserve the fallback for runtime filters.
-                    (
-                        ExecMethodType::TopK {
-                            orderby_info: Some(orderby),
-                            ..
-                        },
-                        _,
-                    ) if matches!(estimation_query, EstimationQuery::Folded(_))
-                        && orderby
-                            .first()
-                            .is_some_and(|order| order.is_vector_distance()) =>
-                    {
-                        None
-                    }
-                    (_, RowEstimate::Known(_)) => costable_drive_cost(
-                        &query,
-                        &estimation_query,
-                        &bm25_index,
-                        &quals,
-                        builder.args().root,
-                        &mut cost_memo,
-                    ),
-                    (_, RowEstimate::Unknown) => None,
-                };
-
-                let is_sorted = method.declares_sorted_output();
-                let consider_parallel_local = (*builder.args().rel).consider_parallel;
-                let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
-
-                // Decide the policy first: its reason gates the path cost below.
-                let policy = decide_scan_parallelism(ScanParallelismInputs {
-                    prunability,
-                    query: &query,
-                    drive_cost,
-                    row_estimate,
-                    is_sorted,
-                    limit: scan_limit,
-                    base_result_rows,
-                    segment_count,
-                    consider_parallel: consider_parallel_local,
-                    quals: &quals,
-                    root: builder.args().root,
-                    parallel_leader_participates,
-                    is_join_context,
-                    has_grouping,
-                });
-                let reason = policy.reason();
-
-                // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
-                // the full-docset drive cost would overstate the work; the output cost (~k rows) is
-                // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
-                // applied to the cost.)
-                let path_drive_cost = match reason {
-                    WorkerDecisionReason::BlockWandPrunable
-                    | WorkerDecisionReason::DocumentCount => None,
-                    WorkerDecisionReason::CostModel
-                    | WorkerDecisionReason::CostModelLimited
-                    | WorkerDecisionReason::PerSegment
-                    | WorkerDecisionReason::RowHeuristic => drive_cost,
-                };
-                let drive = match (path_drive_cost, row_estimate.known_rows()) {
-                    (Some(cost), Some(matches)) => Some(DriveCost { cost, matches }),
-                    _ => None,
-                };
-                let cost_basis = estimate_path_cost(
-                    is_sorted,
-                    per_tuple_cost,
-                    base_result_rows,
-                    drive,
-                    scan_limit,
-                );
-
-                // We must force this path (not interchangeable with native paths) if we need const
-                // projections for scores/snippets, or it's a TopK, or the predicate matches all.
-                let force = maybe_needs_const_projections
-                    || matches!(method, ExecMethodType::TopK { .. })
-                    || quals.contains_all();
-
-                // Pathkeys to declare on every sibling of this method, so a Gather Merge built over
-                // the partial sibling preserves the ordering instead of degrading to a plain Gather.
-                let topk_pathkeys = matches!(
-                    method,
+            let drive_cost = match (&method, row_estimate) {
+                // Posting costs omit vector work; preserve the fallback for runtime filters.
+                (
                     ExecMethodType::TopK {
-                        orderby_info: Some(..),
+                        orderby_info: Some(orderby),
                         ..
-                    }
+                    },
+                    _,
+                ) if matches!(estimation_query, EstimationQuery::Folded(_))
+                    && orderby
+                        .first()
+                        .is_some_and(|order| order.is_vector_distance()) =>
+                {
+                    None
+                }
+                (_, RowEstimate::Known(_)) => costable_drive_cost(
+                    &query,
+                    &estimation_query,
+                    &bm25_index,
+                    &quals,
+                    builder.args().root,
+                    &mut cost_memo,
+                ),
+                (_, RowEstimate::Unknown) => None,
+            };
+
+            let is_sorted = method.declares_sorted_output();
+            let consider_parallel_local = (*builder.args().rel).consider_parallel;
+            let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
+
+            // Decide the policy first: its reason gates the path cost below.
+            let policy = decide_scan_parallelism(ScanParallelismInputs {
+                prunability,
+                query: &query,
+                drive_cost,
+                row_estimate,
+                is_sorted,
+                limit: scan_limit,
+                base_result_rows,
+                segment_count,
+                consider_parallel: consider_parallel_local,
+                quals: &quals,
+                root: builder.args().root,
+                parallel_leader_participates,
+                is_join_context,
+                has_grouping,
+            });
+            let reason = policy.reason();
+
+            // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
+            // the full-docset drive cost would overstate the work; the output cost (~k rows) is
+            // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
+            // applied to the cost.)
+            let path_drive_cost = match reason {
+                WorkerDecisionReason::BlockWandPrunable | WorkerDecisionReason::DocumentCount => {
+                    None
+                }
+                WorkerDecisionReason::CostModel
+                | WorkerDecisionReason::CostModelLimited
+                | WorkerDecisionReason::PerSegment
+                | WorkerDecisionReason::RowHeuristic => drive_cost,
+            };
+            let drive = match (path_drive_cost, row_estimate.known_rows()) {
+                (Some(cost), Some(matches)) => Some(DriveCost { cost, matches }),
+                _ => None,
+            };
+            let cost_basis = estimate_path_cost(
+                is_sorted,
+                per_tuple_cost,
+                base_result_rows,
+                drive,
+                scan_limit,
+            );
+
+            // We must force this path (not interchangeable with native paths) if we need const
+            // projections for scores/snippets, or it's a TopK, or the predicate matches all.
+            let force = maybe_needs_const_projections
+                || matches!(method, ExecMethodType::TopK { .. })
+                || quals.contains_all();
+
+            // Pathkeys to declare on every sibling of this method, so a Gather Merge built over
+            // the partial sibling preserves the ordering instead of degrading to a plain Gather.
+            let topk_pathkeys = matches!(
+                method,
+                ExecMethodType::TopK {
+                    orderby_info: Some(..),
+                    ..
+                }
+            )
+            .then(|| (*builder.args().root).query_pathkeys);
+
+            // Build one sibling path. `nworkers == None` => serial (divisor 1.0); `Some` =>
+            // parallel-aware partial path. `offer_parallel` marks a partial path PostgreSQL may
+            // reject for the serial sibling (see `hook::add_path`).
+            let make_path = |nworkers: Option<NonZeroUsize>, offer_parallel: bool, forced: bool| {
+                let divisor =
+                    nworkers.map_or(1.0, |n| parallel_divisor(n, parallel_leader_participates));
+                let rows = base_result_rows / divisor;
+                let total_cost = startup_cost + cost_basis.parallelizable_cost / divisor;
+
+                let mut path_builder = CustomPathBuilder::<Self>::new(
+                    builder.args().root,
+                    builder.args().rel,
+                    *builder.args(),
                 )
-                .then(|| (*builder.args().root).query_pathkeys);
+                .set_force_path(forced);
 
-                // Build one sibling path. `nworkers == None` => serial (divisor 1.0); `Some` =>
-                // parallel-aware partial path. `offer_parallel` marks a partial path PostgreSQL may
-                // reject for the serial sibling (see `hook::add_path`).
-                let make_path =
-                    |nworkers: Option<NonZeroUsize>, offer_parallel: bool, forced: bool| {
-                        let divisor = nworkers
-                            .map_or(1.0, |n| parallel_divisor(n, parallel_leader_participates));
-                        let rows = base_result_rows / divisor;
-                        let total_cost = startup_cost + cost_basis.parallelizable_cost / divisor;
+                // Our BaseScan is always parallel-safe (can run in a worker), even when it's not
+                // parallel-aware (splitting segments).
+                if consider_parallel_local {
+                    path_builder = path_builder.set_parallel_safe(true);
+                }
+                if let Some(nworkers) = nworkers {
+                    path_builder = path_builder.set_parallel(nworkers.get());
+                }
+                if offer_parallel {
+                    path_builder = path_builder.set_flag(Flags::OfferParallel);
+                }
+                path_builder = path_builder
+                    .set_rows(rows)
+                    .set_startup_cost(startup_cost)
+                    .set_total_cost(total_cost)
+                    .set_flag(Flags::Projection);
 
-                        let mut path_builder = CustomPathBuilder::<Self>::new(
-                            builder.args().root,
-                            builder.args().rel,
-                            *builder.args(),
-                        )
-                        .set_force_path(forced);
+                if let Some(pathkeys) = topk_pathkeys {
+                    path_builder = path_builder.set_pathkeys(pathkeys);
+                }
 
-                        // Our BaseScan is always parallel-safe (can run in a worker), even when it's not
-                        // parallel-aware (splitting segments).
-                        if consider_parallel_local {
-                            path_builder = path_builder.set_parallel_safe(true);
-                        }
-                        if let Some(nworkers) = nworkers {
-                            path_builder = path_builder.set_parallel(nworkers.get());
-                        }
-                        if offer_parallel {
-                            path_builder = path_builder.set_flag(Flags::OfferParallel);
-                        }
-                        path_builder = path_builder
-                            .set_rows(rows)
-                            .set_startup_cost(startup_cost)
-                            .set_total_cost(total_cost)
-                            .set_flag(Flags::Projection);
+                if let Some(harvested) = &harvested_bitmap {
+                    let mut children = PgList::<pg_sys::Path>::new();
+                    children.push(harvested.path);
+                    path_builder = path_builder.set_custom_paths(children);
+                }
 
-                        if let Some(pathkeys) = topk_pathkeys {
-                            path_builder = path_builder.set_pathkeys(pathkeys);
-                        }
+                let mut method_private = custom_private.clone();
+                method_private.set_exec_method_type(method.clone());
+                method_private.set_use_sorted_path(is_sorted);
+                method_private.set_worker_selection_reason(reason);
+                path_builder.build(method_private)
+            };
 
-                        if let Some(harvested) = &harvested_bitmap {
-                            let mut children = PgList::<pg_sys::Path>::new();
-                            children.push(harvested.path);
-                            path_builder = path_builder.set_custom_paths(children);
-                        }
-
-                        let mut method_private = custom_private.clone();
-                        method_private.set_exec_method_type(method.clone());
-                        method_private.set_use_sorted_path(is_sorted);
-                        method_private.set_worker_selection_reason(reason);
-                        path_builder.build(method_private)
-                    };
-
-                match policy {
-                    WorkerPathPolicy::SerialOnly { .. } => {
-                        custom_paths.push(make_path(None, false, force));
-                    }
-                    WorkerPathPolicy::ParallelOnly { nworkers, .. } => {
-                        // An uncostable fallback can have a useful native ordered path too.
-                        // Offer its partial scan without forcing away those alternatives.
-                        let offer_parallel = is_limit_fallback && !force;
-                        custom_paths.push(make_path(Some(nworkers), offer_parallel, force));
-                    }
-                    WorkerPathPolicy::CostedBoth { nworkers, .. } => {
-                        // Retain the existing custom preference for bulk scans. A LIMIT fallback
-                        // must also consider native paths: an ordered index can avoid the Sort,
-                        // and an index-only scan can avoid heap fetches. Score/snippet projections
-                        // and other mandatory custom cases still require the forced path.
-                        //
-                        // Emit serial first so any forced clear precedes the partial sibling.
-                        // OfferParallel adds that sibling without clearing native or serial paths.
-                        custom_paths.push(make_path(None, false, force || !is_limit_fallback));
-                        custom_paths.push(make_path(Some(nworkers), true, false));
-                    }
+            match policy {
+                WorkerPathPolicy::SerialOnly { .. } => {
+                    custom_paths.push(make_path(None, false, force));
+                }
+                WorkerPathPolicy::ParallelOnly { nworkers, .. } => {
+                    // An uncostable fallback can have a useful native ordered path too.
+                    // Offer its partial scan without forcing away those alternatives.
+                    let offer_parallel = is_limit_fallback && !force;
+                    custom_paths.push(make_path(Some(nworkers), offer_parallel, force));
+                }
+                WorkerPathPolicy::CostedBoth { nworkers, .. } => {
+                    // Retain the existing custom preference for bulk scans. A LIMIT fallback
+                    // must also consider native paths: an ordered index can avoid the Sort,
+                    // and an index-only scan can avoid heap fetches. Score/snippet projections
+                    // and other mandatory custom cases still require the forced path.
+                    //
+                    // Emit serial first so any forced clear precedes the partial sibling.
+                    // OfferParallel adds that sibling without clearing native or serial paths.
+                    custom_paths.push(make_path(None, false, force || !is_limit_fallback));
+                    custom_paths.push(make_path(Some(nworkers), true, false));
                 }
             }
 
@@ -2502,68 +2500,28 @@ fn choose_exec_method(
     topk_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     table_name: &str,
-) -> Vec<ExecMethodType> {
-    // See if we can use Top K.
-    // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
-    if let Some(lo) = privdata.limit_offset().clone() {
-        if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            let method = ExecMethodType::TopK {
+) -> ExecMethodType {
+    let method = match (privdata.limit_offset(), privdata.maybe_orderby_info()) {
+        // A static or parameterized LIMIT qualifies for TopK if all ordering can be
+        // pushed down, or the query has no ordering.
+        (Some(limit_offset), orderby_info)
+            if orderby_info.is_some() || matches!(topk_pathkey_info, PathKeyInfo::None) =>
+        {
+            ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit_offset: lo.clone(),
-                orderby_info: Some(orderby_info.clone()),
+                limit_offset: limit_offset.clone(),
+                orderby_info: orderby_info.clone(),
                 window_aggregates: privdata.window_aggregates().clone(),
-            };
-            validate_topk_expectation(
-                privdata,
-                topk_pathkey_info,
-                limit_is_explicit,
-                &method,
-                table_name,
-            );
-            return vec![method];
+            }
         }
-        if matches!(topk_pathkey_info, PathKeyInfo::None) {
-            let method = ExecMethodType::TopK {
-                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit_offset: lo,
-                orderby_info: None,
-                window_aggregates: privdata.window_aggregates().clone(),
-            };
-            validate_topk_expectation(
-                privdata,
-                topk_pathkey_info,
-                limit_is_explicit,
-                &method,
-                table_name,
-            );
-            return vec![method];
-        }
-    }
-
-    // Otherwise, see if we can use a fast fields method.
-    let is_capable = fast_fields::is_columnar_capable(privdata);
-    if is_capable {
-        let methods = vec![ExecMethodType::Columnar {
+        _ if fast_fields::is_columnar_capable(privdata) => ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             // Retain the execution batch hint without bounding external-sort input
             // or the full scan estimates used for costing and worker selection.
             limit_offset: privdata.limit_offset().clone(),
-        }];
-
-        // Validate expectations for the first method (Unsorted)
-        validate_topk_expectation(
-            privdata,
-            topk_pathkey_info,
-            limit_is_explicit,
-            &methods[0],
-            table_name,
-        );
-
-        return methods;
-    }
-
-    // Else, fall back to normal execution
-    let method = ExecMethodType::Normal;
+        },
+        _ => ExecMethodType::Normal,
+    };
     validate_topk_expectation(
         privdata,
         topk_pathkey_info,
@@ -2571,7 +2529,7 @@ fn choose_exec_method(
         &method,
         table_name,
     );
-    vec![method]
+    method
 }
 
 ///

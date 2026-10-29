@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793299375298,
+  "lastUpdate": 1793299400817,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -48815,6 +48815,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12874316795-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1248c3ed85d2419a92103665ad3d4b71211bad8f",
+          "message": "fix: upgrade zip to resolve archive parsing advisory (#7094)\n\n## What\n\nUpdate the locked `zip` dependency from 9.0.4 to 9.0.5, the first\npatched release for\n[GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj).\nAddresses [Dependabot alert\n#8](https://github.com/paradedb/paradedb/security/dependabot/8).\n\n## Why\n\nThe affected package enters through `benchmarks \u2192 duckdb \u2192 libduckdb-sys\n\u2192 zip` (build dependency). Like pdbench#42, this uses the patched zip\nrelease. ParadeDB already requires DuckDB 1.10506.1, so no DuckDB\nupgrade is needed.\n\nI also checked Walter\u2019s dependency cleanup in pdbench#43. DuckDB is\nalready scoped to the benchmark crate here and excluded from the default\nextension build. Its zip build dependency is unconditional, so disabling\ndefault features would not remove it.\n\n## Tests\n\n- Cargo update changed only the zip version and checksum.\n- Locked workspace dependency tree confirms zip 9.0.5 and the\nbenchmark-only path above.\n- Locked Cargo metadata passes for aarch64-apple-darwin using Rust\n1.99.1.\n- Downloaded crate SHA-256 matches the lockfile; `git diff --check`\npasses.\n- Compilation and benchmark tests were not run locally.\n\nDependabot closure requires merge and a subsequent dependency scan.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T11:08:46-07:00",
+          "tree_id": "71592fed36e2ffbd87baef5b7eb6deff66e1a4f4",
+          "url": "https://github.com/paradedb/paradedb/commit/1248c3ed85d2419a92103665ad3d4b71211bad8f"
+        },
+        "date": 1793299397304,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 14.157,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.319,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 14.163,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 19.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 21.126,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 21.501,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.638,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.731,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 19.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.671,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.762,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.729,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.843,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.226,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 9.349,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.631,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.276,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.113,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 18.017,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 19.236,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 19.844,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12922593696-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -50057,6 +50217,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12874316795-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1248c3ed85d2419a92103665ad3d4b71211bad8f",
+          "message": "fix: upgrade zip to resolve archive parsing advisory (#7094)\n\n## What\n\nUpdate the locked `zip` dependency from 9.0.4 to 9.0.5, the first\npatched release for\n[GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj).\nAddresses [Dependabot alert\n#8](https://github.com/paradedb/paradedb/security/dependabot/8).\n\n## Why\n\nThe affected package enters through `benchmarks \u2192 duckdb \u2192 libduckdb-sys\n\u2192 zip` (build dependency). Like pdbench#42, this uses the patched zip\nrelease. ParadeDB already requires DuckDB 1.10506.1, so no DuckDB\nupgrade is needed.\n\nI also checked Walter\u2019s dependency cleanup in pdbench#43. DuckDB is\nalready scoped to the benchmark crate here and excluded from the default\nextension build. Its zip build dependency is unconditional, so disabling\ndefault features would not remove it.\n\n## Tests\n\n- Cargo update changed only the zip version and checksum.\n- Locked workspace dependency tree confirms zip 9.0.5 and the\nbenchmark-only path above.\n- Locked Cargo metadata passes for aarch64-apple-darwin using Rust\n1.99.1.\n- Downloaded crate SHA-256 matches the lockfile; `git diff --check`\npasses.\n- Compilation and benchmark tests were not run locally.\n\nDependabot closure requires merge and a subsequent dependency scan.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T11:08:46-07:00",
+          "tree_id": "71592fed36e2ffbd87baef5b7eb6deff66e1a4f4",
+          "url": "https://github.com/paradedb/paradedb/commit/1248c3ed85d2419a92103665ad3d4b71211bad8f"
+        },
+        "date": 1793299399194,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 80.28170334415572,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 80.19098694194696,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 50.0156458867286,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 57.57484691986447,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 57.49562037984793,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 57.30959760962792,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 115.21130075013538,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 96.56080255897899,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 55.063366144683364,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12922593696-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -50514,6 +50744,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12874316795-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1248c3ed85d2419a92103665ad3d4b71211bad8f",
+          "message": "fix: upgrade zip to resolve archive parsing advisory (#7094)\n\n## What\n\nUpdate the locked `zip` dependency from 9.0.4 to 9.0.5, the first\npatched release for\n[GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj).\nAddresses [Dependabot alert\n#8](https://github.com/paradedb/paradedb/security/dependabot/8).\n\n## Why\n\nThe affected package enters through `benchmarks \u2192 duckdb \u2192 libduckdb-sys\n\u2192 zip` (build dependency). Like pdbench#42, this uses the patched zip\nrelease. ParadeDB already requires DuckDB 1.10506.1, so no DuckDB\nupgrade is needed.\n\nI also checked Walter\u2019s dependency cleanup in pdbench#43. DuckDB is\nalready scoped to the benchmark crate here and excluded from the default\nextension build. Its zip build dependency is unconditional, so disabling\ndefault features would not remove it.\n\n## Tests\n\n- Cargo update changed only the zip version and checksum.\n- Locked workspace dependency tree confirms zip 9.0.5 and the\nbenchmark-only path above.\n- Locked Cargo metadata passes for aarch64-apple-darwin using Rust\n1.99.1.\n- Downloaded crate SHA-256 matches the lockfile; `git diff --check`\npasses.\n- Compilation and benchmark tests were not run locally.\n\nDependabot closure requires merge and a subsequent dependency scan.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T11:08:46-07:00",
+          "tree_id": "71592fed36e2ffbd87baef5b7eb6deff66e1a4f4",
+          "url": "https://github.com/paradedb/paradedb/commit/1248c3ed85d2419a92103665ad3d4b71211bad8f"
+        },
+        "date": 1793299400811,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.740114837383333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.5,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12922593696-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [

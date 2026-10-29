@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793235713599,
+  "lastUpdate": 1793235868177,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -390481,6 +390481,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12853432614-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "64d7d97fd75329662246cb7b3b20d7bb20beb569",
+          "message": "perf: eagerly flush mutable segments in background workers\n\nBatch unfrozen writes for up to 100ms and wake the collector when entries freeze. Preserve independent merger slots, foreground backpressure, cancellation, immediate visibility, and session ownership while waiting outside transactions.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/64d7d97fd75329662246cb7b3b20d7bb20beb569"
+        },
+        "date": 1793235830591,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 532.7304299027583,
+            "unit": "median tps",
+            "extra": "avg tps: 532.3568184237877, max tps: 554.9277639897821, count: 57392"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 388.07690688121284,
+            "unit": "median tps",
+            "extra": "avg tps: 388.25048403114954, max tps: 433.48085058642556, count: 57392"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3595.3044079420683,
+            "unit": "median tps",
+            "extra": "avg tps: 3589.936930550035, max tps: 3670.914684745721, count: 57392"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 531.265156325954,
+            "unit": "median tps",
+            "extra": "avg tps: 531.1338056105551, max tps: 541.1421876807705, count: 57392"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3170.7947566650287,
+            "unit": "median tps",
+            "extra": "avg tps: 3171.496869928433, max tps: 3255.5432026695453, count: 57392"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3144.77318424659,
+            "unit": "median tps",
+            "extra": "avg tps: 3148.2590650950756, max tps: 3319.2053321341937, count: 57392"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 197.43507611150906,
+            "unit": "median tps",
+            "extra": "avg tps: 197.11716486867303, max tps: 199.64491055123327, count: 57392"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 403.9905599229106,
+            "unit": "median tps",
+            "extra": "avg tps: 403.63188839970496, max tps: 426.1442860460451, count: 57392"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 698.25215352289,
+            "unit": "median tps",
+            "extra": "avg tps: 697.8275151170893, max tps: 732.9414993300145, count: 57392"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 805.5128353764412,
+            "unit": "median tps",
+            "extra": "avg tps: 805.4399782517805, max tps: 823.0163056598386, count: 57392"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1394.260447054254,
+            "unit": "median tps",
+            "extra": "avg tps: 1392.9136870785912, max tps: 1398.2050495943117, count: 57392"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 514.0868733981456,
+            "unit": "median tps",
+            "extra": "avg tps: 514.1809758453451, max tps: 545.9236062007672, count: 57392"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 702.941424351691,
+            "unit": "median tps",
+            "extra": "avg tps: 703.0907870312466, max tps: 716.3275959838061, count: 57392"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2219.3163705575066,
+            "unit": "median tps",
+            "extra": "avg tps: 2217.2847619006134, max tps: 2231.636404464726, count: 57392"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1745.7140918597142,
+            "unit": "median tps",
+            "extra": "avg tps: 1744.88446430382, max tps: 1786.0929535073312, count: 57392"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.884464319161523,
+            "unit": "median tps",
+            "extra": "avg tps: 49.3476782564663, max tps: 1452.4771271164407, count: 57392"
+          }
+        ],
+        "publication_id": "12852229085-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [

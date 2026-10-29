@@ -88,14 +88,25 @@ decimal-bytes = "0.6.0"
 bigdecimal = "0.4.11"
 paste = "1.0.15"
 typetag = "0.2"
-tokio = { version = "1.53.2", features = ["rt"] }
-tokio-util = "0.7"
+tokio = { version = "1.53.2", features = [
+  "rt",
+  "net",
+  "time",
+  "sync",
+  "macros",
+] }
+tokio-stream = "0.1.17"
+tonic = "0.14.2"
+tower = "0.5.2"
+hyper-util = { version = "0.1.16", features = ["tokio"] }
+url = "2.5.4"
+libc = "0.2"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
 # both point to the same datafusion ref.
 datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
 datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-10-27-165520", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", branch = "stuhood.shrink" }
 futures = "0.3.34"
 async-stream = "0.3.6"
 prost = "0.14.3"

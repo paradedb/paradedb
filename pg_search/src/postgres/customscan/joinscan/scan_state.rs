@@ -574,10 +574,23 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
-/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
-pub fn create_datafusion_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
+/// Applies ParadeDB's optimizer GUC settings (`hash_join_inlist_pushdown_max_size`,
+/// `hash_join_inlist_pushdown_max_distinct_values`, `hash_join_single_partition_threshold_rows`,
+/// `hash_join_single_partition_threshold`, `enable_topk_dynamic_filter_pushdown`, and
+/// `enable_round_robin_repartition = false`) to a DataFusion [`SessionConfig`].
+///
+/// Called both when constructing the leader's session context and when initializing each MPP
+/// worker's task `SessionConfig` in `MppWorkerSessionBuilder::build_session_state`, because
+/// operators such as `HashJoinExec` read `hash_join_inlist_pushdown_max_*` from the worker's
+/// `TaskContext::session_config()` at execution time.
+pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
+    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
+    // worker process. Partitioning is used exclusively for MPP task distribution, never for
+    // intra-task CPU parallelization.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
 
     // Configure dynamic filter pushdown thresholds from our GUCs
     config
@@ -610,6 +623,13 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+}
+
+/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
+/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
+pub fn create_datafusion_session_context() -> SessionContext {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    apply_paradedb_session_config(&mut config);
 
     let mut builder = build_base_session(config);
 

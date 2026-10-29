@@ -182,17 +182,17 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    query_allows_parallel_mode, record_worker_spill, warn_if_spilled,
+    finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
+    record_worker_spill, warn_if_spilled,
 };
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
-use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
+use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
 use crate::scan::deferred_encode::DeferredCtid;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_buffer::ScalarBuffer;
 use datafusion::logical_expr::LogicalPlan;
-use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::aggregatescan::datafusion_build;
@@ -1042,15 +1042,15 @@ impl JoinScan {
 
 impl JoinScan {
     /// Build the leader's distributed session context for this JoinScan query. Thin wrapper
-    /// over the shared [`crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`]
+    /// over the shared [`crate::postgres::customscan::mpp::worker::build_mpp_session_context`]
     /// that seeds with `create_datafusion_session_context(SessionContextProfile::Join)`.
-    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
+    /// `resolver = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
-        mesh: Option<Arc<MppMesh>>,
+        resolver: Option<Arc<DsmGrpcChannelResolver>>,
     ) -> datafusion::prelude::SessionContext {
-        crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
+        crate::postgres::customscan::mpp::worker::build_mpp_session_context(
             create_datafusion_session_context(),
-            mesh,
+            resolver,
         )
     }
 
@@ -1152,18 +1152,17 @@ impl JoinScan {
     }
 
     /// Join the MPP producer workers and destroy the parallel context once nothing
-    /// references the ring mesh. Drains any remaining worker metrics first, takes the
-    /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
-    /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
+    /// references the DSM ring mesh. Shuts down the leader session first, takes the
+    /// leader out (its channel resolver drops with it), then drops the stream/plan/runtime
+    /// (all carry DSM stream references) before `wait_for_finish` destroys the DSM. Used at
     /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().datafusion_stream = None;
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
+        if let Some(leader) = state.custom_state().mpp.leader() {
+            finish_leader_execution(
+                state.custom_state().runtime.as_ref(),
+                state.custom_state().physical_plan.as_ref(),
+                leader,
             );
         }
         let finish = match state.custom_state_mut().mpp.take_leader() {
@@ -1701,6 +1700,7 @@ impl CustomScan for JoinScan {
                 Self::maybe_solve_and_rebake(state);
 
                 let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .unwrap();
                 let mut join_clause = state.custom_state().join_clause.clone();
@@ -1814,7 +1814,7 @@ impl CustomScan for JoinScan {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
-                                &leader.session.mesh,
+                                &leader.session.resolver,
                             )))
                             .with_distributed_dispatch_plan_source(source);
                             launch_us.prepare_us = leader.timing.prepare_us;
@@ -2016,22 +2016,18 @@ impl CustomScan for JoinScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Drop the gather stream first. On an early-terminated query (LIMIT) this fires the
-        // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
-        // already reached EOF.
+        // Drop the gather stream first (notifies `EndStreamNotifier` on `DistributedExec` so
+        // `c2w_stream` closes and workers flush their final `TaskMetrics`).
         state.custom_state_mut().datafusion_stream = None;
 
-        // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
-        // early-terminated query the rings still hold data the leader will never read; a worker's
-        // bounded metrics send spins on the full ring until the leader frees slots. Draining here
-        // is what frees them: the sends land on the next try, the workers detach, and the `recv`
-        // below returns immediately instead of waiting out the workers' full spin bound.
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
+        // Wait briefly for `TaskMetrics` over `coordinator_channel`, then signal the workers'
+        // Tonic servers to shut down and close all leader DSM ring streams BEFORE joining the
+        // workers.
+        if let Some(leader) = state.custom_state().mpp.leader() {
+            finish_leader_execution(
+                state.custom_state().runtime.as_ref(),
+                state.custom_state().physical_plan.as_ref(),
+                leader,
             );
         }
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs

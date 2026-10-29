@@ -24,48 +24,41 @@
 //! falling back to serial execution.
 //!
 //! The MPP DSM region rides as builder `ParallelState` entries instead of a hand-laid coordinate:
-//! a reserve-only region for the ring mesh (`shm::dsm_region_bytes`), a zeroed byte blob for the
-//! `ParallelScanState`, plus a go flag. Workers reconstruct their `MppWorkerInputs` from the same
-//! entries, with no PG plan node in reach.
+//! a reserve-only region for the SPSC byte-ring mesh (`dsm_stream::dsm_region_bytes`), a zeroed
+//! byte blob for the `ParallelScanState`, plus a go flag. Workers reconstruct their
+//! `MppWorkerInputs` from the same entries, with no PG plan node in reach.
 //!
-//! The launch is plan-first (#5667), mirroring core PG's parallel-query order (plan →
-//! size-by-walking-the-plan → create DSM → bind pointers → launch): the caller builds the
+//! The launch is plan-first (`#5667`), mirroring core PG's parallel-query order (plan ->
+//! size-by-walking-the-plan -> create DSM -> bind pointers -> launch): the caller builds the
 //! distributed physical plan with `producer_worker_cap()` (PG's parallelism GUCs) as the
 //! planner's ceiling, then [`launch_mpp_join`] / [`launch_mpp_aggregate`] walk the finished plan
 //! to learn the largest producer-stage task count, size the mesh and spawn exactly
-//! `clamp(max_tasks, 2, cap)` producers, stamp the shared scan state into the plan
-//! ([`crate::scan::execution_plan::stamp_parallel_state`]), and dispatch. A plan with no
-//! producer stages spawns nothing at all. One plan serves both dispatch and the leader's own
-//! execution; the go flag holds spawned workers off the mesh until the rings and dispatch
-//! payload are initialized. If PostgreSQL attaches fewer workers, neither the plan nor the
-//! payload changes — the leader just initializes a narrower mesh inside the region it already
-//! reserved, and the plan's tasks multiplex onto the attached producers.
+//! `clamp(max_tasks, 2, cap)` producers, and stamp the shared scan state into the plan
+//! ([`crate::scan::execution_plan::stamp_parallel_state`]). A plan with no producer stages spawns
+//! nothing at all. One plan serves both on-demand stage serialization
+//! ([`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`]) and the leader's own
+//! execution; the go flag holds spawned workers off the mesh until the DSM SPSC rings are
+//! initialized. If PostgreSQL attaches fewer workers, the plan does not change: the leader just
+//! initializes a narrower mesh inside the region it already reserved, and the plan's tasks
+//! multiplex onto the attached producers.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use datafusion::prelude::SessionContext;
 use pgrx::{check_for_interrupts, pg_sys};
-
-use datafusion_distributed::shm::region_total;
 
 use crate::parallel_worker::builder::ParallelProcessBuilder;
 use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, WorkerStyle,
     generic_parallel_worker_entry_point,
 };
-use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregate_session_context;
 use crate::postgres::customscan::joinscan::build::RelNode;
-use crate::postgres::customscan::joinscan::scan_state::create_datafusion_session_context;
-use crate::postgres::customscan::mpp::dispatch::dispatch_payload_from_stages;
-use crate::postgres::customscan::mpp::exec_worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::mpp::glue::{
-    MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, mpp_is_active,
-    producer_worker_cap, worker_setup,
+    MIN_TOTAL_WORKER_COUNT, MppLeaderState, collect_stages, estimate_dsm_size, leader_setup,
+    max_producer_task_count, mpp_is_active, producer_worker_cap, stages_have_data_parallelism,
+    worker_setup,
 };
-use crate::postgres::customscan::mpp::worker_fragments::{
-    collect_stages, max_producer_task_count, stages_have_data_parallelism,
-};
+use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::info::{RowEstimate, ScanInfo};
 
@@ -80,15 +73,16 @@ const GO_WAIT: u32 = 0;
 const GO_RUN: u32 = 1;
 const GO_ABORT: u32 = 2;
 
-/// Per-worker completion queue size. MPP carries data over the ring mesh, not this queue; it only
-/// serves as the leader's detach barrier in `wait_for_finish`. Matches the index-build size so
-/// `shm_mq_create` has room for its header.
+/// Per-worker completion queue size. MPP carries data over the SPSC ring mesh, not this queue; it
+/// only serves as the leader's detach barrier in `wait_for_finish`. Matches the index-build size
+/// so `shm_mq_create` has room for its header.
 const MPP_MQ_SIZE: usize = 1024;
 
-/// The builder process carrying the MPP DSM entries. The mesh region is reserve-only: at the
-/// default queue size it is hundreds of megabytes, and `shm::leader_setup` writes every header
-/// and ring slot it reads, so materializing (zeroing, copying) a host-side buffer of that size
-/// per query would buy nothing. The scan state is a small zeroed blob populated in place.
+/// The builder process carrying the MPP DSM entries. The mesh region is reserve-only:
+/// `glue::leader_setup` (`dsm_stream::init_dsm_mesh`) initializes the header, wakeup slots, and
+/// `2 * W^2` 64 KiB SPSC ring headers in place inside DSM (`~8 MiB` at `W = 8`), so materializing
+/// (zeroing, copying) a host-side buffer of that size per query would buy nothing. The scan state
+/// is a small zeroed blob populated in place.
 struct MppParallelProcess {
     mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
@@ -149,7 +143,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     toc: *mut pg_sys::shm_toc,
 ) {
     let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
-    run_launched_worker(state_manager, create_aggregate_session_context);
+    run_launched_worker(state_manager);
     // `_mq_sender` drops here, detaching the completion queue so the leader's `wait_for_finish`
     // recv loop terminates.
 }
@@ -163,13 +157,12 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
     toc: *mut pg_sys::shm_toc,
 ) {
     let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
-    run_launched_worker(state_manager, create_datafusion_session_context);
+    run_launched_worker(state_manager);
 }
 
-/// Shared worker body: wait for the leader's go signal, attach to the ring mesh, reconstruct the
-/// `MppWorkerInputs` from the DSM entries, and run the producer fragments. `seed_ctx` is the
-/// per-shape serial session context used only for plan deserialization.
-fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> SessionContext) {
+/// Shared worker body: wait for the leader's go signal, attach to the SPSC ring mesh, reconstruct
+/// `MppWorkerInputs` from the DSM entries, and run the Tonic gRPC worker server.
+fn run_launched_worker(state_manager: ParallelStateManager) {
     let go = unsafe { go_flag(&state_manager) };
     // Under the plan-first launch the leader has already planned; this wait only spans the
     // leader's ring init (`leader_setup`) and short-launch decision. Still back off to
@@ -195,9 +188,8 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp worker: mesh region missing from parallel state"),
     };
-    let region_bytes = unsafe { region_total(region_ptr) };
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-    let worker = match unsafe { worker_setup(region_ptr, region_bytes, worker_number) } {
+    let worker = match unsafe { worker_setup(region_ptr, worker_number) } {
         Ok(session) => session,
         Err(e) => pgrx::error!("mpp worker: worker_setup failed: {e}"),
     };
@@ -223,7 +215,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
         Ok(rt) => rt,
         Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
     };
-    run_mpp_worker(inputs, seed_ctx(), &runtime);
+    run_mpp_worker(inputs, &runtime);
 }
 
 /// Where MPP sits in a scan's launch lifecycle. Every transition consumes the previous stage,
@@ -299,7 +291,7 @@ impl MppLifecycle {
 /// `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
 ///
 /// Shared by the launch and by the plain-EXPLAIN plan rebuilds, the same split as
-/// [`mpp_plan_has_data_parallelism`](crate::postgres::customscan::mpp::worker_fragments),
+/// [`mpp_plan_has_data_parallelism`](crate::postgres::customscan::mpp::glue::mpp_plan_has_data_parallelism),
 /// so the rendered plan agrees with the executed mode (#5784).
 ///
 /// `RowEstimate::Unknown` does not gate. The join estimator always produces `Known` for real
@@ -377,17 +369,8 @@ fn launch_mpp(
     let cap = producer_worker_cap();
     let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
 
-    // The finished physical stages determine the stage sizing list, so build the real payload
-    // before sizing DSM. A failure is a codec bug, and no workers have been started at this point.
-    let t_payload = std::time::Instant::now();
-    let payload = match dispatch_payload_from_stages(&stages) {
-        Ok(p) => p,
-        Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
-    };
-    timing.payload_us = t_payload.elapsed().as_micros() as u64;
-
     let t_prepare = std::time::Instant::now();
-    let region_bytes = match estimate_dsm_size(producer_count + 1, payload.len()) {
+    let region_bytes = match estimate_dsm_size(producer_count + 1) {
         Ok(sz) => sz,
         Err(e) => {
             pgrx::warning!("mpp: estimate_dsm failed: {e}; running serially");
@@ -455,10 +438,10 @@ fn launch_mpp(
         Err(e) => pgrx::error!("{e}"),
     }
 
-    // PostgreSQL may attach fewer workers than requested. The plan, its task counts, and the
-    // payload all stand: `proc_for_task(launched, task_idx)` assigns tasks to the attached
-    // workers when each worker expands the blob, and the task-aware transport keeps same-worker
-    // streams apart.
+    // PostgreSQL may attach fewer workers than requested. The plan and its task counts stand:
+    // `MppWorkerResolver(launched)` and `RoundRobinRouteTaskHandler` assign tasks across the
+    // attached workers, and same-worker stage reads short-circuit in memory via
+    // `LocalWorkerContext`.
     if launched != producer_count {
         crate::mpp_log!(
             "launch: {launched} of {producer_count} producers attached; multiplexing original task plan"
@@ -467,12 +450,12 @@ fn launch_mpp(
 
     // Bind the shared scan state into the plan the leader will execute. Must stay below the
     // last serial-fallback `return None`: a stamped plan must never outlive its DSM, and the
-    // fallback paths replan. Workers are unaffected — dispatch encodes are context-free and
+    // fallback paths replan. Workers are unaffected: stage plan encodes are context-free and
     // each worker injects its own pointer at decode.
     crate::scan::execution_plan::stamp_parallel_state(physical, scan_ptr);
 
     // Initialize the leader's rings now that we're committed to the parallel path. After launch on
-    // purpose: the serial fallbacks above never create the DSM-backed control senders.
+    // purpose: the serial fallbacks above never create the DSM-backed ring streams.
     let mesh_ptr = match finish.state_manager().slice_mut::<u8>(MESH_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp: mesh region missing"),
@@ -482,7 +465,7 @@ fn launch_mpp(
     // and `wait_for_attach` reports a worker that dies before attaching. Each worker maps
     // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
-    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1, payload) } {
+    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1) } {
         Ok(l) => l,
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };
@@ -490,8 +473,8 @@ fn launch_mpp(
     leader.timing = timing;
 
     // Registered here (not in `leader_setup`) because this is the first point with both the segment
-    // (`finish`) and the senders (`leader`) in hand.
-    unsafe { leader.register_control_senders_on_detach(finish.dsm_segment()) };
+    // (`finish`) and the leader streams (`leader`) in hand.
+    unsafe { leader.register_streams_on_dsm_detach(finish.dsm_segment()) };
 
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);
@@ -578,5 +561,162 @@ mod tests {
         assert_eq!(mpp_attach_outcome(5, 3), Ok(MppAttachOutcome::Parallel));
         assert_eq!(mpp_attach_outcome(5, 5), Ok(MppAttachOutcome::Parallel));
         assert!(mpp_attach_outcome(5, 6).is_err());
+    }
+
+    #[pg_test]
+    fn mpp_aggregate_executes_across_parallel_workers() {
+        use std::sync::Arc;
+
+        use arrow_array::Int64Array;
+        use datafusion::physical_plan::collect;
+        use datafusion::prelude::SessionContext;
+        use datafusion_distributed::DistributedExt;
+        use pgrx::Spi;
+
+        use crate::index::fast_fields_helper::WhichFastField;
+        use crate::index::mvcc::MvccSatisfies;
+        use crate::index::reader::index::SearchIndexManifest;
+        use crate::postgres::customscan::mpp::glue::{
+            StagePlanDispatchSource, finish_leader_execution, merge_worker_metrics,
+        };
+        use crate::postgres::customscan::mpp::worker::build_mpp_session_context;
+        use crate::postgres::rel::PgSearchRelation;
+        use crate::scan::info::ScanInfo;
+        use crate::scan::table_provider::PgSearchTableProvider;
+        use crate::schema::SearchFieldType;
+
+        Spi::run("SET paradedb.global_mutable_segment_rows = 0;").unwrap();
+        Spi::run("CREATE TABLE mpp_pg_test (id INT, category INT, val INT);").unwrap();
+        Spi::run("CREATE INDEX mpp_pg_test_idx ON mpp_pg_test USING paradedb (id, category, val);")
+            .unwrap();
+        Spi::run("INSERT INTO mpp_pg_test SELECT i, i % 3, i * 10 FROM generate_series(1, 30) i;")
+            .unwrap();
+        Spi::run("INSERT INTO mpp_pg_test SELECT i, i % 3, i * 10 FROM generate_series(31, 60) i;")
+            .unwrap();
+        Spi::run("RESET paradedb.global_mutable_segment_rows;").unwrap();
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_workers_per_gather = 2;").unwrap();
+
+        let heap_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 'mpp_pg_test' AND relkind = 'r';",
+        )
+        .unwrap()
+        .unwrap();
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 'mpp_pg_test_idx' AND relkind = 'i';",
+        )
+        .unwrap()
+        .unwrap();
+
+        unsafe {
+            pg_sys::CommandCounterIncrement();
+            let snap = pg_sys::GetTransactionSnapshot();
+            pg_sys::PushActiveSnapshot(snap);
+        }
+
+        let index_rel = PgSearchRelation::open(index_oid);
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        assert!(
+            manifest.segment_view().len() >= 2,
+            "expected at least 2 segments for parallel MPP scan"
+        );
+
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager(
+                "category".to_string(),
+                SearchFieldType::I64(pg_sys::INT4OID),
+            ),
+            WhichFastField::eager("val".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+        ];
+        let mut scan_info = ScanInfo::new(1, heap_oid, index_oid, crate::scan::ScanMode::all());
+        for (i, field) in fields.iter().enumerate() {
+            scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
+        }
+        let mut provider = PgSearchTableProvider::new(scan_info, fields, Some(0));
+        provider.set_manifest(manifest.clone());
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let plan_ctx = build_mpp_session_context(SessionContext::new(), None);
+        plan_ctx.register_table("t", Arc::new(provider)).unwrap();
+
+        let physical_plan = runtime.block_on(async {
+            let df = plan_ctx
+                .sql("SELECT category, COUNT(*) AS cnt, SUM(val) AS total FROM t GROUP BY category ORDER BY category")
+                .await
+                .unwrap();
+            df.create_physical_plan().await.unwrap()
+        });
+
+        // Concurrent `#[pg_test]` tests (e.g. `build_parallel`) share the cluster-wide
+        // `max_worker_processes` pool and can temporarily starve `LaunchParallelWorkers`.
+        let mut leader = (0..200)
+            .find_map(|attempt| {
+                if attempt > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                let args = ParallelScanArgs {
+                    all_sources: vec![manifest.segment_view()],
+                    with_aggregates: false,
+                    with_segment_info: false,
+                };
+                launch_mpp_aggregate(&physical_plan, args)
+            })
+            .expect("expected launch_mpp_aggregate to spawn parallel workers");
+        assert_eq!(leader.timing.workers, 2);
+
+        let exec_ctx = build_mpp_session_context(
+            SessionContext::new(),
+            Some(Arc::clone(&leader.session.resolver)),
+        )
+        .with_distributed_dispatch_plan_source(StagePlanDispatchSource::default());
+
+        let batches = runtime.block_on(async {
+            collect(Arc::clone(&physical_plan), exec_ctx.task_ctx())
+                .await
+                .unwrap()
+        });
+
+        let mut rows: Vec<(i64, i64, i64)> = Vec::new();
+        for batch in &batches {
+            let cats = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            let cnts = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            let sums = batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            for i in 0..batch.num_rows() {
+                rows.push((cats.value(i), cnts.value(i), sums.value(i)));
+            }
+        }
+        assert_eq!(rows, vec![(0, 20, 6300), (1, 20, 5900), (2, 20, 6100)]);
+
+        finish_leader_execution(Some(&runtime), Some(&physical_plan), &leader);
+        let merged = merge_worker_metrics(&physical_plan);
+        assert!(merged.is_some(), "expected worker metrics to be merged");
+
+        if let Some(mut finish) = leader.finish.take() {
+            let _ = finish.recv();
+            finish.wait_for_finish();
+        }
+        drop(leader);
+        drop(runtime);
+        unsafe {
+            pg_sys::PopActiveSnapshot();
+        }
     }
 }

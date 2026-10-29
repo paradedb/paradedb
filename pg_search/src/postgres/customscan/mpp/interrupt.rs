@@ -31,13 +31,14 @@
 //!
 //! - [`HeldInterrupts`] wraps `block_on` in PG's `HOLD_INTERRUPTS()` / `RESUME_INTERRUPTS()`,
 //!   so a `CHECK_FOR_INTERRUPTS()` anywhere under the runtime (the scanner's own check, a
-//!   buffer wait, our drain loops) can't `proc_exit` mid-flight. The hold covers the
+//!   buffer wait, or our async I/O loops) can't `proc_exit` mid-flight. The hold covers the
 //!   subroutine checks our cooperative polling can't reach.
-//! - The drain/send loops still poll [`cancel_pending`] and bail with [`interrupted`] so a
-//!   pending cancel/die makes `block_on` return promptly instead of running the held query to
-//!   completion.
+//! - [`crate::postgres::customscan::mpp::dsm_stream::DsmAsyncStream`],
+//!   [`crate::postgres::customscan::mpp::dsm_stream::DsmWorkerShutdownWatcher`], and scan operators
+//!   poll [`cancel_pending`] and bail so a pending cancel/die makes `block_on` return promptly
+//!   instead of running the held query to completion.
 //!
-//! `block_on` returns, the runtime goes idle, every fragment future (with its DSM senders)
+//! `block_on` returns, the runtime goes idle, every task future (with its DSM ring streams)
 //! drops while the segment is still mapped, the hold resumes, and the caller calls
 //! [`check_for_interrupts`] to let PG act on the cancel/die with nothing left on the stack.
 
@@ -58,7 +59,6 @@ impl HeldInterrupts {
     pub(crate) fn hold() -> Self {
         // SAFETY: backend-thread-only increment of the holdoff counter, paired with the
         // decrement in `Drop`. Matches the `HOLD_INTERRUPTS()` macro.
-        #[cfg(not(test))]
         unsafe {
             pgrx::pg_sys::InterruptHoldoffCount += 1;
         }
@@ -72,7 +72,6 @@ impl HeldInterrupts {
     /// keeps running would do so with interrupts live. Sets rather than increments, so
     /// the live guard's single decrement still returns the count to zero.
     pub(crate) fn reassert() {
-        #[cfg(not(test))]
         unsafe {
             if pgrx::pg_sys::InterruptHoldoffCount == 0 {
                 pgrx::pg_sys::InterruptHoldoffCount = 1;
@@ -90,7 +89,6 @@ impl Drop for HeldInterrupts {
         // `errfinish` zeroes the count before a caught Postgres ERROR unwinds through
         // here, so a plain decrement would underflow. Skipping it matches PG's own
         // holdoff sections, which never resume after an ERROR either.
-        #[cfg(not(test))]
         unsafe {
             pgrx::pg_sys::InterruptHoldoffCount =
                 pgrx::pg_sys::InterruptHoldoffCount.saturating_sub(1);
@@ -124,15 +122,10 @@ pub(crate) fn interrupted() -> DataFusionError {
 /// cooperatively, now that `block_on` has returned and the runtime is idle. Acting mid-`block_on`
 /// would `proc_exit` out of the live runtime; this is the safe point. Cancel `longjmp`s into PG
 /// error handling (caught and unwound by pgrx); die `proc_exit`s. Either way the runtime is off
-/// the stack, so the later customscan-state drop tears down cleanly. It's a function so the
-/// lib-test build, which doesn't link PG, can stub it to a no-op.
-#[cfg(not(test))]
+/// the stack, so the later customscan-state drop tears down cleanly.
 pub(crate) fn check_for_interrupts() {
     pgrx::check_for_interrupts!();
 }
-
-#[cfg(test)]
-pub(crate) fn check_for_interrupts() {}
 
 /// Drive one batch out of an MPP gather `stream` under the cancel/die holdoff, then service any
 /// interrupt the drain deferred. The holdoff wraps the synchronous `block_on`, not the async

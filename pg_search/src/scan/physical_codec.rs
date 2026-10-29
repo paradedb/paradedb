@@ -33,8 +33,8 @@ use datafusion::logical_expr::ScalarUDF;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
-    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanDecodeContext,
-    PhysicalPlanNodeExt, PhysicalProtoConverterExtension,
+    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanNodeExt,
+    PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
 
@@ -83,6 +83,23 @@ pub struct PgSearchPhysicalExtensionCodec {
 // single-threaded, so the raw `ParallelScanState` pointer never crosses a real thread boundary.
 unsafe impl Send for PgSearchPhysicalExtensionCodec {}
 unsafe impl Sync for PgSearchPhysicalExtensionCodec {}
+
+impl PgSearchPhysicalExtensionCodec {
+    /// Construct a worker-side codec carrying the worker's `ParallelScanState`, frozen
+    /// `SegmentView`s, and `ExprContext` so `PgSearchScanPlan` and deferred lookup nodes rebuild
+    /// their runtime state during `Worker::coordinator_channel` plan deserialization.
+    pub fn new_worker(
+        parallel_state: Option<*mut ParallelScanState>,
+        index_segment_views: Vec<SegmentView>,
+        expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    ) -> Self {
+        Self {
+            parallel_state,
+            index_segment_views,
+            expr_context,
+        }
+    }
+}
 
 impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     fn try_decode(
@@ -428,27 +445,4 @@ pub fn serialize_physical_plan(
     let proto =
         PhysicalPlanNode::try_from_physical_plan_with_converter(plan, &codec, proto_converter)?;
     Ok(prost::Message::encode_to_vec(&proto))
-}
-
-/// Deserialize a dispatched physical subplan, injecting the worker's runtime context so the
-/// `PgSearchScanPlan` leaves rebuild their readers under this worker's MVCC view.
-pub fn deserialize_physical_plan_with_runtime(
-    bytes: &[u8],
-    ctx: &TaskContext,
-    parallel_state: Option<*mut ParallelScanState>,
-    index_segment_views: Vec<SegmentView>,
-    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
-    proto_converter: &dyn PhysicalProtoConverterExtension,
-) -> Result<Arc<dyn ExecutionPlan>> {
-    let codec = combined_codec(PgSearchPhysicalExtensionCodec {
-        parallel_state,
-        index_segment_views,
-        expr_context,
-    });
-    let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
-        DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))
-    })?;
-    let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
-    let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
-    Ok(plan)
 }

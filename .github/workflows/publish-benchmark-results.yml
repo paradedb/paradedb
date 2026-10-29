@@ -107,8 +107,8 @@ jobs:
           path: benchmark-data-repository
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
-          # Fetch the full tree so git add/commit cannot trigger lazy fetches after checkout removes credentials.
-          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /${{ fromJSON(steps.metadata.outputs.json).benchmark_type == 'queries' && 'benchmarks' || fromJSON(steps.metadata.outputs.json).benchmark_type }}/
 
       - name: Publish Benchmarker Results
         if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'benchmarker'

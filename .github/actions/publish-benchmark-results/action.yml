@@ -144,5 +144,8 @@ runs:
       working-directory: benchmark-data-repository
       env:
         DATA_DIRECTORY: ${{ inputs.pages_directory }}
+        APP_TOKEN: ${{ inputs.github_token }}
       run: |
-        git add "${DATA_DIRECTORY}/data.js"
+        # Sparse checkouts may need to fetch missing objects while staging.
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        git -c http.https://github.com/.extraheader="$auth" add "${DATA_DIRECTORY}/data.js"

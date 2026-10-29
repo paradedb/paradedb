@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793232299893,
+  "lastUpdate": 1793232461657,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -388684,6 +388684,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12851650081-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793232423705,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 491.3974854144916,
+            "unit": "median tps",
+            "extra": "avg tps: 490.3764703883492, max tps: 492.40820441989916, count: 57375"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 460.5041797483178,
+            "unit": "median tps",
+            "extra": "avg tps: 460.38616119801526, max tps: 462.3461465588402, count: 57375"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3724.1058295445782,
+            "unit": "median tps",
+            "extra": "avg tps: 3721.567337383464, max tps: 4105.659678184708, count: 57375"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 487.53443917289763,
+            "unit": "median tps",
+            "extra": "avg tps: 487.3249639146893, max tps: 490.0834166318004, count: 57375"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3351.0694457619074,
+            "unit": "median tps",
+            "extra": "avg tps: 3350.578293185964, max tps: 3415.286203608602, count: 57375"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3352.2018043974067,
+            "unit": "median tps",
+            "extra": "avg tps: 3354.265421631749, max tps: 3402.129059537272, count: 57375"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 198.27533453161368,
+            "unit": "median tps",
+            "extra": "avg tps: 198.1082712013231, max tps: 198.51881471805308, count: 57375"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 365.31890223885296,
+            "unit": "median tps",
+            "extra": "avg tps: 365.46308488999676, max tps: 367.7222451453307, count: 57375"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 586.5683202251472,
+            "unit": "median tps",
+            "extra": "avg tps: 583.8045680664344, max tps: 587.9294584464956, count: 57375"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 688.479131034356,
+            "unit": "median tps",
+            "extra": "avg tps: 686.2184536189687, max tps: 689.4248189806377, count: 57375"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1431.9194667158247,
+            "unit": "median tps",
+            "extra": "avg tps: 1428.4991328871674, max tps: 1436.6831990421667, count: 57375"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 491.6541417747909,
+            "unit": "median tps",
+            "extra": "avg tps: 491.31876916019286, max tps: 493.977961061603, count: 57375"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 602.2763562461166,
+            "unit": "median tps",
+            "extra": "avg tps: 600.1991612139602, max tps: 602.9403440364542, count: 57375"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2426.366650793715,
+            "unit": "median tps",
+            "extra": "avg tps: 2419.357253040859, max tps: 2429.4715040597675, count: 57375"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1868.438387754163,
+            "unit": "median tps",
+            "extra": "avg tps: 1858.3760672356582, max tps: 1973.733923522997, count: 57375"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.597760006554154,
+            "unit": "median tps",
+            "extra": "avg tps: 34.988831739844855, max tps: 1527.1908698421037, count: 57375"
+          }
+        ],
+        "publication_id": "12853432614-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [

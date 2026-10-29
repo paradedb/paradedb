@@ -17,7 +17,9 @@
 
 pub mod metric;
 
+use metric::VectorMetric;
 use pgrx::{FromDatum, pg_sys};
+use superkmeans::distance::l2_squared;
 
 /// Owned `Vec<f32>` extracted from a pgvector datum. pgvector's on-disk
 /// layout (after the varlena header) is `[int16 dim][int16 unused]
@@ -48,6 +50,14 @@ impl PgVector {
             *value = (f64::from(*value) / norm) as f32;
         }
         true
+    }
+
+    /// Angular partition centroids are normalized, so the query norm does not affect their order.
+    pub(crate) fn partition_distance(&self, metric: VectorMetric, centroid: &[f32]) -> f32 {
+        match metric {
+            VectorMetric::L2 => l2_squared(&self.0, centroid),
+            VectorMetric::Cosine | VectorMetric::InnerProduct => -self.dot(centroid),
+        }
     }
 
     pub fn dot(&self, other: &[f32]) -> f32 {

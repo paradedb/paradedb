@@ -260,6 +260,8 @@ struct ParallelScanPayloadLayout {
     /// have no slot here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
     /// Workers" section of `EXPLAIN ANALYZE`.
     claims: Range<usize>,
+    vector_order: Range<usize>,
+    claim_order: Range<usize>,
     /// One `u32` length per primary segment for EXPLAIN JSON info (0 = none). Empty unless the
     /// scan asked for segment info.
     segment_info_lens: Range<usize>,
@@ -316,6 +318,11 @@ impl ParallelScanPayloadLayout {
         let claims_layout = Layout::array::<i32>(primary_nsegments)?;
         let (layout, claims_offset) = layout.extend(claims_layout)?;
         let claims_range = claims_offset..(claims_offset + claims_layout.size());
+        let order_layout = Layout::array::<u32>(primary_nsegments)?;
+        let (layout, vector_order_offset) = layout.extend(order_layout)?;
+        let vector_order = vector_order_offset..vector_order_offset + order_layout.size();
+        let (layout, claim_order_offset) = layout.extend(order_layout)?;
+        let claim_order = claim_order_offset..claim_order_offset + order_layout.size();
 
         // Per-segment EXPLAIN JSON info, only for scans that publish it: at
         // `SEGMENT_INFO_BYTES_PER_SEGMENT` bytes per segment the slots would dominate every other
@@ -360,6 +367,8 @@ impl ParallelScanPayloadLayout {
             all_deleted_docs: all_deleted_docs_range,
             all_docs_flags: all_docs_flags_range,
             claims: claims_range,
+            vector_order,
+            claim_order,
             segment_info_lens,
             segment_info_data,
             aggregates_header,
@@ -690,6 +699,8 @@ pub struct ParallelScanState {
     /// until the leader initializes. Protected by mutex. Remaining work lives in
     /// `payload.remaining_by_source[0]`.
     nsegments: usize,
+    vector_scheduling: bool,
+    vector_near: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     worker_buffer_hits: crate::index::reader::io_stats::SharedBufferHits,
     /// Top-K Shared Threshold Fields
@@ -827,6 +838,8 @@ impl ParallelScanState {
     ) {
         self.payload
             .init(all_sources, with_aggregates, with_segment_info);
+        self.vector_scheduling = false;
+        self.vector_near = 0;
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.worker_buffer_hits = Default::default();
         self.shared_threshold.reset();
@@ -1065,21 +1078,59 @@ impl ParallelScanState {
                 continue;
             }
 
-            // segments are claimed back-to-front; the per-source ids were organized
-            // smallest-to-largest by num_docs in `ParallelScanPayload::init`, so
-            // claiming back-to-front gives largest-first.
-            let claimed_idx = {
-                let slot = self.payload.remaining_by_source_mut().get_mut(source_idx)?;
-                *slot -= 1;
-                *slot as usize
-            };
-            if writes_claims {
-                self.payload.claims_mut()[claimed_idx] = parallel_worker_number;
-            }
-            return Some(SegmentId::from_bytes(
-                self.payload.source_ids(source_idx)[claimed_idx],
-            ));
+            return self.claim_segment(source_idx, parallel_worker_number);
         }
+    }
+
+    /// Installs nearest-to-farthest ordinals before workers launch, without changing their view.
+    pub(crate) fn set_vector_order(&mut self, order: Option<&[u32]>) {
+        self.vector_near = 0;
+        self.vector_scheduling = order.is_some();
+        if let Some(order) = order {
+            self.payload.claims_mut().fill(SEGMENT_CLAIM_UNCLAIMED);
+            let mut sorted = order.to_vec();
+            sorted.sort_unstable();
+            assert!(sorted.iter().copied().eq(0..self.nsegments as u32));
+            let range = self.payload.layout.vector_order.clone();
+            let target: &mut [u32] = bytemuck::cast_slice_mut(&mut self.payload.data_mut()[range]);
+            target.copy_from_slice(order);
+        }
+    }
+
+    fn claim_segment(&mut self, source_idx: usize, worker: i32) -> Option<SegmentId> {
+        let remaining = *self.payload.remaining_by_source_mut().get(source_idx)? as usize;
+        if remaining == 0 {
+            return None;
+        }
+        let ordinal = if source_idx == 0 && self.vector_scheduling {
+            let claims = self
+                .payload
+                .claims()
+                .iter()
+                .filter(|&&owner| owner == worker)
+                .count();
+            let rank = if claims.is_multiple_of(2) {
+                let rank = self.vector_near;
+                self.vector_near += 1;
+                rank
+            } else {
+                self.vector_near + remaining - 1
+            };
+            self.payload
+                .source_u32s(self.payload.layout.vector_order.clone(), 0)[rank] as usize
+        } else {
+            remaining - 1
+        };
+        self.payload.remaining_by_source_mut()[source_idx] -= 1;
+        if source_idx == 0 {
+            self.payload.claims_mut()[ordinal] = worker;
+            let range = self.payload.layout.claim_order.clone();
+            let order: &mut [u32] = bytemuck::cast_slice_mut(&mut self.payload.data_mut()[range]);
+            order[ordinal] = (self.nsegments - remaining) as u32;
+        }
+        Some(SegmentId::from_bytes(
+            self.payload.source_ids(source_idx)[ordinal],
+        ))
     }
 
     /// The leader's segment view of the partitioning source.
@@ -1137,6 +1188,17 @@ impl ParallelScanState {
                     id: self.segment_id(i).short_uuid_string(),
                     deleted_docs: self.num_deleted_docs(i),
                     max_doc: self.segment_max_docs(i),
+                    vector_rank: self.vector_scheduling.then(|| {
+                        self.payload
+                            .source_u32s(self.payload.layout.vector_order.clone(), 0)
+                            .iter()
+                            .position(|&ord| ord as usize == i)
+                            .unwrap()
+                    }),
+                    claim_order: self.vector_scheduling.then(|| {
+                        self.payload
+                            .source_u32s(self.payload.layout.claim_order.clone(), 0)[i]
+                    }),
                 });
         }
         let mut total_query_count: usize = 0;
@@ -1144,6 +1206,11 @@ impl ParallelScanState {
             let query_count = self.query_count(*parallel_worker_number).copied();
             total_query_count += query_count.map(|qc| qc as usize).unwrap_or(0);
             worker.query_count = query_count;
+            if self.vector_scheduling {
+                worker
+                    .claimed_segments
+                    .sort_unstable_by_key(|segment| segment.claim_order);
+            }
         }
 
         ParallelExplainData {
@@ -1257,6 +1324,10 @@ impl ParallelScanState {
 
     /// Restore the per-source remaining counts for a rescan. Called by amparallelrescan.
     pub fn reset(&mut self) {
+        self.vector_near = 0;
+        if self.vector_scheduling {
+            self.payload.claims_mut().fill(SEGMENT_CLAIM_UNCLAIMED);
+        }
         // Rescan re-partitions the same way as the initial scan, so reset every source's
         // remaining count back to its initial value.
         let counts: Vec<u32> = self.payload.all_counts().to_vec();
@@ -1317,6 +1388,10 @@ pub struct ParallelExplainWorkerData {
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ClaimedSegmentData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vector_rank: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    claim_order: Option<u32>,
     id: String,
     deleted_docs: u32,
     max_doc: u32,
@@ -1352,6 +1427,105 @@ mod tests {
     use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
     use crate::index::segment_pruning::STATS_OPENS;
     use std::sync::atomic::Ordering::Relaxed;
+
+    #[pg_test]
+    fn vector_checkout_balances_each_worker_and_resets_without_reordering_the_view() {
+        use std::collections::VecDeque;
+        for count in [0, 1, 7, 64] {
+            let ids: Vec<_> = (0..count).map(|_| SegmentId::generate_random()).collect();
+            let secondary = SegmentId::generate_random();
+            let args = ParallelScanArgs {
+                all_sources: vec![
+                    SegmentView::new(
+                        ids.iter()
+                            .copied()
+                            .map(|id| SegmentViewEntry {
+                                id,
+                                docs: SegmentViewDocs::Immutable {
+                                    max_doc: 1,
+                                    num_deleted_docs: 0,
+                                },
+                            })
+                            .collect(),
+                    ),
+                    SegmentView::new(vec![SegmentViewEntry {
+                        id: secondary,
+                        docs: SegmentViewDocs::Immutable {
+                            max_doc: 1,
+                            num_deleted_docs: 0,
+                        },
+                    }]),
+                ],
+                with_aggregates: false,
+                with_segment_info: false,
+            };
+            let size = ParallelScanState::size_of(&args.all_nsegments(), false, false);
+            let state = unsafe { &mut *pg_sys::palloc0(size).cast::<ParallelScanState>() };
+            state.create_and_populate(args);
+            let frozen: Vec<_> = state.segment_view().ids().collect();
+            let mut order: Vec<_> = (0..count as u32).rev().collect();
+            if count > 0 {
+                order.rotate_left(count / 3);
+            }
+            state.set_vector_order(Some(&order));
+            let mut expected: VecDeque<_> = order.iter().map(|&ord| frozen[ord as usize]).collect();
+            let mut claims = BTreeMap::<i32, usize>::new();
+            for i in 0..count {
+                let worker = [-1, 0, 1, 1, 0, 7, 7][i % 7];
+                let previous = claims.entry(worker).or_default();
+                let next = if (*previous).is_multiple_of(2) {
+                    expected.pop_front()
+                } else {
+                    expected.pop_back()
+                };
+                *previous += 1;
+                assert_eq!(state.claim_segment(0, worker), next);
+            }
+            assert_eq!(state.claim_segment(0, -1), None);
+            assert_eq!(state.claim_segment(1, -1), Some(secondary));
+            assert_eq!(state.claim_segment(1, -1), None);
+            assert_eq!(state.segment_view().ids().collect::<Vec<_>>(), frozen);
+            let explain = state.explain_data();
+            assert_eq!(
+                explain
+                    .workers
+                    .values()
+                    .map(|w| w.claimed_segments.len())
+                    .sum::<usize>(),
+                count
+            );
+            for worker in explain.workers.values() {
+                assert!(
+                    worker
+                        .claimed_segments
+                        .windows(2)
+                        .all(|pair| pair[0].claim_order < pair[1].claim_order)
+                );
+                assert!(
+                    worker
+                        .claimed_segments
+                        .iter()
+                        .all(|s| s.vector_rank.is_some())
+                );
+            }
+            state.reset();
+            order.reverse();
+            state.set_vector_order(Some(&order));
+            let expected: Vec<_> = order.iter().map(|&ord| frozen[ord as usize]).collect();
+            if count > 0 {
+                assert_eq!(state.claim_segment(0, -1), Some(expected[0]));
+            }
+            if count > 1 {
+                assert_eq!(state.claim_segment(0, -1), expected.last().copied());
+            }
+            state.reset();
+            state.set_vector_order(None);
+            for id in frozen.iter().rev() {
+                assert_eq!(state.claim_segment(0, -1), Some(*id));
+            }
+            assert_eq!(state.claim_segment(0, -1), None);
+        }
+    }
 
     /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
     /// reads statistics for segments it does not own.

@@ -46,7 +46,7 @@ use tantivy::{
 
 use super::{
     EMPIRICAL_IDX, EmpiricalStats, EmpiricalWire, LOGICAL_IDX, LogicalBounds, LogicalBoundsByField,
-    LogicalWire, STATS_EXT, SegmentStats,
+    LogicalWire, STATS_EXT, SegmentStats, VECTOR_PARTITION_IDX, VectorPartition,
 };
 use crate::api::HashMap;
 use crate::postgres::datetime::PostgresDateTime;
@@ -68,12 +68,20 @@ impl SegmentPlugin for StatsPlugin {
     }
 
     fn create_writer(&self, _ctx: &PluginWriterContext) -> tantivy::Result<Box<dyn PluginWriter>> {
-        Ok(Box::new(StatsWriter { logical: None }))
+        Ok(Box::new(StatsWriter {
+            logical: None,
+            vector_partition: None,
+        }))
     }
 
     fn merge(&self, ctx: PluginMergeContext) -> tantivy::Result<()> {
-        let logical = merged_logical_bounds(ctx.readers, ctx.schema)?;
-        write_stats(ctx.target_segment, ctx.schema, logical.as_ref())
+        let (logical, vector_partition) = merged_partition_metadata(ctx.readers, ctx.schema)?;
+        write_stats(
+            ctx.target_segment,
+            ctx.schema,
+            logical.as_ref(),
+            vector_partition.as_ref(),
+        )
     }
 }
 
@@ -81,11 +89,16 @@ impl SegmentPlugin for StatsPlugin {
 /// `.fast` file, which the built-in plugins serialize before this one runs.
 pub(crate) struct StatsWriter {
     logical: Option<Arc<LogicalBoundsByField>>,
+    vector_partition: Option<Arc<VectorPartition>>,
 }
 
 impl StatsWriter {
     pub(crate) fn set_logical_bounds(&mut self, bounds: Arc<LogicalBoundsByField>) {
         self.logical = Some(bounds);
+    }
+
+    pub(crate) fn set_vector_partition(&mut self, partition: Arc<VectorPartition>) {
+        self.vector_partition = Some(partition);
     }
 }
 
@@ -95,7 +108,12 @@ impl PluginWriter for StatsWriter {
         segment: &Segment,
         _doc_id_map: Option<&DocIdMapping>,
     ) -> tantivy::Result<()> {
-        write_stats(segment, &segment.schema(), self.logical.as_deref())
+        write_stats(
+            segment,
+            &segment.schema(),
+            self.logical.as_deref(),
+            self.vector_partition.as_deref(),
+        )
     }
 
     fn mem_usage(&self) -> usize {
@@ -123,6 +141,7 @@ fn write_stats(
     segment: &Segment,
     schema: &Schema,
     logical: Option<&LogicalBoundsByField>,
+    vector_partition: Option<&VectorPartition>,
 ) -> tantivy::Result<()> {
     let empirical = empirical_stats(segment, schema)?;
     let mut write = CompositeWrite::wrap(segment.open_write(stats_component())?);
@@ -142,6 +161,13 @@ fn write_stats(
         let bytes = encode(&LogicalWire::from(bounds))?;
         write
             .for_field_with_idx(field, LOGICAL_IDX)
+            .write_all(&bytes)?;
+    }
+    if let Some(partition) = vector_partition {
+        let field = schema.get_field(&partition.field)?;
+        let bytes = encode(&partition.centroid)?;
+        write
+            .for_field_with_idx(field, VECTOR_PARTITION_IDX)
             .write_all(&bytes)?;
     }
     write.close()?;
@@ -278,26 +304,41 @@ fn column_stats(handle: &DynamicColumnHandle) -> tantivy::Result<Option<Empirica
     }))
 }
 
-/// The union of the sources' logical bounds, per field, or `None` when any source has no
-/// `.stats` at all. A field is kept only when every source bounds it.
-fn merged_logical_bounds(
+/// Unions proven bounds and retains a partition centroid only when every source shares it.
+fn merged_partition_metadata(
     readers: &[SegmentReader],
     schema: &Schema,
-) -> tantivy::Result<Option<LogicalBoundsByField>> {
+) -> tantivy::Result<(Option<LogicalBoundsByField>, Option<VectorPartition>)> {
     let mut sources = Vec::with_capacity(readers.len());
     for reader in readers {
         match SegmentStats::of_reader(reader)? {
             Some(stats) => sources.push(stats),
             // A segment written before the component existed. The merge cannot claim a box it
             // cannot prove for it.
-            None => return Ok(None),
+            None => return Ok((None, None)),
         }
     }
     if sources.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let mut merged = LogicalBoundsByField::new();
+    let mut vector_partition = None;
     'fields: for (field, entry) in schema.fields() {
+        if matches!(entry.field_type(), FieldType::Vector(_)) {
+            let Some(centroid) = sources[0].vector_partition(field)? else {
+                continue;
+            };
+            for source in &sources[1..] {
+                if source.vector_partition(field)?.as_ref() != Some(&centroid) {
+                    continue 'fields;
+                }
+            }
+            vector_partition = Some(VectorPartition {
+                field: entry.name().to_string(),
+                centroid,
+            });
+            continue;
+        }
         let mut union: Option<LogicalBounds> = None;
         for source in &sources {
             let Some(bounds) = source.logical(field)? else {
@@ -312,5 +353,5 @@ fn merged_logical_bounds(
             merged.insert(entry.name().to_string(), union);
         }
     }
-    Ok(Some(merged))
+    Ok((Some(merged), vector_partition))
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793239552649,
+  "lastUpdate": 1793239716201,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112342,6 +112342,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12855900646-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793239679078,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1331.8901350887431,
+            "unit": "median tps",
+            "extra": "avg tps: 1349.7262307480755, max tps: 1538.6894080306954, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.8664820514153972,
+            "unit": "median tps",
+            "extra": "avg tps: 3.139725592837955, max tps: 4.932350640728132, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1764.9317299791792,
+            "unit": "median tps",
+            "extra": "avg tps: 1724.9162314428634, max tps: 1847.7813960389776, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2468.816566046285,
+            "unit": "median tps",
+            "extra": "avg tps: 2507.2237714023436, max tps: 2957.657077949385, count: 59402"
+          }
+        ],
+        "publication_id": "12861472080-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [

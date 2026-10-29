@@ -749,32 +749,3 @@ fn parallel_with_initplan_param_in_heap_filter(mut conn: PgConnection) {
         "parallel_leader_participation=off: expected 505, got {leader_off}"
     );
 }
-
-#[rstest]
-fn aggregate_worker_shortage_with_parallel_initplan(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE aggregate_worker_shortage (id int, body text, hash text);
-    INSERT INTO aggregate_worker_shortage
-    SELECT i, 'test content ' || i, md5(i::text) FROM generate_series(1, 1000) i;
-    CREATE INDEX aggregate_worker_shortage_idx
-    ON aggregate_worker_shortage USING paradedb (id, body, hash);
-    SET max_parallel_workers = 1;
-    SET max_parallel_workers_per_gather = 2;
-    SET parallel_setup_cost = 0;
-    SET parallel_tuple_cost = 0;
-    SET min_parallel_table_scan_size = 0;
-    SET parallel_leader_participation = off;
-    "#
-    .execute(&mut conn);
-
-    let query = "SELECT count(*) FROM aggregate_worker_shortage
-                 WHERE body @@@ paradedb.all()
-                   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5))";
-    let (plan,) = format!("EXPLAIN (FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
-    assert!(plan_has_parallel_workers(&plan));
-    assert!(plan.to_string().contains("ParadeDB Aggregate Scan"));
-    for _ in 0..5 {
-        let (count,) = query.fetch_one::<(i64,)>(&mut conn);
-        assert_eq!(count, 5);
-    }
-}

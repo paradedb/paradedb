@@ -13,7 +13,7 @@ if (vectors.length !== 100)
 
 const session = {
   ...point.session,
-  "paradedb.vector_cluster_max_probe": point.probe,
+  "paradedb.vector_recall_target": point.probe,
 };
 const settings = Object.entries(session)
   .map(([key, value]) => `-c ${key}=${value}`)

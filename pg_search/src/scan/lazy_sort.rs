@@ -59,15 +59,19 @@ use crate::scan::execution_plan::{
 use crate::scan::pre_filter::{PreFilter, PreFilters, RankLookupPhysicalExpr};
 use crate::scan::range_partitioning::RangePartitioning;
 
-/// Controls whether a lazy-sorted `PgSearchScanPlan` attaches a shared cross-worker threshold
-/// to Tantivy's Top-K collector on the initial window pull.
+/// Controls how a non-range-partitioned (`ExecutionState::Shared`) lazy-sorted
+/// `PgSearchScanPlan` interacts with `ParallelScanState`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum SharedThresholdMode {
-    EnabledOnFirstPull,
-    Disabled,
+pub enum LazyParallelMode {
+    /// Claims segments from the shared `ParallelScanState` worker pool (when present)
+    /// and shares the cross-worker Top-K threshold on the initial window pull.
+    WorkerPool,
+    /// Ignores `ParallelScanState` so a single-task scan searches all segments in the
+    /// index without cross-worker threshold sharing.
+    Unpartitioned,
 }
 
-/// Estimated probability `(0.0, 1.0]` that a candidate document from a Top-K scan
+/// Estimated probability `[0.0, 1.0]` that a candidate document from a Top-K scan
 /// survives downstream filtering (e.g., MVCC heap visibility in `BaseScan`, or `RA`
 /// join probes and cross-table tag filters in `RankJoinExec`).
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -117,11 +121,7 @@ impl TopKSelectivity {
         let base_window = ((k as f64) * fetch_multiplier).max(1.0);
         let min_window = base_window.min(max_window);
         let s = self.0.clamp(0.0, 1.0);
-        if s > 0.0 {
-            (base_window / s).clamp(min_window, max_window)
-        } else {
-            max_window
-        }
+        (base_window / s).clamp(min_window, max_window)
     }
 }
 
@@ -167,8 +167,9 @@ pub struct LazySortConfig {
     /// Initial Top-K window size (`TopKSelectivity::compute_initial_window` for `BaseScan` and joins,
     /// or `0.0` for `RA`-only mode).
     pub initial_window: f64,
-    /// Controls cross-worker threshold sharing on the first window pull.
-    pub shared_threshold: SharedThresholdMode,
+    /// Controls how a non-range-partitioned (`ExecutionState::Shared`) scan interacts with
+    /// `ParallelScanState` for segment claiming and first-pull cross-worker threshold sharing.
+    pub parallel_mode: LazyParallelMode,
     /// Optional process-local telemetry and first-pull auxiliary collector hook for `BaseScan`.
     pub telemetry: Option<LazySortTelemetry>,
 }
@@ -179,7 +180,7 @@ impl std::fmt::Debug for LazySortConfig {
             .field("orderby_info", &self.orderby_info)
             .field("ordering", &self.ordering)
             .field("initial_window", &self.initial_window)
-            .field("shared_threshold", &self.shared_threshold)
+            .field("parallel_mode", &self.parallel_mode)
             .field("has_telemetry", &self.telemetry.is_some())
             .finish()
     }
@@ -362,11 +363,9 @@ impl LazySegmentTarget {
                 } else {
                     None
                 };
-                let shared_threshold_state = match lazy_sort.shared_threshold {
-                    SharedThresholdMode::EnabledOnFirstPull if pull.is_first_pull => {
-                        *parallel_state
-                    }
-                    SharedThresholdMode::EnabledOnFirstPull | SharedThresholdMode::Disabled => None,
+                let shared_threshold_state = match lazy_sort.parallel_mode {
+                    LazyParallelMode::WorkerPool if pull.is_first_pull => *parallel_state,
+                    LazyParallelMode::WorkerPool | LazyParallelMode::Unpartitioned => None,
                 };
                 let seg_iter = Self::dynamic_segment_iter(
                     reader,
@@ -390,7 +389,9 @@ impl LazySegmentTarget {
                         pull.window.limit.0,
                         pull.window.offset.0,
                     );
-                    if let Some(aux) = aux_collector {
+                    if !cancel_pending()
+                        && let Some(aux) = aux_collector
+                    {
                         res.aggregation_results = Some(Self::collect_unordered_aux_aggregation(
                             reader,
                             *parallel_state,
@@ -412,9 +413,12 @@ impl LazySegmentTarget {
         all_segments_claimed: &Rc<Cell<bool>>,
     ) -> Box<dyn Iterator<Item = SegmentId>> {
         match parallel_state {
-            None => Box::new(reader.segment_ids().into_iter().inspect(|_| {
-                pgrx::check_for_interrupts!();
-            })),
+            None => Box::new(
+                reader
+                    .segment_ids()
+                    .into_iter()
+                    .take_while(|_| !cancel_pending()),
+            ),
             Some(ps) => {
                 let already_claimed = claimed_segments.borrow().clone();
                 let claimed_for_iter = Rc::clone(claimed_segments);
@@ -422,14 +426,11 @@ impl LazySegmentTarget {
                 Box::new(
                     already_claimed
                         .into_iter()
-                        .inspect(|_| {
-                            pgrx::check_for_interrupts!();
-                        })
+                        .take_while(|_| !cancel_pending())
                         .chain(std::iter::from_fn(move || {
-                            if done_for_iter.get() {
+                            if done_for_iter.get() || cancel_pending() {
                                 return None;
                             }
-                            pgrx::check_for_interrupts!();
                             let maybe_seg =
                                 unsafe { checkout_segment_for_source(ps, claim_source_idx) };
                             match maybe_seg {
@@ -455,8 +456,19 @@ impl LazySegmentTarget {
         aux: TopKAuxiliaryCollector,
     ) -> IntermediateAggregationResults {
         let segs_for_agg: Box<dyn Iterator<Item = SegmentId>> = match parallel_state {
-            None => Box::new(reader.segment_ids().into_iter()),
-            Some(_) => Box::new(claimed_segments.borrow().clone().into_iter()),
+            None => Box::new(
+                reader
+                    .segment_ids()
+                    .into_iter()
+                    .take_while(|_| !cancel_pending()),
+            ),
+            Some(_) => Box::new(
+                claimed_segments
+                    .borrow()
+                    .clone()
+                    .into_iter()
+                    .take_while(|_| !cancel_pending()),
+            ),
         };
         if let Some(vischeck) = aux.vischeck {
             reader.collect_segments(
@@ -548,17 +560,18 @@ fn prepare_sa_and_ra(
 }
 
 fn update_scanner_filters(
-    scanner: &mut Scanner,
+    scanner: &Scanner,
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
     score_column_schema_idx: Option<usize>,
 ) -> Result<(Vec<PreFilter>, Option<f32>)> {
     let (pre_filters, score_threshold) =
         build_filters(dynamic_filters, schema, score_column_schema_idx)?;
-    if scanner.can_pushdown_score_threshold() {
-        scanner.set_score_threshold(score_threshold);
-    }
-    Ok((pre_filters, score_threshold))
+    let pushable_score_threshold = scanner
+        .can_pushdown_score_threshold()
+        .then_some(score_threshold)
+        .flatten();
+    Ok((pre_filters, pushable_score_threshold))
 }
 
 fn record_pull_telemetry(
@@ -657,11 +670,11 @@ impl LazySortStreamState {
         let scanner = init_lazy_sort_scanner(&reader, scanner_config, &scan_fetched_fields)?;
         let window_cursor = TopKWindowCursor::new(lazy_sort.initial_window);
 
-        // `RankJoinRule` sets `SharedThresholdMode::Disabled`, and `RankJoinExec` pushes its
+        // `RankJoinRule` sets `LazyParallelMode::Unpartitioned`, and `RankJoinExec` pushes its
         // lookup `DynamicFilterPhysicalExpr` to every child that can be `RA`-probed (the scored
         // child of a root single-sided `NRJN` join has no lookup filter and simply ends its
         // stream with `None` via `TerminateStream`).
-        let is_rank_join_leaf = matches!(lazy_sort.shared_threshold, SharedThresholdMode::Disabled)
+        let is_rank_join_leaf = matches!(lazy_sort.parallel_mode, LazyParallelMode::Unpartitioned)
             && !dynamic_filters.is_empty();
         let exhaustion_behavior = if !is_rank_join_leaf {
             ExhaustionBehavior::TerminateStream
@@ -718,7 +731,7 @@ impl LazySortStreamState {
     fn execute_ra_lookup(&mut self, lookup: &RankLookupPhysicalExpr) -> Result<RecordBatch> {
         let timer = self.baseline_metrics.elapsed_compute().timer();
         let (pre_filters, score_threshold) = update_scanner_filters(
-            &mut self.scanner,
+            &self.scanner,
             &self.dynamic_filters,
             &self.schema,
             self.score_column_schema_idx,
@@ -811,7 +824,7 @@ impl LazySortStreamState {
     fn execute_sa_window(&mut self, pull: &WindowPull) -> Result<Option<RecordBatch>> {
         let timer = self.baseline_metrics.elapsed_compute().timer();
         let (pre_filters, _) = update_scanner_filters(
-            &mut self.scanner,
+            &self.scanner,
             &self.dynamic_filters,
             &self.schema,
             self.score_column_schema_idx,
@@ -824,6 +837,9 @@ impl LazySortStreamState {
         let mut top_k_search =
             self.segment_target
                 .search_window(&self.sa_reader, &self.lazy_sort, pull);
+        if cancel_pending() {
+            return Err(interrupted());
+        }
         record_pull_telemetry(
             &self.lazy_sort,
             &self.segment_target,

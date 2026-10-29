@@ -18,7 +18,7 @@
 use std::sync::{Arc, Mutex};
 
 use arrow_array::{Float32Array, RecordBatch, UInt64Array};
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::ExecutionPlan;
 use tokio::runtime::Runtime;
 
@@ -31,7 +31,9 @@ use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_sch
 use crate::index::reader::index::{MAX_TOPK_FEATURES, TopKAuxiliaryCollector};
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
-use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::exec_methods::{
+    ExecMethod, ExecState, shared_task_context,
+};
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -39,8 +41,8 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::heap::VisibilityChecker;
 use crate::scan::execution_plan::{
-    LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan, ScanState,
-    ScannerConfig, SharedThresholdMode, TopKSelectivity, UnsafeSendSync,
+    LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan,
+    ScanState, ScannerConfig, TopKSelectivity, UnsafeSendSync,
 };
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -289,7 +291,7 @@ impl TopKScanExecState {
             initial_window: self
                 .visibility_selectivity
                 .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
-            shared_threshold: SharedThresholdMode::EnabledOnFirstPull,
+            parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: Some(telemetry),
         };
 
@@ -309,8 +311,7 @@ impl TopKScanExecState {
         .with_table_alias(index_rel.name())
         .with_lazy_sort(lazy_sort);
 
-        let task_ctx = Arc::new(TaskContext::default());
-        let stream = match plan.execute(0, task_ctx) {
+        let stream = match plan.execute(0, shared_task_context()) {
             Ok(stream) => stream,
             Err(e) => {
                 pgrx::error!("Failed to execute TopK scan plan: {e}");

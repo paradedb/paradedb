@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793312066378,
+  "lastUpdate": 1793315864041,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -46312,6 +46312,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12933838275-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e40d419ae523a238df14f186490da6e3f2182c91",
+          "message": "fix: detach worker queues before destroying parallel context (#7106)\n\nWhen a parallel aggregate cannot launch workers inside a parallel\nInitPlan with leader participation disabled, the fallback destroys the\nparallel context before dropping its message-queue handles. Their\ncleanup can then access unmapped shared memory and crash the backend.\n\nDrop the launcher and its queue handles before destroying the context,\nmatching the successful completion path. Add a SQL regression that\nasserts a parallel InitPlan/aggregate plan and checks five correct query\nresults under a one-worker limit.\n\nValidation: on an isolated Linux PostgreSQL 18.6 runner, the identical\nSQL regression crashes unpatched main `d3d439e68` on its first count\nquery (backend terminated by signal 11 / segmentation fault). With only\nthe cleanup-order fix applied, all three repetitions pass, each checking\nfive count results. [Control run and\nevidence](https://github.com/paradedb/paradedb/actions/runs/40962987145).\n\nStrict workspace/all-target Clippy, workspace check, docs with warnings\ndenied, formatting, and applicable commit hooks also passed. No\nworker-limit or sweep changes are included.",
+          "timestamp": "2026-10-29T15:41:01-07:00",
+          "tree_id": "eac5c58b446da2710b857b391d2573f070ed2bbe",
+          "url": "https://github.com/paradedb/paradedb/commit/e40d419ae523a238df14f186490da6e3f2182c91"
+        },
+        "date": 1793315862472,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 9.999,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.725,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 10.941,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 9.893,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.612,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 10.836,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.015,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 10.992,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.233,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.949,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 10.17,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.846,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 10.08,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.147,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.788,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 10.033,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.435,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.727,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.211,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.083,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.353,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12940416450-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -48105,6 +48265,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12933838275-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e40d419ae523a238df14f186490da6e3f2182c91",
+          "message": "fix: detach worker queues before destroying parallel context (#7106)\n\nWhen a parallel aggregate cannot launch workers inside a parallel\nInitPlan with leader participation disabled, the fallback destroys the\nparallel context before dropping its message-queue handles. Their\ncleanup can then access unmapped shared memory and crash the backend.\n\nDrop the launcher and its queue handles before destroying the context,\nmatching the successful completion path. Add a SQL regression that\nasserts a parallel InitPlan/aggregate plan and checks five correct query\nresults under a one-worker limit.\n\nValidation: on an isolated Linux PostgreSQL 18.6 runner, the identical\nSQL regression crashes unpatched main `d3d439e68` on its first count\nquery (backend terminated by signal 11 / segmentation fault). With only\nthe cleanup-order fix applied, all three repetitions pass, each checking\nfive count results. [Control run and\nevidence](https://github.com/paradedb/paradedb/actions/runs/40962987145).\n\nStrict workspace/all-target Clippy, workspace check, docs with warnings\ndenied, formatting, and applicable commit hooks also passed. No\nworker-limit or sweep changes are included.",
+          "timestamp": "2026-10-29T15:41:01-07:00",
+          "tree_id": "eac5c58b446da2710b857b391d2573f070ed2bbe",
+          "url": "https://github.com/paradedb/paradedb/commit/e40d419ae523a238df14f186490da6e3f2182c91"
+        },
+        "date": 1793315863378,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 98.93008633536901,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 99.98593575993247,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 98.70920597953383,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 107.16506254490068,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 108.2696079520865,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 108.352967638448,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 145.97490423218528,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 140.95911625711247,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 119.43543827405945,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12940416450-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -54602,6 +54832,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12933838275-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e40d419ae523a238df14f186490da6e3f2182c91",
+          "message": "fix: detach worker queues before destroying parallel context (#7106)\n\nWhen a parallel aggregate cannot launch workers inside a parallel\nInitPlan with leader participation disabled, the fallback destroys the\nparallel context before dropping its message-queue handles. Their\ncleanup can then access unmapped shared memory and crash the backend.\n\nDrop the launcher and its queue handles before destroying the context,\nmatching the successful completion path. Add a SQL regression that\nasserts a parallel InitPlan/aggregate plan and checks five correct query\nresults under a one-worker limit.\n\nValidation: on an isolated Linux PostgreSQL 18.6 runner, the identical\nSQL regression crashes unpatched main `d3d439e68` on its first count\nquery (backend terminated by signal 11 / segmentation fault). With only\nthe cleanup-order fix applied, all three repetitions pass, each checking\nfive count results. [Control run and\nevidence](https://github.com/paradedb/paradedb/actions/runs/40962987145).\n\nStrict workspace/all-target Clippy, workspace check, docs with warnings\ndenied, formatting, and applicable commit hooks also passed. No\nworker-limit or sweep changes are included.",
+          "timestamp": "2026-10-29T15:41:01-07:00",
+          "tree_id": "eac5c58b446da2710b857b391d2573f070ed2bbe",
+          "url": "https://github.com/paradedb/paradedb/commit/e40d419ae523a238df14f186490da6e3f2182c91"
+        },
+        "date": 1793315864030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.38600944616666666,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.6015625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12940416450-index"
       }
     ]
   }

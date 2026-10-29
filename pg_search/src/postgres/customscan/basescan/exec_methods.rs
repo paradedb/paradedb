@@ -19,18 +19,25 @@ pub(crate) mod fast_fields;
 pub(crate) mod normal;
 pub(crate) mod top_k;
 
+use std::sync::{Arc, LazyLock};
+
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use datafusion::execution::TaskContext;
 use pgrx::pg_sys;
-use tantivy::{DocAddress, Score};
+use tantivy::Score;
+
+/// Shared `TaskContext` for standalone `BaseScan` `PgSearchScanPlan::execute` calls (`TopK` and
+/// `Columnar`), avoiding repeated `RuntimeEnv::default()` allocations per scan or `reset`.
+pub(crate) fn shared_task_context() -> Arc<TaskContext> {
+    static SHARED_TASK_CONTEXT: LazyLock<Arc<TaskContext>> =
+        LazyLock::new(|| Arc::new(TaskContext::default()));
+    Arc::clone(&SHARED_TASK_CONTEXT)
+}
 
 pub enum ExecState {
     /// Causes a tuple to be fetched from the heap, which will implicitly cause it to be visibility
     /// checked.
-    FromHeap {
-        ctid: u64,
-        score: Score,
-        doc_address: DocAddress,
-    },
+    FromHeap { ctid: u64, score: Score },
     /// Produces the given tuple directly.
     ///
     /// NOTE: A virtual tuple must already be MVCC-correct, as the consumer of ExecState does not

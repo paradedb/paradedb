@@ -1876,7 +1876,7 @@ mod tests {
         setup_parallel_build_large_table();
 
         Spi::run("SET max_parallel_workers = 8;").unwrap();
-        Spi::run("SET maintenance_work_mem = '64MB';").unwrap();
+        Spi::run("SET maintenance_work_mem = '1MB';").unwrap();
         Spi::run("SET max_parallel_maintenance_workers = 8;").unwrap();
 
         // This should panic with a "maintenance_work_mem is not high enough" error

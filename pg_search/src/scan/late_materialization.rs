@@ -19,9 +19,8 @@ use std::collections::HashSet;
 use std::fmt::{self, Debug};
 use std::sync::Arc;
 
-use crate::index::fast_fields_helper::CanonicalColumn;
-use crate::index::fast_fields_helper::FFHelper;
-use crate::scan::deferred_lookup::PhysicalDeferredField;
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FieldCardinality};
+use crate::scan::deferred_lookup::{PhysicalDeferredField, decoded_data_type};
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
@@ -238,13 +237,15 @@ fn take_deferred_field(
     Some(pool.remove(pos))
 }
 
-fn materialized_field(field: &arrow_schema::Field, is_bytes: bool) -> arrow_schema::Field {
-    let materialized_type = if is_bytes {
-        arrow_schema::DataType::BinaryView
-    } else {
-        arrow_schema::DataType::Utf8View
-    };
-    arrow_schema::Field::new(field.name(), materialized_type, field.is_nullable())
+fn materialized_field(
+    field: &arrow_schema::Field,
+    deferred: &DeferredField,
+) -> arrow_schema::Field {
+    arrow_schema::Field::new(
+        field.name(),
+        decoded_data_type(deferred.is_bytes, deferred.cardinality),
+        field.is_nullable(),
+    )
 }
 
 /// Helper function to check if the given plan outputs deferred columns. If it does, it
@@ -273,10 +274,7 @@ fn get_deferred_info(
     for (qualifier, field) in schema.iter() {
         match take_deferred_field(plan, qualifier, field, &mut all_deferred) {
             Some(d) => {
-                new_fields.push((
-                    qualifier.cloned(),
-                    Arc::new(materialized_field(field, d.is_bytes)),
-                ));
+                new_fields.push((qualifier.cloned(), Arc::new(materialized_field(field, &d))));
                 active_deferred.push(d);
             }
             None => new_fields.push((qualifier.cloned(), field.clone())),
@@ -429,12 +427,16 @@ pub(crate) fn has_reduction_before_stop(
 
 /// True if the first ancestor that anchors `df` is an aggregate grouping on it as a plain
 /// column. The partial aggregate then groups the ordinals and reduces the rows before the
-/// decode, which is a reduction of its own (see `DeferredAggregateRule`).
+/// decode, which is a reduction of its own (see `DeferredAggregateRule`). A list has no
+/// ordinals to group on, so an aggregate on it reduces nothing before the decode.
 fn grouped_at_anchor(
     ancestors: &[&LogicalPlan],
     is_stop: impl Fn(&LogicalPlan) -> bool,
     df: &DeferredField,
 ) -> bool {
+    if df.cardinality == FieldCardinality::List {
+        return false;
+    }
     let Some(anchor) = ancestors.iter().rev().find(|a| is_stop(a)) else {
         return false;
     };
@@ -746,10 +748,8 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
             // types to construct a truthful output schema, avoiding invariant panics.
             match take_deferred_field(&input, qualifier, field, &mut deferred_pool) {
                 Some(d) => {
-                    qualified_fields.push((
-                        qualifier.cloned(),
-                        Arc::new(materialized_field(field, d.is_bytes)),
-                    ));
+                    qualified_fields
+                        .push((qualifier.cloned(), Arc::new(materialized_field(field, &d))));
                     new_deferred_fields.push(d);
                 }
                 None => qualified_fields.push((qualifier.cloned(), Arc::clone(field))),
@@ -862,11 +862,12 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     col_idx,
                     display_name: deferred.name.clone(),
                     is_bytes: deferred.is_bytes,
+                    cardinality: deferred.cardinality,
                     canonical: deferred.canonical.clone(),
                     heap_rti: deferred.heap_rti,
                     rebuild: deferred.rebuild.clone(),
                 });
-                if !deferred.fetch_at_scan {
+                if !deferred.fetch_at_scan && deferred.cardinality == FieldCardinality::Scalar {
                     fetch_fields.push(physical_deferred_fields.last().unwrap().clone());
                 }
             }
@@ -911,6 +912,12 @@ impl ExtensionPlanner for LateMaterializePlanner {
 pub struct DeferredField {
     pub name: String,
     pub is_bytes: bool,
+    /// Whether the column holds a list per row. A list has no term ordinal state, since one
+    /// row holds many terms: its doc address goes all the way to the decode point, which reads
+    /// the whole list in one step, so no fetch takes it and `fetch_at_scan` is always false
+    /// for it. No serde default: a list read back as a scalar would be fetched as one and keep
+    /// only its first value.
+    pub cardinality: FieldCardinality,
     pub canonical: CanonicalColumn,
     /// The range table index of the scan's base relation, which is what tells two scans of
     /// one index apart on a self-join. `canonical` names the column within the index, so it

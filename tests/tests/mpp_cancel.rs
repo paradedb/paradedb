@@ -46,6 +46,7 @@ CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, (uuid::pdb.lit
 CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age);
 
 SET paradedb.global_mutable_segment_rows = 0;
+SET paradedb.enable_rank_join = off;
 
 INSERT INTO mpp_users (uuid, name, age, category)
 SELECT gen_random_uuid(), (ARRAY['bob','alice','carol','dave'])[1 + (g % 4)], g % 50, 'c' || (g % 5)

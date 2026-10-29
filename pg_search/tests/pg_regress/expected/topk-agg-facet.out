@@ -2574,8 +2574,8 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
-                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, r.score, ((pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text) + 1)), ((r.score + pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))), (((pdb.window_agg('count(*) FILTER (WHERE (r.score > 80)) OVER ()'::text))::double precision / (pdb.window_agg('count(*) OVER ()'::text))::double precision))
    Relation Tree: p INNER r
@@ -2583,7 +2583,7 @@ LIMIT 3;
    Limit: 3
    Order By: r.score desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, pdb_eval_expr_opexpr_9c4317b6(window_agg_1@1) as col_3, pdb_eval_expr_opexpr_bea5004f(get_field(__topk@0, c1), window_agg_1@1) as col_4, pdb_eval_expr_funcexpr_01980a78(window_agg_1@1) / pdb_eval_expr_funcexpr_02120823(window_agg_4@2) as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, pdb_eval_expr_opexpr_9c4317b6(window_agg_1@1) as col_3, pdb_eval_expr_opexpr_bea5004f(get_field(__topk@0, c1), window_agg_1@1) as col_4, pdb_eval_expr_opexpr_d5caad3d(window_agg_1@1, window_agg_4@2) as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=3
      :     UnnestExec
      :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) FILTER (WHERE r_1.score > Int64(80)) as window_agg_1, count(1) as window_agg_4]

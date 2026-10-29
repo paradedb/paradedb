@@ -1046,8 +1046,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post';
-                                                                                                                                   QUERY PLAN                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}'::jsonb))
    Backend: DataFusion
@@ -1067,13 +1067,14 @@ WHERE p.title ||| 'post';
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, 0 as __grouping_id, __pdb_m0@1 as __pdb_m0]
      :         AggregateExec: mode=Single, gby=[p_0_tags@0 as __pdb_k0], aggr=[count(1) as __pdb_m0]
      :           UnnestExec
-     :             ProjectionExec: expr=[tags@0 as p_0_tags]
-     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@2]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=a, segments=1, visibility=eager, query="all"
-     :                 CooperativeExec
-     :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(25 rows)
+     :             TantivyDecodeExec: decode=[tags]
+     :               ProjectionExec: expr=[tags@0 as p_0_tags]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@2]
+     :                   CooperativeExec
+     :                     PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :                   CooperativeExec
+     :                     PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(26 rows)
 
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -1097,8 +1098,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post';
-                                                                                                                                   QUERY PLAN                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (pdb.agg('{"aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}, "terms": {"field": "a.name", "order": {"_key": "asc"}}}'::jsonb))
    Backend: DataFusion
@@ -1119,13 +1120,14 @@ WHERE p.title ||| 'post';
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
      :         AggregateExec: mode=Single, gby=[name@1 as __pdb_k0, p_0_tags@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
      :           UnnestExec
-     :             ProjectionExec: expr=[tags@0 as p_0_tags, name@1 as name]
-     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@3, name@1]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=a, segments=1, eager=[name], visibility=eager, query="all"
-     :                 CooperativeExec
-     :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(26 rows)
+     :             TantivyDecodeExec: decode=[tags]
+     :               ProjectionExec: expr=[tags@0 as p_0_tags, name@1 as name]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@3, name@1]
+     :                   CooperativeExec
+     :                     PgSearchScan: table=a, segments=1, eager=[name], visibility=eager, query="all"
+     :                   CooperativeExec
+     :                     PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(27 rows)
 
 SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -1180,8 +1182,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post';
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (pdb.agg('{"aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}, "terms": {"field": "a.tags", "order": {"_key": "asc"}}}'::jsonb))
    Backend: DataFusion
@@ -1195,7 +1197,7 @@ WHERE p.title ||| 'post';
      :         AggregateExec: mode=Single, gby=[], aggr=[count(1) as __pdb_m0]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[]
      :             CooperativeExec
-     :               PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :               PgSearchScan: table=a, segments=1, eager=[tags], visibility=eager, query="all"
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, 1 as __grouping_id, __pdb_m0@1 as __pdb_m0]
@@ -1204,7 +1206,7 @@ WHERE p.title ||| 'post';
      :             ProjectionExec: expr=[tags@0 as a_1_tags]
      :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
      :                 CooperativeExec
-     :                   PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :                   PgSearchScan: table=a, segments=1, eager=[tags], visibility=eager, query="all"
      :                 CooperativeExec
      :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
@@ -1212,13 +1214,14 @@ WHERE p.title ||| 'post';
      :           UnnestExec
      :             ProjectionExec: expr=[tags@0 as p_0_tags, a_1_tags@1 as a_1_tags]
      :               UnnestExec
-     :                 ProjectionExec: expr=[tags@0 as tags, tags@1 as a_1_tags]
-     :                   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@3, tags@1]
-     :                     CooperativeExec
-     :                       PgSearchScan: table=a, segments=1, visibility=eager, query="all"
-     :                     CooperativeExec
-     :                       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(36 rows)
+     :                 TantivyDecodeExec: decode=[tags]
+     :                   ProjectionExec: expr=[tags@0 as tags, tags@1 as a_1_tags]
+     :                     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@3, tags@1]
+     :                       CooperativeExec
+     :                         PgSearchScan: table=a, segments=1, eager=[tags], visibility=eager, query="all"
+     :                       CooperativeExec
+     :                         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(37 rows)
 
 SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -1375,8 +1378,8 @@ FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post'
 GROUP BY p.tags
 ORDER BY p.tags;
-                                                                                                                                QUERY PLAN                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.tags, (count(*))
    Sort Key: p.tags
@@ -1388,12 +1391,13 @@ ORDER BY p.tags;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[tags@0 as tags], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@1)], projection=[tags@1]
-           :     CooperativeExec
-           :       PgSearchScan: table=a, segments=1, visibility=eager, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+           :   TantivyDecodeExec: decode=[tags]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@1)], projection=[tags@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(17 rows)
 
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -1415,8 +1419,8 @@ SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
 WHERE p.title ||| 'post';
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}'::jsonb))
    Backend: DataFusion
@@ -1427,13 +1431,14 @@ WHERE p.title ||| 'post';
      :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
      :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (p_0_tags@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :       UnnestExec
-     :         ProjectionExec: expr=[tags@0 as p_0_tags]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@2]
-     :             CooperativeExec
-     :               PgSearchScan: table=a, segments=1, visibility=eager, query="all"
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :         TantivyDecodeExec: decode=[tags]
+     :           ProjectionExec: expr=[tags@0 as p_0_tags]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(17 rows)
 
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
@@ -1449,8 +1454,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post';
-                                                                                                                                   QUERY PLAN                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: COALESCE((sum(p.views)), '0'::bigint), ((pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}'::jsonb)) -> 'buckets'::text)
    Backend: DataFusion
@@ -1470,13 +1475,14 @@ WHERE p.title ||| 'post';
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, 0 as __grouping_id, agg_0@1 as agg_0, __pdb_m0@2 as __pdb_m0]
      :         AggregateExec: mode=Single, gby=[p_0_tags@1 as __pdb_k0], aggr=[sum(p_0.views) as agg_0, count(1) as __pdb_m0]
      :           UnnestExec
-     :             ProjectionExec: expr=[views@0 as views, tags@1 as p_0_tags]
-     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@1)], projection=[views@1, tags@3]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=a, segments=1, visibility=eager, query="all"
-     :                 CooperativeExec
-     :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(25 rows)
+     :             TantivyDecodeExec: decode=[tags]
+     :               ProjectionExec: expr=[views@0 as views, tags@1 as p_0_tags]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@1)], projection=[views@1, tags@3]
+     :                   CooperativeExec
+     :                     PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :                   CooperativeExec
+     :                     PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(26 rows)
 
 SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id

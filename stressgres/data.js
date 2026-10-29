@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793232173389,
+  "lastUpdate": 1793232299893,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -504543,6 +504543,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12849509838-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793232244360,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.226752595860198, max cpu: 4.701273, count: 59236"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 19.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.851570808925317, max mem: 19.86328125, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.572415260932455, max cpu: 4.764268, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 19.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.48630728674286, max mem: 19.48828125, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.397944,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.0778094838778, max cpu: 33.38301, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.954992200161218, max mem: 22.01953125, count: 59236"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.925720845431, max document_count: 10002.0, count: 59236"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.926244175838, max document_count: 10002.0, count: 59236"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.541769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.393933166659806, max cpu: 32.90891, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 51.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.30848929493889, max mem: 65.89453125, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.4109887375569, max cpu: 32.973503, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.80081705751148, max mem: 66.41015625, count: 59236"
+          }
+        ],
+        "publication_id": "12853821261-other"
       }
     ]
   }

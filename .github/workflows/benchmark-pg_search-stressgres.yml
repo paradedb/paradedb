@@ -250,7 +250,7 @@ jobs:
           export PATH="/usr/lib/postgresql/18/bin:$PATH"
           python3 .github/scripts/diagnose_mutable_sweep.py \
             --source source --output wide-sweep-diagnostics \
-            --runtime-ms "$TRIAL_RUNTIME_MS"
+            --runtime-ms "$TRIAL_RUNTIME_MS" --debug-merges
 
       - name: Upload controlled comparison
         if: always()

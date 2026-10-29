@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--source", required=True)
 parser.add_argument("--output", required=True)
 parser.add_argument("--runtime-ms", type=int, default=300000)
+parser.add_argument("--debug-merges", action="store_true")
 args = parser.parse_args()
 assert (
     os.environ.get("GITHUB_ACTIONS") == "true"
@@ -118,6 +119,8 @@ def run(name, interval, pool=8, ms=300000):
         f.write(
             f"\nmax_worker_processes={pool}\nparadedb.mutable_sweep_interval={interval}\n"
         )
+        if args.debug_merges:
+            f.write("log_min_messages=debug1\n")
     ctl = [str(pg / "pg_ctl"), "-D", str(data)]
     subprocess.run(
         ctl

@@ -393,8 +393,8 @@ pub fn vector_cluster_min_probe() -> usize {
 pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
-        c"Stop vector probing using the estimated recall instead of probe limits",
-        c"Enabled by default. Ignores maximum probe fraction and minimum cluster settings. Disable to use the fixed work budget.",
+        c"Stop vector probing early using the estimated recall",
+        c"Enabled by default. Preserves routing and the fixed work budget, and can stop cluster probing sooner.",
         &VECTOR_ADAPTIVE_PROBING,
         GucContext::Userset,
         GucFlags::default(),
@@ -411,8 +411,8 @@ pub fn init() {
     );
     GucRegistry::define_int_guc(
         c"paradedb.vector_cluster_min_probe",
-        c"Minimum cluster work budget when adaptive probing is disabled",
-        c"Ignored while adaptive probing is enabled. Applies to the fixed work budget when adaptive probing is disabled.",
+        c"Minimum cluster work budget for vector probing",
+        c"Sets the work-budget floor. Adaptive probing may stop before this budget is spent.",
         &VECTOR_CLUSTER_MIN_PROBE,
         1,
         i32::MAX,
@@ -422,7 +422,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_adaptive_recall_target",
         c"Recall target for adaptive vector probing (default 0.95)",
-        c"Uses normalized centroid gaps and remaining cluster weight. A target of 1 scans without heuristic stopping. Disable vector_adaptive_probing to restore probe limits.",
+        c"Estimates recall within the routed candidates using centroid gaps and remaining cluster weight. A target of 1 disables early stopping; probe limits still apply.",
         &VECTOR_ADAPTIVE_RECALL_TARGET,
         0.000001,
         1.0,

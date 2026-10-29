@@ -17,11 +17,13 @@ workers. Both tools use the same database and index throughout a run.
    Snapshot generation continues to use `datasets/cohere/config.toml` and
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
-   `pdbench search` loads the query vectors and sweeps
-   `paradedb.vector_adaptive_recall_exponent` from 0.5 to 10 separately for each
-   filter and each r90/r95/r99 target. Each sweep sets the matching
-   `paradedb.vector_adaptive_recall_target`; adaptive probing remains enabled.
-   Reports and calibration caches are separated by target.
+   `pdbench search` first sweeps `paradedb.vector_cluster_max_probe` with adaptive
+   stopping disabled, selecting a fixed budget for each filter and r90/r95/r99
+   target. It then holds that budget fixed and sweeps
+   `paradedb.vector_adaptive_recall_exponent` from 0.5 to 10 with adaptive stopping
+   enabled and the matching `paradedb.vector_adaptive_recall_target`.
+   This keeps routing and filter bypass identical between the two modes.
+   Reports and calibration caches are separated by filter and target.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
 3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
@@ -35,7 +37,7 @@ workers. Both tools use the same database and index throughout a run.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
    and index size with baseline comparisons and dashboard links. Recall,
-   recall exponent, and mean whole-query shared buffer hits/reads appear above those
+   recall exponent, fixed probe budget, and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 

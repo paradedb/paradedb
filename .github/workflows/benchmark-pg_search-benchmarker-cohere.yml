@@ -237,21 +237,50 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Calibrate adaptive recall with pdbench
+      - name: Calibrate recall within the fixed router budget
         run: |
           set -euo pipefail
-          mkdir -p benchmark-artifacts/configs
-          for target in 0.9 0.95 0.99; do
-            config="benchmark-artifacts/configs/recall-${target}.toml"
-            sed -e "s/targets = \[0.9, 0.95, 0.99\]/targets = [$target]/" \
-              -e "s/recall_target\" = \"0.95\"/recall_target\" = \"$target\"/" \
-              "benchmarks/cohere/${COHERE_SIZE}.toml" > "$config"
-            for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-              pdbench search --url "$PARADEDB_URL" --config "$config" \
-                --assets-dir benchmarks/cohere/assets --runs-dir "benchmark-artifacts/search/recall-${target}" \
-                --query "$query" --no-compare --html
-            done
-          done
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, "benchmarks/cohere")
+          from prepare_k6 import EXPONENT, PROBE, QUERIES, RECALL_TARGET, operating_points
+
+          common = [
+              "pdbench", "search", "--url", os.environ["PARADEDB_URL"],
+              "--config", f"benchmarks/cohere/{os.environ['COHERE_SIZE']}.toml",
+              "--assets-dir", "benchmarks/cohere/assets", "--no-compare", "--html",
+          ]
+          baseline_dir = Path("benchmark-artifacts/fixed-budget")
+          for query in QUERIES:
+              subprocess.run(common + [
+                  "--query", query, "--runs-dir", str(baseline_dir),
+                  "--set", "search.session.paradedb.vector_adaptive_probing=off",
+                  "--set", f"search.sweep.param={PROBE}",
+                  "--set", "search.sweep.min=0.0001",
+                  "--set", "search.sweep.max=1.0",
+                  "--set", "search.sweep.start=0.005",
+              ], check=True)
+          points = operating_points(
+              json.loads(path.read_text()) for path in sorted(baseline_dir.rglob("*_search.json"))
+          )
+          (baseline_dir / "operating_points.json").write_text(json.dumps(points, indent=2) + "\n")
+          for point in points:
+              if not point["reached"]:
+                  raise ValueError(f"Fixed-budget search did not reach {point['name']}")
+              subprocess.run(common + [
+                  "--query", point["query"],
+                  "--runs-dir", f"benchmark-artifacts/search/{point['name']}",
+                  "--set", f"search.session.{PROBE}={point['probe']}",
+                  "--set", f"search.session.{RECALL_TARGET}={point['target']}",
+                  "--set", f"search.sweep.targets=[{point['target']}]",
+                  "--set", f"search.sweep.param={EXPONENT}",
+              ], check=True)
+          PYTHON
 
       - name: Prepare k6 operating points
         run: |

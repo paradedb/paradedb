@@ -124,6 +124,7 @@ class OperatingPointsTest(unittest.TestCase):
             for report in reports():
                 report["config"]["search"]["sweep"]["targets"] = [target]
                 report["config"]["search"]["session"][RECALL_TARGET] = str(target)
+                report["config"]["search"]["session"][PROBE] = str(target / 10)
                 report["data"]["sweep_param"] = EXPONENT
                 result = next(iter(report["data"]["variants"].values()))
                 result["targets"] = {str(target): {"value": exponent, "recall": target}}
@@ -136,6 +137,7 @@ class OperatingPointsTest(unittest.TestCase):
         for point in points:
             self.assertEqual(point["param"], EXPONENT)
             self.assertEqual(float(point["session"][RECALL_TARGET]), point["target"])
+            self.assertEqual(float(point["session"][PROBE]), point["target"] / 10)
             self.assertEqual(
                 point["probe"],
                 dict(zip(TARGETS, ["1.2", "2.0", "3.5"]))[point["target"]],

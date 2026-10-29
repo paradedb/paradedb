@@ -20,6 +20,7 @@ def sweep_settings(report):
     session = dict(current["search"]["session"])
     targets = TARGETS
     if param == EXPONENT:
+        current["search"]["session"].pop(PROBE)
         targets = current["search"]["sweep"].pop("targets")
         target = float(current["search"]["session"].pop(RECALL_TARGET))
         if targets != [target] or target not in TARGETS:
@@ -100,10 +101,10 @@ def summary(points):
     parameter = "recall exponent" if points[0]["param"] == EXPONENT else "max_probe"
     lines = [
         (
-            f"| Filter / recall target | {parameter} | Achieved recall@10 "
+            f"| Filter / recall target | {parameter} | Fixed probe budget | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
-        "|---|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for point in points:
         buffers = point["buffers"]
@@ -118,12 +119,14 @@ def summary(points):
             else "—"
         )
         probe = f"`{point['probe']}`" if point["reached"] else "⚠️ Not reached"
+        budget = point["session"].get(PROBE, "—")
         lines.append(
-            f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
+            f"| `{point['name']}` | {probe} | {budget} | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
         f"\npdbench selects {parameter} separately for each filter and recall target "
-        "on this index. "
+        "on this index. Adaptive calibration retains the probe budget selected "
+        "with early stopping disabled. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

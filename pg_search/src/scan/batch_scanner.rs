@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, list_item_field,
-    ords_to_bytes_array, ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, ords_to_bytes_array,
+    ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::{VisibilityChecker, VisibilityCtids, VisibilityMask};
@@ -103,7 +103,6 @@ fn ensure_column_fetched(
                 FieldCardinality::Scalar => {
                     column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
                 }
-                // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
                 FieldCardinality::List => {
                     column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
                 }
@@ -764,52 +763,13 @@ impl Scanner {
                 } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
                     match ffhelper.column(segment_ord, ff_index) {
+                        // No column in this segment: `to_record_batch` fills typed NULLs.
                         FFType::Junk => None,
-                        FFType::Text(str_column) => {
-                            let list_array = col_array
-                                .as_any()
-                                .downcast_ref::<arrow_array::ListArray>()
-                                .expect("Expected ListArray for Array Text ordinals");
-                            let ords_array = list_array
-                                .values()
-                                .as_any()
-                                .downcast_ref::<UInt64Array>()
-                                .expect("Expected UInt64Array for inner ordinals");
-                            let string_views = ords_to_string_array(str_column.clone(), ords_array)
-                                .expect("Failed to lookup ordinals");
-                            let field = list_item_field(arrow_schema::DataType::Utf8View);
-                            let final_list = arrow_array::ListArray::try_new(
-                                field,
-                                list_array.offsets().clone(),
-                                string_views,
-                                list_array.nulls().cloned(),
-                            )
-                            .expect("Failed to build ListArray with strings");
-                            Some(Arc::new(final_list) as ArrayRef)
-                        }
-                        FFType::Bytes(bytes_column) => {
-                            let list_array = col_array
-                                .as_any()
-                                .downcast_ref::<arrow_array::ListArray>()
-                                .expect("Expected ListArray for Array Bytes ordinals");
-                            let ords_array = list_array
-                                .values()
-                                .as_any()
-                                .downcast_ref::<UInt64Array>()
-                                .expect("Expected UInt64Array for inner ordinals");
-                            let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
-                                .expect("Failed to lookup ordinals");
-                            let field = list_item_field(arrow_schema::DataType::BinaryView);
-                            let final_list = arrow_array::ListArray::try_new(
-                                field,
-                                list_array.offsets().clone(),
-                                byte_views,
-                                list_array.nulls().cloned(),
-                            )
-                            .expect("Failed to build ListArray with bytes");
-                            Some(Arc::new(final_list) as ArrayRef)
-                        }
-                        _ => Some(col_array),
+                        column => Some(
+                            column
+                                .decode_list_ords(col_array)
+                                .expect("Failed to lookup ordinals"),
+                        ),
                     }
                 }
                 // A deferred column leaves as packed doc addresses (State 0) unless its term

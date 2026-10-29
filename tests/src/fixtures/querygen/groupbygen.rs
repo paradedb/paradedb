@@ -96,11 +96,15 @@ fn arb_having(aggregates: Vec<String>) -> impl Strategy<Value = Option<String>> 
 /// Generate arbitrary GROUP BY expressions with random target list ordering
 pub fn arb_group_by(
     columns: Vec<impl AsRef<str>>,
-    aggregates: Vec<&'static str>,
+    aggregates: Vec<impl AsRef<str>>,
 ) -> impl Strategy<Value = GroupByExpr> {
     let columns = columns
         .into_iter()
         .map(|c| c.as_ref().to_string())
+        .collect::<Vec<_>>();
+    let aggregates = aggregates
+        .into_iter()
+        .map(|a| a.as_ref().to_string())
         .collect::<Vec<_>>();
 
     // Generate 0-3 grouping columns from the available columns
@@ -121,7 +125,7 @@ pub fn arb_group_by(
                     // No GROUP BY - just aggregates
                     let target_list: Vec<SelectItem> = selected_aggregates
                         .iter()
-                        .map(|&agg| SelectItem::Aggregate(agg.to_string()))
+                        .map(|agg| SelectItem::Aggregate(agg.clone()))
                         .collect();
 
                     // Optionally generate HAVING ~30% of the time when aggregates exist
@@ -154,8 +158,8 @@ pub fn arb_group_by(
                     }
 
                     // Add all aggregates as SelectItem::Aggregate
-                    for &agg in &aggregates_clone {
-                        select_items.push(SelectItem::Aggregate(agg.to_string()));
+                    for agg in &aggregates_clone {
+                        select_items.push(SelectItem::Aggregate(agg.clone()));
                     }
 
                     let selected_columns_clone = selected_columns.clone();

@@ -138,6 +138,36 @@ impl JoinExpr {
             .any(|s| matches!(s.on_condition, Some(OnCondition::NonEqui { .. })))
     }
 
+    /// Whether PostgreSQL's `reduce_outer_joins` and `remove_useless_joins` can prune
+    /// every joined relation, reducing the join to a single-table scan on `initial_table`.
+    ///
+    /// Because `arb_joins` chains `t_0 -> t_1 -> t_2` sequentially in a left-deep tree,
+    /// a `WHERE` predicate on `t_0` that PostgreSQL proves non-nullable
+    /// (`where_forces_nonnullable`) allows `reduce_outer_joins` to reduce any `FULL JOIN`
+    /// step to a `LEFT JOIN`. Step `i` can then be removed by `remove_useless_joins` iff
+    /// every later step was also removed, step `i` is a `LEFT JOIN` (or `FULL JOIN`
+    /// reduced to `LEFT JOIN`) with an equality condition on the primary key (`id`), and
+    /// `step.table` is not referenced outside the `JOIN` clause (as reported by
+    /// `is_table_referenced`).
+    pub fn collapses_to_single_table(
+        &self,
+        where_forces_nonnullable: bool,
+        is_table_referenced: impl Fn(&str) -> bool,
+    ) -> bool {
+        self.unnests.is_empty()
+            && self.steps.iter().all(|step| {
+                let is_left_join = matches!(step.join_type, JoinType::Left)
+                    || (where_forces_nonnullable && matches!(step.join_type, JoinType::Full));
+                is_left_join
+                    && matches!(
+                        step.on_condition.as_ref(),
+                        Some(OnCondition::Equi { col } | OnCondition::Mixed { equi_col: col, .. })
+                            if col == "id"
+                    )
+                    && !is_table_referenced(&step.table)
+            })
+    }
+
     /// Render as a SQL fragment, e.g.
     /// `FROM t0 JOIN t1 ON t0.a = t1.b LEFT JOIN t2 ON t1.x = t2.y ...`
     pub fn to_sql(&self) -> String {
@@ -466,5 +496,66 @@ mod tests {
         );
         assert!(saw_mixed, "Should have generated at least one mixed join");
         assert!(saw_unnest, "Should have generated at least one unnest step");
+    }
+
+    #[test]
+    fn test_collapses_to_single_table() {
+        let removable_chain = JoinExpr {
+            initial_table: "users".to_string(),
+            steps: vec![
+                JoinStep {
+                    join_type: JoinType::Left,
+                    table: "products".to_string(),
+                    on_left_table: Some("users".to_string()),
+                    on_condition: Some(OnCondition::Equi {
+                        col: "id".to_string(),
+                    }),
+                },
+                JoinStep {
+                    join_type: JoinType::Full,
+                    table: "orders".to_string(),
+                    on_left_table: Some("products".to_string()),
+                    on_condition: Some(OnCondition::Mixed {
+                        equi_col: "id".to_string(),
+                        non_equi_col: "age".to_string(),
+                        op: "<",
+                    }),
+                },
+            ],
+            unnests: vec![],
+        };
+
+        assert!(removable_chain.collapses_to_single_table(true, |_| false));
+        assert!(!removable_chain.collapses_to_single_table(false, |_| false));
+        assert!(!removable_chain.collapses_to_single_table(true, |t| t == "products"));
+        assert!(!removable_chain.collapses_to_single_table(true, |t| t == "orders"));
+
+        let non_unique_key = JoinExpr {
+            initial_table: "users".to_string(),
+            steps: vec![JoinStep {
+                join_type: JoinType::Left,
+                table: "products".to_string(),
+                on_left_table: Some("users".to_string()),
+                on_condition: Some(OnCondition::Equi {
+                    col: "age".to_string(),
+                }),
+            }],
+            unnests: vec![],
+        };
+        assert!(!non_unique_key.collapses_to_single_table(true, |_| false));
+
+        let inner_join = JoinExpr {
+            initial_table: "users".to_string(),
+            steps: vec![JoinStep {
+                join_type: JoinType::Inner,
+                table: "products".to_string(),
+                on_left_table: Some("users".to_string()),
+                on_condition: Some(OnCondition::Equi {
+                    col: "id".to_string(),
+                }),
+            }],
+            unnests: vec![],
+        };
+        assert!(!inner_join.collapses_to_single_table(true, |_| false));
     }
 }

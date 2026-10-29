@@ -74,7 +74,6 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::CustomScanState;
@@ -552,6 +551,13 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
 
     let mut physical_rules =
         datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+    for rule in &mut physical_rules {
+        if rule.name() == "FilterPushdown" {
+            *rule = Arc::new(crate::scan::safe_filter_pushdown::SafeFilterPushdown::pre());
+        } else if rule.name() == "FilterPushdown(Post)" {
+            *rule = Arc::new(crate::scan::safe_filter_pushdown::SafeFilterPushdown::post());
+        }
+    }
     let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
     let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
     let pos = physical_rules
@@ -617,7 +623,9 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::segmented_topk_rule::SegmentedTopKRule,
         ))
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::safe_filter_pushdown::SafeFilterPushdown::post(),
+        ));
 
     SessionContext::new_with_state(builder.build())
 }

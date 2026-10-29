@@ -1,0 +1,173 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan = off;
+CREATE TABLE j6953_users (id bigint PRIMARY KEY, group_id bigint, tags text[]);
+CREATE TABLE j6953_products (id bigint PRIMARY KEY, group_id bigint, name text, color text, tags text[]);
+CREATE TABLE j6953_orders (id bigint PRIMARY KEY, group_id bigint, uuid uuid);
+INSERT INTO j6953_users VALUES (4, 1, ARRAY['a']), (5, 1, ARRAY['b']);
+INSERT INTO j6953_products VALUES
+    (1, 1, 'alice', 'red', ARRAY['one']),
+    (2, 1, 'alice', 'red', ARRAY['two']),
+    (3, 1, 'bob', NULL, ARRAY['three']),
+    (4, 1, 'alice', 'red', ARRAY['four']);
+INSERT INTO j6953_orders VALUES (11, 1, '550e8400-e29b-41d4-a716-446655440000');
+CREATE INDEX ON j6953_users USING paradedb (id, group_id, (tags::pdb.literal));
+CREATE INDEX ON j6953_products USING paradedb (id, group_id, (name::pdb.literal), (color::pdb.literal), (tags::pdb.literal));
+CREATE INDEX ON j6953_orders USING paradedb (id, group_id, uuid);
+-- users.id and products.id must remain distinct when the join filter is pushed down.
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT DISTINCT p.id, u.id, o.id, t, s
+FROM j6953_users u
+RIGHT JOIN j6953_products p ON p.group_id = u.group_id
+RIGHT JOIN j6953_orders o ON o.group_id = p.group_id
+CROSS JOIN LATERAL unnest(p.tags) t
+CROSS JOIN LATERAL unnest(u.tags) s
+WHERE (u.id = 4 AND o.uuid IS NOT NULL) OR (p.color IS NULL AND p.name === 'bob')
+ORDER BY p.id, u.id, o.id, t, s LIMIT 29;
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, u.id, o.id, t.t, s.s
+   Relation Tree: ((o LEFT (p LEFT u)) CROSS JOIN LATERAL UNNEST (tags)) CROSS JOIN LATERAL UNNEST (tags)
+   Join Cond: o.group_id = p.group_id, p.group_id = u.group_id
+   Join Predicate: (heap:((u.id = 4) AND (o.uuid IS NOT NULL)) OR (heap:(p.color IS NULL) AND p:{"with_index":{"query":{"term":{"field":"name","value":"bob"}}}}))
+   Limit: 29
+   Distinct: true
+   Order By: p.id asc, u.id asc, o.id asc, tags asc, tags asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=29), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST, col_4@3 ASC NULLS LAST, col_5@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[id@4 as col_1, id@7 as col_2, id@1 as col_3, p_1_tags@3 as col_4, u_2_tags@6 as col_5], aggr=[min(o_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(u_2.ctid_2) as ctid_2]
+     :     VisibilityFilterExec: tables=[o]
+     :       UnnestExec
+     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, p_1_tags@3 as p_1_tags, id@4 as id, ctid_2@5 as ctid_2, tags@6 as u_2_tags, id@7 as id]
+     :           UnnestExec
+     :             ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as p_1_tags, id@4 as id, ctid_2@5 as ctid_2, tags@6 as tags, id@7 as id]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@1, group_id@2)], filter=id@3 = 4 AND uuid@0 IS NOT NULL OR color@1 IS NULL AND __p_1_tag_0@2, projection=[ctid_0@0, id@3, ctid_1@4, tags@5, id@8, ctid_2@10, tags@11, id@12]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=o, segments=1, query="all"
+     :                 VisibilityFilterExec: tables=[p]
+     :                   FilterExec: id@8 = 4 OR color@3 IS NULL AND __p_1_tag_0@5
+     :                     FilterExec: id@8 = 4 OR color@3 IS NULL AND __p_1_tag_0@5
+     :                       FilterExec: id@8 = 4 OR color@3 IS NULL AND __p_1_tag_0@5
+     :                         FilterExec: id@8 = 4 OR color@3 IS NULL AND __p_1_tag_0@5
+     :                           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(group_id@2, group_id@2)], projection=[ctid_1@4, tags@5, group_id@6, color@7, id@8, __p_1_tag_0@9, ctid_2@0, tags@1, id@3]
+     :                             CooperativeExec
+     :                               PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+     :                             CooperativeExec
+     :                               PgSearchScan: table=p, segments=1, eager=[color], tag_0={"with_index":{"query":{"term":{"field":"name","value":"bob"}}}}
+(29 rows)
+
+SELECT DISTINCT p.id, u.id, o.id, t, s
+FROM j6953_users u
+RIGHT JOIN j6953_products p ON p.group_id = u.group_id
+RIGHT JOIN j6953_orders o ON o.group_id = p.group_id
+CROSS JOIN LATERAL unnest(p.tags) t
+CROSS JOIN LATERAL unnest(u.tags) s
+WHERE (u.id = 4 AND o.uuid IS NOT NULL) OR (p.color IS NULL AND p.name === 'bob')
+ORDER BY p.id, u.id, o.id, t, s LIMIT 29;
+ id | id | id |   t   | s 
+----+----+----+-------+---
+  1 |  4 | 11 | one   | a
+  2 |  4 | 11 | two   | a
+  3 |  4 | 11 | three | a
+  3 |  5 | 11 | three | b
+  4 |  4 | 11 | four  | a
+(5 rows)
+
+-- both same-named ids participate in the predicate.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, u.id
+FROM j6953_users u
+RIGHT JOIN j6953_products p ON p.group_id = u.group_id
+RIGHT JOIN j6953_orders o ON o.group_id = p.group_id
+CROSS JOIN LATERAL unnest(p.tags) t
+CROSS JOIN LATERAL unnest(u.tags) s
+WHERE p.name === 'alice' AND (u.id = 4 OR p.id = 2)
+ORDER BY p.id, u.id LIMIT 29;
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (((p LEFT u) INNER o) CROSS JOIN LATERAL UNNEST (tags)) CROSS JOIN LATERAL UNNEST (tags)
+   Join Cond: o.group_id = p.group_id, p.group_id = u.group_id
+   Join Predicate: heap:((u.id = 4) OR (p.id = 2))
+   Limit: 29
+   Distinct: true
+   Order By: p.id asc, u.id asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=29), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[id@1 as col_1, id@3 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(u_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, o], pruned=[o]
+     :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, id@4 as id, ctid_2@5 as ctid_2]
+     :         UnnestExec
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id, ctid_1@3 as ctid_1, tags@4 as u_1_tags, id@5 as id, ctid_2@6 as ctid_2]
+     :             UnnestExec
+     :               ProjectionExec: expr=[ctid_0@0 as ctid_0, tags@1 as p_0_tags, id@2 as id, ctid_1@3 as ctid_1, tags@4 as tags, id@5 as id, ctid_2@6 as ctid_2]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@2, group_id@0)], projection=[ctid_0@0, tags@1, id@3, ctid_1@4, tags@5, id@6, ctid_2@8]
+     :                   FilterExec: id@6 = 4 OR id@3 = 2
+     :                     HashJoinExec: mode=CollectLeft, join_type=Right, on=[(group_id@2, group_id@2)], projection=[ctid_0@4, tags@5, group_id@6, id@7, ctid_1@0, tags@1, id@3]
+     :                       CooperativeExec
+     :                         PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+     :                       CooperativeExec
+     :                         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"name","value":"alice"}}}}
+     :                   CooperativeExec
+     :                     PgSearchScan: table=o, segments=1, query="all"
+(25 rows)
+
+SELECT DISTINCT p.id, u.id
+FROM j6953_users u
+RIGHT JOIN j6953_products p ON p.group_id = u.group_id
+RIGHT JOIN j6953_orders o ON o.group_id = p.group_id
+CROSS JOIN LATERAL unnest(p.tags) t
+CROSS JOIN LATERAL unnest(u.tags) s
+WHERE p.name === 'alice' AND (u.id = 4 OR p.id = 2)
+ORDER BY p.id, u.id LIMIT 29;
+ id | id 
+----+----
+  1 |  4
+  2 |  4
+  2 |  5
+  4 |  4
+(4 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.id, u.id, o.id, t, s
+FROM j6953_users u
+RIGHT JOIN j6953_products p ON p.group_id = u.group_id
+RIGHT JOIN j6953_orders o ON o.group_id = p.group_id
+CROSS JOIN LATERAL unnest(p.tags) t
+CROSS JOIN LATERAL unnest(u.tags) s
+WHERE (u.id = 4 AND o.uuid IS NOT NULL) OR (p.color IS NULL AND p.name === 'bob')
+ORDER BY p.id, u.id, o.id, t, s LIMIT 29;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | id | id |   t   | s 
+----+----+----+-------+---
+  1 |  4 | 11 | one   | a
+  2 |  4 | 11 | two   | a
+  3 |  4 | 11 | three | a
+  3 |  5 | 11 | three | b
+  4 |  4 | 11 | four  | a
+(5 rows)
+
+SELECT DISTINCT p.id, u.id
+FROM j6953_users u
+RIGHT JOIN j6953_products p ON p.group_id = u.group_id
+RIGHT JOIN j6953_orders o ON o.group_id = p.group_id
+CROSS JOIN LATERAL unnest(p.tags) t
+CROSS JOIN LATERAL unnest(u.tags) s
+WHERE p.name === 'alice' AND (u.id = 4 OR p.id = 2)
+ORDER BY p.id, u.id LIMIT 29;
+ id | id 
+----+----
+  1 |  4
+  2 |  4
+  2 |  5
+  4 |  4
+(4 rows)
+
+DROP TABLE j6953_orders CASCADE;
+DROP TABLE j6953_products CASCADE;
+DROP TABLE j6953_users CASCADE;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;

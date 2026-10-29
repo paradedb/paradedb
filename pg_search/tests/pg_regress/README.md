@@ -41,7 +41,7 @@ Bootstrap the test and promote its output to `expected/`:
 
 ```bash
 cd pg_search
-cargo pgrx regress --add PREFIX_your_test
+cargo pgrx regress --postgresql-conf paradedb.mutable_sweep_interval=0 --add PREFIX_your_test
 ```
 
 Pass a PostgreSQL version before `--add` to use a version other than the default, for example `cargo pgrx regress pg17 --add PREFIX_your_test`.
@@ -58,14 +58,14 @@ Pass a PostgreSQL version before `--add` to use a version other than the default
 
 ```bash
 cd pg_search
-cargo pgrx regress
+cargo pgrx regress --postgresql-conf paradedb.mutable_sweep_interval=0
 ```
 
 ### Run Specific Tests
 
 ```bash
 cd pg_search
-cargo pgrx regress pg18 PREFIX_your_test
+cargo pgrx regress pg18 PREFIX_your_test --postgresql-conf paradedb.mutable_sweep_interval=0
 ```
 
 Use `--auto` only when you intentionally want to replace the expected output of a failing test with its current output.
@@ -75,7 +75,7 @@ Use `--auto` only when you intentionally want to replace the expected output of 
 1. **Non-deterministic Results**: Use fixed dates and ORDER BY clauses to ensure consistent results
 2. **Missing Data**: Verify that all test queries return at least one row of data
 3. **Timing Variations**: Use `COSTS OFF, TIMING OFF` in EXPLAIN to avoid timing-dependent output
-4. **Segment Layout**: Set `background_layer_sizes = '0'` on test indexes whose expected output depends on segment counts or retained mutable segments. Background workers can otherwise change that layout between statements.
+4. **Segment Layout**: Disable periodic sweeps with `--postgresql-conf paradedb.mutable_sweep_interval=0`, as CI does. Sweeps are independent of `background_layer_sizes`; setting it to `'0'` only disables write-triggered background merging. Sweep behavior is covered by integration tests with sweeping enabled.
 
 ## Contributing New Tests
 

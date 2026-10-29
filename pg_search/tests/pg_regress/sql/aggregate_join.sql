@@ -41,10 +41,10 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES
     (5, 'tech'), (5, 'kids');
 
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating) WITH (background_layer_sizes = '0');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 CREATE INDEX agg_join_tags_idx ON agg_join_tags
-USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true'))) WITH (background_layer_sizes = '0');
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
 
 -- =====================================================================
 -- SECTION 1: Scalar Aggregates on JOIN (no GROUP BY)
@@ -608,7 +608,7 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_2');
 -- Rebuild the BM25 index so the new rows are visible
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating) WITH (background_layer_sizes = '0');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 -- Test 11.1: DESC NULLS LAST — non-NULL rows should come first
 SELECT p.category, SUM(t.product_id)
@@ -819,7 +819,7 @@ UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
 -- We need fast field access for in_stock; recreate BM25 index
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating, in_stock) WITH (background_layer_sizes = '0');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating, in_stock);
 
 -- Test 14.1: BOOL_AND on join
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -907,7 +907,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DROP INDEX agg_join_products_idx;
 ALTER TABLE agg_join_products DROP COLUMN in_stock;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating) WITH (background_layer_sizes = '0');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 -- =====================================================================
 -- SECTION 15: FULL OUTER JOIN aggregates

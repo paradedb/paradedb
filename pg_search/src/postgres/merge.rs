@@ -532,10 +532,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 pub(crate) unsafe fn sweep_mutable(index: &PgSearchRelation) {
-    if !index.is_valid()
-        || index.options().background_layer_sizes().is_empty()
-        || VacuumSignal::new(index.oid()).wants_cancel()
-    {
+    if !index.is_valid() || VacuumSignal::new(index.oid()).wants_cancel() {
         return;
     }
     let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock() else {

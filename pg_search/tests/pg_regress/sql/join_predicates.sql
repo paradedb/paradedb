@@ -298,9 +298,9 @@ CREATE TABLE qgen_products (
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
 -- Note: age must be columnar for the join key
-CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, (name::pdb.literal), age) WITH (background_layer_sizes = '0');
+CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, (name::pdb.literal), age);
 
-CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, (name::pdb.literal), age) WITH (background_layer_sizes = '0');
+CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, (name::pdb.literal), age);
 
 -- Insert sample value first
 INSERT INTO qgen_users (uuid, name, color, age, quantity, price, rating) 

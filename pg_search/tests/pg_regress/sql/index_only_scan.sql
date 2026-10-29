@@ -180,7 +180,7 @@ SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle' 
 CREATE TABLE index_only_uuid (id bigint, uuid uuid, body text, age integer)
 WITH (autovacuum_enabled = false);
 CREATE INDEX index_only_uuid_idx ON index_only_uuid
-USING paradedb (id, uuid, (body::pdb.simple), age) WITH (background_layer_sizes = '0');
+USING paradedb (id, uuid, (body::pdb.simple), age);
 INSERT INTO index_only_uuid VALUES
     (1, '550e8400-e29b-41d4-a716-446655440000', 'needle', 1),
     (2, '550e8400-e29b-41d4-a716-446655440001', 'needle', 2);

@@ -88,7 +88,7 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
             return;
         }
         reload();
-        if INTERVAL_MS.get() == 0 || !crate::gucs::global_enable_background_merging() {
+        if INTERVAL_MS.get() == 0 {
             continue;
         }
         let databases = BackgroundWorker::transaction(|| {
@@ -119,7 +119,7 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
         });
         for database in databases {
             reload();
-            if INTERVAL_MS.get() == 0 || !crate::gucs::global_enable_background_merging() {
+            if INTERVAL_MS.get() == 0 {
                 break;
             }
             worker_context.switch_to(|_| {
@@ -166,7 +166,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
     });
     for index in indexes {
         reload();
-        if INTERVAL_MS.get() == 0 || !crate::gucs::global_enable_background_merging() {
+        if INTERVAL_MS.get() == 0 {
             break;
         }
         BackgroundWorker::transaction(|| {

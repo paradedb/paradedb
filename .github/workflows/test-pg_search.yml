@@ -274,6 +274,16 @@ jobs:
         if: matrix.pg_impl == 'pgrx'
         run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
+      - name: Verify sweeps with write-triggered background merging disabled
+        if: matrix.pg_impl == 'pgrx'
+        run: |
+          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search
+          trap 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM RESET paradedb.global_enable_background_merging"; psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf()"' EXIT
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET paradedb.global_enable_background_merging=off"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf()"
+          test "$(psql "$DATABASE_URL" -Atc 'SHOW paradedb.global_enable_background_merging')" = off
+          cargo test --package tests --test mutable_flush -- --test-threads=1
+
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
         run: |
@@ -281,7 +291,7 @@ jobs:
           # `--auto` promotes test diffs into the working tree, but the command still exits
           # with a non-zero status code on failure. We catch this failure to print the diffs
           # so they show up in CI, and then manually exit with an error.
-          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto || {
+          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --postgresql-conf paradedb.mutable_sweep_interval=0 --auto || {
             git diff | tee regress.diff
             # Also write the diffs to the job summary. The Postgres log dump at the end of
             # this job runs to tens of thousands of lines, which is enough to push these

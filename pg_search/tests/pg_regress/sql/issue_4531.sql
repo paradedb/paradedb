@@ -28,8 +28,8 @@ INSERT INTO products_4531 VALUES
     (4, 'Doohicky','Another widget',  2),
     (5, 'Thingamajig', 'Yet another widget', 999);
 
-CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id) WITH (background_layer_sizes = '0');
-CREATE INDEX ON suppliers_4531 USING paradedb (id, name) WITH (background_layer_sizes = '0');
+CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id);
+CREATE INDEX ON suppliers_4531 USING paradedb (id, name);
 
 -- ============================================================
 -- Test 1: The original failing pattern — OR IS NULL

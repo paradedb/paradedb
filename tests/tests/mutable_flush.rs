@@ -33,16 +33,16 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
         conn.execute(
             "CREATE TABLE sweep_a (id bigint PRIMARY KEY, body text);
              CREATE TABLE sweep_b (LIKE sweep_a INCLUDING ALL);
-             CREATE TABLE sweep_disabled (LIKE sweep_a INCLUDING ALL);
+             CREATE TABLE sweep_no_background_layers (LIKE sweep_a INCLUDING ALL);
              CREATE INDEX sweep_a_idx ON sweep_a USING paradedb (id, body)
                  WITH (mutable_segment_rows = 10000);
              CREATE INDEX sweep_b_idx ON sweep_b USING paradedb (id, body)
                  WITH (mutable_segment_rows = 10000);
-             CREATE INDEX sweep_disabled_idx ON sweep_disabled USING paradedb (id, body)
+             CREATE INDEX sweep_no_background_layers_idx ON sweep_no_background_layers USING paradedb (id, body)
                  WITH (mutable_segment_rows = 10000, background_layer_sizes = '0');
              INSERT INTO sweep_a VALUES (1, 'batch');
              INSERT INTO sweep_b VALUES (1, 'batch');
-             INSERT INTO sweep_disabled VALUES (1, 'batch');",
+             INSERT INTO sweep_no_background_layers VALUES (1, 'batch');",
         )
         .await?;
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM sweep_a WHERE body ||| 'batch'")
@@ -64,7 +64,7 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
             .await?;
             assert!(stopped);
             for conn in [&mut conn, &mut other_conn] {
-                conn.execute("INSERT INTO sweep_a VALUES (3, 'batch'); INSERT INTO sweep_b VALUES (3, 'batch')").await?;
+                conn.execute("INSERT INTO sweep_a VALUES (3, 'batch'); INSERT INTO sweep_b VALUES (3, 'batch'); INSERT INTO sweep_no_background_layers VALUES (3, 'batch')").await?;
             }
         }
         let deadline = Instant::now() + Duration::from_secs(30);
@@ -74,7 +74,8 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
                 let mutable: i64 = sqlx::query_scalar(
                     "SELECT count(*) FROM
                        (SELECT * FROM paradedb.index_info('sweep_a_idx')
-                        UNION ALL SELECT * FROM paradedb.index_info('sweep_b_idx')) i
+                        UNION ALL SELECT * FROM paradedb.index_info('sweep_b_idx')
+                        UNION ALL SELECT * FROM paradedb.index_info('sweep_no_background_layers_idx')) i
                      WHERE visible AND mutable",
                 )
                 .fetch_one(&mut *conn)
@@ -107,9 +108,13 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
     for conn in [&mut conn, &mut other_conn] {
         // Remove the deliberately aborted heap row before checking every indexed CTID.
         conn.execute("VACUUM (INDEX_CLEANUP ON) sweep_a").await?;
-        let disabled: i64 = sqlx::query_scalar("SELECT count(*) FROM paradedb.index_info('sweep_disabled_idx') WHERE visible AND mutable").fetch_one(&mut *conn).await?;
-        assert_eq!(disabled, 1);
-        for index in ["sweep_a_idx", "sweep_b_idx", "sweep_disabled_idx"] {
+        let mutable: i64 = sqlx::query_scalar("SELECT count(*) FROM paradedb.index_info('sweep_no_background_layers_idx') WHERE visible AND mutable").fetch_one(&mut *conn).await?;
+        assert_eq!(mutable, 0);
+        for index in [
+            "sweep_a_idx",
+            "sweep_b_idx",
+            "sweep_no_background_layers_idx",
+        ] {
             let passed: Option<bool> = sqlx::query_scalar("SELECT bool_and(passed) FROM pdb.verify_index($1::text::regclass, heapallindexed => true)").bind(index).fetch_one(&mut *conn).await?;
             assert_eq!(passed, Some(true));
         }

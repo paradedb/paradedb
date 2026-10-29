@@ -104,7 +104,7 @@ CREATE TABLE verify_parallel_test (id SERIAL PRIMARY KEY, content TEXT);
 -- Create index with low mutable_segment_rows to ensure segments are created
 CREATE INDEX verify_parallel_idx ON verify_parallel_test 
   USING paradedb (id, content) 
-  WITH (background_layer_sizes = '0', mutable_segment_rows = 10);
+  WITH (mutable_segment_rows = 10);
 
 -- Insert data in multiple separate statements (each creates a new segment)
 INSERT INTO verify_parallel_test (content) SELECT 'batch1 ' || i FROM generate_series(1, 50) i;
@@ -277,7 +277,7 @@ SET client_min_messages TO notice;
 DROP TABLE IF EXISTS progress_test CASCADE;
 CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX progress_idx ON progress_test USING paradedb (id, content) 
-    WITH (background_layer_sizes = '0', mutable_segment_rows = 20);
+    WITH (mutable_segment_rows = 20);
 INSERT INTO progress_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
 INSERT INTO progress_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 

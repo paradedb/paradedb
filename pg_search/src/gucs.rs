@@ -647,8 +647,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.global_enable_background_merging",
-        c"Enable background merging",
-        c"Enable background merging",
+        c"Enable write-triggered background merging",
+        c"Periodic mutable sweeps are controlled separately by paradedb.mutable_sweep_interval",
         &GLOBAL_ENABLE_BACKGROUND_MERGING,
         GucContext::Sighup,
         GucFlags::default(),

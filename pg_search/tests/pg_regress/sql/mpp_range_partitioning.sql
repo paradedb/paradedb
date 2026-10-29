@@ -104,7 +104,6 @@ ANALYZE mpp_rp_categories;
 CREATE INDEX mpp_rp_users_idx ON mpp_rp_users
 USING paradedb (id, user_id, (user_name::pdb.unicode_words('columnar=true')))
 WITH (
-    background_layer_sizes = '0',
     target_segment_count = 3,
     partition_by = 'user_id'
 );

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793235329577,
+  "lastUpdate": 1793235436823,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -507363,6 +507363,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12853821261-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "64d7d97fd75329662246cb7b3b20d7bb20beb569",
+          "message": "perf: eagerly flush mutable segments in background workers\n\nBatch unfrozen writes for up to 100ms and wake the collector when entries freeze. Preserve independent merger slots, foreground backpressure, cancellation, immediate visibility, and session ownership while waiting outside transactions.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/64d7d97fd75329662246cb7b3b20d7bb20beb569"
+        },
+        "date": 1793235389475,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1971294285986196, max cpu: 4.729064, count: 59209"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.016279725210694, max mem: 20.0390625, count: 59209"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.385639463381368, max cpu: 4.7267356, count: 59209"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 19.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.658163969476767, max mem: 19.66015625, count: 59209"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.159312303892646, max cpu: 33.283802, count: 59209"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.188763136727523, max mem: 20.19140625, count: 59209"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.907767400226, max document_count: 10002.0, count: 59209"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.910267020217, max document_count: 10002.0, count: 59209"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.55805785566427, max cpu: 34.81064, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.751384726667396, max mem: 66.31640625, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.33696748462585, max cpu: 32.90891, count: 59209"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.324944265229945, max mem: 66.2734375, count: 59209"
+          }
+        ],
+        "publication_id": "12853202224-other"
       }
     ]
   }

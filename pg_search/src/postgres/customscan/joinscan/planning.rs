@@ -47,7 +47,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, get_attno_by_name};
+use crate::postgres::customscan::pullup::{Access, ColumnRef};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
     optimize_quals_with_heap_expr,
@@ -1582,6 +1582,7 @@ pub(super) unsafe fn collect_required_fields(
         .cloned()
         .collect();
     let mut plan_sources = join_clause.plan.sources_mut();
+    let plan_source_contexts: Vec<_> = plan_sources.iter().map(|s| s.to_source_context()).collect();
 
     for source in &mut plan_sources {
         ensure_ctid(source);
@@ -1661,9 +1662,11 @@ pub(super) unsafe fn collect_required_fields(
                 let name = name_wrapper.as_ref();
                 if let Some((alias, col_name)) = name.split_once('.') {
                     let raw_col_name = col_name.trim_matches('"');
-                    for source in &mut plan_sources {
+                    for (source, context) in
+                        plan_sources.iter_mut().zip(plan_source_contexts.iter())
+                    {
                         if source.scan_info.alias.as_deref() == Some(alias) {
-                            if let Some(attno) = get_source_attno_by_name(source, raw_col_name) {
+                            if let Some(attno) = context.get_attno_by_name(raw_col_name) {
                                 ensure_field(source, attno);
                             }
                             break;
@@ -1672,14 +1675,17 @@ pub(super) unsafe fn collect_required_fields(
                 } else {
                     // Unqualified field name (e.g. from indexed expression) — use RTI
                     // to find the correct source and ensure the column is projected.
-                    for source in &mut plan_sources {
+                    for (source, context) in
+                        plan_sources.iter_mut().zip(plan_source_contexts.iter())
+                    {
                         if source.contains_rti(*rti) {
                             // Try as a regular column first, then fall back to
                             // expression-indexed field.  The column `name` may
                             // exist in the table but only be indexed via an
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
-                            let added = get_source_attno_by_name(source, name)
+                            let added = context
+                                .get_attno_by_name(name)
                                 .and_then(|attno| {
                                     try_ensure_field(source, attno)?;
                                     // try_ensure_field only checks that SOME field
@@ -1732,7 +1738,9 @@ pub(super) unsafe fn collect_required_fields(
                     }
                 }
                 super::build::ChildProjection::IndexedExpression { rti, field_name } => {
-                    for source in &mut plan_sources {
+                    for (source, context) in
+                        plan_sources.iter_mut().zip(plan_source_contexts.iter())
+                    {
                         if source.contains_rti(*rti) {
                             if source
                                 .scan_info
@@ -1742,7 +1750,8 @@ pub(super) unsafe fn collect_required_fields(
                             {
                                 break;
                             }
-                            let added = get_source_attno_by_name(source, field_name)
+                            let added = context
+                                .get_attno_by_name(field_name)
                                 .and_then(|attno| {
                                     try_ensure_field(source, attno)?;
                                     source
@@ -1909,16 +1918,6 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
         .scan_info
         .add_field_by_name(synthetic_attno, resolved.field);
     Ok(())
-}
-
-/// Retrieve an attribute number by column name from a `JoinSource`'s heap relation.
-pub(super) unsafe fn get_source_attno_by_name(
-    side: &JoinSource,
-    name: &str,
-) -> Option<pg_sys::AttrNumber> {
-    let rel = PgSearchRelation::open(side.scan_info.heaprelid);
-    let tupdesc = rel.tuple_desc();
-    get_attno_by_name(name, &tupdesc)
 }
 
 fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {

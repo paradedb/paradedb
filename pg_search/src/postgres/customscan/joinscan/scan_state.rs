@@ -53,7 +53,6 @@ use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-use super::planning::get_source_attno_by_name;
 use super::window_func::{
     SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
     WindowAggIndex,
@@ -2117,7 +2116,8 @@ fn build_source_df<'a>(
             required_early: &mut crate::api::HashSet<String>,
         ) {
             required_early.insert(name.to_string());
-            let attno = unsafe { get_source_attno_by_name(source, name) };
+            let context = source.to_source_context();
+            let attno = context.get_attno_by_name(name);
             if let Some(attno) = attno
                 && let Some(registered) = source.column_name(attno)
                 && registered != name

@@ -23,17 +23,13 @@
 use crate::api::FieldName;
 use crate::api::operator::row_expr_from_indexed_expr;
 use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::composite::get_composite_type_fields;
 #[cfg(not(feature = "pg15"))]
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
-use crate::query::SearchQueryInput;
 use crate::schema::{FieldSource, SearchField, SearchFieldType, SearchIndexSchema};
 use pgrx::{PgList, PgTupleDesc, pg_sys};
-use tantivy::columnar::ColumnType;
 
 /// what the caller wants from a single source
 pub enum ColumnRef<'a> {
@@ -180,6 +176,16 @@ impl SourceContext {
                 false,
             )),
         }
+    }
+
+    /// Look up a 1-based attribute number by column name in a tuple descriptor.
+    pub fn get_attno_by_name(&self, name: &str) -> Option<pg_sys::AttrNumber> {
+        for (i, att) in self.tupdesc().iter().enumerate() {
+            if att.name() == name {
+                return Some((i + 1) as pg_sys::AttrNumber);
+            }
+        }
+        None
     }
 }
 
@@ -414,88 +420,6 @@ fn resolve_fast_field_by_name(field_name: &str, index: &PgSearchRelation) -> Opt
     } else {
         None
     }
-}
-
-/// Resolve an index field name, dotted for a JSON sub-field, to the heap column it
-/// is read from and the type a columnar scan hands out. `Ok(None)` when the index
-/// has no such fast field, `Err` when it has one the scan cannot read, so the
-/// caller can say why rather than that the field does not exist. Resolution goes
-/// through the index schema because a field name can be an alias of a column.
-/// The gates match [`resolve_fast_field`]: a tokenizer cast reads back as its
-/// column, a computed expression is turned down, and a JSON column is only
-/// reachable through a sub-field.
-pub fn resolve_index_field_by_name(
-    context: &SourceContext,
-    field_name: &str,
-) -> Result<Option<ResolvedField>, String> {
-    let is_subfield = FieldName::from(field_name).root() != field_name;
-    let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any) else {
-        // determine if this was a root json column
-        if is_subfield
-            && let Some((_, data)) = context
-                .schema()
-                .and_then(|s| s.search_field_with_data(field_name))
-            && data.is_json
-        {
-            return Err(format!(
-                "Field '{field_name}' is a JSON column; name a sub-field, as in '{field_name}.key'"
-            ));
-        }
-        return Ok(None);
-    };
-    if resolved.attno.is_none() {
-        return Err(format!(
-            "Field '{field_name}' is an expression index, which cannot be read back as a column"
-        ));
-    };
-
-    if is_subfield {
-        let Some(index) = context.indexrel.as_ref() else {
-            return Ok(None);
-        };
-        check_json_sub_field_is_text(index, field_name)?;
-    }
-    Ok(Some(resolved))
-}
-
-/// A columnar scan reads every JSON sub-field as text, while the index stores
-/// each sub-field in the type of its values. A numeric sub-field would come back
-/// as numbers and fail the scan's schema at execution, so it is turned down
-/// here. Only the column metadata is read; no values are loaded.
-fn check_json_sub_field_is_text(index: &PgSearchRelation, field: &str) -> Result<(), String> {
-    let reader =
-        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
-            .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
-    for segment in reader.segment_readers() {
-        let handles = segment
-            .fast_fields()
-            .dynamic_column_handles(field)
-            .map_err(|e| format!("could not inspect field '{field}': {e}"))?;
-        if let Some(handle) = handles
-            .iter()
-            .find(|handle| handle.column_type() != ColumnType::Str)
-        {
-            return Err(format!(
-                "Field '{field}' is a JSON sub-field holding {} values; only a text sub-field \
-                 can be read as a column",
-                handle.column_type()
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Look up a 1-based attribute number by column name in a tuple descriptor.
-pub fn get_attno_by_name(
-    name: &str,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-) -> Option<pg_sys::AttrNumber> {
-    for (i, att) in tupdesc.iter().enumerate() {
-        if att.name() == name {
-            return Some((i + 1) as pg_sys::AttrNumber);
-        }
-    }
-    None
 }
 
 /// Returns the `SearchFieldType` if it's supported for fast field pullup execution.

@@ -30,8 +30,11 @@
 
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{ColumnRef as FilterColumnRef, CompareOp, FilterExpr};
+use crate::api::FieldName;
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
@@ -45,9 +48,7 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{
-    Access, ColumnRef, ResolvedField, SourceContext, get_attno_by_name, resolve_index_field_by_name,
-};
+use crate::postgres::customscan::pullup::{Access, ColumnRef, ResolvedField, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
     has_leaky_heap_filter, optimize_quals_with_heap_expr,
@@ -63,6 +64,7 @@ use crate::scan::info::FieldInfo;
 use crate::schema::SearchFieldType;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
+use tantivy::columnar::ColumnType;
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
 type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
@@ -201,13 +203,84 @@ fn source_field_candidates<'a>(
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
-        match resolve_index_field_by_name(&source.context, field) {
-            Ok(Some(resolved)) => matches.push((source, resolved)),
+        let resolved = source.context.resolve(ColumnRef::Field(field), Access::Any);
+        match validate_source_field_candidate(&source.context, resolved, field) {
+            Ok(Some(r)) => matches.push((source, r)),
             Ok(None) => {}
             Err(reason) => reasons.push(reason),
         }
     }
     (matches, reasons)
+}
+
+/// Resolve an index field name, dotted for a JSON sub-field, to the heap column it
+/// is read from and the type a columnar scan hands out. `Ok(None)` when the index
+/// has no such fast field, `Err` when it has one the scan cannot read, so the
+/// caller can say why rather than that the field does not exist. Resolution goes
+/// through the index schema because a field name can be an alias of a column.
+/// The gates match ..... a tokenizer cast reads back as its
+/// column, a computed expression is turned down, and a JSON column is only
+/// reachable through a sub-field.
+fn validate_source_field_candidate(
+    context: &SourceContext,
+    resolved: Option<ResolvedField>,
+    candidate_name: &str,
+) -> Result<Option<ResolvedField>, String> {
+    let is_subfield = FieldName::from(candidate_name).root() != candidate_name;
+    let Some(resolved) = resolved else {
+        // determine if this was a root json column
+        if is_subfield
+            && let Some((_, data)) = context
+                .schema()
+                .and_then(|s| s.search_field_with_data(candidate_name))
+            && data.is_json
+        {
+            return Err(format!(
+                "Field '{candidate_name}' is a JSON column; name a sub-field, as in '{candidate_name}.key'"
+            ));
+        }
+        return Ok(None);
+    };
+    if resolved.attno.is_none() {
+        return Err(format!(
+            "Field '{candidate_name}' is an expression index, which cannot be read back as a column"
+        ));
+    };
+
+    if is_subfield {
+        let Some(index) = context.indexrel.as_ref() else {
+            return Ok(None);
+        };
+        check_json_sub_field_is_text(index, candidate_name)?;
+    }
+    Ok(Some(resolved))
+}
+
+/// A columnar scan reads every JSON sub-field as text, while the index stores
+/// each sub-field in the type of its values. A numeric sub-field would come back
+/// as numbers and fail the scan's schema at execution, so it is turned down
+/// here. Only the column metadata is read; no values are loaded.
+fn check_json_sub_field_is_text(index: &PgSearchRelation, field: &str) -> Result<(), String> {
+    let reader =
+        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
+            .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
+    for segment in reader.segment_readers() {
+        let handles = segment
+            .fast_fields()
+            .dynamic_column_handles(field)
+            .map_err(|e| format!("could not inspect field '{field}': {e}"))?;
+        if let Some(handle) = handles
+            .iter()
+            .find(|handle| handle.column_type() != ColumnType::Str)
+        {
+            return Err(format!(
+                "Field '{field}' is a JSON sub-field holding {} values; only a text sub-field \
+                 can be read as a column",
+                handle.column_type()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Collects all fast-field metadata for a base relation.
@@ -2187,7 +2260,7 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position != plan_position {
                     continue;
                 }
-                if let Some(attno) = get_attno_by_name(&field_name, &context.tupdesc()) {
+                if let Some(attno) = context.get_attno_by_name(&field_name) {
                     require_fast_field(source, &context, attno, || {
                         format!("FILTER column '{field_name}'")
                     })?;

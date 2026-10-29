@@ -84,6 +84,7 @@ use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::JoinType;
 use datafusion::physical_expr::equivalence::{ProjectionMapping, join_equivalence_properties};
 use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr, Literal, lit};
+use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_expr::{
     Distribution, LexOrdering, OrderingRequirements, Partitioning, PhysicalExpr, PhysicalSortExpr,
 };
@@ -99,6 +100,9 @@ use datafusion::physical_plan::joins::utils::{
 };
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput, Time,
+};
+use datafusion::physical_plan::projection::{
+    EmbeddedProjection, ProjectionExec, try_embed_projection,
 };
 use datafusion::physical_plan::sorts::sort::sort_batch;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
@@ -405,6 +409,87 @@ impl RankJoinExec {
 
     pub fn projection(&self) -> Option<&[usize]> {
         self.projection.as_deref()
+    }
+
+    pub fn with_projection(&self, projection: Option<Vec<usize>>) -> Result<Self> {
+        let (combined_projection, new_output_ordering) = match (&self.projection, projection) {
+            (existing, Some(new_proj)) => {
+                let max_len = self.schema().fields().len();
+                let mut combined = Vec::with_capacity(new_proj.len());
+                for &idx in &new_proj {
+                    if idx >= max_len {
+                        return internal_err!(
+                            "RankJoinExec: projection index {idx} out of bounds {max_len}"
+                        );
+                    }
+                    let join_idx = match existing {
+                        Some(existing_proj) => existing_proj[idx],
+                        None => idx,
+                    };
+                    combined.push(join_idx);
+                }
+
+                let mut remapped_output = Vec::with_capacity(self.sort_exprs.output.len());
+                for sort_expr in self.sort_exprs.output.iter() {
+                    let mut all_found = true;
+                    let expr = Arc::clone(&sort_expr.expr)
+                        .transform_down(|node| {
+                            if let Some(col) = node.downcast_ref::<Column>() {
+                                let Some(new_idx) =
+                                    new_proj.iter().position(|&old_idx| old_idx == col.index())
+                                else {
+                                    all_found = false;
+                                    return Ok(Transformed::new(
+                                        node,
+                                        false,
+                                        TreeNodeRecursion::Stop,
+                                    ));
+                                };
+                                let replacement: Arc<dyn PhysicalExpr> =
+                                    Arc::new(Column::new(col.name(), new_idx));
+                                return Ok(Transformed::new(
+                                    replacement,
+                                    true,
+                                    TreeNodeRecursion::Jump,
+                                ));
+                            }
+                            Ok(Transformed::no(node))
+                        })?
+                        .data;
+                    if !all_found {
+                        return internal_err!(
+                            "RankJoinExec::with_projection: output sort expression references column not in projection"
+                        );
+                    }
+                    remapped_output.push(PhysicalSortExpr {
+                        expr,
+                        options: sort_expr.options,
+                    });
+                }
+                let ordering = LexOrdering::new(remapped_output).ok_or_else(|| {
+                    DataFusionError::Internal("RankJoinExec: empty output ordering".into())
+                })?;
+                (Some(combined), ordering)
+            }
+            (existing, None) => (existing.clone(), self.sort_exprs.output.clone()),
+        };
+
+        Self::try_new_with_lookup_filters(
+            self.inputs.clone(),
+            self.on.clone(),
+            self.filter.clone(),
+            combined_projection,
+            self.mode,
+            RankJoinSortExprs {
+                left: self.sort_exprs.left.clone(),
+                right: self.sort_exprs.right.clone(),
+                output: new_output_ordering,
+            },
+            self.combiner.clone(),
+            Arc::clone(&self.left_lookup_filter),
+            Arc::clone(&self.right_lookup_filter),
+            self.parent_lookup_filters.clone(),
+        )
     }
 
     /// Attempts to remap a filter expression from `self.schema()` coordinates into the schema
@@ -855,6 +940,12 @@ impl RankJoinExec {
     }
 }
 
+impl EmbeddedProjection for RankJoinExec {
+    fn with_projection(&self, projection: Option<Vec<usize>>) -> Result<Self> {
+        self.with_projection(projection)
+    }
+}
+
 impl DisplayAs for RankJoinExec {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         match t {
@@ -1022,6 +1113,30 @@ impl ExecutionPlan for RankJoinExec {
             Arc::clone(&self.right_lookup_filter),
             self.parent_lookup_filters.clone(),
         )?))
+    }
+
+    fn try_swapping_with_projection(
+        &self,
+        projection: &ProjectionExec,
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+        let mut projected_cols = HashSet::default();
+        for proj_expr in projection.expr() {
+            let _ = proj_expr.expr.apply(|expr| {
+                if let Some(col) = expr.downcast_ref::<Column>() {
+                    projected_cols.insert(col.index());
+                }
+                Ok(TreeNodeRecursion::Continue)
+            });
+        }
+        let all_sort_cols_present = self.sort_exprs.output.iter().all(|sort_expr| {
+            collect_columns(&sort_expr.expr)
+                .iter()
+                .all(|col| projected_cols.contains(&col.index()))
+        });
+        if !all_sort_cols_present {
+            return Ok(None);
+        }
+        try_embed_projection(projection, self)
     }
 
     fn gather_filters_for_pushdown(

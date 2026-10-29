@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793238745489,
+  "lastUpdate": 1793238921397,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -475934,6 +475934,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12852269171-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793238872800,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.55813239138271,
+            "unit": "median tps",
+            "extra": "avg tps: 57.87877098304472, max tps: 537.5860550297906, count: 58737"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.26511870484836,
+            "unit": "median tps",
+            "extra": "avg tps: 32.063313560499125, max tps: 369.0542414910647, count: 58737"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.58497045177307,
+            "unit": "median tps",
+            "extra": "avg tps: 133.0694029767841, max tps: 1192.0519087518321, count: 58737"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.52593090118165,
+            "unit": "median tps",
+            "extra": "avg tps: 31.371669320592844, max tps: 283.03713036279976, count: 58737"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.931497469830234,
+            "unit": "median tps",
+            "extra": "avg tps: 60.95652675457827, max tps: 571.1150225445821, count: 58737"
+          }
+        ],
+        "publication_id": "12861561211-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [

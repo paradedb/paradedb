@@ -95,41 +95,6 @@ SELECT permission_access.assert_denied(ARRAY[
 RESET ROLE;
 SELECT count(*) AS owner_maintenance FROM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
 
--- Maintenance follows REINDEX: MAINTAIN from PostgreSQL 17, ownership before.
--- Version-dependent grants share one expected output across supported releases.
-CREATE ROLE permission_access_maintainer NOSUPERUSER NOBYPASSRLS INHERIT;
-CREATE ROLE permission_access_table_maintainer NOSUPERUSER NOBYPASSRLS;
-GRANT USAGE ON SCHEMA permission_access TO permission_access_maintainer, permission_access_table_maintainer;
-SELECT current_setting('server_version_num')::int >= 170000 AS maintain_privilege_exists \gset
-\if :maintain_privilege_exists
-GRANT pg_maintain TO permission_access_maintainer;
-GRANT MAINTAIN ON permission_access.docs TO permission_access_table_maintainer;
-\endif
-CREATE FUNCTION permission_access.try_maintain() RETURNS boolean
-LANGUAGE plpgsql SECURITY INVOKER AS $$
-BEGIN
-  PERFORM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
-  RETURN true;
-EXCEPTION WHEN insufficient_privilege THEN RETURN false;
-END $$;
-SET ROLE permission_access_maintainer;
-SELECT permission_access.try_maintain() = :'maintain_privilege_exists'::boolean AS pg_maintain_member_follows_reindex;
-SELECT permission_access.assert_denied(permission_access.read_queries()) AS maintainer_read_denials;
-RESET ROLE;
-SET ROLE permission_access_table_maintainer;
-SELECT permission_access.try_maintain() = :'maintain_privilege_exists'::boolean AS table_maintain_grant_follows_reindex;
-RESET ROLE;
-\if :maintain_privilege_exists
-REVOKE pg_maintain FROM permission_access_maintainer;
-REVOKE MAINTAIN ON permission_access.docs FROM permission_access_table_maintainer;
-\endif
-SET ROLE permission_access_maintainer;
-SELECT NOT permission_access.try_maintain() AS revoked_role_denies_maintenance;
-RESET ROLE;
-SET ROLE permission_access_table_maintainer;
-SELECT NOT permission_access.try_maintain() AS revoked_table_grant_denies_maintenance;
-RESET ROLE;
-
 REVOKE USAGE ON SCHEMA permission_access FROM permission_access_reader;
 SET ROLE permission_access_reader;
 -- Numeric regclass avoids schema name resolution: denial must come from access policy.

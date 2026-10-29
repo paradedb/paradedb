@@ -59,9 +59,9 @@ fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnecti
         CREATE ROLE {owner} NOSUPERUSER NOBYPASSRLS;
         CREATE ROLE {caller} NOSUPERUSER NOBYPASSRLS INHERIT;
         CREATE SCHEMA index_maintenance;
-        CREATE TABLE index_maintenance.docs(id integer);
-        INSERT INTO index_maintenance.docs VALUES (1);
-        CREATE INDEX docs_idx ON index_maintenance.docs USING paradedb (id);
+        CREATE TABLE index_maintenance.docs(id integer, email text);
+        INSERT INTO index_maintenance.docs VALUES (1, 'private@example.com');
+        CREATE INDEX docs_idx ON index_maintenance.docs USING paradedb (id, (email::pdb.literal));
         ALTER TABLE index_maintenance.docs OWNER TO {owner};
         GRANT USAGE ON SCHEMA index_maintenance TO {owner}, {caller};"
     )
@@ -72,14 +72,35 @@ fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnecti
         "SELECT count(*) FROM paradedb.merge_lock_garbage_collect('index_maintenance.docs_idx')";
 
     // Permission errors abort a transaction; savepoints keep each probe independent.
-    let denied = |conn: &mut PgConnection| {
+    let denied = |conn: &mut PgConnection, query: &str| {
         "SAVEPOINT maintenance_denied".execute(conn);
-        assert_denied(conn, &[query.into()]);
+        let error = query.execute_result(conn).expect_err(query);
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|err| err.code())
+                .as_deref(),
+            Some("42501"),
+            "{query}: {error}"
+        );
         "ROLLBACK TO SAVEPOINT maintenance_denied; RELEASE SAVEPOINT maintenance_denied"
             .execute(conn);
+        error
+    };
+    let cannot_read = |conn: &mut PgConnection| {
+        for query in direct_reads("'index_maintenance.docs_idx'") {
+            let error = denied(conn, &query);
+            // Require the table ACL error: an RLS rejection must not mask a
+            // missing SELECT check while this fixture has FORCE RLS enabled.
+            assert_eq!(
+                error.as_database_error().unwrap().message(),
+                "permission denied for table docs",
+                "{query}: {error}"
+            );
+        }
     };
     format!("SET ROLE {caller}").execute(&mut conn);
-    denied(&mut conn);
+    denied(&mut conn, query);
     "RESET ROLE".execute(&mut conn);
 
     // Reading data or monitoring an index does not authorize its maintenance.
@@ -88,7 +109,7 @@ fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnecti
         GRANT pg_monitor TO {caller}; SET ROLE {caller}"
     )
     .execute(&mut conn);
-    denied(&mut conn);
+    denied(&mut conn, query);
     format!(
         "RESET ROLE; REVOKE SELECT ON index_maintenance.docs FROM {caller};
         REVOKE pg_monitor FROM {caller}"
@@ -115,11 +136,12 @@ fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnecti
         query
             .execute_result(&mut conn)
             .expect("table-level MAINTAIN must authorize index maintenance");
+        cannot_read(&mut conn);
         format!(
             "RESET ROLE; REVOKE MAINTAIN ON index_maintenance.docs FROM {caller}; SET ROLE {caller}"
         )
         .execute(&mut conn);
-        denied(&mut conn);
+        denied(&mut conn, query);
         "RESET ROLE".execute(&mut conn);
 
         // Cloud operators inherit pg_maintain without owning customer tables.
@@ -131,9 +153,10 @@ fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnecti
         query
             .execute_result(&mut conn)
             .expect("inherited pg_maintain must authorize index maintenance");
+        cannot_read(&mut conn);
         format!("RESET ROLE; REVOKE pg_maintain FROM {caller}; SET ROLE {caller}")
             .execute(&mut conn);
-        denied(&mut conn);
+        denied(&mut conn, query);
         "RESET ROLE".execute(&mut conn);
     }
     // The entire fixture, including its cluster-wide roles, is transactional.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793315888756,
+  "lastUpdate": 1793318222459,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20204,6 +20204,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12938000195-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e40d419ae523a238df14f186490da6e3f2182c91",
+          "message": "fix: detach worker queues before destroying parallel context (#7106)\n\nWhen a parallel aggregate cannot launch workers inside a parallel\nInitPlan with leader participation disabled, the fallback destroys the\nparallel context before dropping its message-queue handles. Their\ncleanup can then access unmapped shared memory and crash the backend.\n\nDrop the launcher and its queue handles before destroying the context,\nmatching the successful completion path. Add a SQL regression that\nasserts a parallel InitPlan/aggregate plan and checks five correct query\nresults under a one-worker limit.\n\nValidation: on an isolated Linux PostgreSQL 18.6 runner, the identical\nSQL regression crashes unpatched main `d3d439e68` on its first count\nquery (backend terminated by signal 11 / segmentation fault). With only\nthe cleanup-order fix applied, all three repetitions pass, each checking\nfive count results. [Control run and\nevidence](https://github.com/paradedb/paradedb/actions/runs/40962987145).\n\nStrict workspace/all-target Clippy, workspace check, docs with warnings\ndenied, formatting, and applicable commit hooks also passed. No\nworker-limit or sweep changes are included.",
+          "timestamp": "2026-10-29T15:41:01-07:00",
+          "tree_id": "eac5c58b446da2710b857b391d2573f070ed2bbe",
+          "url": "https://github.com/paradedb/paradedb/commit/e40d419ae523a238df14f186490da6e3f2182c91"
+        },
+        "date": 1793318221731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.06,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 94.068,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 326.82,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.372,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.629,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 186.414,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.157,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 146.608,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 208.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.297,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.116,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.63,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 182.104,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12943130667-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -42229,6 +42329,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12938000195-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e40d419ae523a238df14f186490da6e3f2182c91",
+          "message": "fix: detach worker queues before destroying parallel context (#7106)\n\nWhen a parallel aggregate cannot launch workers inside a parallel\nInitPlan with leader participation disabled, the fallback destroys the\nparallel context before dropping its message-queue handles. Their\ncleanup can then access unmapped shared memory and crash the backend.\n\nDrop the launcher and its queue handles before destroying the context,\nmatching the successful completion path. Add a SQL regression that\nasserts a parallel InitPlan/aggregate plan and checks five correct query\nresults under a one-worker limit.\n\nValidation: on an isolated Linux PostgreSQL 18.6 runner, the identical\nSQL regression crashes unpatched main `d3d439e68` on its first count\nquery (backend terminated by signal 11 / segmentation fault). With only\nthe cleanup-order fix applied, all three repetitions pass, each checking\nfive count results. [Control run and\nevidence](https://github.com/paradedb/paradedb/actions/runs/40962987145).\n\nStrict workspace/all-target Clippy, workspace check, docs with warnings\ndenied, formatting, and applicable commit hooks also passed. No\nworker-limit or sweep changes are included.",
+          "timestamp": "2026-10-29T15:41:01-07:00",
+          "tree_id": "eac5c58b446da2710b857b391d2573f070ed2bbe",
+          "url": "https://github.com/paradedb/paradedb/commit/e40d419ae523a238df14f186490da6e3f2182c91"
+        },
+        "date": 1793318222451,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.308187970194137,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.795725586343536,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.85848675102646,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.119507638039256,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.85104902694777,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12943130667-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

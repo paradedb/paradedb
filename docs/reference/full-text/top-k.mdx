@@ -81,9 +81,10 @@ await dbContext
 In order for a Top K query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
 
 1. All `ORDER BY` fields must be indexed. If they are text fields, they [must use the literal tokenizer](#sorting-by-text).
-2. At least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT`.
+2. At least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT`. A search inside a subquery such as `IN (...)` does not count. See [searching in subqueries](#searching-in-subqueries).
 3. The query must have a `LIMIT`.
-4. With the exception of `lower`, ordering by expressions is not supported -- only the raw fields themselves.
+4. With the exception of `lower`, ordering by expressions is not supported -- only the raw fields themselves. See [sorting by computed values](#sorting-by-computed-values) for workarounds.
+5. Text `ORDER BY` fields must use a byte-ordered [collation](#collation), such as `C`.
 
 To verify that ParadeDB is executing the Top K, look for a `Custom Scan` with a `TopKScanExecState` in the `EXPLAIN` output:
 
@@ -120,6 +121,7 @@ If any of the above conditions are not met, the query cannot be fully optimized 
 To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`.
 
 This is particularly important when sorting by `pdb.score(...)`, as equal scores can result in non-deterministic orderings. As noted above, all tiebreaker columns must be indexed to receive the Top K optimization.
+A text tiebreaker, such as a string ID, must also use a byte-ordered [collation](#collation). Prefer an integer tiebreaker where one is available.
 
 <CodeGroup>
 ```sql SQL
@@ -201,6 +203,8 @@ If a text field is present in the `ORDER BY` clause, it must be indexed with the
 
 Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field>)` must be indexed
 with either the literal or literal normalized tokenizer. See [indexing expressions](/reference/indexing/indexing-expressions) for more information.
+
+Text sorts also depend on the column's [collation](#collation).
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -327,3 +331,271 @@ WHERE description ||| 'sleek running shoes'
 ORDER BY (metadata->>'weight')::int
 LIMIT 5;
 ```
+
+## Collation
+
+ParadeDB sorts text by its raw bytes, so a text `ORDER BY` field only receives the Top K optimization if its collation also sorts by bytes.
+The `C` and `POSIX` collations, their `.UTF-8` variants, and the `builtin` provider on Postgres 17+ qualify.
+ICU collations and libc locales such as `en_US.UTF-8` do not.
+
+If your database's default collation is not byte-ordered, add `COLLATE "C"` to text `ORDER BY` fields:
+
+```sql
+EXPLAIN (COSTS OFF)
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY lower(description) COLLATE "C"
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                   QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: literal_description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+```
+</Accordion>
+
+With a collation that is not byte-ordered, Postgres sorts the results itself instead, and ParadeDB emits a warning:
+
+```sql
+EXPLAIN (COSTS OFF)
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY lower(description) COLLATE "und-x-icu"
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
+                                                                                                      QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((lower(description))::text) COLLATE "und-x-icu"
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: search_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+```
+</Accordion>
+
+<Note>
+  `COLLATE "C"` can change the order of results compared to a linguistic
+  collation. For example, uppercase letters sort before lowercase letters.
+</Note>
+
+## Sorting by Computed Values
+
+Because ordering by expressions is not supported, `ORDER BY` clauses built on `CASE` do not receive the Top K optimization. For example, this query lists in-stock items first:
+
+```sql
+SELECT id, description, rating, in_stock
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY CASE WHEN in_stock THEN 0 ELSE 1 END, rating DESC, id
+LIMIT 5;
+```
+
+There are two ways to keep the Top K optimization:
+
+1. Store the computed value in its own column, add that column to the index, and sort by it.
+2. If the expression has only a few possible values, run one Top K query per value and merge the results.
+
+The second approach looks like this:
+
+```sql
+EXPLAIN (COSTS OFF)
+SELECT * FROM (
+  (SELECT id, description, rating, in_stock
+   FROM mock_items
+   WHERE description ||| 'shoes' AND in_stock = true
+   ORDER BY rating DESC, id
+   LIMIT 5)
+  UNION ALL
+  (SELECT id, description, rating, in_stock
+   FROM mock_items
+   WHERE description ||| 'shoes' AND in_stock = false
+   ORDER BY rating DESC, id
+   LIMIT 5)
+) t
+ORDER BY in_stock DESC, rating DESC, id
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                                                          QUERY PLAN
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: mock_items.in_stock DESC, mock_items.rating DESC, mock_items.id
+         ->  Append
+               ->  Limit
+                     ->  Custom Scan (ParadeDB Base Scan) on mock_items
+                           Table: mock_items
+                           Index: search_idx
+                           Exec Method: TopKScanExecState
+                           Scores: false
+                              TopK Order By: rating desc, id asc
+                              TopK Limit: 5
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"in_stock","value":true}}]}}
+               ->  Limit
+                     ->  Custom Scan (ParadeDB Base Scan) on mock_items mock_items_1
+                           Table: mock_items
+                           Index: search_idx
+                           Exec Method: TopKScanExecState
+                           Scores: false
+                              TopK Order By: rating desc, id asc
+                              TopK Limit: 5
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"in_stock","value":false}}]}}
+(22 rows)
+```
+</Accordion>
+
+Each branch is a Top K query, so the outer sort only sees at most 10 rows.
+This returns the same rows as the `CASE` version as long as every row falls into exactly one branch.
+If `in_stock` can be `NULL`, add a third branch for `in_stock IS NULL`.
+
+## Searching in Subqueries
+
+Top K requires the search, `ORDER BY`, and `LIMIT` to be at the same level of the query.
+A common way to miss this is to run one search per field in a subquery and sort the combined results outside of it:
+
+```sql
+EXPLAIN (COSTS OFF)
+SELECT id, description, rating
+FROM mock_items
+WHERE id IN (
+  SELECT id FROM mock_items WHERE description ||| 'shoes'
+  UNION ALL
+  SELECT id FROM mock_items WHERE category ||| 'footwear'
+)
+ORDER BY rating DESC, id
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                           QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: mock_items.rating DESC, mock_items.id
+         ->  Hash Semi Join
+               Hash Cond: (mock_items.id = mock_items_1.id)
+               ->  Seq Scan on mock_items
+               ->  Hash
+                     ->  Append
+                           ->  Custom Scan (ParadeDB Base Scan) on mock_items mock_items_1
+                                 Table: mock_items
+                                 Index: search_idx
+                                 Exec Method: ColumnarExecState
+                                 Columnar: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                           ->  Custom Scan (ParadeDB Base Scan) on mock_items mock_items_2
+                                 Table: mock_items
+                                 Index: search_idx
+                                 Exec Method: ColumnarExecState
+                                 Columnar: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"category","value":"footwear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(22 rows)
+```
+</Accordion>
+
+The searches have no `LIMIT` of their own, so each one returns every matching row, shown as `ColumnarExecState` instead of `TopKScanExecState`.
+Postgres then joins all of those rows and sorts them to keep five, so the cost grows with the number of matches rather than with the `LIMIT`.
+
+Instead, combine the fields with `OR` in a single query:
+
+```sql
+EXPLAIN (COSTS OFF)
+SELECT id, description, rating
+FROM mock_items
+WHERE description ||| 'shoes' OR category ||| 'footwear'
+ORDER BY rating DESC, id
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                                                                                                                    QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: rating desc, id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"category","value":"footwear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(9 rows)
+```
+</Accordion>
+
+### Joining After the Top K
+
+When the query also joins other tables, ParadeDB can often execute the whole join with [join pushdown](/reference/joins/overview).
+If join pushdown does not apply, for example because one of the tables has no ParadeDB index, run the Top K first in a CTE or subquery and join only the rows it returns:
+
+```sql
+EXPLAIN (COSTS OFF)
+WITH top_orders AS (
+  SELECT order_id, product_id, order_total
+  FROM orders
+  WHERE customer_name ||| 'john'
+  ORDER BY order_total DESC, order_id
+  LIMIT 5
+)
+SELECT t.order_id, t.order_total, m.description
+FROM top_orders t
+JOIN mock_items m ON m.id = t.product_id
+ORDER BY t.order_total DESC, t.order_id;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                            QUERY PLAN
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: t.order_total DESC, t.order_id
+   ->  Hash Join
+         Hash Cond: (m.id = t.product_id)
+         ->  Seq Scan on mock_items m
+         ->  Hash
+               ->  Subquery Scan on t
+                     ->  Limit
+                           ->  Custom Scan (ParadeDB Base Scan) on orders
+                                 Table: orders
+                                 Index: orders_idx
+                                 Exec Method: TopKScanExecState
+                                 Scores: false
+                                    TopK Order By: order_total desc, order_id asc
+                                    TopK Limit: 5
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"customer_name","value":"john","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+```
+</Accordion>
+
+This returns the same rows as applying the `LIMIT` after the join only if the join neither removes nor duplicates search results.
+Here, every order matches exactly one product, because `product_id` is `NOT NULL` and has a foreign key to `mock_items`.
+If a join can drop rows or return several rows per search result, the limited CTE can return fewer or different rows.
+For pagination with `OFFSET n`, the inner `LIMIT` must be `n` plus the page size.

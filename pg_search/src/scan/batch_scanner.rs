@@ -426,6 +426,9 @@ impl Scanner {
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+        if self.batch_size == 0 {
+            return None;
+        }
         let can_pushdown = self.can_pushdown_score_threshold();
         // Collect a batch of ids for a single segment.
         loop {
@@ -436,9 +439,22 @@ impl Scanner {
                 self.score_threshold_pushed = true;
             }
 
+            let Some((first_score, first_id)) = scorer_iter.next() else {
+                // This segment was completely empty or exhausted: remove it and move to the next.
+                self.search_results.current_segment_pop();
+                continue;
+            };
+            debug_assert_eq!(first_id.segment_ord, segment_ord);
+
             // Collect a batch of ids/scores for this segment.
-            let mut scores = Vec::with_capacity(self.batch_size);
-            let mut ids = Vec::with_capacity(self.batch_size);
+            let cap = self
+                .batch_size
+                .min(scorer_iter.remaining_docs_upper_bound(first_id.doc_id));
+            let mut scores = Vec::with_capacity(cap);
+            let mut ids = Vec::with_capacity(cap);
+            scores.push(first_score);
+            ids.push(first_id.doc_id);
+
             while ids.len() < self.batch_size {
                 let Some((score, id)) = scorer_iter.next() else {
                     // No more results for the current segment: remove it.
@@ -449,11 +465,6 @@ impl Scanner {
                 debug_assert_eq!(id.segment_ord, segment_ord);
                 scores.push(score);
                 ids.push(id.doc_id);
-            }
-
-            if ids.is_empty() {
-                // This segment was completely empty: move to the next.
-                continue;
             }
 
             return Some((segment_ord, scores, ids));
@@ -515,7 +526,9 @@ impl Scanner {
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
-        pgrx::check_for_interrupts!();
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return None;
+        }
         let (segment_ord, scores, ids) = self.try_get_batch_ids()?;
         Some(self.materialize_segment_batch(
             segment_ord,
@@ -545,7 +558,9 @@ impl Scanner {
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
         schema: &SchemaRef,
     ) -> Option<RecordBatch> {
-        pgrx::check_for_interrupts!();
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return None;
+        }
         if results.is_empty() {
             return None;
         }

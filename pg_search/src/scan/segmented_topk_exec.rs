@@ -471,13 +471,15 @@ impl ExecutionPlan for SegmentedTopKExec {
 
         let row_converter = RowConverter::new(sort_fields)?;
 
-        let mat_row_converter = Self::create_mat_row_converter(
-            &self.sort_exprs,
-            &self.deferred_columns,
-            &self.ffhelper,
-            &input_schema,
-        )?;
-        let mut state = SegmentedTopKState {
+        let mat_row_converter = crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+            Self::create_mat_row_converter(
+                &self.sort_exprs,
+                &self.deferred_columns,
+                &self.ffhelper,
+                &input_schema,
+            )
+        })?;
+        let mut state = crate::postgres::customscan::mpp::MainThread::new(SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),
             ffhelper: Arc::clone(&self.ffhelper),
@@ -498,32 +500,41 @@ impl ExecutionPlan for SegmentedTopKExec {
             pass_through_scratch: Vec::new(),
             row_to_seg_scratch: Vec::new(),
             sort_arrays_scratch: Vec::with_capacity(self.sort_exprs.len()),
-        };
+        });
 
         let stream_gen = async_stream::try_stream! {
             use futures::StreamExt;
             while let Some(batch_res) = input_stream.next().await {
                 let batch = batch_res?;
-                state.rows_input.add(batch.num_rows());
-
-                // Store the batch BEFORE collecting. Cloning a RecordBatch only bumps the
-                // column Arcs.
-                let batch_idx = state.batches.len();
-                state.batches.push(batch);
-                let batch = state.batches[batch_idx].clone();
-                state.collect_batch(&batch, batch_idx)?;
-                state.maybe_compact()?;
+                crate::postgres::customscan::mpp::try_run_on_main_thread(|token| -> Result<()> {
+                    let state = state.get_mut(token);
+                    state.rows_input.add(batch.num_rows());
+                    let batch_idx = state.batches.len();
+                    state.batches.push(batch.clone());
+                    state.collect_batch(&batch, batch_idx)?;
+                    state.maybe_compact()
+                })?;
             }
 
             // All input consumed — perform final sort + limit and emit exactly K rows.
-            let final_batch = state.emit_final_topk()?;
+            let final_batch = crate::postgres::customscan::mpp::try_run_on_main_thread(
+                |token| -> Result<Option<RecordBatch>> {
+                    let state = state.get_mut(token);
+                    let batch = state.emit_final_topk()?;
+                    if let Some(ref b) = batch {
+                        state.rows_output.add(b.num_rows());
+                    }
+                    Ok(batch)
+                },
+            )?;
             if let Some(batch) = final_batch {
-                state.rows_output.add(batch.num_rows());
                 yield batch;
             }
         };
 
-        // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres.
+        // SAFETY: all `FFHelper` accesses inside `stream_gen` run on the Postgres main thread via
+        // `run_on_main_thread`, and `UnsafeSendStream` drops the inner stream on the main thread
+        // via `drop_on_main_thread`.
         let stream = unsafe {
             UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
@@ -1655,9 +1666,8 @@ mod tests {
             let task_ctx = Arc::new(TaskContext::default());
             let mut stream = topk_exec.execute(0, task_ctx).unwrap();
 
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
+            let runtime =
+                crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
             let mut result_ids = vec![];
 

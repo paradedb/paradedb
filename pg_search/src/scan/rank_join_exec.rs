@@ -1832,8 +1832,12 @@ impl RankedInputCursor {
     }
 
     fn scale_ra_batch_size(&mut self) {
-        let retry_scale = (crate::gucs::topk_retry_scale_factor() as usize).max(2);
-        let max_chunk = (crate::gucs::max_topk_chunk_size() as usize).max(RA_INITIAL_BATCH_SIZE);
+        let (retry_scale, max_chunk) = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            (
+                (crate::gucs::topk_retry_scale_factor() as usize).max(2),
+                (crate::gucs::max_topk_chunk_size() as usize).max(RA_INITIAL_BATCH_SIZE),
+            )
+        });
         self.ra_batch_size = (self.ra_batch_size * retry_scale).min(max_chunk);
     }
 

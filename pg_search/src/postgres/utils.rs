@@ -61,11 +61,17 @@ pub(crate) fn vacuum_delay_point() {
     }
 }
 
-/// Implements Drop that skips cleanup during panic unwinding or process exit.
+/// Implements `Drop` for a Postgres resource that must be cleaned up on the Postgres main thread,
+/// skipping cleanup during panic unwinding or process exit.
 ///
-/// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
-/// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
-/// which results in SIGABRT. This macro ensures cleanup is skipped during unwinding.
+/// Because panics on the Postgres main thread are used to propagate PostgreSQL errors via pgrx, it
+/// is almost never safe to interact with PostgreSQL APIs during panic unwinding - doing so can
+/// cause a double-panic which results in SIGABRT. This macro also enforces that the destructor runs
+/// on the Postgres main thread (printing via `eprintln!` so an off-main-thread drop during
+/// unwinding never double-panics, panicking in debug builds when not unwinding, and skipping the
+/// body in release builds). Types that can be dropped on background threads must wrap their inner
+/// Postgres resource in `crate::postgres::customscan::mpp::MainThread` or forward their cleanup
+/// payload via `crate::postgres::customscan::mpp::drop_on_main_thread` from a plain `impl Drop`.
 ///
 /// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
 /// when the transaction is aborted due to the error.
@@ -93,6 +99,20 @@ macro_rules! impl_safe_drop {
     ([$($generics:tt)*] $ty:ty, |$self:ident| $body:block) => {
         impl<$($generics)*> Drop for $ty {
             fn drop(&mut $self) {
+                if !$crate::postgres::customscan::mpp::interrupt::is_main_thread() {
+                    eprintln!(
+                        "BUG: Drop for {} ran off the Postgres main thread",
+                        stringify!($ty)
+                    );
+                    #[cfg(debug_assertions)]
+                    if !std::thread::panicking() {
+                        panic!(
+                            "BUG: Drop for {} ran off the Postgres main thread",
+                            stringify!($ty)
+                        );
+                    }
+                    return;
+                }
                 if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
                 }
@@ -188,12 +208,6 @@ pub(crate) fn proc_exit_in_progress() -> bool {
 #[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
 
-// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
-// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
-// these are never actually shared across threads in our PostgreSQL context.
-unsafe impl Send for ExprContextGuard {}
-unsafe impl Sync for ExprContextGuard {}
-
 impl ExprContextGuard {
     /// Creates a new standalone expression context
     pub fn new() -> Self {
@@ -208,8 +222,9 @@ impl ExprContextGuard {
 
 impl_safe_drop!(ExprContextGuard, |self| {
     unsafe {
-        let is_commit = pg_sys::IsTransactionState();
-        pg_sys::FreeExprContext(self.0, is_commit);
+        if IsTransactionState() && !self.0.is_null() {
+            pg_sys::FreeExprContext(self.0, true);
+        }
     }
 });
 

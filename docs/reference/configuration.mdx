@@ -89,8 +89,7 @@ These settings control ParadeDB's parallel execution and MPP paths.
 | ----------------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------- |
 | `paradedb.min_rows_per_worker`      | `300000` | user    | Minimum estimated rows per parallel worker. Set to `0` to use segment-based parallelism only.         |
 | `paradedb.mpp_min_rows`             | `500000` | user    | Minimum estimated source row count before MPP execution can engage. Set to `0` to disable the gate.   |
-| `paradedb.mpp_queue_size`           | `8MB`    | user    | Per-inbox ring size for MPP shuffles. Accepts Postgres byte units.                                    |
-| `paradedb.mpp_request_timeout`      | `300s`   | user    | Maximum time an MPP worker fragment waits for another partition request. Set to `0` to disable.       |
+| `paradedb.mpp_queue_size`           | `8MB`    | user    | Queue size budget used to derive each DSM SPSC ring's capacity (`1MB` per ring at default).           |
 | `paradedb.mpp_debug`                | `off`    | user    | Emits verbose MPP runtime diagnostics to the Postgres server log.                                     |
 | `paradedb.mpp_trace`                | `off`    | user    | Emits MPP setup timing diagnostics to the Postgres server log.                                        |
 | `paradedb.mpp_test_panic_in_worker` | `off`    | user    | Debug-build testing hook that intentionally panics in an MPP worker. Not available in release builds. |

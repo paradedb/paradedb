@@ -28,8 +28,6 @@ use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods, init_new_buffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 
-use std::cell::UnsafeCell;
-
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::{check_for_interrupts, pg_sys};
@@ -46,26 +44,22 @@ struct CacheEntry {
     block_bytes: OwnedBytes,
 }
 
-/// UnsafeCell-based cache. SAFETY: Postgres backends are single-threaded.
-struct UnsafeCache<T>(UnsafeCell<VecDeque<T>>);
-unsafe impl<T> Send for UnsafeCache<T> {}
-unsafe impl<T> Sync for UnsafeCache<T> {}
+struct BlockCache<T>(Mutex<VecDeque<T>>);
 
-impl<T> std::fmt::Debug for UnsafeCache<T> {
+impl<T> std::fmt::Debug for BlockCache<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("UnsafeCache(..)")
+        f.write_str("BlockCache(..)")
     }
 }
 
-impl<T> UnsafeCache<T> {
+impl<T> BlockCache<T> {
     fn new() -> Self {
-        Self(UnsafeCell::new(VecDeque::with_capacity(BLOCK_CACHE_SIZE)))
+        Self(Mutex::new(VecDeque::with_capacity(BLOCK_CACHE_SIZE)))
     }
 
     #[inline(always)]
-    #[allow(clippy::mut_from_ref)] // SAFETY: Postgres backends are single-threaded.
-    unsafe fn get(&self) -> &mut VecDeque<T> {
-        &mut *self.0.get()
+    fn lock(&self) -> parking_lot::MutexGuard<'_, VecDeque<T>> {
+        self.0.lock()
     }
 }
 
@@ -118,7 +112,7 @@ pub struct LinkedBytesList {
     metadata: OnceLock<ComponentMetadata>,
     last_block_ord: Option<usize>,
     blocklist_reader: OnceLock<Mutex<blocklist::reader::BlockList>>,
-    cache: UnsafeCache<CacheEntry>,
+    cache: BlockCache<CacheEntry>,
 }
 
 pub struct LinkedBytesListWriter {
@@ -282,7 +276,7 @@ impl LinkedBytesList {
             metadata: Default::default(),
             last_block_ord: None,
             blocklist_reader: Default::default(),
-            cache: UnsafeCache::new(),
+            cache: BlockCache::new(),
         }
     }
 
@@ -339,7 +333,7 @@ impl LinkedBytesList {
             metadata: Default::default(),
             last_block_ord: None,
             blocklist_reader: Default::default(),
-            cache: UnsafeCache::new(),
+            cache: BlockCache::new(),
         }
     }
 
@@ -438,32 +432,45 @@ impl LinkedBytesList {
         let block_ord = offset / ITEM_SIZE;
         let local_offset = offset % ITEM_SIZE;
 
-        // SAFETY: Postgres backends are single-threaded.
-        let cache = self.cache.get();
-        // Redundant with rposition below, but ~0.2ms faster under saturation
-        // because it avoids the closure + iterator overhead on the hot path.
-        if let Some(last) = cache.back()
-            && last.block_ord == block_ord
         {
-            return last.block_bytes[local_offset];
-        }
-        if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
-            return cache[pos].block_bytes[local_offset];
+            let cache = self.cache.lock();
+            // Redundant with rposition below, but ~0.2ms faster under saturation
+            // because it avoids the closure + iterator overhead on the hot path.
+            if let Some(last) = cache.back()
+                && last.block_ord == block_ord
+            {
+                return last.block_bytes[local_offset];
+            }
+            if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
+                return cache[pos].block_bytes[local_offset];
+            }
         }
 
-        // Cache miss: read the block, cache it, return the byte.
-        let blockno = self.block_for_ord(block_ord).expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        // Cache miss: read the block on the Postgres main thread, cache it, return the byte.
+        let block_bytes = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            let blockno = self.block_for_ord(block_ord).expect("block not found");
+            let buffer = self.bman.get_buffer(blockno);
+            OwnedBytes::new(buffer.into_immutable_page())
+        });
         let byte = block_bytes[local_offset];
 
-        if cache.len() >= BLOCK_CACHE_SIZE {
-            cache.pop_front();
-        }
-        cache.push_back(CacheEntry {
-            block_ord,
-            block_bytes,
-        });
+        let _evicted = {
+            let mut cache = self.cache.lock();
+            if !cache.iter().any(|e| e.block_ord == block_ord) {
+                let evicted = if cache.len() >= BLOCK_CACHE_SIZE {
+                    cache.pop_front()
+                } else {
+                    None
+                };
+                cache.push_back(CacheEntry {
+                    block_ord,
+                    block_bytes,
+                });
+                evicted
+            } else {
+                None
+            }
+        };
 
         byte
     }
@@ -509,30 +516,43 @@ impl LinkedBytesList {
     }
 
     unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
-        // SAFETY: Postgres backends are single-threaded.
-        let cache = self.cache.get();
-        if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
-            // Cache hit: Arc clone, and promote to the back (LRU).
-            let entry = cache.remove(pos).unwrap();
-            let block_bytes = entry.block_bytes.clone();
-            cache.push_back(entry);
-            return block_bytes;
+        {
+            let mut cache = self.cache.lock();
+            if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
+                // Cache hit: Arc clone, and promote to the back (LRU).
+                let entry = cache.remove(pos).unwrap();
+                let block_bytes = entry.block_bytes.clone();
+                cache.push_back(entry);
+                return block_bytes;
+            }
         }
 
-        // Cache miss: read the block.
-        let blockno = self
-            .block_for_ord(start_block_ord)
-            .expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
-
-        if cache.len() >= BLOCK_CACHE_SIZE {
-            cache.pop_front();
-        }
-        cache.push_back(CacheEntry {
-            block_ord: start_block_ord,
-            block_bytes: block_bytes.clone(),
+        // Cache miss: read the block on the Postgres main thread.
+        let block_bytes = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            let blockno = self
+                .block_for_ord(start_block_ord)
+                .expect("block not found");
+            let buffer = self.bman.get_buffer(blockno);
+            OwnedBytes::new(buffer.into_immutable_page())
         });
+
+        let _evicted = {
+            let mut cache = self.cache.lock();
+            if !cache.iter().any(|e| e.block_ord == start_block_ord) {
+                let evicted = if cache.len() >= BLOCK_CACHE_SIZE {
+                    cache.pop_front()
+                } else {
+                    None
+                };
+                cache.push_back(CacheEntry {
+                    block_ord: start_block_ord,
+                    block_bytes: block_bytes.clone(),
+                });
+                evicted
+            } else {
+                None
+            }
+        };
 
         block_bytes
     }

@@ -52,15 +52,16 @@ use crate::postgres::customscan::datafusion::explain::{
 };
 use datafusion::physical_plan::ExecutionPlan;
 
-use datafusion_distributed::{DistributedExt, DistributedTaskContext};
+use datafusion_distributed::DistributedTaskContext;
 
-use datafusion_distributed::shm::MppMesh;
-
-use crate::postgres::customscan::mpp::glue::{query_allows_parallel_mode, warn_if_spilled};
-use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::glue::{
+    finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
+    warn_if_spilled,
+};
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
-use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
+use crate::postgres::customscan::mpp::worker::{DsmGrpcChannelResolver, MppMetricsCollection};
 
 use crate::PARAMETERIZED_SELECTIVITY;
 use crate::api::{MvccVisibility, SortDirection, agg_funcoid};
@@ -1077,9 +1078,9 @@ impl CustomScan for AggregateScan {
                 // is about to execute. Matches the joinscan EXPLAIN
                 // behaviour. For plain EXPLAIN we build with the leader's
                 // session context (distributed planner included) but
-                // skip installing the runtime mesh — `create_physical_plan`
-                // only needs `WorkerTransport` for boundary node
-                // construction, not actual execute calls. Build failures
+                // skip installing the channel resolver: `create_physical_plan`
+                // only needs the distributed planner for boundary node
+                // construction, not live worker channels. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
                 if explainer.is_verbose()
@@ -1226,23 +1227,22 @@ impl CustomScan for AggregateScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Drop the gather stream first (fires the leader-inbox detach on an early-terminated LIMIT
-        // query so blocked producers stop).
+        // Drop the gather stream first (notifies `EndStreamNotifier` on `DistributedExec` so
+        // `c2w_stream` closes and workers flush their final `TaskMetrics`).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
-            // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
-            // early-terminated query the rings still hold data the leader will never read; a
-            // worker's bounded metrics send spins on the full ring until the leader frees slots.
-            // Draining here is what frees them, so the `recv` below returns immediately instead
-            // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
-            // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.leader()
-                && let Some(plan) = df_state.physical_plan.as_ref()
-            {
-                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                    plan,
-                    &leader.session.mesh,
+            // Wait briefly for `TaskMetrics` over `coordinator_channel`, then signal the workers'
+            // Tonic servers to shut down and close all leader DSM ring streams BEFORE joining the
+            // workers. PG destroys the parallel DSM right after this hook (the EXPLAIN hook runs
+            // after teardown and only reads `DistributedExec::metrics_store`).
+            if let Some(leader) = df_state.mpp.leader() {
+                finish_leader_execution(
+                    df_state.runtime.as_ref(),
+                    df_state.physical_plan.as_ref(),
+                    leader,
                 );
+            } else if let Some(rt) = df_state.runtime.as_ref() {
+                rt.quiesce_tasks();
             }
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
             // before end_custom_scan, where the context is finally destroyed). A worker error is
@@ -1264,25 +1264,32 @@ impl CustomScan for AggregateScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        state.custom_state_mut().bitmap_cell = None;
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
-            unsafe { bitmap_exec.shutdown() };
-        }
-
-        // Explicitly drop DataFusion resources (runtime, stream, batches) at the
-        // intended lifecycle boundary rather than relying on Postgres to drop the
-        // state wrapper later. Mirrors JoinScan::end_custom_scan.
+        // Explicitly drop DataFusion and Tantivy execution state BEFORE tearing down the
+        // bitmap machinery, source manifests, and index relation. Scorers and background
+        // tasks can hold bitmap cursors and buffer/relation pins, so everything that can
+        // hold a scorer or stream must drop and quiesce first.
+        state.custom_state_mut().state = scan_state::ExecutionState::Completed;
         if let Some(mut df_state) = state.custom_state_mut().datafusion_state.take() {
             Self::finish_mpp_execution(&mut df_state);
             drop(df_state);
         }
 
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
+
         // Clean up the reusable scan slot
-        if let Some(slot) = state.custom_state().scan_slot {
+        if let Some(slot) = state.custom_state_mut().scan_slot.take() {
             unsafe {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
         }
+
+        drop(std::mem::take(
+            &mut state.custom_state_mut().source_manifests,
+        ));
+        state.custom_state_mut().indexrel = None;
     }
 }
 
@@ -1350,25 +1357,26 @@ pub trait CustomScanClause<CS: CustomScan> {
 
 impl AggregateScan {
     /// Join the MPP producer workers and destroy the parallel context once nothing
-    /// references the ring mesh. Drains any remaining worker metrics first, takes the
-    /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
-    /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
+    /// references the DSM ring mesh. Shuts down the leader session first, takes the
+    /// leader out (its channel resolver drops with it), then drops the stream/plan/runtime
+    /// (all carry DSM stream references) before `wait_for_finish` destroys the DSM. Used at
     /// `end_custom_scan` and before a rescan relaunches a fresh worker set.
     fn finish_mpp_execution(df_state: &mut scan_state::DataFusionAggState) {
         df_state.stream = None;
-        if let Some(leader) = df_state.mpp.leader()
-            && let Some(plan) = df_state.physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
+        if let Some(leader) = df_state.mpp.leader() {
+            finish_leader_execution(
+                df_state.runtime.as_ref(),
+                df_state.physical_plan.as_ref(),
+                leader,
             );
+        } else if let Some(rt) = df_state.runtime.as_ref() {
+            rt.quiesce_tasks();
         }
         let finish = match df_state.mpp.take_leader() {
             Some(mut leader) => leader.finish.take(),
             None => None,
         };
-        // Drop order: the physical plan and session hold a mesh reference, so both
+        // Drop order: the physical plan and session hold DSM stream references, so both
         // must go before the DSM is destroyed below, and the stream must go before
         // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
         // to `drop(df_state)` so the order doesn't depend on struct field order.
@@ -1483,7 +1491,7 @@ impl AggregateScan {
     /// between.
     fn build_agg_physical_plan(
         df_state: &mut scan_state::DataFusionAggState,
-        runtime: &tokio::runtime::Runtime,
+        runtime: &PgTokioRuntime,
         ctx: &datafusion::prelude::SessionContext,
         mpp_manifests: Option<&[SearchIndexManifest]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
@@ -1518,15 +1526,17 @@ impl AggregateScan {
     }
 
     /// Build the leader's distributed session context for this AggregateScan query. Thin
-    /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::exec_worker::
+    /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::worker::
     /// build_mpp_session_context`] that seeds with `create_aggregate_session_context()`.
-    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
+    /// `resolver = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
-        mesh: Option<Arc<MppMesh>>,
+        resolver: Option<Arc<DsmGrpcChannelResolver>>,
+        metrics: MppMetricsCollection,
     ) -> datafusion::prelude::SessionContext {
-        crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
+        crate::postgres::customscan::mpp::worker::build_mpp_session_context(
             create_aggregate_session_context(),
-            mesh,
+            resolver,
+            metrics,
         )
     }
 
@@ -1536,7 +1546,7 @@ impl AggregateScan {
     /// and contains execution metrics. We merge in MPP worker metrics if applicable.
     ///
     /// In plain EXPLAIN, execution hasn't happened, so we must rebuild the physical plan.
-    /// When `mpp_eligible()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
+    /// When `mpp_eligible()` we first rebuild against `producer_worker_cap()` (`resolver = None`)
     /// so the distributed planner can emit a `DistributedExec` for display. If task
     /// discovery says launch will not run (#5784 / `max_producer_task_count < 2`), rebuild
     /// serially so the printed shape matches execution.
@@ -1563,7 +1573,7 @@ impl AggregateScan {
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+            let Ok(runtime) = PgTokioRuntime::new() else {
                 explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
                 return;
             };
@@ -1586,9 +1596,12 @@ impl AggregateScan {
                 })
             };
             let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
-                // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
+                // EXPLAIN-time: skip the DSM gRPC channel resolver install (no execution).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
-                match build_with(&Self::build_mpp_session_context(None)) {
+                match build_with(&Self::build_mpp_session_context(
+                    None,
+                    MppMetricsCollection::Disabled,
+                )) {
                     Ok(mpp_plan) if mpp_plan_has_data_parallelism(&mpp_plan) => Ok(mpp_plan),
                     Ok(_) => build_with(&create_aggregate_session_context()),
                     Err(e) => Err(e),
@@ -2274,19 +2287,18 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if first_call {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
+            let runtime = PgTokioRuntime::new()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            // On an MPP attempt, layer the DF-D fork's distributed planner over the aggregate
+            // On an MPP attempt, layer the distributed planner over the aggregate
             // profile so `create_physical_plan` produces a `DistributedExec`, with
-            // `producer_worker_cap()` acting as the planner's ceiling. The mesh and the
-            // dispatch source are execute-time concerns; the exec session below carries them
-            // once the workers are committed.
+            // `producer_worker_cap()` acting as the planner's ceiling. The channel resolver
+            // is an execute-time concern; the exec session below carries it once the workers
+            // are committed.
             let is_mpp = mpp_pending;
+            let mpp_metrics = MppMetricsCollection::from_instrument(state.csstate.ss.ps.instrument);
             let plan_ctx = if is_mpp {
-                Self::build_mpp_session_context(None)
+                Self::build_mpp_session_context(None, mpp_metrics)
             } else {
                 create_aggregate_session_context()
             };
@@ -2343,11 +2355,10 @@ impl AggregateScan {
             let (ctx, physical_plan) = if is_mpp {
                 match leader {
                     Some(leader) => {
-                        let source =
-                            crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                        let exec_ctx =
-                            Self::build_mpp_session_context(Some(Arc::clone(&leader.session.mesh)))
-                                .with_distributed_dispatch_plan_source(source);
+                        let exec_ctx = Self::build_mpp_session_context(
+                            Some(Arc::clone(&leader.session.resolver)),
+                            mpp_metrics,
+                        );
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);
@@ -2615,7 +2626,7 @@ impl AggregateScan {
     /// and the row the executor makes in that case still has to pass `HAVING`, the
     /// way Postgres keeps a `HAVING COUNT(*) = 0` row.
     fn evaluate_root_having(
-        runtime: &tokio::runtime::Runtime,
+        runtime: &PgTokioRuntime,
         root_batch: &RecordBatch,
         having: &datafusion::logical_expr::Expr,
     ) -> BooleanArray {

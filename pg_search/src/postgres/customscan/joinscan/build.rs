@@ -2215,7 +2215,7 @@ impl JoinCSClause {
     /// query with the no-reset variant, so a later source's solve doesn't free the rewritten
     /// expression tree an earlier source's solve just built (see
     /// `SearchQueryInput::solve_postgres_expressions_no_reset`). Both must stay alive through
-    /// `rebake_for_mpp`, which is why the whole clause resets only up front.
+    /// `rebake_logical_plan`, which is why the whole clause resets only up front.
     pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         assert!(
             !expr_context.is_null(),

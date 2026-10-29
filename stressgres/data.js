@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793236244583,
+  "lastUpdate": 1793237896479,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -179938,6 +179938,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12851208896-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793237857756,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 152.70522767719044,
+            "unit": "median tps",
+            "extra": "avg tps: 150.6199675772994, max tps: 163.13948686217668, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 510.52741754306896,
+            "unit": "median tps",
+            "extra": "avg tps: 537.4015236536736, max tps: 5915.261901506946, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3331.9928405728556,
+            "unit": "median tps",
+            "extra": "avg tps: 3355.020429502252, max tps: 3509.532424219629, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 190.4402632207165,
+            "unit": "median tps",
+            "extra": "avg tps: 187.7917061699643, max tps: 199.1875724764487, count: 59304"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 273.76403561444494,
+            "unit": "median tps",
+            "extra": "avg tps: 369.4540158329156, max tps: 2733.427529396519, count: 118608"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 23.62201081132781,
+            "unit": "median tps",
+            "extra": "avg tps: 23.22841310082283, max tps: 33.28703328916366, count: 59304"
+          }
+        ],
+        "publication_id": "12860312409-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [

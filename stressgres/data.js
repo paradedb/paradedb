@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793233569011,
+  "lastUpdate": 1793233657250,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -227355,6 +227355,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12849856324-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793233620107,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.566517,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.11670338894522, max cpu: 28.785606, count: 59301"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.41061227888231, max mem: 48.41796875, count: 59301"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.6299734987072645, max cpu: 38.17097, count: 59301"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.32856844741235, max mem: 33.34375, count: 59301"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.101087775514038, max cpu: 18.795889, count: 59301"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.82448052362102, max mem: 51.03125, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 17712,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17805.374631119204, max block_count: 34076.0, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 3.776554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.200392750990477, max cpu: 4.6943765, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.156611437307127, max mem: 28.20703125, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.57179474207855, max segment_count: 36.0, count: 59301"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.43489,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.024292664867788, max cpu: 28.742516, count: 59301"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 52.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.79539974030792, max mem: 52.90234375, count: 59301"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.250410812757771, max cpu: 38.17097, count: 118602"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.41582235781226, max mem: 57.25, count: 118602"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.162932559915799, max cpu: 27.974745, count: 59301"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 51.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.35659298009308, max mem: 53.984375, count: 59301"
+          }
+        ],
+        "publication_id": "12852461569-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

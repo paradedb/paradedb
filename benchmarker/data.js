@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793301721739,
+  "lastUpdate": 1793306203866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -49275,6 +49275,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12922593696-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "faa4e3e7beee93e1e8be7347f7bdf127cb4904fd",
+          "message": "perf: update Tantivy for vector query preparation (#7096)\n\n## What\n\nUpdate Tantivy from `8e3bd66386de3336467f150af34cd8e6dee07943` to the\nlatest `main`, `17c53e6357bc7bf91d82e37cee720d1a704d5ee6`.\n\n## Why\n\nPick up\n[paradedb/tantivy#351](https://github.com/paradedb/tantivy/pull/351),\nwhich shares prepared vector queries across centroid routing and exact\nreranking, reuses cosine normalization, and batches file-backed centroid\nreads. This is the only commit since the previous pin; score arithmetic,\ncandidate ordering, and the index format are unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. The\nexisting Nix CI workflow will regenerate `cargoHash` for the updated\nlockfile; Nix is unavailable locally.\n\n## Tests\n\n- `cargo check --locked -p pg_search`\n- `cargo fmt --all -- --check`\n- `cargo metadata --locked --format-version 1`; verified all ten Tantivy\nGit packages resolve to the new revision.\n- `python3 .github/scripts/release.py lint-fragments --changelog-only`\n- `git diff --check` and applicable pre-commit hooks.\n\nSQL regression tests were not run locally; CI covers them.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T13:02:41-07:00",
+          "tree_id": "2862caeadd30f439e60abbf1420950f4afe0cf21",
+          "url": "https://github.com/paradedb/paradedb/commit/faa4e3e7beee93e1e8be7347f7bdf127cb4904fd"
+        },
+        "date": 1793306202492,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.322,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.252,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.606,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.344,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.286,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.717,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 19.813,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 21.61,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.751,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.984,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 19.456,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.704,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.917,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.386,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.691,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.273,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 9.696,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 10.023,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.167,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.079,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.411,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 18.483,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 19.658,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 20.4,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12931002470-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -50587,6 +50747,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12922593696-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "faa4e3e7beee93e1e8be7347f7bdf127cb4904fd",
+          "message": "perf: update Tantivy for vector query preparation (#7096)\n\n## What\n\nUpdate Tantivy from `8e3bd66386de3336467f150af34cd8e6dee07943` to the\nlatest `main`, `17c53e6357bc7bf91d82e37cee720d1a704d5ee6`.\n\n## Why\n\nPick up\n[paradedb/tantivy#351](https://github.com/paradedb/tantivy/pull/351),\nwhich shares prepared vector queries across centroid routing and exact\nreranking, reuses cosine normalization, and batches file-backed centroid\nreads. This is the only commit since the previous pin; score arithmetic,\ncandidate ordering, and the index format are unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. The\nexisting Nix CI workflow will regenerate `cargoHash` for the updated\nlockfile; Nix is unavailable locally.\n\n## Tests\n\n- `cargo check --locked -p pg_search`\n- `cargo fmt --all -- --check`\n- `cargo metadata --locked --format-version 1`; verified all ten Tantivy\nGit packages resolve to the new revision.\n- `python3 .github/scripts/release.py lint-fragments --changelog-only`\n- `git diff --check` and applicable pre-commit hooks.\n\nSQL regression tests were not run locally; CI covers them.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T13:02:41-07:00",
+          "tree_id": "2862caeadd30f439e60abbf1420950f4afe0cf21",
+          "url": "https://github.com/paradedb/paradedb/commit/faa4e3e7beee93e1e8be7347f7bdf127cb4904fd"
+        },
+        "date": 1793306203344,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 80.51361352723075,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 80.37627573419643,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 50.41657284681821,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 57.45005247625699,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 57.60504172474152,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 57.68871082634445,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 110.56439951439079,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 96.85753498359053,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 53.75406962183821,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12931002470-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -51079,6 +51309,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12922593696-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "faa4e3e7beee93e1e8be7347f7bdf127cb4904fd",
+          "message": "perf: update Tantivy for vector query preparation (#7096)\n\n## What\n\nUpdate Tantivy from `8e3bd66386de3336467f150af34cd8e6dee07943` to the\nlatest `main`, `17c53e6357bc7bf91d82e37cee720d1a704d5ee6`.\n\n## Why\n\nPick up\n[paradedb/tantivy#351](https://github.com/paradedb/tantivy/pull/351),\nwhich shares prepared vector queries across centroid routing and exact\nreranking, reuses cosine normalization, and batches file-backed centroid\nreads. This is the only commit since the previous pin; score arithmetic,\ncandidate ordering, and the index format are unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. The\nexisting Nix CI workflow will regenerate `cargoHash` for the updated\nlockfile; Nix is unavailable locally.\n\n## Tests\n\n- `cargo check --locked -p pg_search`\n- `cargo fmt --all -- --check`\n- `cargo metadata --locked --format-version 1`; verified all ten Tantivy\nGit packages resolve to the new revision.\n- `python3 .github/scripts/release.py lint-fragments --changelog-only`\n- `git diff --check` and applicable pre-commit hooks.\n\nSQL regression tests were not run locally; CI covers them.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T13:02:41-07:00",
+          "tree_id": "2862caeadd30f439e60abbf1420950f4afe0cf21",
+          "url": "https://github.com/paradedb/paradedb/commit/faa4e3e7beee93e1e8be7347f7bdf127cb4904fd"
+        },
+        "date": 1793306203857,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.70364075685,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.4921875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12931002470-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [

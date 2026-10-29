@@ -93,7 +93,7 @@ impl BuildPartitioning {
     pub(super) fn route(&self, point: &PartitionPoint) -> usize {
         match (self, point) {
             (Self::Range(tree), PartitionPoint::Range(point)) => tree.route(point),
-            (Self::Vector(model), PartitionPoint::Vector(vector)) => model.route(vector.as_deref()),
+            (Self::Vector(model), PartitionPoint::Vector(vector)) => model.route(vector.as_ref()),
             _ => unreachable!("partition projection must match its model"),
         }
     }
@@ -101,7 +101,7 @@ impl BuildPartitioning {
 
 pub(super) enum PartitionPoint {
     Range(Point),
-    Vector(Option<Vec<f32>>),
+    Vector(Option<PgVector>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,35 +128,26 @@ impl VectorPartitioning {
             };
             let Some(mut vector) = vector else { continue };
             anyhow::ensure!(
-                vector.len() == dimensions,
+                vector.0.len() == dimensions,
                 "partition vector dimension mismatch"
             );
             anyhow::ensure!(
-                vector.iter().all(|v| v.is_finite()),
+                vector.0.iter().all(|v| v.is_finite()),
                 "partition vector must be finite"
             );
-            if metric == VectorMetric::Cosine {
-                let norm = vector
-                    .iter()
-                    .map(|&v| f64::from(v).powi(2))
-                    .sum::<f64>()
-                    .sqrt();
-                if norm == 0.0 {
-                    continue;
-                }
-                for value in &mut vector {
-                    *value = (f64::from(*value) / norm) as f32;
-                }
+            if !vector.normalize_for_metric(metric) {
+                continue;
             }
             if distinct.len() < target {
                 distinct.insert(
                     vector
+                        .0
                         .iter()
                         .map(|v| if *v == 0.0 { 0 } else { v.to_bits() })
                         .collect::<Vec<_>>(),
                 );
             }
-            data.extend(vector);
+            data.extend(vector.0);
         }
         let count = target.min(distinct.len());
         let centroids = if count > 1 {
@@ -190,29 +181,18 @@ impl VectorPartitioning {
         })
     }
 
-    fn route(&self, vector: Option<&[f32]>) -> usize {
+    fn route(&self, vector: Option<&PgVector>) -> usize {
         let Some(vector) = vector else { return 0 };
-        assert_eq!(vector.len(), self.dimensions);
+        assert_eq!(vector.0.len(), self.dimensions);
         self.centroids
             .chunks_exact(self.dimensions)
             .enumerate()
             .map(|(partition, centroid)| {
                 let distance = match self.metric {
-                    VectorMetric::L2 => l2_squared(vector, centroid),
+                    VectorMetric::L2 => l2_squared(&vector.0, centroid),
                     // Angular training keeps centroids on the unit sphere; the row norm
                     // is constant across centroids and does not affect its assignment.
-                    VectorMetric::Cosine | VectorMetric::InnerProduct => {
-                        let mut sums = [0.0; 8];
-                        let (rows, row_tail) = vector.as_chunks::<8>();
-                        let (centers, center_tail) = centroid.as_chunks::<8>();
-                        for (row, center) in rows.iter().zip(centers) {
-                            for lane in 0..8 {
-                                sums[lane] += row[lane] * center[lane];
-                            }
-                        }
-                        let tail: f32 = row_tail.iter().zip(center_tail).map(|(a, b)| a * b).sum();
-                        -(sums.iter().sum::<f32>() + tail)
-                    }
+                    VectorMetric::Cosine | VectorMetric::InnerProduct => -vector.dot(centroid),
                 };
                 (partition, distance)
             })
@@ -364,12 +344,12 @@ impl CategorizedPartitionField {
         &self,
         datum: pg_sys::Datum,
         is_null: bool,
-    ) -> Option<Vec<f32>> {
+    ) -> Option<PgVector> {
         if is_null {
             return None;
         }
         let datum = unsafe { unwrap_alias_datum(datum, self.categorized.pg_type) };
-        unsafe { PgVector::from_datum(datum, false) }.map(|vector| vector.0)
+        unsafe { PgVector::from_datum(datum, false) }
     }
 
     pub(crate) unsafe fn datum_to_value(
@@ -694,10 +674,10 @@ mod tests {
                 metric,
                 (0..200)
                     .map(|i| {
-                        PartitionPoint::Vector(Some(vec![
+                        PartitionPoint::Vector(Some(PgVector(vec![
                             if i % 2 == 0 { -10.0 } else { 10.0 },
                             (i % 7) as f32 * 0.01,
-                        ]))
+                        ])))
                     })
                     .collect(),
                 2,
@@ -705,12 +685,12 @@ mod tests {
             .unwrap();
             assert_eq!(model.centroids.len(), 4);
             assert_ne!(
-                model.route(Some(&[-10.0, 0.0])),
-                model.route(Some(&[10.0, 0.0]))
+                model.route(Some(&PgVector(vec![-10.0, 0.0]))),
+                model.route(Some(&PgVector(vec![10.0, 0.0])))
             );
             assert_eq!(model.route(None), 0);
             if metric != VectorMetric::L2 {
-                assert_eq!(model.route(Some(&[0.0, 0.0])), 0);
+                assert_eq!(model.route(Some(&PgVector(vec![0.0, 0.0]))), 0);
             }
             let model = BuildPartitioning::Vector(model);
             let bytes = postcard::to_allocvec(&model).unwrap();
@@ -722,7 +702,7 @@ mod tests {
         for sample in [
             vec![],
             vec![PartitionPoint::Vector(None)],
-            vec![PartitionPoint::Vector(Some(vec![0.0, 0.0]))],
+            vec![PartitionPoint::Vector(Some(PgVector(vec![0.0, 0.0])))],
         ] {
             let model = VectorPartitioning::train(
                 FieldName::from("emb"),
@@ -732,7 +712,7 @@ mod tests {
                 8,
             )
             .unwrap();
-            assert_eq!(model.route(Some(&[1.0, 0.0])), 0);
+            assert_eq!(model.route(Some(&PgVector(vec![1.0, 0.0]))), 0);
             assert_eq!(BuildPartitioning::Vector(model).partition_count(), 1);
         }
         let model = VectorPartitioning::train(
@@ -740,7 +720,7 @@ mod tests {
             2,
             VectorMetric::L2,
             (0..100)
-                .map(|_| PartitionPoint::Vector(Some(vec![1.0, 2.0])))
+                .map(|_| PartitionPoint::Vector(Some(PgVector(vec![1.0, 2.0]))))
                 .collect(),
             8,
         )

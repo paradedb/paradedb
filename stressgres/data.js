@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793233302684,
+  "lastUpdate": 1793233411924,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -155749,6 +155749,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12851617971-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793233363078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07438642561357439, max background_merging: 2.0, count: 59406"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.63609832598013, max cpu: 9.628887, count: 59406"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.69286561963438, max mem: 27.703125, count: 59406"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.982022634613672, max cpu: 9.741248, count: 59406"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.76877697275948, max mem: 44.76953125, count: 59406"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55824,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55540.78956671043, max block_count: 55824.0, count: 59406"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.867942632057368, max segment_count: 22.0, count: 59406"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.54095,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.115350535467417, max cpu: 33.6, count: 59406"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 96.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.81466452778339, max mem: 96.0546875, count: 59406"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633593789576928, max cpu: 9.393347, count: 59406"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 45.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.203920111184054, max mem: 45.390625, count: 59406"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.73149250464415, max cpu: 9.721519, count: 59406"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.74123720667946, max mem: 44.7578125, count: 59406"
+          }
+        ],
+        "publication_id": "12854513245-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

@@ -21,6 +21,24 @@ curl -fsSL https://paradedb.com/install.sh | sh
 
 The Curlbash installer starts ParadeDB in Docker with persistent storage, prints your connection credentials, and opens a `psql` session. Save the generated password to connect from your application.
 
+The installer binds PostgreSQL to `127.0.0.1` by default. To allow remote connections, explicitly set `PDB_BIND_ADDRESS` to the desired host address (for example, `0.0.0.0`) and restrict access with your firewall. Environment variables must be passed to `sh` when using the piped command:
+
+```bash
+curl -fsSL https://paradedb.com/install.sh | PDB_BIND_ADDRESS=0.0.0.0 sh
+```
+
+To download, inspect, and verify the installer before running it:
+
+```bash
+curl -fsSL https://paradedb.com/install.sh -o install.sh
+curl -fsSL 'https://paradedb.com/install.sh?checksum=1' -o install.sh.sha256
+shasum -a 256 -c install.sh.sha256 && sh install.sh
+```
+
+The checksum detects a mismatched download; it is served by the same website and does not independently authenticate the installer. If the website updates between downloads, download both files again and verify before running.
+
+The default Docker image is pinned by digest. `PDB_IMAGE` or an explicit `?tag=...` installer URL overrides that pin. Pin updates require a new installer revision.
+
 To reconnect later, run:
 
 ```bash
@@ -37,12 +55,14 @@ docker run \
   -e POSTGRES_PASSWORD=mygoodpassword \
   -e POSTGRES_DB=paradedb \
   -v paradedb_data:/var/lib/postgresql/ \
-  -p 5432:5432 \
+  -p 127.0.0.1:5432:5432 \
   -d \
   paradedb/paradedb:latest
 ```
 
-Replace `mygoodpassword` with your chosen password and adjust the username and database name as needed. To connect, run:
+The Docker example also binds to localhost. Only change `127.0.0.1` when remote access is needed, and restrict access with your firewall.
+
+Replace `mygoodpassword` with a strong, unique password and adjust the username and database name as needed. To connect, run:
 
 ```bash
 docker exec -it paradedb psql -U postgres -d paradedb -W

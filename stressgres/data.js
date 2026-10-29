@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793261544802,
+  "lastUpdate": 1793261572518,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -180293,6 +180293,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12860312409-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f",
+          "message": "fix: Fix filter pushdown in RankJoinExec (#7085)\n\n## What\n\n- Fix a `generated_rank_join` (`qgen`) failure on multi-way rank joins\nby implementing `EmbeddedProjection` and\n`ExecutionPlan::try_swapping_with_projection` on `RankJoinExec`.\n- Emit `Sides` (`baseline` and `candidate`) `SET` statements in `qgen`\nreproduction scripts to ensure that they are actually reproducible.\n- Address post-merge review feedback from\nhttps://github.com/paradedb/paradedb/pull/7003#pullrequestreview-5675848845.\n\n## Why\n\n- DataFusion's `PushDownProjection` inserts narrowing `ProjectionExec`\nnodes between nested joins; without `try_swapping_with_projection` on\n`RankJoinExec`, `RankJoinRule` could not peel those projections when\nrewriting multi-way rank joins.\n- `qgen` reproduction scripts previously omitted the `Sides` GUC\nsettings required to reproduce candidate vs baseline failures in\n`pg_regress`.\n\n## How\n\n- Implement `EmbeddedProjection` and `try_swapping_with_projection` on\n`RankJoinExec` (and guard against duplicate output field names in\n`RankJoinRule::map_key_sets_through_passthrough`).\n- Thread `Sides` into `ReproScript::new` and generalize `qgen` output\nlabels to `Baseline` / `Candidate`.\n- Check `cancel_pending()` per segment in `LazySegmentTarget`, remove\nfalse `score_threshold_pushed` reporting in\n`Scanner::materialize_topk_window`, rename `SharedThresholdMode` to\n`LazyParallelMode`, and share a `TaskContext` across `BaseScan` exec\nmethods.\n\n## Tests\n\nFixed repro scripts for rank join comparison failures.",
+          "timestamp": "2026-10-29T04:23:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f"
+        },
+        "date": 1793261568395,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 137.74847542580386,
+            "unit": "median tps",
+            "extra": "avg tps: 136.060005555382, max tps: 146.7337463603332, count: 59297"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 535.8477566234014,
+            "unit": "median tps",
+            "extra": "avg tps: 554.9377859168378, max tps: 4870.598065700613, count: 59297"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3312.5917595911114,
+            "unit": "median tps",
+            "extra": "avg tps: 3286.4566382659964, max tps: 3430.347214182738, count: 59297"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 165.0045688970511,
+            "unit": "median tps",
+            "extra": "avg tps: 163.22444481730363, max tps: 175.47955829851404, count: 59297"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 276.30933678144424,
+            "unit": "median tps",
+            "extra": "avg tps: 378.622531324289, max tps: 2776.0215149957794, count: 118594"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.351190016710294,
+            "unit": "median tps",
+            "extra": "avg tps: 28.93445352236014, max tps: 46.97507967325826, count: 59297"
+          }
+        ],
+        "publication_id": "12881975087-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -228274,6 +228333,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12860312409-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f",
+          "message": "fix: Fix filter pushdown in RankJoinExec (#7085)\n\n## What\n\n- Fix a `generated_rank_join` (`qgen`) failure on multi-way rank joins\nby implementing `EmbeddedProjection` and\n`ExecutionPlan::try_swapping_with_projection` on `RankJoinExec`.\n- Emit `Sides` (`baseline` and `candidate`) `SET` statements in `qgen`\nreproduction scripts to ensure that they are actually reproducible.\n- Address post-merge review feedback from\nhttps://github.com/paradedb/paradedb/pull/7003#pullrequestreview-5675848845.\n\n## Why\n\n- DataFusion's `PushDownProjection` inserts narrowing `ProjectionExec`\nnodes between nested joins; without `try_swapping_with_projection` on\n`RankJoinExec`, `RankJoinRule` could not peel those projections when\nrewriting multi-way rank joins.\n- `qgen` reproduction scripts previously omitted the `Sides` GUC\nsettings required to reproduce candidate vs baseline failures in\n`pg_regress`.\n\n## How\n\n- Implement `EmbeddedProjection` and `try_swapping_with_projection` on\n`RankJoinExec` (and guard against duplicate output field names in\n`RankJoinRule::map_key_sets_through_passthrough`).\n- Thread `Sides` into `ReproScript::new` and generalize `qgen` output\nlabels to `Baseline` / `Candidate`.\n- Check `cancel_pending()` per segment in `LazySegmentTarget`, remove\nfalse `score_threshold_pushed` reporting in\n`Scanner::materialize_topk_window`, rename `SharedThresholdMode` to\n`LazyParallelMode`, and share a `TaskContext` across `BaseScan` exec\nmethods.\n\n## Tests\n\nFixed repro scripts for rank join comparison failures.",
+          "timestamp": "2026-10-29T04:23:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f"
+        },
+        "date": 1793261572451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.495549,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.958188323061893, max cpu: 28.785606, count: 59297"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.64618934927147, max mem: 48.65234375, count: 59297"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.411066812634046, max cpu: 38.342484, count: 59297"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.5521960691519, max mem: 33.5703125, count: 59297"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.928109461693091, max cpu: 14.166257, count: 59297"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.24686535575155, max mem: 51.41015625, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 17809,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17861.155640251614, max block_count: 34485.0, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.625304437672667, max cpu: 4.6943765, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.876504344654872, max mem: 28.93359375, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.52677201207481, max segment_count: 35.0, count: 59297"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.998084586986518, max cpu: 28.628231, count: 59297"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 52.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.505888591012194, max mem: 52.5078125, count: 59297"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.170074678086957, max cpu: 38.342484, count: 118594"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.67093573979291, max mem: 57.484375, count: 118594"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7737446,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.421918791881818, max cpu: 18.972332, count: 59297"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 52.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.877859611890145, max mem: 52.09765625, count: 59297"
+          }
+        ],
+        "publication_id": "12881975087-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

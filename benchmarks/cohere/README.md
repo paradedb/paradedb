@@ -18,7 +18,10 @@ workers. Both tools use the same database and index throughout a run.
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `pdbench search` loads the query vectors and sweeps
-   `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
+   `paradedb.vector_adaptive_recall_exponent` from 0.5 to 10 separately for each
+   filter and each r90/r95/r99 target. Each sweep sets the matching
+   `paradedb.vector_adaptive_recall_target`; adaptive probing remains enabled.
+   Reports and calibration caches are separated by target.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
 3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
@@ -27,12 +30,12 @@ workers. Both tools use the same database and index throughout a run.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
-   selected max_probe and all fixed search settings apply to every connection.
+   selected recall exponent, matching recall target, and all fixed search settings apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
    and index size with baseline comparisons and dashboard links. Recall,
-   max_probe, and mean whole-query shared buffer hits/reads appear above those
+   recall exponent, and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 

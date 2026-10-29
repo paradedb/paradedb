@@ -237,13 +237,20 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep max_probe with pdbench
+      - name: Calibrate adaptive recall with pdbench
         run: |
           set -euo pipefail
-          for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-            pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
-              --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
-              --query "$query" --no-compare --html
+          mkdir -p benchmark-artifacts/configs
+          for target in 0.9 0.95 0.99; do
+            config="benchmark-artifacts/configs/recall-${target}.toml"
+            sed -e "s/targets = \[0.9, 0.95, 0.99\]/targets = [$target]/" \
+              -e "s/recall_target\" = \"0.95\"/recall_target\" = \"$target\"/" \
+              "benchmarks/cohere/${COHERE_SIZE}.toml" > "$config"
+            for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
+              pdbench search --url "$PARADEDB_URL" --config "$config" \
+                --assets-dir benchmarks/cohere/assets --runs-dir "benchmark-artifacts/search/recall-${target}" \
+                --query "$query" --no-compare --html
+            done
           done
 
       - name: Prepare k6 operating points

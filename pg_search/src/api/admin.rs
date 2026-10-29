@@ -395,6 +395,7 @@ fn index_info(
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
 /// The cluster columns are IVF-only (`NULL` for flat segments).
+/// `router_levels` lists router centroid counts from bottom to top, excluding document centroids.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -418,6 +419,7 @@ fn vector_info(
             name!(layers, Option<Vec<i32>>),
             name!(quantizer_kinds, Option<Vec<String>>),
             name!(bytes_per_row, Option<i32>),
+            name!(router_levels, Option<Vec<i32>>),
         ),
     >,
 > {
@@ -459,6 +461,18 @@ fn vector_info(
                 .map(i32::try_from)
                 .transpose()
                 .context("quantized bytes per row exceeds SQL integer range")?;
+            let router_levels = info
+                .router_levels
+                .as_ref()
+                .map(|levels| {
+                    levels
+                        .iter()
+                        .copied()
+                        .map(i32::try_from)
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()
+                .context("router level size exceeds SQL integer range")?;
             let cluster_stats = info.cluster_stats.as_ref();
             let total_rows = vector_index
                 .cluster_sizes()
@@ -482,6 +496,7 @@ fn vector_info(
                 layers,
                 quantizer_kinds,
                 bytes_per_row,
+                router_levels,
             ));
         }
     }

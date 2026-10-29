@@ -371,7 +371,64 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
+static VECTOR_ADAPTIVE_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(0.95);
+static VECTOR_ADAPTIVE_RECALL_EXPONENT: GucSetting<f64> = GucSetting::<f64>::new(1.5);
+static VECTOR_CLUSTER_MIN_PROBE: GucSetting<i32> = GucSetting::<i32>::new(16);
+
+pub fn vector_quantized_recall() -> Option<tantivy::vector::QuantizedRecallParams> {
+    let target = VECTOR_ADAPTIVE_RECALL_TARGET.get();
+    VECTOR_ADAPTIVE_PROBING
+        .get()
+        .then(|| tantivy::vector::QuantizedRecallParams {
+            target,
+            recall_exponent: VECTOR_ADAPTIVE_RECALL_EXPONENT.get(),
+        })
+}
+
+pub fn vector_cluster_min_probe() -> usize {
+    VECTOR_CLUSTER_MIN_PROBE.get() as usize
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_adaptive_probing",
+        c"Stop vector probing using the estimated recall instead of probe limits",
+        c"Enabled by default. Ignores maximum probe fraction and minimum cluster settings. Disable to use the fixed work budget.",
+        &VECTOR_ADAPTIVE_PROBING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_adaptive_recall_exponent",
+        c"Calibrate normalized remaining-weight adaptive recall: miss budget = (1 - target) ^ exponent",
+        c"Larger values delay stopping. 1 uses the original raw target. Default 1.5.",
+        &VECTOR_ADAPTIVE_RECALL_EXPONENT,
+        0.000001,
+        f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_cluster_min_probe",
+        c"Minimum cluster work budget when adaptive probing is disabled",
+        c"Ignored while adaptive probing is enabled. Applies to the fixed work budget when adaptive probing is disabled.",
+        &VECTOR_CLUSTER_MIN_PROBE,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_adaptive_recall_target",
+        c"Recall target for adaptive vector probing (default 0.95)",
+        c"Uses normalized centroid gaps and remaining cluster weight. A target of 1 scans without heuristic stopping. Disable vector_adaptive_probing to restore probe limits.",
+        &VECTOR_ADAPTIVE_RECALL_TARGET,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
@@ -666,7 +723,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"Ignored while vector_adaptive_probing is enabled. Otherwise bounds the per-segment work budget; 1.0 allows every cluster.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,

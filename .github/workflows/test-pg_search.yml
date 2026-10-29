@@ -51,9 +51,9 @@ jobs:
           set -e
           echo "$result" > diagnostics/main-exit.txt
           echo "exit=$result" >> "$GITHUB_OUTPUT"
-          cp "$HOME/.pgrx/18.log" diagnostics/main-postgres.log
           cp pg_search/tests/pg_regress/results/aggregate_worker_shortage.out diagnostics/main-result.out
           cargo pgrx stop pg18
+          cp "$HOME/.pgrx/18.log" diagnostics/main-postgres.log
       - name: Test fixed code three times
         env:
           PGRX_PG_CONFIG_PATH: /usr/lib/postgresql/18/bin/pg_config

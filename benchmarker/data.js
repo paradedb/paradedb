@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793306224126,
+  "lastUpdate": 1793306246910,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -49665,6 +49665,162 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12931002470-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb",
+            "username": "paradedb"
+          },
+          "committer": {
+            "name": "paradedb",
+            "username": "paradedb"
+          },
+          "id": "069338ce3a7ee53afb23d0c1a21e5640a2273651",
+          "message": "perf: update Tantivy for vector query preparation",
+          "timestamp": "2026-10-29T20:02:48Z",
+          "url": "https://github.com/paradedb/paradedb/pull/7096/commits/069338ce3a7ee53afb23d0c1a21e5640a2273651"
+        },
+        "date": 1793306245213,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.982,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.864,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.055,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 14.085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 17.443,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 18.673,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 19.59,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.379,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.644,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.031,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.31,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.962,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.475,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 9.296,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 9.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.516,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.266,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 18.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 19.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 20.408,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12930946926-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -51047,6 +51203,72 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12931002470-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb",
+            "username": "paradedb"
+          },
+          "committer": {
+            "name": "paradedb",
+            "username": "paradedb"
+          },
+          "id": "069338ce3a7ee53afb23d0c1a21e5640a2273651",
+          "message": "perf: update Tantivy for vector query preparation",
+          "timestamp": "2026-10-29T20:02:48Z",
+          "url": "https://github.com/paradedb/paradedb/pull/7096/commits/069338ce3a7ee53afb23d0c1a21e5640a2273651"
+        },
+        "date": 1793306246219,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 82.82997698118061,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 82.25166395562121,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 57.073910384383765,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 58.76951820240444,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 58.65914365216025,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 58.82838785765187,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 116.2336620108309,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 102.25811261050309,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 54.69214638575465,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12930946926-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -51574,6 +51796,37 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12931002470-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb",
+            "username": "paradedb"
+          },
+          "committer": {
+            "name": "paradedb",
+            "username": "paradedb"
+          },
+          "id": "069338ce3a7ee53afb23d0c1a21e5640a2273651",
+          "message": "perf: update Tantivy for vector query preparation",
+          "timestamp": "2026-10-29T20:02:48Z",
+          "url": "https://github.com/paradedb/paradedb/pull/7096/commits/069338ce3a7ee53afb23d0c1a21e5640a2273651"
+        },
+        "date": 1793306246900,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.6594531231,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.734375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12930946926-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [

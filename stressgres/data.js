@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793238921397,
+  "lastUpdate": 1793239031181,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -488135,6 +488135,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12852269171-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793238982528,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 32.0703125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 27.3678716939493, max partition_index_size:MB: 32.140625, count: 58737"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.078951206205318, max cpu: 38.208954, count: 58737"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.879453844574115, max mem: 57.4296875, count: 58737"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.80280143453826, max cpu: 43.199997, count: 58737"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 59.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.4345421646492, max mem: 63.203125, count: 58737"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.430255,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.945385241820086, max cpu: 23.587223, count: 58737"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 52.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.47597127875104, max mem: 54.4140625, count: 58737"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.793606918992275, max cpu: 38.399998, count: 58737"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 56.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.61440383882817, max mem: 64.203125, count: 58737"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.02902201562517, max cpu: 28.514853, count: 58737"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 55.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.68577415268485, max mem: 65.421875, count: 58737"
+          }
+        ],
+        "publication_id": "12861561211-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

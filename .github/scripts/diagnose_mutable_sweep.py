@@ -237,7 +237,7 @@ def prepare():
         admin
         + [
             "-c",
-            "ALTER SYSTEM SET shared_preload_libraries='pg_search,pg_stat_statements'",
+            "ALTER SYSTEM SET shared_preload_libraries='pg_search','pg_stat_statements'",
         ],
         check=True,
     )

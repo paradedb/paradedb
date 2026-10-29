@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793239716201,
+  "lastUpdate": 1793239804829,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -156045,6 +156045,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12855900646-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793239767293,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.058011514763812666, max background_merging: 2.0, count: 59402"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6101948562904145, max cpu: 9.533267, count: 59402"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.50357284897815, max mem: 26.515625, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.58549463317638, max cpu: 33.0546, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 54.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.80650719883169, max mem: 56.7265625, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 56154,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55861.63275647285, max block_count: 56155.0, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 21,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 20.328625298811488, max segment_count: 36.0, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.08731963868835, max cpu: 33.48281, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 93.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 89.604866129297, max mem: 95.6640625, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.423275581458146, max cpu: 33.022114, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 51.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.87987028530184, max mem: 57.1640625, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.94286262646135, max cpu: 28.642467, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 56.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.25047103580267, max mem: 56.6640625, count: 59402"
+          }
+        ],
+        "publication_id": "12861472080-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

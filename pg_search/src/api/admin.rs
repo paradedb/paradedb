@@ -405,11 +405,6 @@ fn vector_info(
         ),
     >,
 > {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function (read-only,
-    // AccessShareLock) so it is not dropped or altered while we read it —
-    // identical to `index_info`.
     let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
@@ -553,11 +548,6 @@ fn vector_clusters(
         ),
     >,
 > {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function (read-only,
-    // AccessShareLock) so it is not dropped or altered while we read it —
-    // identical to `index_info`.
     let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
@@ -1999,9 +1989,8 @@ pub mod pdb {
             }
 
             // Call verify_index for this index
-            let index_rel = IndexOid::from(indexrelid);
             let verification = verify_index(
-                index_rel,
+                IndexOid::from(indexrelid),
                 heapallindexed,
                 sample_rate,
                 false, // Don't double-report progress

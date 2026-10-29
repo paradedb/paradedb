@@ -62,11 +62,7 @@ impl IndexOid {
     }
 
     pub(crate) fn read(self) -> IndexAccess {
-        let access = IndexAccess::open(self.0, pg_sys::AccessShareLock as _);
-        if let Err(denied) = check_read(access.heap()) {
-            denied.report();
-        }
-        access
+        self.authorize(pg_sys::AccessShareLock as _, check_read)
     }
 
     /// Inventory APIs omit entries whose direct-read policy denies access.
@@ -78,11 +74,7 @@ impl IndexOid {
 
     /// Trusted diagnostics may inspect metadata without table SELECT or RLS.
     pub(crate) fn read_metadata(self) -> IndexAccess {
-        let access = IndexAccess::open(self.0, pg_sys::AccessShareLock as _);
-        if let Err(denied) = check_metadata(access.heap()) {
-            denied.report();
-        }
-        access
+        self.authorize(pg_sys::AccessShareLock as _, check_metadata)
     }
 
     /// Like metadata reads, but inventory omits entries denied to this caller.
@@ -95,8 +87,16 @@ impl IndexOid {
     /// Maintenance follows REINDEX: `MAINTAIN` on the backing table from
     /// PostgreSQL 17, ownership before that.
     pub(crate) fn maintain(self) -> IndexAccess {
-        let access = IndexAccess::open(self.0, pg_sys::RowExclusiveLock as _);
-        if let Err(denied) = check_maintain(access.heap()) {
+        self.authorize(pg_sys::RowExclusiveLock as _, check_maintain)
+    }
+
+    fn authorize(
+        self,
+        index_lock: pg_sys::LOCKMODE,
+        check: fn(&PgSearchRelation) -> Result<(), AccessDenied>,
+    ) -> IndexAccess {
+        let access = IndexAccess::open(self.0, index_lock);
+        if let Err(denied) = check(access.heap()) {
             denied.report();
         }
         access
@@ -174,7 +174,7 @@ unsafe fn report_not_an_index(oid: pg_sys::Oid) -> ! {
 
 fn check_maintain(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
     // Owners and pg_maintain members hold MAINTAIN implicitly.
-    #[cfg(any(feature = "pg17", feature = "pg18"))]
+    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
     let acl = unsafe {
         pg_sys::pg_class_aclcheck(heap.oid(), pg_sys::GetUserId(), pg_sys::ACL_MAINTAIN as _)
     };

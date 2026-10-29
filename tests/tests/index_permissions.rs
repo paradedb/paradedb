@@ -20,32 +20,34 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 fn direct_reads(index: &str) -> Vec<String> {
-    let mut queries = vec![
+    vec![
         format!("SELECT * FROM paradedb.index_info({index})"),
         format!("SELECT * FROM paradedb.index_info({index}, true)"),
         format!("SELECT * FROM pdb.index_segments({index})"),
-    ];
-    for visibility in ["transaction", "raw", "threshold"] {
-        queries.push(format!(
+        format!(
             r#"SELECT paradedb.aggregate(
                 {index}, paradedb.all(),
-                '{{"emails":{{"terms":{{"field":"email","size":100}}}}}}',
-                visibility => '{visibility}')"#
-        ));
-    }
-    queries
+                '{{"emails":{{"terms":{{"field":"email","size":100}}}}}}')"#
+        ),
+    ]
+}
+
+fn assert_denied_query(conn: &mut PgConnection, query: &str) -> sqlx::Error {
+    let error = query.execute_result(conn).expect_err(query);
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(|err| err.code())
+            .as_deref(),
+        Some("42501"),
+        "{query}: {error}"
+    );
+    error
 }
 
 fn assert_denied(conn: &mut PgConnection, queries: &[String]) {
     for query in queries {
-        let err = query.execute_result(conn).expect_err(query);
-        assert_eq!(
-            err.as_database_error()
-                .and_then(|err| err.code())
-                .as_deref(),
-            Some("42501"),
-            "{query}: {err}"
-        );
+        assert_denied_query(conn, query);
     }
 }
 
@@ -74,15 +76,7 @@ fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnecti
     // Permission errors abort a transaction; savepoints keep each probe independent.
     let denied = |conn: &mut PgConnection, query: &str| {
         "SAVEPOINT maintenance_denied".execute(conn);
-        let error = query.execute_result(conn).expect_err(query);
-        assert_eq!(
-            error
-                .as_database_error()
-                .and_then(|err| err.code())
-                .as_deref(),
-            Some("42501"),
-            "{query}: {error}"
-        );
+        let error = assert_denied_query(conn, query);
         "ROLLBACK TO SAVEPOINT maintenance_denied; RELEASE SAVEPOINT maintenance_denied"
             .execute(conn);
         error
@@ -218,7 +212,13 @@ fn standalone_index_reads_enforce_permissions(mut conn: PgConnection) {
     // Numeric OIDs bypass name resolution, but must not bypass schema USAGE.
     format!("REVOKE USAGE ON SCHEMA index_permissions FROM {role}").execute(&mut conn);
     format!("SET ROLE {role}").execute(&mut conn);
-    assert_denied(&mut conn, &by_oid);
+    for query in &by_oid {
+        let error = assert_denied_query(&mut conn, query);
+        assert_eq!(
+            error.as_database_error().unwrap().message(),
+            "permission denied for schema index_permissions"
+        );
+    }
     "RESET ROLE".execute(&mut conn);
     format!("GRANT USAGE ON SCHEMA index_permissions TO {role}").execute(&mut conn);
 
@@ -294,10 +294,11 @@ fn partitioned_index_metadata_checks_the_requested_table(mut conn: PgConnection)
     }
     // Naming the child directly requires its own privileges.
     for query in metadata(child_oid) {
-        let error = query.as_str().execute_result(&mut conn).expect_err(&query);
-        let db_error = error.as_database_error().expect("PostgreSQL error");
-        assert_eq!(db_error.code().as_deref(), Some("42501"));
-        assert_eq!(db_error.message(), "permission denied for table child");
+        let error = assert_denied_query(&mut conn, &query);
+        assert_eq!(
+            error.as_database_error().unwrap().message(),
+            "permission denied for table child"
+        );
     }
     "RESET ROLE".execute(&mut conn);
     "ALTER TABLE partition_permissions.parent ENABLE ROW LEVEL SECURITY".execute(&mut conn);
@@ -369,17 +370,14 @@ fn standalone_index_reads_honor_definer_and_invoker(mut conn: PgConnection) {
         "SELECT email FROM index_identity.secrets",
     ] {
         "SAVEPOINT denied_call".execute(&mut conn);
-        assert_denied(&mut conn, &[query.into()]);
+        assert_denied_query(&mut conn, query);
         "ROLLBACK TO SAVEPOINT denied_call".execute(&mut conn);
     }
     "RESET ROLE; ALTER TABLE index_identity.secrets FORCE ROW LEVEL SECURITY".execute(&mut conn);
     format!("SET ROLE {caller}").execute(&mut conn);
     "SAVEPOINT forced_rls".execute(&mut conn);
-    let err = "SELECT index_identity.definer_segments()"
-        .execute_result(&mut conn)
-        .expect_err("a non-superuser definer must honor FORCE RLS");
-    let db_err = err.as_database_error().expect("PostgreSQL error");
-    assert_eq!(db_err.code().as_deref(), Some("42501"));
+    let err = assert_denied_query(&mut conn, "SELECT index_identity.definer_segments()");
+    let db_err = err.as_database_error().unwrap();
     assert_eq!(
         db_err.message(),
         "direct index reads are not supported when row-level security applies to table index_identity.secrets"

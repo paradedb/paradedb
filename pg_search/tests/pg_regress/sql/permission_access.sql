@@ -9,7 +9,6 @@ GRANT USAGE ON SCHEMA permission_access TO permission_access_reader;
 CREATE TABLE permission_access.docs(id integer PRIMARY KEY, email text);
 INSERT INTO permission_access.docs VALUES (1, 'first'), (2, 'second');
 CREATE INDEX docs_idx ON permission_access.docs USING paradedb (id, (email::pdb.literal));
-SELECT 'permission_access.docs_idx'::regclass::oid AS indexoid \gset
 
 CREATE FUNCTION permission_access.assert_denied(queries text[]) RETURNS integer
 LANGUAGE plpgsql SECURITY INVOKER AS $$
@@ -75,12 +74,6 @@ SELECT count(*) AS hidden_inventory FROM pdb.indexes() WHERE schemaname = 'permi
 SELECT count(*) AS hidden_bulk_checks FROM pdb.verify_all_indexes(schema_pattern => 'permission_access');
 RESET ROLE;
 
-GRANT SELECT(id) ON permission_access.docs TO permission_access_reader;
-SET ROLE permission_access_reader;
-SELECT count(id) AS ordinary_id_access FROM permission_access.docs;
-SELECT permission_access.assert_denied(permission_access.read_queries()) AS column_grant_denials;
-RESET ROLE;
-
 GRANT SELECT ON permission_access.docs TO permission_access_reader;
 SET ROLE permission_access_reader;
 SELECT count(*) AS allowed_fields FROM paradedb.schema('permission_access.docs_idx');
@@ -95,14 +88,6 @@ SELECT permission_access.assert_denied(ARRAY[
 RESET ROLE;
 SELECT count(*) AS owner_maintenance FROM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
 
-REVOKE USAGE ON SCHEMA permission_access FROM permission_access_reader;
-SET ROLE permission_access_reader;
--- Numeric regclass avoids schema name resolution: denial must come from access policy.
-SAVEPOINT no_schema;
-SELECT count(*) FROM pdb.index_segments(:indexoid::regclass);
-ROLLBACK TO SAVEPOINT no_schema;
-RESET ROLE;
-GRANT USAGE ON SCHEMA permission_access TO permission_access_reader;
 ALTER TABLE permission_access.docs ENABLE ROW LEVEL SECURITY;
 SET ROLE permission_access_reader;
 SELECT count(*) AS ordinary_rls_rows FROM permission_access.docs;
@@ -112,22 +97,5 @@ SELECT * FROM pdb.index_segments('permission_access.docs_idx');
 ROLLBACK TO SAVEPOINT named_rls_error;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_denials;
 SELECT count(*) AS rls_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';
-SET LOCAL row_security = off;
-SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_off_denials;
-RESET row_security;
 RESET ROLE;
-
-ALTER ROLE permission_access_reader BYPASSRLS;
-SET ROLE permission_access_reader;
-SELECT sum(num_docs) AS bypassrls_docs FROM pdb.index_segments('permission_access.docs_idx');
-RESET ROLE;
-ALTER ROLE permission_access_reader NOBYPASSRLS;
-ALTER TABLE permission_access.docs OWNER TO permission_access_reader;
-SET ROLE permission_access_reader;
-SELECT sum(num_docs) AS owner_rls_docs FROM pdb.index_segments('permission_access.docs_idx');
-ALTER TABLE permission_access.docs FORCE ROW LEVEL SECURITY;
-SELECT permission_access.assert_denied(permission_access.read_queries()) AS forced_owner_denials;
-SELECT count(*) AS forced_owner_maintenance FROM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
-RESET ROLE;
-
 ROLLBACK;

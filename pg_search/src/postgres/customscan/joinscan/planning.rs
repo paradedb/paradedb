@@ -48,7 +48,7 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
-    Access, ColumnRef, field_type_for_pullup, get_attno_by_name,
+    Access, ColumnRef, field_type_supported_for_pullup, get_attno_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
@@ -1927,8 +1927,13 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
         .iter()
         .find(|(sf, _)| sf == &search_field)
         .ok_or_else(|| format!("Field '{field_name}' not found in categorized fields"))?;
-    let field_type = field_type_for_pullup(search_field.field_type(), data.is_array)
-        .ok_or_else(|| format!("Field '{field_name}' has unsupported type for pullup"))?;
+    let field_type = if field_type_supported_for_pullup(&search_field.field_type(), data.is_array) {
+        search_field.field_type()
+    } else {
+        return Err(format!(
+            "Field '{field_name}' has unsupported type for pullup"
+        ));
+    };
 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(

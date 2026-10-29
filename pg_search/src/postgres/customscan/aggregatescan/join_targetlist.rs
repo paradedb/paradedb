@@ -24,8 +24,7 @@
 
 use super::GroupingShape;
 use super::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, ResolutionSource, collect_join_agg_sources,
-    resolve_source_field,
+    FilterExprBuildContext, JoinAggSource, collect_join_agg_sources, resolve_source_field,
 };
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
@@ -1355,12 +1354,11 @@ unsafe fn lower_pdb_agg(
 ) -> Result<PdbAggRequest, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
     let arg_expr = |i: usize| args.get_ptr(i).map(|arg| (*arg).expr as *mut pg_sys::Node);
-    let sources: Vec<ResolutionSource> = sources.iter().map(ResolutionSource::from).collect();
     lower_pdb_agg_call(
         (*aggref).aggfnoid.to_u32(),
         arg_expr(0),
         arg_expr(1),
-        &sources,
+        sources,
     )
 }
 
@@ -1374,7 +1372,7 @@ pub unsafe fn lower_pdb_agg_call(
     funcoid: u32,
     spec_arg: Option<*mut pg_sys::Node>,
     visibility_arg: Option<*mut pg_sys::Node>,
-    sources: &[ResolutionSource<'_>],
+    sources: &[JoinAggSource],
 ) -> Result<PdbAggRequest, String> {
     let (spec, visibility) = spec_arg
         .and_then(|spec_arg| pdb_agg_spec(funcoid, spec_arg, visibility_arg))

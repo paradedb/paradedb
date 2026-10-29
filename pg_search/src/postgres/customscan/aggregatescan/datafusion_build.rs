@@ -46,8 +46,7 @@ use crate::postgres::customscan::joinscan::planning::{
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
-    Access, ColumnRef, ResolvedIndexField, SourceContext, get_attno_by_name,
-    resolve_index_field_by_name,
+    Access, ColumnRef, ResolvedField, SourceContext, get_attno_by_name, resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
@@ -139,42 +138,13 @@ pub struct ResolvedSourceField {
     pub is_array: bool,
 }
 
-/// What field resolution reads of a join source, so the aggregate scan's and
-/// JoinScan's sources resolve through the same code.
-#[derive(Clone)]
-pub struct ResolutionSource<'a> {
-    rti: pg_sys::Index,
-    alias: &'a Option<String>,
-    bm25_index: Option<PgSearchRelation>,
-}
-
-impl<'a> From<&'a JoinAggSource> for ResolutionSource<'a> {
-    fn from(value: &'a JoinAggSource) -> Self {
-        Self {
-            rti: value.context.heap_rti,
-            alias: &value.alias,
-            bm25_index: value.context.indexrel().cloned(),
-        }
-    }
-}
-
-impl<'a> From<&'a JoinSource> for ResolutionSource<'a> {
-    fn from(value: &'a JoinSource) -> Self {
-        Self {
-            rti: value.scan_info.heap_rti,
-            alias: &value.scan_info.alias,
-            bm25_index: Some(PgSearchRelation::open(value.scan_info.indexrelid)),
-        }
-    }
-}
-
 /// Resolve an index field name against the join sources.
 ///
 /// A bare name must match exactly one indexed table. `alias.field` picks the
 /// table when the same field name exists in several; the bare lookup runs first
 /// because an index field name can itself contain a dot (a JSON sub-field).
 pub fn resolve_source_field(
-    sources: &[ResolutionSource<'_>],
+    sources: &[JoinAggSource],
     field: &str,
 ) -> Result<ResolvedSourceField, String> {
     let (mut candidates, mut reasons) = source_field_candidates(sources, field);
@@ -186,7 +156,9 @@ pub fn resolve_source_field(
         candidates = qualified
             .into_iter()
             .filter(|(source, _)| {
-                RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
+                RelationAlias::new(source.alias.as_deref())
+                    .display(source.context.heap_rti as usize)
+                    == prefix
             })
             .collect();
         reasons.extend(qualified_reasons);
@@ -202,10 +174,15 @@ pub fn resolve_source_field(
         1 => {
             let (source, resolved) = candidates.remove(0);
             Ok(ResolvedSourceField {
-                source_rti: source.rti,
-                attno: resolved.attno,
+                source_rti: source.context.heap_rti,
+                attno: resolved
+                    .attno
+                    .expect("source fields should always have an attno"),
                 field_name,
-                field_type: resolved.field_type,
+                field_type: *resolved
+                    .field
+                    .field_type()
+                    .expect("source fields should always have a field type"),
                 is_array: resolved.is_array,
             })
         }
@@ -217,20 +194,14 @@ pub fn resolve_source_field(
 }
 
 /// The sources that carry `field`, and the reasons the others turned it down.
-fn source_field_candidates<'a, 'b>(
-    sources: &'b [ResolutionSource<'a>],
+fn source_field_candidates<'a>(
+    sources: &'a [JoinAggSource],
     field: &str,
-) -> (
-    Vec<(&'b ResolutionSource<'a>, ResolvedIndexField)>,
-    Vec<String>,
-) {
+) -> (Vec<(&'a JoinAggSource, ResolvedField)>, Vec<String>) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
-        let Some(index) = source.bm25_index.as_ref() else {
-            continue;
-        };
-        match resolve_index_field_by_name(index, field) {
+        match resolve_index_field_by_name(&source.context, field) {
             Ok(Some(resolved)) => matches.push((source, resolved)),
             Ok(None) => {}
             Err(reason) => reasons.push(reason),

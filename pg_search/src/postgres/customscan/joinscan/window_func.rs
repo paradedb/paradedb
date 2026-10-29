@@ -19,7 +19,7 @@ use crate::api::window_aggregate::{PlaceholderId, make_window_agg_placeholder};
 use crate::api::{MvccVisibility, is_agg_funcoid, is_combine_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, ResolutionSource,
+    FilterExprBuildContext, JoinAggSource,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
     numeric_avg_func_with_args, numeric_sum_func_with_args,
@@ -153,8 +153,7 @@ impl WindowAggDef {
         sources: &[&JoinSource],
     ) -> Result<Self, String> {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
-        let sources: Vec<ResolutionSource> =
-            sources.iter().map(|s| ResolutionSource::from(*s)).collect();
+        let sources: Vec<JoinAggSource> = sources.iter().map(|s| JoinAggSource::from(*s)).collect();
         let request = unsafe {
             lower_pdb_agg_call(
                 wf.winfnoid.to_u32(),

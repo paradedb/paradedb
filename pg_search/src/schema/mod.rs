@@ -546,6 +546,19 @@ impl SearchIndexSchema {
             .get_field_type(&FieldName::from(name.as_ref()))
     }
 
+    pub fn search_field_with_data(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Option<(SearchField, CategorizedFieldData)> {
+        let search_field = self.search_field(name)?;
+        let data = self
+            .categorized_fields()
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .map(|(_, d)| d.clone())?;
+        Some((search_field, data))
+    }
+
     /// The field type and declared scale of `name` when the column is NUMERIC,
     /// else `None`. Legacy indexes that store NUMERIC as F64 land in the `None`
     /// arm too: their column data really is `Float64`, so the native aggregates

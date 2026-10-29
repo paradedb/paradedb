@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793234672191,
+  "lastUpdate": 1793234829800,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112295,6 +112295,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12854513245-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "64d7d97fd75329662246cb7b3b20d7bb20beb569",
+          "message": "perf: eagerly flush mutable segments in background workers\n\nBatch unfrozen writes for up to 100ms and wake the collector when entries freeze. Preserve independent merger slots, foreground backpressure, cancellation, immediate visibility, and session ownership while waiting outside transactions.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/64d7d97fd75329662246cb7b3b20d7bb20beb569"
+        },
+        "date": 1793234792638,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1623.6705109180386,
+            "unit": "median tps",
+            "extra": "avg tps: 1644.1495979636143, max tps: 1782.2558198176057, count: 59440"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.78701289219701,
+            "unit": "median tps",
+            "extra": "avg tps: 3.03068972627167, max tps: 5.020651987540439, count: 59440"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1884.8415233100707,
+            "unit": "median tps",
+            "extra": "avg tps: 1882.2341800643073, max tps: 1910.8672390182874, count: 59440"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2911.191257600037,
+            "unit": "median tps",
+            "extra": "avg tps: 2865.381086536612, max tps: 3250.0770238147843, count: 59440"
+          }
+        ],
+        "publication_id": "12855900646-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [

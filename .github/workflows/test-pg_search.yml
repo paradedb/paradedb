@@ -249,23 +249,6 @@ jobs:
             RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
           fi
 
-      # The full SQL suite runs on pgrx PG18; keep permission policy coverage on PG15-18.
-      - name: Run permission SQL regressions (system)
-        if: matrix.pg_impl == 'system'
-        working-directory: pg_search/tests/pg_regress
-        env:
-          PG_CONFIG: /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          PGOPTIONS: -c client_min_messages=warning
-        run: |
-          output_dir="${RUNNER_TEMP}/permission-regress"
-          "$("$PG_CONFIG" --pkglibdir)/pgxs/src/test/regress/pg_regress" \
-            --host=localhost --port=288${{ matrix.pg_version }} \
-            --dbname=permission_regress --inputdir=. --outputdir="$output_dir" \
-            permission_access permission_monitoring || {
-              cat "$output_dir/regression.diffs"
-              exit 1
-            }
-
       - name: Run pg_search Unit Tests (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/

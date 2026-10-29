@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793232724380,
+  "lastUpdate": 1793232834760,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -484009,6 +484009,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12849394227-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "443299ea25e4dc044d0a7a4b3d94b6375e78e6b1",
+          "message": "perf: pin Tantivy main tip and share vector bounds (#7077)\n\n## Summary\n- Pin Tantivy to `8e3bd663` (current `main`): shared top-k pruning bound\nacross segments (#348) and `TopDocsByVectorSimilarity` builder (#349).\n- Call `.build()` on `TopDocsByVectorSimilarityBuilder` after config.\n- Wire `ParallelScanState` into the vector collector via\n`with_shared_threshold` when present (same pattern as\nscore/`SortBySimilarityScore`).\n\n## Test plan\n- [ ] CI green\n- [ ] Parallel vector `ORDER BY` still returns correct top-k\n- [ ] Spot-check that later segments can prune using the shared\nthreshold (segment info / probe stats)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-28T20:42:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/443299ea25e4dc044d0a7a4b3d94b6375e78e6b1"
+        },
+        "date": 1793232786236,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 26.234375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 25.91423227048413, max partition_index_size:MB: 34.5546875, count: 58765"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.025480562907276, max cpu: 37.317787, count: 58765"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.6867227383434, max mem: 57.14453125, count: 58765"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.483368,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.758545386874218, max cpu: 38.30424, count: 58765"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 57.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.850234581064406, max mem: 65.4453125, count: 58765"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.523809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.010305304424872, max cpu: 23.880596, count: 58765"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.766980770867015, max mem: 43.890625, count: 58765"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.471882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.77114579742475, max cpu: 38.30424, count: 58765"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 56.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.4060547041181, max mem: 64.2578125, count: 58765"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.018797897066097, max cpu: 33.3996, count: 58765"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 55.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.71524338200885, max mem: 63.0703125, count: 58765"
+          }
+        ],
+        "publication_id": "12852803800-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

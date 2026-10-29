@@ -57,15 +57,42 @@ runs:
           *) echo "Invalid metric direction: $DIRECTION" >&2; exit 1 ;;
         esac
 
-    - name: Prepare Published Metrics
+    - name: Check for Published Metric
       id: existing
-      shell: bash
+      shell: python3 {0}
       env:
         DATA_DIRECTORY: ${{ inputs.pages_directory }}
         SUITE: ${{ inputs.name }}
         PUBLICATION_ID: ${{ inputs.publication_id }}
         PUBLISH_BASELINE: ${{ inputs.publish_baseline }}
-      run: python3 .github/scripts/benchmark_publication.py prepare >> "$GITHUB_OUTPUT"
+      run: |
+        import json
+        import os
+        from pathlib import Path
+
+        prefix = "window.BENCHMARK_DATA = "
+        history_path = Path("benchmark-data-repository") / os.environ["DATA_DIRECTORY"] / "data.js"
+        history = {"lastUpdate": 0, "repoUrl": "", "entries": {}}
+        entries = []
+        if history_path.exists():
+            text = history_path.read_text()
+            if not text.startswith(prefix):
+                raise ValueError("Unexpected benchmark history prefix")
+            history = json.loads(text[len(prefix):].strip().removesuffix(";"))
+            entries = history.get("entries", {}).get(os.environ["SUITE"], [])
+        position = next((i for i, entry in enumerate(entries)
+                         if entry.get("publication_id") == os.environ["PUBLICATION_ID"]), None)
+        published = os.environ["PUBLISH_BASELINE"] == "true" and position is not None
+        if published:
+            # Later runs may have appended results. Recover this publication's original baseline.
+            comparison = {"entries": {os.environ["SUITE"]: entries[max(0, position - 1):position + 1]}}
+            output = Path("_benchmark_publish/comparison.js")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(prefix + json.dumps(comparison))
+        else:
+            Path("_benchmark_publish/history.json").write_text(json.dumps(history))
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"published={str(published).lower()}\n")
 
     - name: Prepare Metric and Comments
       if: steps.existing.outputs.published != 'true'
@@ -85,14 +112,37 @@ runs:
 
     - name: Record Publication and Original Comparison
       if: steps.existing.outputs.published != 'true'
-      shell: bash
+      shell: python3 {0}
       env:
         DATA_DIRECTORY: ${{ inputs.pages_directory }}
         SUITE: ${{ inputs.name }}
         PUBLICATION_ID: ${{ inputs.publication_id }}
         PUBLISH_BASELINE: ${{ inputs.publish_baseline }}
       run: |
-        python3 .github/scripts/benchmark_publication.py record
-        if [ "$PUBLISH_BASELINE" = 'true' ]; then
-          git -C benchmark-data-repository add "${DATA_DIRECTORY}/data.js"
-        fi
+        import json
+        import os
+        from pathlib import Path
+
+        prefix = "window.BENCHMARK_DATA = "
+        history_path = Path("benchmark-data-repository") / os.environ["DATA_DIRECTORY"] / "data.js"
+        history = json.loads(Path("_benchmark_publish/history.json").read_text())
+        entries = history.get("entries", {}).get(os.environ["SUITE"], [])
+        if not entries:
+            raise ValueError("Publisher did not append a result")
+        entries[-1]["publication_id"] = os.environ["PUBLICATION_ID"]
+        if os.environ["PUBLISH_BASELINE"] == "true":
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            history_path.write_text(prefix + json.dumps(history, indent=2))
+        comparison = {"entries": {os.environ["SUITE"]: entries[-2:]}}
+        output = Path("_benchmark_publish/comparison.js")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(prefix + json.dumps(comparison))
+
+    - name: Stage Metric with Publication ID
+      if: inputs.publish_baseline == 'true' && steps.existing.outputs.published != 'true'
+      shell: bash
+      working-directory: benchmark-data-repository
+      env:
+        DATA_DIRECTORY: ${{ inputs.pages_directory }}
+      run: |
+        git add "${DATA_DIRECTORY}/data.js"

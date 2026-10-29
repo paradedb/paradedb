@@ -101,10 +101,14 @@ jobs:
           exit 1
 
       - name: Checkout Published Metrics
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          BENCHMARK_TYPE: ${{ fromJSON(steps.metadata.outputs.json).benchmark_type }}
-        run: .github/scripts/benchmark-pages.sh checkout "https://github.com/${GITHUB_REPOSITORY}.git" "$BENCHMARK_TYPE"
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: benchmark-data-repository
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /${{ fromJSON(steps.metadata.outputs.json).benchmark_type == 'queries' && 'benchmarks' || fromJSON(steps.metadata.outputs.json).benchmark_type }}/
 
       - name: Publish Benchmarker Results
         if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'benchmarker'
@@ -140,9 +144,17 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
 
       - name: Push Benchmark Results
+        working-directory: benchmark-data-repository
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: .github/scripts/benchmark-pages.sh push "https://github.com/${GITHUB_REPOSITORY}.git" "$BENCHMARK_PUBLICATION_ID"
+        run: |
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='github-actions[bot]@users.noreply.github.com' \
+            commit -m "Publish benchmark results ${BENCHMARK_PUBLICATION_ID}"
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
 
       - name: Record Successful Publication
         uses: actions/upload-artifact@v7

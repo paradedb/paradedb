@@ -20,6 +20,7 @@
 //! This module provides shared logic for determining if and how a PostgreSQL
 //! column can be resolved using Tantivy fast fields.
 
+use crate::api::FieldName;
 use crate::api::operator::row_expr_from_indexed_expr;
 use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -30,9 +31,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::query::SearchQueryInput;
-use crate::schema::{
-    CategorizedFieldData, FieldSource, SearchField, SearchFieldType, SearchIndexSchema,
-};
+use crate::schema::{FieldSource, SearchField, SearchFieldType, SearchIndexSchema};
 use pgrx::{PgList, PgTupleDesc, pg_sys};
 use tantivy::columnar::ColumnType;
 
@@ -118,47 +117,54 @@ impl SourceContext {
         //TODO:  This will swtich on columnref and just call resovlers. (once that works,
         //consolidate their code here
         match col {
-            ColumnRef::Attno(attno) => Some(ResolvedField::new(
-                Some(attno),
-                unsafe { resolve_fast_field(attno as i32, self)? },
-                false,
-                false,
-            )),
+            ColumnRef::Attno(attno) => {
+                let resolved = unsafe { resolve_fast_field(attno, self)? };
+                if !field_type_supported_for_pullup(resolved.field.field_type(), resolved.is_array)
+                {
+                    return None;
+                }
+                Some(resolved)
+            }
             ColumnRef::Field(name) => {
-                let field = resolve_fast_field_by_name(name, self.indexrel()?)?;
-                match (access, field) {
+                let resolved = resolve_fast_field_by_name(name, self.indexrel()?)?;
+                let is_subfield = FieldName::from(name).root() != name;
+                if !is_subfield
+                    && !field_type_supported_for_pullup(resolved.field.field_type(), false)
+                {
+                    return None;
+                }
+                match (access, &resolved) {
                     (
                         Access::List,
-                        (
-                            attno,
-                            field @ WhichFastField::Named {
-                                cardinality: FieldCardinality::List,
-                                ..
-                            },
-                            is_array,
-                            is_json,
-                        ),
-                    ) => Some(ResolvedField::new(attno, field, is_array, is_json)),
+                        ResolvedField {
+                            field:
+                                _field @ WhichFastField::Named {
+                                    cardinality: FieldCardinality::List,
+                                    ..
+                                },
+                            ..
+                        },
+                    ) => Some(resolved),
                     (
                         Access::Scalar,
-                        (
-                            attno,
-                            field @ WhichFastField::Named {
-                                cardinality: FieldCardinality::Scalar,
-                                ..
-                            },
-                            is_array,
-                            is_json,
-                        ),
-                    ) => Some(ResolvedField::new(attno, field, is_array, is_json)),
-                    (Access::Any, (attno, field, is_array, is_json)) => {
-                        Some(ResolvedField::new(attno, field, is_array, is_json))
-                    }
+                        ResolvedField {
+                            field:
+                                _field @ WhichFastField::Named {
+                                    cardinality: FieldCardinality::Scalar,
+                                    ..
+                                },
+                            ..
+                        },
+                    ) => Some(resolved),
+                    (Access::Any, _) => Some(resolved),
                     _ => None,
                 }
             }
             ColumnRef::Expr(node) => {
                 let (ff, is_array, is_json) = find_matching_fast_field(node, self)?;
+                if !field_type_supported_for_pullup(ff.field_type(), is_array) {
+                    return None;
+                }
                 Some(ResolvedField::new(None, ff, is_array, is_json))
             }
             ColumnRef::Ctid => Some(ResolvedField::new(
@@ -229,18 +235,15 @@ fn find_matching_fast_field(
         }
     };
 
-    let to_fast_field =
-        |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
-            if search_field.is_fast()
-                && field_type_supported_for_pullup(&search_field.field_type(), data.is_array)
-            {
-                return Some(WhichFastField::eager(
-                    search_field.field_name().to_string(),
-                    search_field.field_type(),
-                ));
-            }
-            None
-        };
+    let to_fast_field = |search_field: &SearchField| -> Option<WhichFastField> {
+        if search_field.is_fast() {
+            return Some(WhichFastField::eager(
+                search_field.field_name().to_string(),
+                search_field.field_type(),
+            ));
+        }
+        None
+    };
 
     for (i, expr) in index.index_expressions().iter_ptr().enumerate() {
         if let Some(row_expr) = unsafe { row_expr_from_indexed_expr(expr) } {
@@ -267,7 +270,7 @@ fn find_matching_fast_field(
                         } if expression_idx == i && idx == field_idx
                     )
                 }) && matches_node(arg)
-                    && let Some(ff) = to_fast_field(search_field, data)
+                    && let Some(ff) = to_fast_field(search_field)
                 {
                     return Some((ff, data.is_array, data.is_json));
                 }
@@ -275,7 +278,7 @@ fn find_matching_fast_field(
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
             |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
         ) && matches_node(expr as *mut pg_sys::Node)
-            && let Some(ff) = to_fast_field(search_field, data)
+            && let Some(ff) = to_fast_field(search_field)
         {
             return Some((ff, data.is_array, data.is_json));
         }
@@ -297,12 +300,15 @@ fn find_matching_fast_field(
 ///
 /// Returns `Some(WhichFastField)` if the column can be pulled up from the index,
 /// or `None` if it cannot (e.g. not indexed, not a fast field, incompatible type).
-unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<WhichFastField> {
+unsafe fn resolve_fast_field(
+    attno: pg_sys::AttrNumber,
+    context: &SourceContext,
+) -> Option<ResolvedField> {
     let Some(index) = &context.indexrel else {
         return None;
     };
     let tupdesc = context.tupdesc();
-    match attno {
+    match attno as i32 {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber
         | pg_sys::MaxTransactionIdAttributeNumber
@@ -311,11 +317,21 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
 
         // these aren't _exactly_ fast fields, but we do have the information
         // readily available during the scan, so we'll pretend
-        pg_sys::SelfItemPointerAttributeNumber => Some(WhichFastField::Ctid),
+        pg_sys::SelfItemPointerAttributeNumber => Some(ResolvedField::new(
+            Some(attno),
+            WhichFastField::Ctid,
+            false,
+            false,
+        )),
 
-        pg_sys::TableOidAttributeNumber => Some(WhichFastField::TableOid),
+        pg_sys::TableOidAttributeNumber => Some(ResolvedField::new(
+            Some(attno),
+            WhichFastField::TableOid,
+            false,
+            false,
+        )),
 
-        attno => {
+        _ => {
             if attno <= 0 {
                 return None;
             }
@@ -335,9 +351,13 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
                 // find_matching_fast_field fallback below instead.
                 if matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
                     && search_field.is_fast()
-                    && field_type_supported_for_pullup(&search_field.field_type(), data.is_array)
                 {
-                    return Some(WhichFastField::eager(att.name(), search_field.field_type()));
+                    return Some(ResolvedField::new(
+                        Some(attno),
+                        WhichFastField::eager(att.name(), search_field.field_type()),
+                        data.is_array,
+                        data.is_json,
+                    ));
                 }
             }
 
@@ -357,9 +377,7 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
                 att.attcollation,
                 0,
             );
-            context
-                .resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), Access::Any)
-                .map(|f| f.field)
+            context.resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), Access::Any)
         }
     }
 }
@@ -369,10 +387,7 @@ unsafe fn resolve_fast_field(attno: i32, context: &SourceContext) -> Option<Whic
 /// Used for JSON sub-fields where [`resolve_fast_field`] fails because the attno
 /// maps to the parent JSON column rather than the sub-field. Tantivy stores JSON
 /// sub-fields as separate fast fields with dotted names.
-fn resolve_fast_field_by_name(
-    field_name: &str,
-    index: &PgSearchRelation,
-) -> Option<(Option<pg_sys::AttrNumber>, WhichFastField, bool, bool)> {
+fn resolve_fast_field_by_name(field_name: &str, index: &PgSearchRelation) -> Option<ResolvedField> {
     let schema = index.schema().ok()?;
     let (search_field, data) = schema.search_field_with_data(field_name)?;
     if search_field.is_fast() {
@@ -385,7 +400,7 @@ fn resolve_fast_field_by_name(
         } else {
             FieldCardinality::Scalar
         };
-        Some((
+        Some(ResolvedField::new(
             heap_attno,
             WhichFastField::named(
                 field_name,
@@ -413,7 +428,19 @@ pub fn resolve_index_field_by_name(
     context: &SourceContext,
     field_name: &str,
 ) -> Result<Option<ResolvedField>, String> {
+    let is_subfield = FieldName::from(field_name).root() != field_name;
     let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any) else {
+        // determine if this was a root json column
+        if is_subfield
+            && let Some((_, data)) = context
+                .schema()
+                .and_then(|s| s.search_field_with_data(field_name))
+            && data.is_json
+        {
+            return Err(format!(
+                "Field '{field_name}' is a JSON column; name a sub-field, as in '{field_name}.key'"
+            ));
+        }
         return Ok(None);
     };
     if resolved.attno.is_none() {
@@ -422,25 +449,12 @@ pub fn resolve_index_field_by_name(
         ));
     };
 
-    if field_name == resolved.field.name() {
-        let Some(field_type) = resolved.field.field_type() else {
-            return Ok(None);
-        };
-        match field_type_supported_for_pullup(field_type, false) {
-            true => {}
-            false if resolved.is_json => {
-                return Err(format!(
-                    "Field '{field_name}' is a JSON column; name a sub-field, as in '{field_name}.key'"
-                ));
-            }
-            false => return Ok(None),
-        }
-    } else {
+    if is_subfield {
         let Some(index) = context.indexrel.as_ref() else {
             return Ok(None);
         };
         check_json_sub_field_is_text(index, field_name)?;
-    };
+    }
     Ok(Some(resolved))
 }
 
@@ -488,18 +502,20 @@ pub fn get_attno_by_name(
 ///
 /// Returns `Some(SearchFieldType)` if the type is supported for fast field execution,
 /// `None` otherwise (e.g. arrays, JSON which require special handling).
-pub fn field_type_supported_for_pullup(field_type: &SearchFieldType, is_array: bool) -> bool {
+fn field_type_supported_for_pullup(field_type: Option<&SearchFieldType>, is_array: bool) -> bool {
     if is_array {
         return false;
     }
     match field_type {
+        // The field did not have a field type (ctid, score, etc.), which is allowed for pullup
+        None => true,
         // JSON/JSONB are excluded because fast fields do not contain the
         // full content of the JSON in a way that we can easily render:
         // rather, the individual fields are exploded out into dynamic columns.
-        SearchFieldType::Json(_)
-        | SearchFieldType::Tokenized(_, _, pg_sys::JSONOID | pg_sys::JSONBOID) => false,
+        Some(SearchFieldType::Json(_))
+        | Some(SearchFieldType::Tokenized(_, _, pg_sys::JSONOID | pg_sys::JSONBOID)) => false,
         // Range types are not yet supported for pullup
-        SearchFieldType::Range(_) => false,
+        Some(SearchFieldType::Range(_)) => false,
         // All other types can be pulled up directly
         _ => true,
     }

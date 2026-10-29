@@ -47,9 +47,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{
-    Access, ColumnRef, field_type_supported_for_pullup, get_attno_by_name,
-};
+use crate::postgres::customscan::pullup::{Access, ColumnRef, get_attno_by_name};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
     optimize_quals_with_heap_expr,
@@ -63,7 +61,6 @@ use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
 
-use crate::schema::SearchIndexSchema;
 use pgrx::{PgList, pg_sys};
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
@@ -1901,45 +1898,16 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
 unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
-    if source
-        .scan_info
-        .fields
-        .iter()
-        .any(|f| f.field.name() == field_name)
-    {
-        return Ok(());
-    }
-    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-    let schema = SearchIndexSchema::open(&index_rel).map_err(|e| {
-        format!(
-            "Failed to open schema for index {}: {e}",
-            source.scan_info.indexrelid
-        )
-    })?;
-    let search_field = schema
-        .search_field(field_name)
-        .ok_or_else(|| format!("Field '{field_name}' is not part of the schema"))?;
-    if !search_field.is_fast() {
-        return Err(format!("Field '{field_name}' is not columnar"));
-    }
-    let categorized = schema.categorized_fields();
-    let (_, data) = categorized
-        .iter()
-        .find(|(sf, _)| sf == &search_field)
-        .ok_or_else(|| format!("Field '{field_name}' not found in categorized fields"))?;
-    let field_type = if field_type_supported_for_pullup(&search_field.field_type(), data.is_array) {
-        search_field.field_type()
-    } else {
-        return Err(format!(
-            "Field '{field_name}' has unsupported type for pullup"
-        ));
-    };
+    let context = source.to_source_context();
+    let resolved = context
+        .resolve(ColumnRef::Field(field_name), Access::Any)
+        .ok_or(format!("Failed to resolve field {field_name}"))?;
 
+    // TODO: Why is this done, and can we make it guaranteed to not collide with system cols?
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
-    source.scan_info.add_field_by_name(
-        synthetic_attno,
-        WhichFastField::eager(field_name.to_string(), field_type),
-    );
+    source
+        .scan_info
+        .add_field_by_name(synthetic_attno, resolved.field);
     Ok(())
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793239300497,
+  "lastUpdate": 1793239460408,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -339898,6 +339898,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12852875618-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Ming Ying",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "id": "311a4b400084258194efd30c5961fe2de5b1ae52",
+          "message": "feat: periodically sweep mutable segments\n\nLeave write-triggered merging unchanged and flush underfilled segments from\na one-second periodic background sweep. Discover databases independently of\nwrites, skip busy indexes and VACUUM admission, and reuse existing merge\ncoordination. Remove the waiting collector and wakeup registry.",
+          "timestamp": "2026-10-28T20:11:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/311a4b400084258194efd30c5961fe2de5b1ae52"
+        },
+        "date": 1793239422038,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.40653114768882,
+            "unit": "median tps",
+            "extra": "avg tps: 57.56217564267574, max tps: 648.8106890772751, count: 59311"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.76694226709961,
+            "unit": "median tps",
+            "extra": "avg tps: 57.343329286575496, max tps: 694.1070669919749, count: 59311"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.64723528907851,
+            "unit": "median tps",
+            "extra": "avg tps: 59.92873405980493, max tps: 774.8825403106754, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.59738065520292,
+            "unit": "median tps",
+            "extra": "avg tps: 56.385008461570756, max tps: 659.6072193925443, count: 59311"
+          }
+        ],
+        "publication_id": "12860566879-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [

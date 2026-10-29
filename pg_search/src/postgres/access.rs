@@ -61,75 +61,66 @@ impl IndexOid {
         self.0
     }
 
-    pub(crate) fn read(self) -> StandaloneIndexRead {
-        let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        if let Err(denied) = check_read(relations.heap()) {
+    pub(crate) fn read(self) -> IndexAccess {
+        let access = IndexAccess::open(self.0, pg_sys::AccessShareLock as _);
+        if let Err(denied) = check_read(access.heap()) {
             denied.report();
         }
-        StandaloneIndexRead { relations }
+        access
     }
 
     /// Inventory APIs omit entries whose direct-read policy denies access.
     /// Missing relations, wrong kinds and operational failures still raise errors.
     pub(crate) fn is_readable(&self) -> bool {
-        let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        check_read(relations.heap()).is_ok()
+        let access = IndexAccess::open(self.0, pg_sys::AccessShareLock as _);
+        check_read(access.heap()).is_ok()
     }
 
     /// Trusted diagnostics may inspect metadata without table SELECT or RLS.
-    pub(crate) fn read_metadata(self) -> IndexMetadataRead {
-        let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        if let Err(denied) = check_metadata(relations.heap()) {
+    pub(crate) fn read_metadata(self) -> IndexAccess {
+        let access = IndexAccess::open(self.0, pg_sys::AccessShareLock as _);
+        if let Err(denied) = check_metadata(access.heap()) {
             denied.report();
         }
-        IndexMetadataRead { relations }
+        access
     }
 
     /// Like metadata reads, but inventory omits entries denied to this caller.
-    pub(crate) fn read_metadata_if_permitted(self) -> Option<IndexMetadataRead> {
-        let relations = LockedIndexRelations::open(self.0, pg_sys::AccessShareLock as _);
-        check_metadata(relations.heap()).ok()?;
-        Some(IndexMetadataRead { relations })
+    pub(crate) fn read_metadata_if_permitted(self) -> Option<IndexAccess> {
+        let access = IndexAccess::open(self.0, pg_sys::AccessShareLock as _);
+        check_metadata(access.heap()).ok()?;
+        Some(access)
     }
 
-    pub(crate) fn maintain(self) -> IndexMaintenance {
-        let relations = LockedIndexRelations::open(self.0, pg_sys::RowExclusiveLock as _);
-        unsafe {
-            // Follow REINDEX: PG17 introduced MAINTAIN, including pg_maintain.
-            // Earlier versions require ownership of the indexed table.
-            #[cfg(any(feature = "pg17", feature = "pg18"))]
-            let acl = pg_sys::pg_class_aclcheck(
-                relations.heap.oid(),
-                pg_sys::GetUserId(),
-                pg_sys::ACL_MAINTAIN as pg_sys::AclMode,
-            );
-            #[cfg(any(feature = "pg15", feature = "pg16"))]
-            let acl = if owns_table(relations.heap()) {
-                pg_sys::AclResult::ACLCHECK_OK
-            } else {
-                pg_sys::AclResult::ACLCHECK_NOT_OWNER
-            };
-            if acl != pg_sys::AclResult::ACLCHECK_OK {
-                pg_sys::aclcheck_error(
-                    acl,
-                    pg_sys::ObjectType::OBJECT_TABLE,
-                    pg_sys::get_rel_name(relations.heap.oid()),
-                );
-            }
+    /// Maintenance follows REINDEX: `MAINTAIN` on the backing table from
+    /// PostgreSQL 17, ownership before that.
+    pub(crate) fn maintain(self) -> IndexAccess {
+        let access = IndexAccess::open(self.0, pg_sys::RowExclusiveLock as _);
+        if let Err(denied) = check_maintain(access.heap()) {
+            denied.report();
         }
-        IndexMaintenance { relations }
+        access
     }
 }
 
-/// Locks a table before its index and retains both relations. This guard does
-/// not authorize reads; SQL entry points must apply their own access policy.
+/// An index opened after its backing table, with both locks held until drop.
+/// Derefs to the index; the entry method on `IndexOid` determines the policy.
+/// `open` only locks relations and does not authorize reads.
 // Fields drop in declaration order: the index closes before the heap.
-pub(crate) struct LockedIndexRelations {
+pub(crate) struct IndexAccess {
     index: PgSearchRelation,
     heap: PgSearchRelation,
 }
 
-impl LockedIndexRelations {
+impl std::ops::Deref for IndexAccess {
+    type Target = PgSearchRelation;
+
+    fn deref(&self) -> &PgSearchRelation {
+        &self.index
+    }
+}
+
+impl IndexAccess {
     pub(crate) fn open(index_oid: pg_sys::Oid, index_lock: pg_sys::LOCKMODE) -> Self {
         // Like amcheck_lock_relation_and_check: resolve without an index
         // lock, lock the table first, then recheck the association.
@@ -159,10 +150,6 @@ impl LockedIndexRelations {
         Self { index, heap }
     }
 
-    pub(crate) fn index(&self) -> &PgSearchRelation {
-        &self.index
-    }
-
     pub(crate) fn heap(&self) -> &PgSearchRelation {
         &self.heap
     }
@@ -185,6 +172,27 @@ unsafe fn report_not_an_index(oid: pg_sys::Oid) -> ! {
     );
 }
 
+fn check_maintain(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
+    // Owners and pg_maintain members hold MAINTAIN implicitly.
+    #[cfg(any(feature = "pg17", feature = "pg18"))]
+    let acl = unsafe {
+        pg_sys::pg_class_aclcheck(heap.oid(), pg_sys::GetUserId(), pg_sys::ACL_MAINTAIN as _)
+    };
+    #[cfg(any(feature = "pg15", feature = "pg16"))]
+    let acl = if owns_table(heap) {
+        pg_sys::AclResult::ACLCHECK_OK
+    } else {
+        pg_sys::AclResult::ACLCHECK_NOT_OWNER
+    };
+    if acl != pg_sys::AclResult::ACLCHECK_OK {
+        return Err(AccessDenied::Table {
+            acl,
+            relation: heap.oid(),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(any(feature = "pg15", feature = "pg16"))]
 fn owns_table(heap: &PgSearchRelation) -> bool {
     unsafe {
@@ -199,40 +207,7 @@ fn owns_table(heap: &PgSearchRelation) -> bool {
     }
 }
 
-/// Both relation locks live until the standalone read has materialized its result.
-pub(crate) struct StandaloneIndexRead {
-    relations: LockedIndexRelations,
-}
-
-impl StandaloneIndexRead {
-    pub(crate) fn index(&self) -> &PgSearchRelation {
-        self.relations.index()
-    }
-}
-
-/// Authority for schema and segment statistics, not for document reads.
-pub(crate) struct IndexMetadataRead {
-    relations: LockedIndexRelations,
-}
-
-impl IndexMetadataRead {
-    pub(crate) fn index(&self) -> &PgSearchRelation {
-        self.relations.index()
-    }
-}
-
-/// Maintenance authority is distinct from SELECT and from a diagnostic role.
-pub(crate) struct IndexMaintenance {
-    relations: LockedIndexRelations,
-}
-
-impl IndexMaintenance {
-    pub(crate) fn index(&self) -> &PgSearchRelation {
-        self.relations.index()
-    }
-}
-
-enum ReadDenied {
+enum AccessDenied {
     Schema {
         acl: pg_sys::AclResult::Type,
         namespace: pg_sys::Oid,
@@ -247,7 +222,7 @@ enum ReadDenied {
     },
 }
 
-fn check_metadata(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
+fn check_metadata(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
     unsafe {
         // Same trusted role as pgstattuple; pg_monitor inherits it. It sees
         // whole-index counts under RLS and needs no schema USAGE.
@@ -261,7 +236,7 @@ fn check_metadata(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
     check_read(heap)
 }
 
-fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
+fn check_read(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
     unsafe {
         // GetUserId rather than the session user, so SET ROLE and SECURITY
         // DEFINER apply.
@@ -279,7 +254,7 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
             pg_sys::ACL_USAGE as _,
         );
         if schema_acl != pg_sys::AclResult::ACLCHECK_OK {
-            return Err(ReadDenied::Schema {
+            return Err(AccessDenied::Schema {
                 acl: schema_acl,
                 namespace,
             });
@@ -288,7 +263,7 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
         // expressions can read columns other than the ones a caller names.
         let table_acl = pg_sys::pg_class_aclcheck(heap.oid(), user, pg_sys::ACL_SELECT as _);
         if table_acl != pg_sys::AclResult::ACLCHECK_OK {
-            return Err(ReadDenied::Table {
+            return Err(AccessDenied::Table {
                 acl: table_acl,
                 relation: heap.oid(),
             });
@@ -299,7 +274,7 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
         if pg_sys::check_enable_rls(heap.oid(), user, true)
             == pg_sys::CheckEnableRlsResult::RLS_ENABLED as i32
         {
-            return Err(ReadDenied::RowSecurity {
+            return Err(AccessDenied::RowSecurity {
                 schema: heap.namespace().to_owned(),
                 table: heap.name().to_owned(),
             });
@@ -308,7 +283,7 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), ReadDenied> {
     }
 }
 
-impl ReadDenied {
+impl AccessDenied {
     fn report(self) -> ! {
         unsafe {
             match self {

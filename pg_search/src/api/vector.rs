@@ -20,6 +20,8 @@
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
 use crate::postgres::access::IndexOid;
+#[cfg(feature = "pg_test")]
+use crate::postgres::catalog::OidExt;
 use crate::postgres::catalog::is_pgvector_oid;
 #[cfg(any(test, feature = "pg_test"))]
 use crate::postgres::rel::PgSearchRelation;
@@ -155,8 +157,7 @@ fn vector_estimator_info_internal(
     let field = field.context("field must not be NULL")?;
     // Preserve the catalog-only parent diagnostic before opening index data.
     reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
-    let access = index.read();
-    let index = access.index().clone();
+    let index = index.read();
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
     let (search_reader, vector_field, vector_options) = open_vector_field(&index, &field)?;

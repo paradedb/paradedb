@@ -1,3 +1,4 @@
+\set VERBOSITY terse
 -- Trusted diagnostic metadata follows pg_stat_scan_tables, inherited by pg_monitor.
 -- Content and maintenance APIs retain their existing permission policies.
 CREATE EXTENSION IF NOT EXISTS vector;

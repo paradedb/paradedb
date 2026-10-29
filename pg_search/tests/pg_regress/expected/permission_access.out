@@ -1,3 +1,4 @@
+\set VERBOSITY terse
 -- Direct APIs share a read policy; maintenance has a separate privilege policy.
 -- Every negative assertion checks 42501, so a malformed call cannot pass.
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -54,6 +55,54 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT * FROM pdb.verify_index(''permission_access.docs_idx'')',
   'SELECT paradedb.aggregate(''permission_access.docs_idx'', paradedb.all(), ''{"a":{"terms":{"field":"email"}}}'')'
 ] $$;
+-- Audit every regclass overload, including functions that do not read an index.
+-- A new signature must be classified and its access/lock policy covered explicitly.
+-- Exceptions: with_index constructs query input; deprecated bgmerger_state,
+-- reset_bgworker_state and both force_merge overloads read no index data.
+-- SQL signatures cannot distinguish IndexOid from pgrx's implicitly locking PgRelation;
+-- the lock-order tests independently check that argument decoding takes no index lock.
+SELECT n.nspname || '.' || p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ')' AS regclass_function
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_depend d ON d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
+JOIN pg_extension e ON e.oid = d.refobjid AND e.extname = 'pg_search'
+WHERE 'regclass'::regtype::oid = ANY (p.proargtypes::oid[])
+ORDER BY 1;
+                                                                                regclass_function                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ paradedb.aggregate(index regclass, query paradedb.searchqueryinput, agg json, solve_mvcc boolean, memory_limit bigint, bucket_limit bigint, visibility text)
+ paradedb.background_layer_sizes(index regclass)
+ paradedb.bgmerger_state(index regclass)
+ paradedb.combined_layer_sizes(index regclass)
+ paradedb.find_ctid(index regclass, ctid tid)
+ paradedb.force_merge(_index regclass, _oversized_layer_size_bytes bigint)
+ paradedb.force_merge(_index regclass, _oversized_layer_size_pretty text)
+ paradedb.fsm_info(index regclass)
+ paradedb.fsm_size(index regclass)
+ paradedb.index_created_at(index regclass)
+ paradedb.index_created_by(index regclass)
+ paradedb.index_fields(index regclass)
+ paradedb.index_info(index regclass, show_invisible boolean)
+ paradedb.is_merging(index regclass)
+ paradedb.layer_sizes(index regclass)
+ paradedb.merge_info(index regclass)
+ paradedb.merge_lock_garbage_collect(index regclass)
+ paradedb.page_info(index regclass, blockno bigint)
+ paradedb.reset_bgworker_state(index regclass)
+ paradedb.schema(index regclass)
+ paradedb.storage_info(index regclass)
+ paradedb.vacuum_info(index regclass)
+ paradedb.validate_checksum(index regclass)
+ paradedb.vector_clusters(index regclass, field text)
+ paradedb.vector_config(index regclass, field text)
+ paradedb.vector_estimator_info(index regclass, field text, queries vector[])
+ paradedb.vector_info(index regclass, field text)
+ paradedb.with_index(index regclass, query paradedb.searchqueryinput)
+ pdb.index_segments(index regclass)
+ pdb.verify_index(index regclass, heapallindexed boolean, sample_rate double precision, report_progress boolean, "verbose" boolean, on_error_stop boolean, segment_ids integer[])
+(30 rows)
+
 SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;
  no_grant_denials 
@@ -150,6 +199,65 @@ SELECT count(*) AS owner_maintenance FROM paradedb.merge_lock_garbage_collect('p
                  0
 (1 row)
 
+-- Maintenance follows REINDEX: MAINTAIN from PostgreSQL 17, ownership before.
+-- Version-dependent grants share one expected output across supported releases.
+CREATE ROLE permission_access_maintainer NOSUPERUSER NOBYPASSRLS INHERIT;
+CREATE ROLE permission_access_table_maintainer NOSUPERUSER NOBYPASSRLS;
+GRANT USAGE ON SCHEMA permission_access TO permission_access_maintainer, permission_access_table_maintainer;
+SELECT current_setting('server_version_num')::int >= 170000 AS maintain_privilege_exists \gset
+\if :maintain_privilege_exists
+GRANT pg_maintain TO permission_access_maintainer;
+GRANT MAINTAIN ON permission_access.docs TO permission_access_table_maintainer;
+\endif
+CREATE FUNCTION permission_access.try_maintain() RETURNS boolean
+LANGUAGE plpgsql SECURITY INVOKER AS $$
+BEGIN
+  PERFORM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
+  RETURN true;
+EXCEPTION WHEN insufficient_privilege THEN RETURN false;
+END $$;
+SET ROLE permission_access_maintainer;
+SELECT permission_access.try_maintain() = :'maintain_privilege_exists'::boolean AS pg_maintain_member_follows_reindex;
+ pg_maintain_member_follows_reindex 
+------------------------------------
+ t
+(1 row)
+
+SELECT permission_access.assert_denied(permission_access.read_queries()) AS maintainer_read_denials;
+ maintainer_read_denials 
+-------------------------
+                      23
+(1 row)
+
+RESET ROLE;
+SET ROLE permission_access_table_maintainer;
+SELECT permission_access.try_maintain() = :'maintain_privilege_exists'::boolean AS table_maintain_grant_follows_reindex;
+ table_maintain_grant_follows_reindex 
+--------------------------------------
+ t
+(1 row)
+
+RESET ROLE;
+\if :maintain_privilege_exists
+REVOKE pg_maintain FROM permission_access_maintainer;
+REVOKE MAINTAIN ON permission_access.docs FROM permission_access_table_maintainer;
+\endif
+SET ROLE permission_access_maintainer;
+SELECT NOT permission_access.try_maintain() AS revoked_role_denies_maintenance;
+ revoked_role_denies_maintenance 
+---------------------------------
+ t
+(1 row)
+
+RESET ROLE;
+SET ROLE permission_access_table_maintainer;
+SELECT NOT permission_access.try_maintain() AS revoked_table_grant_denies_maintenance;
+ revoked_table_grant_denies_maintenance 
+----------------------------------------
+ t
+(1 row)
+
+RESET ROLE;
 REVOKE USAGE ON SCHEMA permission_access FROM permission_access_reader;
 SET ROLE permission_access_reader;
 -- Numeric regclass avoids schema name resolution: denial must come from access policy.

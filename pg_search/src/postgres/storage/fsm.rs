@@ -1874,11 +1874,10 @@ unsafe fn fsm_info(
     use crate::postgres::storage::fsm::v2::AvlLeaf;
     use crate::postgres::storage::fsm::v2::V2FSM;
 
-    let access = index.read_metadata();
-    let index = access.index();
+    let index = index.read_metadata();
 
-    let meta = MetaPage::open(index);
-    let bman = BufferManager::new(index);
+    let meta = MetaPage::open(&index);
+    let bman = BufferManager::new(&index);
 
     let root = bman.get_buffer(meta.fsm());
     let page = root.page();
@@ -1923,11 +1922,10 @@ unsafe fn fsm_info(
 #[pg_extern]
 unsafe fn fsm_size(index: IndexOid) -> i64 {
     use crate::postgres::storage::fsm::v2::V2FSM;
-    let access = index.read_metadata();
-    let index = access.index();
+    let index = index.read_metadata();
 
-    let meta = MetaPage::open(index);
-    let bman = BufferManager::new(index);
+    let meta = MetaPage::open(&index);
+    let bman = BufferManager::new(&index);
 
     let root = bman.get_buffer(meta.fsm());
     let page = root.page();

@@ -93,8 +93,7 @@ fn aggregate_impl(
         .try_into()
         .unwrap_or_else(|_| pgrx::error!("bucket_limit must be <= {}", u32::MAX));
 
-    let access = index.read();
-    let relation = access.index().clone();
+    let relation = index.read();
 
     // Validate aggregation fields exist and are supported before executing.
     // This path bypasses the planner, so we validate here directly.

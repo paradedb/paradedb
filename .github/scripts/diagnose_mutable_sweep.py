@@ -119,7 +119,11 @@ def run(name, interval, pool=8, ms=300000):
             f"\nmax_worker_processes={pool}\nparadedb.mutable_sweep_interval={interval}\n"
         )
     ctl = [str(pg / "pg_ctl"), "-D", str(data)]
-    subprocess.run(ctl + ["-l", str(case / "postgres.log"), "-w", "start"], check=True)
+    subprocess.run(
+        ctl
+        + ["-l", str(case / "postgres.log"), "-o", "-p 28818 -k /tmp", "-w", "start"],
+        check=True,
+    )
     try:
         query("SELECT pg_stat_reset(); SELECT pg_stat_statements_reset();")
         before = snapshot()
@@ -246,7 +250,16 @@ def prepare():
     )
     subprocess.run(ctl + ["-m", "fast", "-w", "stop"], check=True)
     subprocess.run(
-        ctl + ["-l", str(r / "prepare-postgres.log"), "-w", "start"], check=True
+        ctl
+        + [
+            "-l",
+            str(r / "prepare-postgres.log"),
+            "-o",
+            "-p 28818 -k /tmp",
+            "-w",
+            "start",
+        ],
+        check=True,
     )
     try:
         subprocess.run(admin + ["-c", "CREATE DATABASE stressgres"], check=True)

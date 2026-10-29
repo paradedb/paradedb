@@ -62,7 +62,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
 
     fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let index = context
-            .index
+            .indexrel
             .as_ref()
             .expect("should always have a valid index here");
         // We can't handle HAVING yet. PostgreSQL moves a HAVING condition that
@@ -105,8 +105,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         let mut where_qual_state = QualExtractState::default();
 
         // Filter out predicates implied by the partial index predicate
-        let filtered_restrict_info =
-            filter_implied_predicates(index.indexrel.rd_indpred, &restrict_info);
+        let filtered_restrict_info = filter_implied_predicates(index.rd_indpred, &restrict_info);
 
         // SECURITY: nothing runs above this scan, so a leaky filter would run before RLS.
         let has_leaky_filter = unsafe {
@@ -114,7 +113,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
                 args.root,
                 args.input_rel,
                 context.heap_rti,
-                &index.indexrel,
+                index,
                 &filtered_restrict_info,
             )
         };
@@ -130,7 +129,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             context.heap_rti,
             filtered_restrict_info.as_ptr().cast(),
             ri_type,
-            &index.indexrel,
+            index,
             false,
             &mut where_qual_state,
             true,

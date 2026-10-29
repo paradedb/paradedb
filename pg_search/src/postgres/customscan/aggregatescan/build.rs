@@ -479,14 +479,14 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
 
     fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let index = context
-            .index
+            .indexrel
             .as_ref()
             .expect("should always have an index here");
         // A query that doesn't imply a partial index's predicate can't use this
         // index at all, whatever the targetlist holds, so this decides before the
         // clauses below report a narrower reason for the same decline.
         let (restrict_info, _) = restrict_info(args.input_rel());
-        if missing_partial_index_predicate(index.indexrel.rd_indpred, &restrict_info) {
+        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
             return Err("query does not imply the partial index predicate".into());
         }
 
@@ -532,8 +532,8 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             orderby,
             limit_offset,
             quals,
-            indexrelid: index.indexrel.oid(),
-            index_created_by_version: index.indexrel.created_by_version(),
+            indexrelid: index.oid(),
+            index_created_by_version: index.created_by_version(),
             is_execution_time: false,
             aggregate_orderby,
         })

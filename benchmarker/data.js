@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793308985506,
+  "lastUpdate": 1793309719251,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -45852,6 +45852,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12931530758-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3d439e68a2d8c6bfcb2358491d1b6842a5798de",
+          "message": "chore: Consolidate property tests for the aggregate scan (#7099)\n\n# Ticket(s) Closed\n\n- Closes #7079\n\n## What\n\nConsolidates the SQL aggregate-over-join property tests\n(`generated_aggregate_join`, `generated_aggregate_join_distinct`,\n`generated_join_aggregates`, and `generated_group_by_stddev`) into\n`generated_aggregate_join` in `tests/tests/qgen.rs`, makes join\ngeneration part of the `proptest!` strategy, and adds `EXPLAIN` plan\nassertions verifying that queries execute on the expected ParadeDB\naggregate backend.\n\n## Why\n\n1. `rating` in `COLUMNS` was marked `.indexed(false)` (to exercise\nheap-filter pushdown in `WHERE` clauses) while still `.groupable(true)`\nand used in `MIN(rating)` / `MAX(rating)`, causing aggregate pushdown to\ndecline whenever `rating` was selected.\n2. `arb_joins` was instantiated inside the test body via a fresh\n`TestRunner::new(qgen_proptest_config())`, bypassing `PROPTEST_RNG_SEED`\nand shrinking.\n3. Grouping columns and aggregates in the join tests only referenced\n`users.*` (`all_tables[0]`), leaving `products` and `orders`\nunreferenced outside the `JOIN` clause and allowing PostgreSQL's\n`reduce_outer_joins` and `remove_useless_joins` to prune `LEFT` / `FULL`\njoins on `id` down to a single-table scan.\n4. None of the four tests asserted `EXPLAIN` plans; in particular,\n`generated_group_by_stddev` ran on a single table where `STDDEV` /\n`VARIANCE` were declined by Tantivy (and `NUMERIC` `STDDEV` / `VARIANCE`\nby DataFusion), silently falling back to PostgreSQL.\n\n## How\n\n- Enforce in `Column::indexed` / `Column::groupable`\n(`tests/src/fixtures/querygen/mod.rs`) that unindexed columns cannot be\ngroupable, and replace `MIN(rating)` / `MAX(rating)` with\n`MIN(quantity)` / `MAX(quantity)`.\n- Move `arb_joins` into the `proptest!` strategy in\n`generated_aggregate_join` via `.prop_flat_map(...)` and generate\ngrouping columns and aggregates (`COUNT(*)`, `SUM`, `AVG`, `MIN`, `MAX`,\n`STDDEV`, `VARIANCE`, `COUNT(DISTINCT)`, `SUM(DISTINCT)`,\n`AVG(DISTINCT)`) across all `used_tables`.\n- Add `JoinExpr::collapses_to_single_table`\n(`tests/src/fixtures/querygen/joingen.rs`) and\n`Expr::forces_nonnullable` (`tests/src/fixtures/querygen/wheregen.rs`)\nto assert `\"DataFusion Physical Plan\"` when at least one join step\nsurvives join pruning, or `\"ParadeDB Aggregate Scan\"` when all steps\ncollapse to a single table and Tantivy supports the query.\n\n## Tests\n\nTest coverage increases, total test volume decreases.\n\n---------\n\nCo-authored-by: Philippe No\u00ebl <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-29T14:01:41-07:00",
+          "tree_id": "7ab56481fbc16f14eccab983cb99d04993c68d06",
+          "url": "https://github.com/paradedb/paradedb/commit/d3d439e68a2d8c6bfcb2358491d1b6842a5798de"
+        },
+        "date": 1793309717829,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.122,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.196,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.882,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.139,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.229,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.091,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 8.96,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.754,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.931,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 8.969,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.771,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.929,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 8.96,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.948,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.857,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.213,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.839,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.16,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.543,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.899,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12933838275-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -47575,6 +47735,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12931530758-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3d439e68a2d8c6bfcb2358491d1b6842a5798de",
+          "message": "chore: Consolidate property tests for the aggregate scan (#7099)\n\n# Ticket(s) Closed\n\n- Closes #7079\n\n## What\n\nConsolidates the SQL aggregate-over-join property tests\n(`generated_aggregate_join`, `generated_aggregate_join_distinct`,\n`generated_join_aggregates`, and `generated_group_by_stddev`) into\n`generated_aggregate_join` in `tests/tests/qgen.rs`, makes join\ngeneration part of the `proptest!` strategy, and adds `EXPLAIN` plan\nassertions verifying that queries execute on the expected ParadeDB\naggregate backend.\n\n## Why\n\n1. `rating` in `COLUMNS` was marked `.indexed(false)` (to exercise\nheap-filter pushdown in `WHERE` clauses) while still `.groupable(true)`\nand used in `MIN(rating)` / `MAX(rating)`, causing aggregate pushdown to\ndecline whenever `rating` was selected.\n2. `arb_joins` was instantiated inside the test body via a fresh\n`TestRunner::new(qgen_proptest_config())`, bypassing `PROPTEST_RNG_SEED`\nand shrinking.\n3. Grouping columns and aggregates in the join tests only referenced\n`users.*` (`all_tables[0]`), leaving `products` and `orders`\nunreferenced outside the `JOIN` clause and allowing PostgreSQL's\n`reduce_outer_joins` and `remove_useless_joins` to prune `LEFT` / `FULL`\njoins on `id` down to a single-table scan.\n4. None of the four tests asserted `EXPLAIN` plans; in particular,\n`generated_group_by_stddev` ran on a single table where `STDDEV` /\n`VARIANCE` were declined by Tantivy (and `NUMERIC` `STDDEV` / `VARIANCE`\nby DataFusion), silently falling back to PostgreSQL.\n\n## How\n\n- Enforce in `Column::indexed` / `Column::groupable`\n(`tests/src/fixtures/querygen/mod.rs`) that unindexed columns cannot be\ngroupable, and replace `MIN(rating)` / `MAX(rating)` with\n`MIN(quantity)` / `MAX(quantity)`.\n- Move `arb_joins` into the `proptest!` strategy in\n`generated_aggregate_join` via `.prop_flat_map(...)` and generate\ngrouping columns and aggregates (`COUNT(*)`, `SUM`, `AVG`, `MIN`, `MAX`,\n`STDDEV`, `VARIANCE`, `COUNT(DISTINCT)`, `SUM(DISTINCT)`,\n`AVG(DISTINCT)`) across all `used_tables`.\n- Add `JoinExpr::collapses_to_single_table`\n(`tests/src/fixtures/querygen/joingen.rs`) and\n`Expr::forces_nonnullable` (`tests/src/fixtures/querygen/wheregen.rs`)\nto assert `\"DataFusion Physical Plan\"` when at least one join step\nsurvives join pruning, or `\"ParadeDB Aggregate Scan\"` when all steps\ncollapse to a single table and Tantivy supports the query.\n\n## Tests\n\nTest coverage increases, total test volume decreases.\n\n---------\n\nCo-authored-by: Philippe No\u00ebl <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-29T14:01:41-07:00",
+          "tree_id": "7ab56481fbc16f14eccab983cb99d04993c68d06",
+          "url": "https://github.com/paradedb/paradedb/commit/d3d439e68a2d8c6bfcb2358491d1b6842a5798de"
+        },
+        "date": 1793309718650,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 97.60314076045336,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 97.24587608113265,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 97.02421382973519,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 110.06006531555953,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 109.94644861543068,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 110.0106219966119,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 142.83770495438034,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 137.32832869137758,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 112.18363160590103,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12933838275-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -53772,6 +54002,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12931530758-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3d439e68a2d8c6bfcb2358491d1b6842a5798de",
+          "message": "chore: Consolidate property tests for the aggregate scan (#7099)\n\n# Ticket(s) Closed\n\n- Closes #7079\n\n## What\n\nConsolidates the SQL aggregate-over-join property tests\n(`generated_aggregate_join`, `generated_aggregate_join_distinct`,\n`generated_join_aggregates`, and `generated_group_by_stddev`) into\n`generated_aggregate_join` in `tests/tests/qgen.rs`, makes join\ngeneration part of the `proptest!` strategy, and adds `EXPLAIN` plan\nassertions verifying that queries execute on the expected ParadeDB\naggregate backend.\n\n## Why\n\n1. `rating` in `COLUMNS` was marked `.indexed(false)` (to exercise\nheap-filter pushdown in `WHERE` clauses) while still `.groupable(true)`\nand used in `MIN(rating)` / `MAX(rating)`, causing aggregate pushdown to\ndecline whenever `rating` was selected.\n2. `arb_joins` was instantiated inside the test body via a fresh\n`TestRunner::new(qgen_proptest_config())`, bypassing `PROPTEST_RNG_SEED`\nand shrinking.\n3. Grouping columns and aggregates in the join tests only referenced\n`users.*` (`all_tables[0]`), leaving `products` and `orders`\nunreferenced outside the `JOIN` clause and allowing PostgreSQL's\n`reduce_outer_joins` and `remove_useless_joins` to prune `LEFT` / `FULL`\njoins on `id` down to a single-table scan.\n4. None of the four tests asserted `EXPLAIN` plans; in particular,\n`generated_group_by_stddev` ran on a single table where `STDDEV` /\n`VARIANCE` were declined by Tantivy (and `NUMERIC` `STDDEV` / `VARIANCE`\nby DataFusion), silently falling back to PostgreSQL.\n\n## How\n\n- Enforce in `Column::indexed` / `Column::groupable`\n(`tests/src/fixtures/querygen/mod.rs`) that unindexed columns cannot be\ngroupable, and replace `MIN(rating)` / `MAX(rating)` with\n`MIN(quantity)` / `MAX(quantity)`.\n- Move `arb_joins` into the `proptest!` strategy in\n`generated_aggregate_join` via `.prop_flat_map(...)` and generate\ngrouping columns and aggregates (`COUNT(*)`, `SUM`, `AVG`, `MIN`, `MAX`,\n`STDDEV`, `VARIANCE`, `COUNT(DISTINCT)`, `SUM(DISTINCT)`,\n`AVG(DISTINCT)`) across all `used_tables`.\n- Add `JoinExpr::collapses_to_single_table`\n(`tests/src/fixtures/querygen/joingen.rs`) and\n`Expr::forces_nonnullable` (`tests/src/fixtures/querygen/wheregen.rs`)\nto assert `\"DataFusion Physical Plan\"` when at least one join step\nsurvives join pruning, or `\"ParadeDB Aggregate Scan\"` when all steps\ncollapse to a single table and Tantivy supports the query.\n\n## Tests\n\nTest coverage increases, total test volume decreases.\n\n---------\n\nCo-authored-by: Philippe No\u00ebl <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-29T14:01:41-07:00",
+          "tree_id": "7ab56481fbc16f14eccab983cb99d04993c68d06",
+          "url": "https://github.com/paradedb/paradedb/commit/d3d439e68a2d8c6bfcb2358491d1b6842a5798de"
+        },
+        "date": 1793309719241,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.3837572629333333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.6796875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12933838275-index"
       }
     ]
   }

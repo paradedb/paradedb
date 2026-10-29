@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793261600536,
+  "lastUpdate": 1793261631088,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -497463,6 +497463,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12861202593-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f",
+          "message": "fix: Fix filter pushdown in RankJoinExec (#7085)\n\n## What\n\n- Fix a `generated_rank_join` (`qgen`) failure on multi-way rank joins\nby implementing `EmbeddedProjection` and\n`ExecutionPlan::try_swapping_with_projection` on `RankJoinExec`.\n- Emit `Sides` (`baseline` and `candidate`) `SET` statements in `qgen`\nreproduction scripts to ensure that they are actually reproducible.\n- Address post-merge review feedback from\nhttps://github.com/paradedb/paradedb/pull/7003#pullrequestreview-5675848845.\n\n## Why\n\n- DataFusion's `PushDownProjection` inserts narrowing `ProjectionExec`\nnodes between nested joins; without `try_swapping_with_projection` on\n`RankJoinExec`, `RankJoinRule` could not peel those projections when\nrewriting multi-way rank joins.\n- `qgen` reproduction scripts previously omitted the `Sides` GUC\nsettings required to reproduce candidate vs baseline failures in\n`pg_regress`.\n\n## How\n\n- Implement `EmbeddedProjection` and `try_swapping_with_projection` on\n`RankJoinExec` (and guard against duplicate output field names in\n`RankJoinRule::map_key_sets_through_passthrough`).\n- Thread `Sides` into `ReproScript::new` and generalize `qgen` output\nlabels to `Baseline` / `Candidate`.\n- Check `cancel_pending()` per segment in `LazySegmentTarget`, remove\nfalse `score_threshold_pushed` reporting in\n`Scanner::materialize_topk_window`, rename `SharedThresholdMode` to\n`LazyParallelMode`, and share a `TaskContext` across `BaseScan` exec\nmethods.\n\n## Tests\n\nFixed repro scripts for rank join comparison failures.",
+          "timestamp": "2026-10-29T04:23:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f"
+        },
+        "date": 1793261628042,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3868.360572775431,
+            "unit": "median tps",
+            "extra": "avg tps: 3865.1121849650294, max tps: 4380.0288205896395, count: 59259"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4554.232010248046,
+            "unit": "median tps",
+            "extra": "avg tps: 4585.311734415688, max tps: 5390.150166412959, count: 59259"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.3171122188408,
+            "unit": "median tps",
+            "extra": "avg tps: 167.7879815679539, max tps: 2905.6562473062145, count: 59259"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.877664053040593,
+            "unit": "median tps",
+            "extra": "avg tps: 40.060880683421, max tps: 551.0437539362193, count: 59259"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.886477662019193,
+            "unit": "median tps",
+            "extra": "avg tps: 40.36942855586376, max tps: 583.1613873531109, count: 59259"
+          }
+        ],
+        "publication_id": "12881997673-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -511446,6 +511499,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12861202593-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f",
+          "message": "fix: Fix filter pushdown in RankJoinExec (#7085)\n\n## What\n\n- Fix a `generated_rank_join` (`qgen`) failure on multi-way rank joins\nby implementing `EmbeddedProjection` and\n`ExecutionPlan::try_swapping_with_projection` on `RankJoinExec`.\n- Emit `Sides` (`baseline` and `candidate`) `SET` statements in `qgen`\nreproduction scripts to ensure that they are actually reproducible.\n- Address post-merge review feedback from\nhttps://github.com/paradedb/paradedb/pull/7003#pullrequestreview-5675848845.\n\n## Why\n\n- DataFusion's `PushDownProjection` inserts narrowing `ProjectionExec`\nnodes between nested joins; without `try_swapping_with_projection` on\n`RankJoinExec`, `RankJoinRule` could not peel those projections when\nrewriting multi-way rank joins.\n- `qgen` reproduction scripts previously omitted the `Sides` GUC\nsettings required to reproduce candidate vs baseline failures in\n`pg_regress`.\n\n## How\n\n- Implement `EmbeddedProjection` and `try_swapping_with_projection` on\n`RankJoinExec` (and guard against duplicate output field names in\n`RankJoinRule::map_key_sets_through_passthrough`).\n- Thread `Sides` into `ReproScript::new` and generalize `qgen` output\nlabels to `Baseline` / `Candidate`.\n- Check `cancel_pending()` per segment in `LazySegmentTarget`, remove\nfalse `score_threshold_pushed` reporting in\n`Scanner::materialize_topk_window`, rename `SharedThresholdMode` to\n`LazyParallelMode`, and share a `TaskContext` across `BaseScan` exec\nmethods.\n\n## Tests\n\nFixed repro scripts for rank join comparison failures.",
+          "timestamp": "2026-10-29T04:23:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1a4c5ecd98c6d1c9a4e8681fffa126f82b8c408f"
+        },
+        "date": 1793261630979,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.288792055411952, max cpu: 4.7619047, count: 59259"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.098021371226313, max mem: 20.1171875, count: 59259"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.472738427492571, max cpu: 4.7571855, count: 59259"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 19.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.740188594770416, max mem: 19.7421875, count: 59259"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.08718793632491, max cpu: 27.612656, count: 59259"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.270570517242106, max mem: 20.2734375, count: 59259"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.922408410537, max document_count: 10002.0, count: 59259"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.920653402858, max document_count: 10002.0, count: 59259"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59259"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.422104562026615, max cpu: 35.064934, count: 59259"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.548202000434536, max mem: 62.57421875, count: 59259"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.476822716934528, max cpu: 33.15244, count: 59259"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 51.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.82451808480568, max mem: 65.37890625, count: 59259"
+          }
+        ],
+        "publication_id": "12881997673-other"
       }
     ]
   }

@@ -4,25 +4,23 @@
 # Run our Stressgres stress testing tool against pg_search on the
 # testing suites specified in stressgres/suites/.
 
-name: Benchmark pg_search (Stressgres)
+name: Diagnose mutable sweep wide-table
 
 # Run Stressgres nightly on main, on labeled PRs, or manually.
 on:
-  schedule:
-    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
-  pull_request:
-    types: [labeled]
   workflow_dispatch:
     inputs:
       commit:
-        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
-        required: false
-        default: ""
+        description: "Exact pg_search source SHA"
+        required: true
+        default: "a58572b4da950608330831c2517992eb9391024d"
       use_benchmarks_from_ref:
-        description: "Whether to use benchmark code from the specified commit instead of main. Actions always come from this workflow."
-        required: false
+        description: "Use the pinned benchmark configuration"
         type: boolean
-        default: false
+        default: true
+      runtime_ms:
+        description: "Duration of each of four identical-seed trials"
+        default: "300000"
 
 permissions:
   actions: write
@@ -40,13 +38,6 @@ jobs:
       max-parallel: 4 # Avoid exhausting regional capacity for the large bare-metal benchmark runners
       matrix:
         suite:
-          - background-merge.toml
-          - bulk-update-merge-pressure.toml
-          - logical-replication-fsm-merge-race.toml
-          - logical-replication-mixed-workload.toml
-          - logical-replication-multi-subscriber.toml
-          - partitioned-table.toml
-          - single-node-planner-paths.toml
           - wide-table.toml
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
@@ -251,41 +242,29 @@ jobs:
         working-directory: source/stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
-      # Each suite is its own matrix job, so a failure never skips later topologies.
-      - name: Benchmark ${{ matrix.suite }}
-        uses: ./.github/actions/benchmark-stressgres
+      - name: Controlled sweep on-off comparison
+        env:
+          PG_CONFIG: /usr/lib/postgresql/18/bin/pg_config
+          TRIAL_RUNTIME_MS: ${{ inputs.runtime_ms }}
+        run: |
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
+          python3 .github/scripts/diagnose_mutable_sweep.py \
+            --source source --output wide-sweep-diagnostics \
+            --runtime-ms "$TRIAL_RUNTIME_MS"
+
+      - name: Upload controlled comparison
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          source_directory: source
-          test_file: ${{ matrix.suite }}
-          ref: ${{ steps.commit_info.outputs.commit_sha }}
+          name: mutable-sweep-wide-comparison
+          path: |
+            wide-sweep-diagnostics/
+            !wide-sweep-diagnostics/**/pgdata/**
+            !wide-sweep-diagnostics/seed/**
+          retention-days: 14
 
       - name: Print Crashdump Stacktrace
         if: always()
         env:
           PG_VERSION: ${{ env.pg_version }}
         run: ./.github/scripts/render_crashdump.sh
-
-  publish-results:
-    name: Publish Benchmark Results
-    needs: [benchmark-pg_search-stressgres]
-    if: always() && !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure'))
-    uses: ./.github/workflows/publish-benchmark-results.yml
-    secrets: inherit
-
-  notify-slack-on-failure:
-    name: Notify Slack on Failure
-    needs: [benchmark-pg_search-stressgres, publish-results]
-    if: always() && (needs.benchmark-pg_search-stressgres.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-    steps:
-      - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v14
-        with:
-          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
-          job_results: ${{ toJSON(needs) }}
-          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
-          title: "${{ github.workflow }} Failed"

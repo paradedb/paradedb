@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793301692196,
+  "lastUpdate": 1793301721739,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -31479,6 +31479,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12874686887-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1248c3ed85d2419a92103665ad3d4b71211bad8f",
+          "message": "fix: upgrade zip to resolve archive parsing advisory (#7094)\n\n## What\n\nUpdate the locked `zip` dependency from 9.0.4 to 9.0.5, the first\npatched release for\n[GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj).\nAddresses [Dependabot alert\n#8](https://github.com/paradedb/paradedb/security/dependabot/8).\n\n## Why\n\nThe affected package enters through `benchmarks \u2192 duckdb \u2192 libduckdb-sys\n\u2192 zip` (build dependency). Like pdbench#42, this uses the patched zip\nrelease. ParadeDB already requires DuckDB 1.10506.1, so no DuckDB\nupgrade is needed.\n\nI also checked Walter\u2019s dependency cleanup in pdbench#43. DuckDB is\nalready scoped to the benchmark crate here and excluded from the default\nextension build. Its zip build dependency is unconditional, so disabling\ndefault features would not remove it.\n\n## Tests\n\n- Cargo update changed only the zip version and checksum.\n- Locked workspace dependency tree confirms zip 9.0.5 and the\nbenchmark-only path above.\n- Locked Cargo metadata passes for aarch64-apple-darwin using Rust\n1.99.1.\n- Downloaded crate SHA-256 matches the lockfile; `git diff --check`\npasses.\n- Compilation and benchmark tests were not run locally.\n\nDependabot closure requires merge and a subsequent dependency scan.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T11:08:46-07:00",
+          "tree_id": "71592fed36e2ffbd87baef5b7eb6deff66e1a4f4",
+          "url": "https://github.com/paradedb/paradedb/commit/1248c3ed85d2419a92103665ad3d4b71211bad8f"
+        },
+        "date": 1793301720798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.29,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.671,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.214,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.551,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.027,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.291,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 2.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.288,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.497,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.126,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.136,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.206,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.019,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12924865290-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -36304,6 +36404,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12874686887-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1248c3ed85d2419a92103665ad3d4b71211bad8f",
+          "message": "fix: upgrade zip to resolve archive parsing advisory (#7094)\n\n## What\n\nUpdate the locked `zip` dependency from 9.0.4 to 9.0.5, the first\npatched release for\n[GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj).\nAddresses [Dependabot alert\n#8](https://github.com/paradedb/paradedb/security/dependabot/8).\n\n## Why\n\nThe affected package enters through `benchmarks \u2192 duckdb \u2192 libduckdb-sys\n\u2192 zip` (build dependency). Like pdbench#42, this uses the patched zip\nrelease. ParadeDB already requires DuckDB 1.10506.1, so no DuckDB\nupgrade is needed.\n\nI also checked Walter\u2019s dependency cleanup in pdbench#43. DuckDB is\nalready scoped to the benchmark crate here and excluded from the default\nextension build. Its zip build dependency is unconditional, so disabling\ndefault features would not remove it.\n\n## Tests\n\n- Cargo update changed only the zip version and checksum.\n- Locked workspace dependency tree confirms zip 9.0.5 and the\nbenchmark-only path above.\n- Locked Cargo metadata passes for aarch64-apple-darwin using Rust\n1.99.1.\n- Downloaded crate SHA-256 matches the lockfile; `git diff --check`\npasses.\n- Compilation and benchmark tests were not run locally.\n\nDependabot closure requires merge and a subsequent dependency scan.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-29T11:08:46-07:00",
+          "tree_id": "71592fed36e2ffbd87baef5b7eb6deff66e1a4f4",
+          "url": "https://github.com/paradedb/paradedb/commit/1248c3ed85d2419a92103665ad3d4b71211bad8f"
+        },
+        "date": 1793301721729,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 541.1644444996127,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 504.06529138200915,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 262.26621916581956,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 256.26965273649006,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 372.27036840192477,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12924865290-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

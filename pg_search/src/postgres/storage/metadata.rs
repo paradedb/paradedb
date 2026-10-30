@@ -262,6 +262,7 @@ impl MetaPage {
         }
     }
 
+    /// Returns `None` if VACUUM blocks merge admission, so the sweep can try other indexes.
     pub(crate) fn try_pin_merge(&self) -> Option<MergePins> {
         unsafe {
             let relation = self.bman.buffer_access().rel().as_ptr();

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Comparing a NULL value against an indexed array column, such as `NULL::text = ANY(tags)`, no longer raises `pushdown expression should not evaluate to NULL`.

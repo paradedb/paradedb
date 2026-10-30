@@ -197,7 +197,11 @@ jobs:
             {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
             {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
           ]' benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
+          # VACUUM FULL rebuilds indexes and captures build GUCs again.
+          # This session does not inherit pdbench's CREATE INDEX settings.
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+            -c 'SET paradedb.vector_centroid_quantization = on;' \
+            -c 'SHOW paradedb.vector_centroid_quantization;' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log

@@ -299,6 +299,12 @@ pub unsafe fn try_build_pushdown_qual(
         (lhs, rhs, false)
     };
 
+    // A NULL value can still be true against an empty array (`NULL <> ALL('{}')`),
+    // which the index cannot see, so leave it to PostgreSQL.
+    if nodecast!(Const, T_Const, maybe_value).is_some_and(|c| (*c).constisnull) {
+        return None;
+    }
+
     let pushdown = PushdownField::try_new_with_context(context.var_context(), maybe_field, indexrel)?;
     let search_field = pushdown.search_field();
 

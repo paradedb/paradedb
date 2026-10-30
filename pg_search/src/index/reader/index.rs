@@ -64,8 +64,11 @@ use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
+use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::{ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSimilarityFruit};
+use tantivy::vector::{
+    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSegment, VectorSimilarityFruit,
+};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -2364,30 +2367,35 @@ impl SearchIndexReader {
                 let (fruit, aggregation_results) = match tie_break_count {
                     0 => self.collect_vector_maybe_auxiliary(
                         readers,
+                        tantivy_field,
                         partition_bounds,
                         collector.build(),
                         aux_collector,
                     ),
                     1 => self.collect_vector_maybe_auxiliary(
                         readers,
+                        tantivy_field,
                         partition_bounds,
                         collector.with_tie_break(next()).build(),
                         aux_collector,
                     ),
                     2 => self.collect_vector_maybe_auxiliary(
                         readers,
+                        tantivy_field,
                         partition_bounds,
                         collector.with_tie_break((next(), next())).build(),
                         aux_collector,
                     ),
                     3 => self.collect_vector_maybe_auxiliary(
                         readers,
+                        tantivy_field,
                         partition_bounds,
                         collector.with_tie_break((next(), next(), next())).build(),
                         aux_collector,
                     ),
                     4 => self.collect_vector_maybe_auxiliary(
                         readers,
+                        tantivy_field,
                         partition_bounds,
                         collector
                             .with_tie_break((next(), next(), next(), next()))
@@ -3052,6 +3060,7 @@ impl SearchIndexReader {
     fn collect_vector_maybe_auxiliary<'a, S>(
         &self,
         reader_batches: impl Iterator<Item = Vec<(SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>>,
+        vector_field: Field,
         partition_bounds: Option<&SearchQueryInput>,
         collector: TopDocsByVectorSimilarity<f32, S>,
         aux_collector: Option<TopKAuxiliaryCollector>,
@@ -3091,8 +3100,34 @@ impl SearchIndexReader {
                     .into_iter()
                     .map(|(ord, reader, _)| (ord, reader))
                     .collect::<Vec<_>>();
+                let centroids = readers
+                    .iter()
+                    .map(|(ord, reader)| {
+                        if readers.len() <= 1 {
+                            return None;
+                        }
+                        let centroid = SegmentStats::of_reader(reader)
+                            .expect("segment stats should be readable")
+                            .and_then(|stats| {
+                                stats
+                                    .vector_partition(vector_field)
+                                    .expect("partition centroid should be readable")
+                            });
+                        on_segment(*ord);
+                        centroid
+                    })
+                    .collect::<Vec<_>>();
+                let segments = readers
+                    .iter()
+                    .zip(&centroids)
+                    .map(|(&(ordinal, reader), centroid)| VectorSegment {
+                        ordinal,
+                        reader,
+                        partition_centroid: centroid.as_deref(),
+                    })
+                    .collect::<Vec<_>>();
                 collector
-                    .collect_segments(weight.as_ref(), &readers, on_segment)
+                    .collect_segments(weight.as_ref(), &segments, on_segment)
                     .expect("vector collection should not fail")
             })
             .collect();

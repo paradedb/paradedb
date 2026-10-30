@@ -1189,6 +1189,10 @@ impl<'a> WorkerBuildState<'a> {
                     BuildPartitioning::Range(tree) => partition_box(tree, partition),
                     BuildPartitioning::Vector(_) => None,
                 });
+            self.writer
+                .as_mut()
+                .unwrap()
+                .set_vector_partition(model.vector_partition(partition));
             let mut partition_metas: Vec<SegmentMeta> = Vec::new();
             let mut ctids = PrefetchWindow::new(
                 &heaprel,

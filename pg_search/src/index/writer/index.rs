@@ -34,7 +34,7 @@ use crate::index::directory::build::BuildDirectory;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::needs_rebuild;
 use crate::index::setup_tokenizers;
-use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
+use crate::index::stats::{self, LogicalBoundsByField, StatsWriter, VectorPartition};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::schema::SearchIndexSchema;
@@ -63,13 +63,22 @@ impl PendingSegment {
         })
     }
 
-    fn set_logical_bounds(&mut self, bounds: Arc<LogicalBoundsByField>) {
+    fn set_partition_metadata(
+        &mut self,
+        bounds: Option<Arc<LogicalBoundsByField>>,
+        partition: Option<Arc<VectorPartition>>,
+    ) {
         if let Some(writer) = self
             .writer
             .custom_plugin_writer_mut(STATS_EXT)
             .and_then(|writer| writer.as_any_mut().downcast_mut::<StatsWriter>())
         {
-            writer.set_logical_bounds(bounds);
+            if let Some(bounds) = bounds {
+                writer.set_logical_bounds(bounds);
+            }
+            if let Some(partition) = partition {
+                writer.set_vector_partition(partition);
+            }
         }
     }
 
@@ -220,6 +229,7 @@ pub struct SerialIndexWriter {
     schema: SearchIndexSchema,
     disk_guard: Option<DiskSpaceGuard>,
     logical_bounds: Option<Arc<LogicalBoundsByField>>,
+    vector_partition: Option<Arc<VectorPartition>>,
     build: Option<BuildSegments>,
 }
 
@@ -366,6 +376,14 @@ impl SerialIndexWriter {
         self.logical_bounds = bounds;
     }
 
+    pub(crate) fn set_vector_partition(&mut self, partition: Option<Arc<VectorPartition>>) {
+        assert!(
+            self.pending_segment.is_none(),
+            "partition must be set before writing rows"
+        );
+        self.vector_partition = partition;
+    }
+
     pub fn open(
         index_relation: &PgSearchRelation,
         config: IndexWriterConfig,
@@ -414,6 +432,7 @@ impl SerialIndexWriter {
             schema,
             disk_guard: None,
             logical_bounds: None,
+            vector_partition: None,
             build: None,
         })
     }
@@ -457,6 +476,7 @@ impl SerialIndexWriter {
             schema,
             disk_guard: None,
             logical_bounds: None,
+            vector_partition: None,
             build: None,
         })
     }
@@ -534,9 +554,7 @@ impl SerialIndexWriter {
             .as_ref()
             .map_or(&self.index, |build| &build.index);
         let mut pending = PendingSegment::new(index, self.config.memory_budget)?;
-        if let Some(bounds) = &self.logical_bounds {
-            pending.set_logical_bounds(bounds.clone());
-        }
+        pending.set_partition_metadata(self.logical_bounds.clone(), self.vector_partition.clone());
         Ok(pending)
     }
 

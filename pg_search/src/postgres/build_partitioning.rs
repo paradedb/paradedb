@@ -29,6 +29,7 @@
 
 use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
+use std::sync::Arc;
 
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{FromDatum, PgMemoryContexts, check_for_interrupts, pg_sys};
@@ -43,6 +44,7 @@ use crate::api::FieldName;
 use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::stats;
+use crate::index::stats::VectorPartition;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -96,6 +98,20 @@ impl BuildPartitioning {
             (Self::Vector(model), PartitionPoint::Vector(vector)) => model.route(vector.as_ref()),
             _ => unreachable!("partition projection must match its model"),
         }
+    }
+
+    pub(super) fn vector_partition(&self, partition: usize) -> Option<Arc<VectorPartition>> {
+        let Self::Vector(model) = self else {
+            return None;
+        };
+        let centroid = model
+            .centroids
+            .chunks_exact(model.dimensions)
+            .nth(partition)?;
+        Some(Arc::new(VectorPartition {
+            field: model.field.as_ref().to_string(),
+            centroid: centroid.to_vec(),
+        }))
     }
 }
 
@@ -658,6 +674,8 @@ unsafe fn project_row(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::open_index;
     use pgrx::datum::DatumWithOid;
     use pgrx::prelude::*;
 
@@ -775,6 +793,22 @@ mod tests {
                             .unwrap(),
                             Some(4002)
                         );
+                        let (_, indexrel) =
+                            open_rels("vector_partition_src", "vector_partition_idx");
+                        let index =
+                            open_index(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+                        let field = index.schema().get_field("emb").unwrap();
+                        for segment in index.searchable_segments().unwrap() {
+                            let stats = stats::SegmentStats::of_segment(&segment).unwrap().unwrap();
+                            let centroid = stats
+                                .vector_partition(field)
+                                .unwrap()
+                                .expect("partition centroid survives build and reindex");
+                            assert_eq!(centroid.len(), 2);
+                            assert!(centroid.iter().all(|v| v.is_finite()));
+                        }
+                        drop(index);
+                        drop(indexrel);
                         assert_eq!(Spi::get_one::<bool>(r#"
                     SELECT bool_and(regions = 1) FROM (
                         SELECT unnest(paradedb.find_ctid('vector_partition_idx', ctid)), count(DISTINCT region) AS regions

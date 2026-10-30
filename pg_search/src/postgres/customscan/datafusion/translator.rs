@@ -1005,10 +1005,7 @@ mod tests {
         use datafusion::prelude::SessionContext;
         use std::sync::Arc;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
         runtime.block_on(async {
             let ctx = SessionContext::new();

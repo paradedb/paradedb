@@ -51,7 +51,9 @@ use crate::postgres::customscan::mpp::dsm_stream::{
     DsmAsyncStream, ServerProc, build_worker_streams,
 };
 use crate::postgres::customscan::mpp::glue::{WorkerSession, producer_worker_cap};
-use crate::postgres::customscan::mpp::interrupt::{HeldInterrupts, check_for_interrupts};
+use crate::postgres::customscan::mpp::interrupt::{
+    HeldInterrupts, PgTokioRuntime, check_for_interrupts,
+};
 use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, self_wakeup_slot};
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
@@ -529,7 +531,7 @@ pub fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
 
 /// Run a parallel worker's Tonic gRPC `Worker` server over its DSM SPSC streams until the leader
 /// signals query teardown or a Postgres cancel/die interrupt arrives.
-pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &tokio::runtime::Runtime) {
+pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) {
     let MppWorkerInputs {
         parallel_state,
         plan_sources_count,

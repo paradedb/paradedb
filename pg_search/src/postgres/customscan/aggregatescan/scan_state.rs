@@ -27,6 +27,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, Filter
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
+use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -67,7 +68,7 @@ pub struct DataFusionAggState {
     /// HAVING clause filter applied after aggregation.
     pub having_filter: Option<FilterExpr>,
     /// Tokio runtime for async DataFusion execution.
-    pub runtime: Option<tokio::runtime::Runtime>,
+    pub runtime: Option<PgTokioRuntime>,
     /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that
     /// arrive over the mesh into its display.
     pub physical_plan: Option<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,

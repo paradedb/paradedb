@@ -185,7 +185,7 @@ use crate::postgres::customscan::mpp::glue::{
     finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
     record_worker_spill, warn_if_spilled,
 };
-use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
@@ -1597,9 +1597,7 @@ impl CustomScan for JoinScan {
             // not run (#5784 / `max_producer_task_count < 2`), rebuild serially so the
             // printed shape matches execution.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("Failed to create tokio runtime");
+            let runtime = PgTokioRuntime::new().expect("Failed to create tokio runtime");
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_for_explain(
                     bytes,
@@ -1699,10 +1697,7 @@ impl CustomScan for JoinScan {
                 // abort at their source rather than falling back to unresolved bytes.
                 Self::maybe_solve_and_rebake(state);
 
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
+                let runtime = PgTokioRuntime::new().unwrap();
                 let mut join_clause = state.custom_state().join_clause.clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
@@ -2345,9 +2340,7 @@ fn bake_logical_plan(
             private_data.parallel_mode_ok,
             &private_data.join_clause.plan,
         );
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("Failed to create tokio runtime");
+    let runtime = PgTokioRuntime::new().expect("Failed to create tokio runtime");
     let logical_plan = runtime
         .block_on(build_joinscan_logical_plan(
             &private_data.join_clause,

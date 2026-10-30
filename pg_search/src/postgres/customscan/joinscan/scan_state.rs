@@ -352,7 +352,7 @@ pub struct JoinScanState {
 
     // === DataFusion State ===
     pub datafusion_stream: Option<datafusion::execution::SendableRecordBatchStream>,
-    pub runtime: Option<tokio::runtime::Runtime>,
+    pub runtime: Option<crate::postgres::customscan::mpp::interrupt::PgTokioRuntime>,
     pub current_batch: Option<arrow_array::RecordBatch>,
     pub batch_index: usize,
 

@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use arrow_array::{Float32Array, RecordBatch, UInt64Array};
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::ExecutionPlan;
-use tokio::runtime::Runtime;
 
 use crate::aggregate::exec::AggregationExec;
 use crate::api::version::VersionInfo;
@@ -38,7 +37,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::heap::VisibilityChecker;
 use crate::scan::execution_plan::{
     LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan,
@@ -72,7 +71,7 @@ pub struct TopKScanExecState {
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
 
-    runtime: Option<Runtime>,
+    runtime: Option<PgTokioRuntime>,
     stream: Option<SendableRecordBatchStream>,
     telemetry: Option<LazySortTelemetry>,
     pending_aggregations: Option<(PreparedAggregations, AggregationLimitsGuard)>,
@@ -425,8 +424,7 @@ impl ExecMethod for TopKScanExecState {
 
         if self.runtime.is_none() {
             self.runtime = Some(
-                tokio::runtime::Builder::new_current_thread()
-                    .build()
+                PgTokioRuntime::new()
                     .expect("Failed to create tokio runtime for DataFusion stream execution"),
             );
         }

@@ -1233,11 +1233,8 @@ mod tests {
         );
     }
 
-    fn runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
+    fn runtime() -> crate::postgres::customscan::mpp::interrupt::PgTokioRuntime {
+        crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap()
     }
 
     /// A `(g, score, id)` table in two partitions, so the planner has a reason to

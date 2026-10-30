@@ -649,10 +649,7 @@ impl DsmWorkerShutdownWatcher {
     }
 
     pub async fn wait(self) {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(20));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        let flag_fut = std::future::poll_fn(|cx| {
+        std::future::poll_fn(|cx| {
             if self.is_shutdown() {
                 return Poll::Ready(());
             }
@@ -661,21 +658,8 @@ impl DsmWorkerShutdownWatcher {
                 return Poll::Ready(());
             }
             Poll::Pending
-        });
-
-        let poll_timer = async {
-            loop {
-                interval.tick().await;
-                if self.is_shutdown() {
-                    break;
-                }
-            }
-        };
-
-        tokio::select! {
-            _ = flag_fut => {}
-            _ = poll_timer => {}
-        }
+        })
+        .await;
     }
 }
 

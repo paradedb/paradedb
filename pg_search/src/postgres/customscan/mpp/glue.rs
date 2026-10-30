@@ -32,9 +32,7 @@ use crate::postgres::customscan::mpp::dsm_stream::{
     DsmLeaderShutdownHandle, MIN_SPSC_RING_CAPACITY, ServerProc, build_leader_streams,
     dsm_region_bytes, init_dsm_mesh,
 };
-use crate::postgres::customscan::mpp::interrupt::{
-    HeldInterrupts, cancel_pending, check_for_interrupts,
-};
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, cancel_pending};
 use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, self_wakeup_slot};
 use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
 
@@ -309,7 +307,7 @@ pub(crate) fn mpp_plan_has_data_parallelism(plan: &Arc<dyn ExecutionPlan>) -> bo
 /// stream has been dropped, triggering `EndStreamNotifier`), then signal all workers to shut down
 /// their Tonic servers and close all leader DSM streams.
 pub fn finish_leader_execution(
-    runtime: Option<&tokio::runtime::Runtime>,
+    runtime: Option<&PgTokioRuntime>,
     plan: Option<&Arc<dyn ExecutionPlan>>,
     leader: &MppLeaderState,
 ) {
@@ -318,7 +316,6 @@ pub fn finish_leader_execution(
         && let Some(dist) = plan.downcast_ref::<DistributedExec>()
         && !cancel_pending()
     {
-        let _held = HeldInterrupts::hold();
         let _ = rt.block_on(async {
             tokio::time::timeout(
                 std::time::Duration::from_millis(250),
@@ -326,8 +323,6 @@ pub fn finish_leader_execution(
             )
             .await
         });
-        drop(_held);
-        check_for_interrupts();
     }
     leader.session.shutdown();
 }
@@ -369,10 +364,7 @@ pub fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelPro
 /// Rewrite the executed plan with the worker metrics collected in `DistributedExec.metrics_store`.
 pub fn merge_worker_metrics(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
     plan.downcast_ref::<DistributedExec>()?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .ok()?;
+    let runtime = PgTokioRuntime::new().ok()?;
     runtime
         .block_on(async {
             tokio::time::timeout(

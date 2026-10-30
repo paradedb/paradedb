@@ -124,9 +124,7 @@ mod tests {
         let mut row_count = 0;
 
         // Use a runtime to block on the stream
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         runtime.block_on(async {
             while let Some(batch) = stream.next().await {
                 let batch = batch.unwrap();
@@ -419,9 +417,7 @@ mod tests {
         );
 
         // Test full DataFusion flow
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
         runtime.block_on(async {
             let ctx = SessionContext::new();
@@ -1350,9 +1346,7 @@ mod tests {
         // partition must not consume the assigned global partition's execution state.
         assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         let collect_ids = |plan: &Arc<dyn ExecutionPlan>, partition: usize| {
             let mut stream = plan
                 .execute(partition, Arc::new(TaskContext::default()))

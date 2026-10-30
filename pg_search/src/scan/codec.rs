@@ -413,9 +413,7 @@ mod tests {
         .expect("deserialize with manifest");
 
         let session = datafusion::prelude::SessionContext::new();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         let physical = runtime
             .block_on(session.state().create_physical_plan(&decoded))
             .expect("physical plan (runs the provider's scan)");

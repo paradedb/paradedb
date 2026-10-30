@@ -58,7 +58,7 @@ use crate::postgres::customscan::mpp::glue::{
     finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
     warn_if_spilled,
 };
-use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
@@ -1474,7 +1474,7 @@ impl AggregateScan {
     /// between.
     fn build_agg_physical_plan(
         df_state: &mut scan_state::DataFusionAggState,
-        runtime: &tokio::runtime::Runtime,
+        runtime: &PgTokioRuntime,
         ctx: &datafusion::prelude::SessionContext,
         mpp_manifests: Option<&[SearchIndexManifest]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
@@ -1554,7 +1554,7 @@ impl AggregateScan {
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+            let Ok(runtime) = PgTokioRuntime::new() else {
                 explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
                 return;
             };
@@ -2256,9 +2256,7 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if first_call {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
+            let runtime = PgTokioRuntime::new()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
             // On an MPP attempt, layer the DF-D fork's distributed planner over the aggregate
@@ -2598,7 +2596,7 @@ impl AggregateScan {
     /// and the row the executor makes in that case still has to pass `HAVING`, the
     /// way Postgres keeps a `HAVING COUNT(*) = 0` row.
     fn evaluate_root_having(
-        runtime: &tokio::runtime::Runtime,
+        runtime: &PgTokioRuntime,
         root_batch: &RecordBatch,
         having: &datafusion::logical_expr::Expr,
     ) -> BooleanArray {

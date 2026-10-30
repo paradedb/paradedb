@@ -58,6 +58,7 @@ use crate::postgres::customscan::mpp::glue::{
     max_producer_task_count, mpp_is_active, producer_worker_cap, stages_have_data_parallelism,
     worker_setup,
 };
+use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
 use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::info::{RowEstimate, ScanInfo};
@@ -208,10 +209,7 @@ fn run_launched_worker(state_manager: ParallelStateManager) {
         session: worker,
     };
 
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
+    let runtime = match PgTokioRuntime::new() {
         Ok(rt) => rt,
         Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
     };
@@ -637,10 +635,7 @@ mod tests {
         let mut provider = PgSearchTableProvider::new(scan_info, fields, Some(0));
         provider.set_manifest(manifest.clone());
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = PgTokioRuntime::new().unwrap();
 
         let plan_ctx = build_mpp_session_context(SessionContext::new(), None);
         plan_ctx.register_table("t", Arc::new(provider)).unwrap();

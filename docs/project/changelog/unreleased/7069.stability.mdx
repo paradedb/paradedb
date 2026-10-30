@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- `pdb.verify_index(..., heapallindexed => true)` and `pdb.verify_all_indexes()` lock each table before its index, including partition leaves, avoiding deadlocks with concurrent `REINDEX` or `VACUUM FULL`.

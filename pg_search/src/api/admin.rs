@@ -21,8 +21,8 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
-use crate::postgres::access::IndexOid;
-use crate::postgres::index::IndexKind;
+use crate::postgres::access::{IndexAccess, IndexOid};
+use crate::postgres::index::{IndexKind, is_partitioned_index, leaf_partition_index_oids};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
@@ -650,23 +650,15 @@ fn validate_checksum(index: IndexOid) -> Result<SetOfIterator<'static, String>> 
 type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
 
 /// Helper function to verify that all indexed ctids exist in the heap.
-/// Returns (total_checked, total_docs, missing_ctids, docs_without_ctid)
+/// Returns (total_checked, total_docs, missing_ctids).
 fn verify_heap_references(
-    index_rel: &PgSearchRelation,
+    heap_rel: &PgSearchRelation,
     search_reader: &SearchIndexReader,
     sample_rate: Option<f64>,
     report_progress: bool,
     verbose: bool,
     segment_filter: &Option<HashSet<usize>>,
 ) -> HeapCheckResult {
-    // Get the heap relation OID from the index
-    let heap_oid = index_rel
-        .rel_oid()
-        .ok_or_else(|| anyhow::anyhow!("Could not determine heap relation for index"))?;
-
-    // Open the heap relation
-    let heap_rel = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
-
     // Set up heap fetch state
     let scan = unsafe { pg_sys::table_index_fetch_begin(heap_rel.as_ptr()) };
     let slot = unsafe {
@@ -1218,12 +1210,22 @@ pub mod pdb {
         });
 
         let index_rel = index.read();
-        let index_kind = IndexKind::for_index(index_rel.clone())?;
+        // Only verification needs each leaf's heap. Keep the other diagnostics'
+        // index-only traversal, and authorize the requested relation, as SQL does.
+        // Open each leaf when reached and release its locks before advancing.
+        let partitions: Box<dyn Iterator<Item = IndexAccess>> =
+            if is_partitioned_index(index_rel.oid()) {
+                Box::new(
+                    leaf_partition_index_oids(&index_rel)
+                        .into_iter()
+                        .map(|oid| IndexAccess::open(oid, pg_sys::AccessShareLock as _)),
+                )
+            } else {
+                Box::new(std::iter::once(index_rel))
+            };
 
         let mut results = Vec::new();
-
-        // We process each partition of the index
-        for partition in index_kind.partitions() {
+        for partition in partitions {
             let partition_name = partition.name().to_owned();
 
             if report_progress {
@@ -1505,7 +1507,7 @@ pub mod pdb {
                     );
                 }
                 let heap_check_result = super::verify_heap_references(
-                    &partition,
+                    partition.heap(),
                     &search_reader,
                     sample_rate,
                     report_progress,

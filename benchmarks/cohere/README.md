@@ -16,7 +16,10 @@ creation. The setting defaults to off and is persisted with the index, so
 later build workers, merges, and search sessions retain the one-bit router
 after the SQL script resets the GUC. Document quantization is independent.
 Changing the setting requires rebuilding the index with CREATE INDEX or
-REINDEX to select a different router.
+REINDEX to select a different router. `VACUUM FULL` also rebuilds indexes, so
+the workflow enables the setting again in its vacuum session before that
+rebuild. `index-vacuum.log` records the setting used; a setting from the
+initial build session alone does not establish the router used by searches.
 
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.

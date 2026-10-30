@@ -52,9 +52,9 @@ ORDER BY p.id, u.id, o.id, t, s LIMIT 29;
      :                         FilterExec: id@8 = 4 OR color@3 IS NULL AND __p_1_tag_0@5
      :                           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(group_id@2, group_id@2)], projection=[ctid_1@4, tags@5, group_id@6, color@7, id@8, __p_1_tag_0@9, ctid_2@0, tags@1, id@3]
      :                             CooperativeExec
-     :                               PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+     :                               PgSearchScan: table=u, segments=1, eager=[tags], visibility=eager, query="all"
      :                             CooperativeExec
-     :                               PgSearchScan: table=p, segments=1, eager=[color], tag_0={"with_index":{"query":{"term":{"field":"name","value":"bob"}}}}
+     :                               PgSearchScan: table=p, segments=1, eager=[tags, color], tag_0={"with_index":{"query":{"term":{"field":"name","value":"bob"}}}}
 (29 rows)
 
 SELECT DISTINCT p.id, u.id, o.id, t, s
@@ -106,9 +106,9 @@ ORDER BY p.id, u.id LIMIT 29;
      :                   FilterExec: id@6 = 4 OR id@3 = 2
      :                     HashJoinExec: mode=CollectLeft, join_type=Right, on=[(group_id@2, group_id@2)], projection=[ctid_0@4, tags@5, group_id@6, id@7, ctid_1@0, tags@1, id@3]
      :                       CooperativeExec
-     :                         PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+     :                         PgSearchScan: table=u, segments=1, eager=[tags], visibility=eager, query="all"
      :                       CooperativeExec
-     :                         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"name","value":"alice"}}}}
+     :                         PgSearchScan: table=p, segments=1, eager=[tags], query={"with_index":{"query":{"term":{"field":"name","value":"alice"}}}}
      :                   CooperativeExec
      :                     PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
 (25 rows)

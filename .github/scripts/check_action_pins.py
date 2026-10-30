@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Require immutable references in workflows and local action manifests."""
 
 import re

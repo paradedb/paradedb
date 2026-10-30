@@ -11,6 +11,13 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
 
+This branch enables `paradedb.vector_centroid_quantization` during index
+creation. The setting defaults to off and is persisted with the index, so
+later build workers, merges, and search sessions retain the one-bit router
+after the SQL script resets the GUC. Document quantization is independent.
+Changing the setting requires rebuilding the index with CREATE INDEX or
+REINDEX to select a different router.
+
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
    pdbench records build time, index size, and segment diagnostics before vacuum.

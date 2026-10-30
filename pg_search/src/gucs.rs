@@ -363,6 +363,14 @@ static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0
 /// Registered for compatibility. Nothing reads it.
 static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
+/// Captured at CREATE INDEX/REINDEX; existing indexes retain their stored choice.
+static VECTOR_CENTROID_QUANTIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Whether new indexes use one-bit centroid routing with exact reranking.
+pub fn vector_centroid_quantization() -> bool {
+    VECTOR_CENTROID_QUANTIZATION.get()
+}
+
 /// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
@@ -724,6 +732,15 @@ pub fn init() {
         c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
         c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
         &VECTOR_STATS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_centroid_quantization",
+        c"Use one-bit centroid routing with exact reranking for new vector indexes",
+        c"Off by default. Captured in stored index settings at CREATE INDEX or REINDEX; changing this GUC does not change existing indexes. Independent of document-vector quantization.",
+        &VECTOR_CENTROID_QUANTIZATION,
         GucContext::Userset,
         GucFlags::default(),
     );

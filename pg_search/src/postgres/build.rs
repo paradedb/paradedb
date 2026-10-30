@@ -518,6 +518,40 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_centroid_quantization_is_captured_at_index_creation() {
+        use tantivy::directory::RamDirectory;
+
+        Spi::run(
+            "CREATE TABLE centroid_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
+             SET LOCAL paradedb.vector_centroid_quantization = on;
+             CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body);
+             SET LOCAL paradedb.vector_centroid_quantization = off;
+             CREATE INDEX centroid_full_precision_idx ON centroid_settings USING paradedb (id, body);",
+        ).unwrap();
+        let relation = |name: &str| {
+            let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+            PgSearchRelation::open(oid)
+        };
+        let quantized = relation("centroid_quantized_idx");
+        assert!(quantized.settings().unwrap().vector_centroid_quantization);
+        assert!(
+            quantized
+                .create_in_memory_index(RamDirectory::create())
+                .unwrap()
+                .settings()
+                .vector_centroid_quantization
+        );
+        assert!(
+            !relation("centroid_full_precision_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
+    }
+
+    #[pg_test]
     fn test_new_index_uses_configured_codecs() {
         use tantivy::columnar::CodecType;
         use tantivy::directory::RamDirectory;

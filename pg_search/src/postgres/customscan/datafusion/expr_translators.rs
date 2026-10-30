@@ -601,6 +601,23 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
+        // Arrow divides floats by zero to Infinity or NaN where PostgreSQL raises an
+        // error, so let the UDF fallback evaluate float division.
+        if op == Operator::Divide
+            && matches!(
+                (*op_expr).opresulttype,
+                pg_sys::FLOAT4OID | pg_sys::FLOAT8OID
+            )
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: float division left to PostgreSQL [OpExpr] types=({}, {}) | {}",
+                type_name(left_type),
+                type_name(right_type),
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
         let collid = (*op_expr).inputcollid;
         if collid != pg_sys::Oid::INVALID {
             let required_op = match op_str {

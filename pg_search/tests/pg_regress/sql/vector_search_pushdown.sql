@@ -275,4 +275,95 @@ SELECT id, cat FROM vsp_tie WHERE id @@@ pdb.all()
 DROP TABLE vsp_tie;
 
 
+-- ============================================================
+-- Join / semi-join with vector ORDER BY
+-- ============================================================
+-- Parent table holds scalar/JSONB filters; child table holds chunks and
+-- embeddings linked by parent_id. Both IN (semi-join) and JOIN shapes should
+-- rank matching child rows by vector distance.
+CREATE TABLE vsp_parents (
+    id       int PRIMARY KEY,
+    category text NOT NULL,
+    metadata jsonb NOT NULL
+);
+
+CREATE TABLE vsp_children (
+    id        int PRIMARY KEY,
+    parent_id int NOT NULL,
+    vec       vector(3) NOT NULL
+);
+
+INSERT INTO vsp_parents VALUES
+    (1, 'alpha', '{"score": 10}'),
+    (2, 'alpha', '{"score": 20}'),
+    (3, 'beta',  '{"score": 20}'),
+    (4, 'alpha', '{"score": 30}');
+
+INSERT INTO vsp_children VALUES
+    (10, 1, '[1,   0,   0]'),
+    (11, 1, '[0,   1,   0]'),
+    (20, 2, '[0.9, 0.1, 0]'),
+    (21, 2, '[0,   0,   1]'),
+    (30, 3, '[1,   0,   0]'),
+    (40, 4, '[0.8, 0.2, 0]');
+
+CREATE INDEX vsp_parents_idx ON vsp_parents
+    USING paradedb (id, (category::pdb.literal), (metadata::pdb.literal));
+
+CREATE INDEX vsp_children_idx ON vsp_children
+    USING paradedb (id, parent_id, vec vector_cosine_ops);
+
+ANALYZE vsp_parents, vsp_children;
+
+-- Semi-join (`IN (SELECT ...)`)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- Inner join (`JOIN`)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+DROP TABLE vsp_children, vsp_parents;
+
+
 DROP TABLE vsp;

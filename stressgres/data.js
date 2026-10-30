@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793350645572,
+  "lastUpdate": 1793350674153,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -499542,6 +499542,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881997673-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350671096,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3927.9670144251213,
+            "unit": "median tps",
+            "extra": "avg tps: 3900.4736843609517, max tps: 4328.3215549725755, count: 59273"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4570.3376150206,
+            "unit": "median tps",
+            "extra": "avg tps: 4609.613790380683, max tps: 5981.114401235239, count: 59273"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.40323457207958,
+            "unit": "median tps",
+            "extra": "avg tps: 168.12542549888002, max tps: 3195.1702967674173, count: 59273"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.823167253765114,
+            "unit": "median tps",
+            "extra": "avg tps: 40.1827378482105, max tps: 571.7703172450204, count: 59273"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.70537547029888,
+            "unit": "median tps",
+            "extra": "avg tps: 39.954443676660844, max tps: 587.8468641539058, count: 59273"
+          }
+        ],
+        "publication_id": "12963166522-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -513626,6 +513679,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881997673-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350674044,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.132082409436903, max cpu: 4.764268, count: 59273"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.006860733386198, max mem: 21.015625, count: 59273"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.611273863437353, max cpu: 4.8120303, count: 59273"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.634629766609585, max mem: 20.63671875, count: 59273"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.149711055469917, max cpu: 37.83251, count: 59273"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.165259622319606, max mem: 21.16796875, count: 59273"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.934894471344, max document_count: 10002.0, count: 59273"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.936261029474, max document_count: 10002.0, count: 59273"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59273"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.487519440501956, max cpu: 32.73259, count: 59273"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.76408195447337, max mem: 66.3515625, count: 59273"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.48512157238995, max cpu: 32.78049, count: 59273"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.960876144597876, max mem: 66.78125, count: 59273"
+          }
+        ],
+        "publication_id": "12963166522-other"
       }
     ]
   }

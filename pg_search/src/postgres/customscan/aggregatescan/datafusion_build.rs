@@ -29,15 +29,18 @@
 //! planner estimates smallest first. DataFusion keeps that order.
 
 use super::join_targetlist::ExtractedDataFusionTarget;
-use super::privdat::{ColumnRef, CompareOp, FilterExpr};
+use super::privdat::{ColumnRef as FilterColumnRef, CompareOp, FilterExpr};
+use crate::api::FieldName;
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
-use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
-    FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, prune_redundant_const_equi_keys,
-    strip_node_wrappers, try_extract_equi_key,
+    FilterNode, FunctionRti, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate,
+    JoinType, PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info,
+    prune_redundant_const_equi_keys, strip_node_wrappers, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
@@ -45,10 +48,7 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{
-    ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
-    resolve_index_field_by_name,
-};
+use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedField, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
     has_leaky_heap_filter, optimize_quals_with_heap_expr,
@@ -58,12 +58,11 @@ use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::missing_partial_index_predicate;
-use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
-use crate::scan::info::FieldInfo;
 use crate::schema::SearchFieldType;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
+use tantivy::columnar::ColumnType;
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
 type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
@@ -73,62 +72,6 @@ type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::sync::OnceLock;
-
-/// Metadata about a table participating in the join, collected during parse-tree walk.
-#[derive(Debug)]
-pub struct JoinAggSource {
-    pub rti: pg_sys::Index,
-    pub relid: pg_sys::Oid,
-    pub alias: Option<String>,
-    pub bm25_index: Option<PgSearchRelation>,
-    /// Lazily populated attno -> fast-field mapping for this relation.
-    /// Filled on first access by [`JoinAggSource::column_name`]. Empty when the
-    /// relation has no ParadeDB index.
-    fields: OnceLock<Vec<FieldInfo>>,
-}
-
-impl JoinAggSource {
-    /// Resolve a heap attribute number to its DataFusion-facing column name
-    /// via the ParadeDB index.
-    ///
-    /// Returns the BM25 field name (which may be an alias like
-    /// `"company_name_words"`), **not** the heap attribute name. This keeps
-    /// GROUP BY, aggregate argument, and aggregate ORDER BY field names in
-    /// sync with the DataFusion schema built by `build_source_df` (see #4849).
-    ///
-    /// Returns `None` when the column has no pullable fast field or when the
-    /// resolved field is a synthetic/unsupported kind (`Score`, `Junk`).
-    /// Mirrors `JoinSource::column_name` in joinscan/build.rs.
-    pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
-        self.fields()
-            .iter()
-            .find(|f| f.attno == attno)
-            .and_then(|f| match &f.field {
-                WhichFastField::Score(_) | WhichFastField::Junk(_) => None,
-                _ => Some(f.field.name()),
-            })
-    }
-
-    fn fields(&self) -> &[FieldInfo] {
-        self.fields
-            .get_or_init(|| unsafe { collect_source_fields(self.relid, self.bm25_index.as_ref()) })
-    }
-}
-
-impl From<&JoinSource> for JoinAggSource {
-    fn from(value: &JoinSource) -> Self {
-        Self {
-            rti: value.scan_info.heap_rti,
-            relid: value.scan_info.heaprelid,
-            alias: value.scan_info.alias.clone(),
-            bm25_index: Some(PgSearchRelation::open(value.scan_info.indexrelid)),
-            // Not `scan_info.fields`: those are only the fields the scan
-            // requires, while this holds every fast field of the relation.
-            fields: OnceLock::new(),
-        }
-    }
-}
 
 /// An index field name resolved to one of the join sources.
 pub struct ResolvedSourceField {
@@ -140,42 +83,13 @@ pub struct ResolvedSourceField {
     pub is_array: bool,
 }
 
-/// What field resolution reads of a join source, so the aggregate scan's and
-/// JoinScan's sources resolve through the same code.
-#[derive(Clone)]
-pub struct ResolutionSource<'a> {
-    rti: pg_sys::Index,
-    alias: &'a Option<String>,
-    bm25_index: Option<PgSearchRelation>,
-}
-
-impl<'a> From<&'a JoinAggSource> for ResolutionSource<'a> {
-    fn from(value: &'a JoinAggSource) -> Self {
-        Self {
-            rti: value.rti,
-            alias: &value.alias,
-            bm25_index: value.bm25_index.clone(),
-        }
-    }
-}
-
-impl<'a> From<&'a JoinSource> for ResolutionSource<'a> {
-    fn from(value: &'a JoinSource) -> Self {
-        Self {
-            rti: value.scan_info.heap_rti,
-            alias: &value.scan_info.alias,
-            bm25_index: Some(PgSearchRelation::open(value.scan_info.indexrelid)),
-        }
-    }
-}
-
 /// Resolve an index field name against the join sources.
 ///
 /// A bare name must match exactly one indexed table. `alias.field` picks the
 /// table when the same field name exists in several; the bare lookup runs first
 /// because an index field name can itself contain a dot (a JSON sub-field).
 pub fn resolve_source_field(
-    sources: &[ResolutionSource<'_>],
+    sources: &[SourceContext],
     field: &str,
 ) -> Result<ResolvedSourceField, String> {
     let (mut candidates, mut reasons) = source_field_candidates(sources, field);
@@ -187,7 +101,8 @@ pub fn resolve_source_field(
         candidates = qualified
             .into_iter()
             .filter(|(source, _)| {
-                RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
+                RelationAlias::new(source.alias.as_deref()).display(source.heap_rti as usize)
+                    == prefix
             })
             .collect();
         reasons.extend(qualified_reasons);
@@ -203,11 +118,16 @@ pub fn resolve_source_field(
         1 => {
             let (source, resolved) = candidates.remove(0);
             Ok(ResolvedSourceField {
-                source_rti: source.rti,
-                attno: resolved.attno,
+                source_rti: source.heap_rti,
+                attno: resolved
+                    .attno
+                    .expect("source fields should always have an attno"),
                 field_name,
-                field_type: resolved.field_type,
-                is_array: resolved.is_array,
+                field_type: *resolved
+                    .field
+                    .field_type()
+                    .expect("source fields should always have a field type"),
+                is_array: resolved.field.is_array(),
             })
         }
         _ => Err(format!(
@@ -218,21 +138,16 @@ pub fn resolve_source_field(
 }
 
 /// The sources that carry `field`, and the reasons the others turned it down.
-fn source_field_candidates<'a, 'b>(
-    sources: &'b [ResolutionSource<'a>],
+fn source_field_candidates<'a>(
+    sources: &'a [SourceContext],
     field: &str,
-) -> (
-    Vec<(&'b ResolutionSource<'a>, ResolvedIndexField)>,
-    Vec<String>,
-) {
+) -> (Vec<(&'a SourceContext, ResolvedField)>, Vec<String>) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
-        let Some(index) = source.bm25_index.as_ref() else {
-            continue;
-        };
-        match resolve_index_field_by_name(index, field) {
-            Ok(Some(resolved)) => matches.push((source, resolved)),
+        let resolved = source.resolve_fast_field(ResTarget::Field(field), Access::Any);
+        match validate_source_field_candidate(source, resolved, field) {
+            Ok(Some(r)) => matches.push((source, r)),
             Ok(None) => {}
             Err(reason) => reasons.push(reason),
         }
@@ -240,44 +155,74 @@ fn source_field_candidates<'a, 'b>(
     (matches, reasons)
 }
 
-/// Collects all fast-field metadata for a base relation.
-///
-/// Iterates across the relation's tuple descriptor, resolving each attribute to either
-/// a scalar fast field via [`resolve_fast_field`] or a multi-valued array fast field
-/// in the ParadeDB index schema. Returns an empty vector if `bm25_index` is None.
-unsafe fn collect_source_fields(
-    relid: pg_sys::Oid,
-    bm25_index: Option<&PgSearchRelation>,
-) -> Vec<FieldInfo> {
-    let Some(bm25) = bm25_index else {
-        return Vec::new();
+/// Resolve an index field name, dotted for a JSON sub-field, to the heap column it
+/// is read from and the type a columnar scan hands out. `Ok(None)` when the index
+/// has no such fast field, `Err` when it has one the scan cannot read, so the
+/// caller can say why rather than that the field does not exist. Resolution goes
+/// through the index schema because a field name can be an alias of a column.
+/// The gates match ..... a tokenizer cast reads back as its
+/// column, a computed expression is turned down, and a JSON column is only
+/// reachable through a sub-field.
+fn validate_source_field_candidate(
+    context: &SourceContext,
+    resolved: Option<ResolvedField>,
+    candidate_name: &str,
+) -> Result<Option<ResolvedField>, String> {
+    let is_subfield = FieldName::from(candidate_name).root() != candidate_name;
+    let Some(resolved) = resolved else {
+        // determine if this was a root json column
+        if !is_subfield
+            && let Some((_, data)) = context
+                .schema()
+                .and_then(|s| s.search_field_with_data(candidate_name))
+            && data.is_json
+        {
+            return Err(format!(
+                "Field '{candidate_name}' is a JSON column; name a sub-field, as in '{candidate_name}.key'"
+            ));
+        }
+        return Ok(None);
     };
-    let heaprel = PgSearchRelation::open(relid);
-    let tupdesc = heaprel.tuple_desc();
-    let mut fields = Vec::new();
-    for attno in 1..=tupdesc.len() {
-        if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
-            fields.push(FieldInfo {
-                attno: attno as pg_sys::AttrNumber,
-                field,
-            });
-        } else {
-            let att = tupdesc.get(attno - 1).unwrap();
-            if let Some(
-                field @ WhichFastField::Named {
-                    cardinality: FieldCardinality::List,
-                    ..
-                },
-            ) = resolve_fast_field_by_name(att.name(), bm25)
-            {
-                fields.push(FieldInfo {
-                    attno: attno as pg_sys::AttrNumber,
-                    field,
-                });
-            }
+    if resolved.attno.is_none() {
+        return Err(format!(
+            "Field '{candidate_name}' is an expression index, which cannot be read back as a column"
+        ));
+    };
+
+    if is_subfield {
+        let Some(index) = context.indexrel.as_ref() else {
+            return Ok(None);
+        };
+        check_json_sub_field_is_text(index, candidate_name)?;
+    }
+    Ok(Some(resolved))
+}
+
+/// A columnar scan reads every JSON sub-field as text, while the index stores
+/// each sub-field in the type of its values. A numeric sub-field would come back
+/// as numbers and fail the scan's schema at execution, so it is turned down
+/// here. Only the column metadata is read; no values are loaded.
+fn check_json_sub_field_is_text(index: &PgSearchRelation, field: &str) -> Result<(), String> {
+    let reader =
+        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
+            .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
+    for segment in reader.segment_readers() {
+        let handles = segment
+            .fast_fields()
+            .dynamic_column_handles(field)
+            .map_err(|e| format!("could not inspect field '{field}': {e}"))?;
+        if let Some(handle) = handles
+            .iter()
+            .find(|handle| handle.column_type() != ColumnType::Str)
+        {
+            return Err(format!(
+                "Field '{field}' is a JSON sub-field holding {} values; only a text sub-field \
+                 can be read as a column",
+                handle.column_type()
+            ));
         }
     }
-    fields
+    Ok(())
 }
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
@@ -288,7 +233,7 @@ unsafe fn collect_source_fields(
 pub unsafe fn collect_join_agg_sources(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
-) -> Vec<JoinAggSource> {
+) -> Vec<SourceContext> {
     let mut sources = Vec::new();
     let relids = if !input_rel.relids.is_null() && pg_sys::bms_num_members(input_rel.relids) > 0 {
         input_rel.relids
@@ -304,12 +249,11 @@ pub unsafe fn collect_join_agg_sources(
             continue;
         };
 
-        sources.push(JoinAggSource {
-            rti,
-            relid,
-            alias,
-            bm25_index,
-            fields: OnceLock::new(),
+        sources.push(SourceContext {
+            heap_rti: rti,
+            heaprel: PgSearchRelation::open(relid),
+            indexrel: bm25_index,
+            alias: alias.clone(),
         });
     }
 
@@ -336,7 +280,7 @@ pub unsafe fn collect_join_agg_sources(
 /// renests it in the order the planner's row estimates favour.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
     path_info: PathRestrictInfo,
 ) -> Result<JoinTreeResult, String> {
     let parse = (*root).parse;
@@ -439,7 +383,7 @@ pub unsafe fn extract_join_tree_from_parse(
 /// computes wrong rows.
 unsafe fn apply_search_filter_or_decline(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
     clauses: &[*mut pg_sys::Node],
     source_label: &str,
     err_msg: &str,
@@ -486,7 +430,7 @@ unsafe fn apply_search_filter_or_decline(
 unsafe fn build_relnode_from_fromexpr(
     root: *mut pg_sys::PlannerInfo,
     from: *mut pg_sys::FromExpr,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<RelNode, String> {
     let from_list = PgList::<pg_sys::Node>::from_pg((*from).fromlist);
 
@@ -508,7 +452,10 @@ unsafe fn build_relnode_from_fromexpr(
         if (*node).type_ == pg_sys::NodeTag::T_RangeTblRef {
             let rti = (*(node as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
             if let Some(mut unnest_info) =
-                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root,
+                    FunctionRti(rti),
+                )
                 && result.contains_rti(unnest_info.source_rti.0)
             {
                 unnest_info.is_left_join = false;
@@ -549,7 +496,7 @@ unsafe fn build_relnode_from_fromexpr(
 unsafe fn build_relnode_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<RelNode, String> {
     if node.is_null() {
         return Err("null node in FROM clause".into());
@@ -579,9 +526,9 @@ unsafe fn build_relnode_from_node(
 unsafe fn build_scan_node(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<RelNode, String> {
-    let source = match sources.iter().find(|s| s.rti == rti) {
+    let source = match sources.iter().find(|s| s.heap_rti == rti) {
         Some(s) => s,
         None => {
             let rel_name = crate::postgres::customscan::range_table::get_rte(
@@ -606,7 +553,7 @@ unsafe fn build_scan_node(
         }
     };
 
-    let bm25_index = source.bm25_index.as_ref().ok_or_else(|| {
+    let bm25_index = source.indexrel().ok_or_else(|| {
         format!(
             "table at RTI {} ({}) has no ParadeDB index",
             rti,
@@ -617,7 +564,7 @@ unsafe fn build_scan_node(
     // Build a JoinSourceCandidate progressively. `with_index` attaches index metadata
     // and `partition_by` so RangePartitioningRule can co-partition equi-joins.
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
-        .with_heaprelid(source.relid)
+        .with_heaprelid(source.heaprel.oid())
         .with_index(bm25_index);
 
     if let Some(ref alias) = source.alias {
@@ -726,7 +673,7 @@ unsafe fn build_scan_node(
 unsafe fn build_join_node(
     root: *mut pg_sys::PlannerInfo,
     join_expr: *mut pg_sys::JoinExpr,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
@@ -749,7 +696,10 @@ unsafe fn build_join_node(
         if !node_arg.is_null() && (*node_arg).type_ == pg_sys::NodeTag::T_RangeTblRef {
             let rti = (*(node_arg as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
             if let Some(mut unnest_info) =
-                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root,
+                    FunctionRti(rti),
+                )
             {
                 let other = build_relnode_from_node(root, other_arg, sources)?;
                 if other.contains_rti(unnest_info.source_rti.0) {
@@ -868,7 +818,7 @@ unsafe fn extract_non_equi_filter_from_quals(
     join_type: JoinType,
     left: &RelNode,
     right: &RelNode,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<Option<JoinLevelExpr>, String> {
     if quals.is_null() {
         return Ok(None);
@@ -979,7 +929,7 @@ unsafe fn extract_non_equi_filter_from_quals(
 /// nodes referencing different tables that have ParadeDB indexes.
 fn extract_equi_keys_from_expr(
     node: *mut pg_sys::Node,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Result<Vec<JoinKeyPair>, String> {
     let mut keys = Vec::new();
 
@@ -1021,9 +971,9 @@ fn extract_equi_keys_from_expr(
 /// scoping the valid RTIs to the tables participating in this aggregate join.
 unsafe fn try_extract_one_equi_key(
     op: *mut pg_sys::OpExpr,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> Option<JoinKeyPair> {
-    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.rti).collect();
+    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.heap_rti).collect();
     try_extract_equi_key(op, &valid_rtis)
 }
 
@@ -1052,7 +1002,7 @@ unsafe fn try_extract_one_equi_key(
 fn extract_equi_keys_from_quals(
     root: *mut pg_sys::PlannerInfo,
     quals: *mut pg_sys::Node,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
     plan: &mut RelNode,
 ) -> Result<(), String> {
     let mut keys = extract_equi_keys_from_expr(quals, sources)?;
@@ -1519,7 +1469,7 @@ impl PathPredicateDeclineReason {
 fn analyze_join_path_restrictinfo(
     root: *mut pg_sys::PlannerInfo,
     path: *mut pg_sys::Path,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> PathRestrictInfo {
     let mut info = PathRestrictInfo {
         equi_keys: Vec::new(),
@@ -1547,7 +1497,7 @@ fn analyze_join_path_restrictinfo(
 
 struct PathWalkContext<'a> {
     root: *mut pg_sys::PlannerInfo,
-    sources: &'a [JoinAggSource],
+    sources: &'a [SourceContext],
     on_clauses: &'a [*mut pg_sys::Node],
 }
 
@@ -1770,7 +1720,7 @@ fn walk_path_restrictinfo(
 pub fn check_join_path_predicates(
     root: *mut pg_sys::PlannerInfo,
     path: *mut pg_sys::Path,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> JoinPathPredicateCheck {
     let info = analyze_join_path_restrictinfo(root, path, sources);
     match info.coverage {
@@ -1795,7 +1745,7 @@ pub enum FilterExprBuildContext<'a> {
     },
     Filter {
         root: *mut pg_sys::PlannerInfo,
-        sources: &'a [JoinAggSource],
+        sources: &'a [SourceContext],
         plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     },
@@ -1887,14 +1837,14 @@ impl FilterExpr {
                         if unsafe { (*var).vartype } == pg_sys::NUMERICOID {
                             return None;
                         }
-                        let source = sources.iter().find(|s| s.rti == rti)?;
-                        let field_name =
-                            unsafe { fieldname_from_var(source.relid, var, attno) }?.into_inner();
-                        Some(Self::ColumnRef(ColumnRef {
+                        let source = sources.iter().find(|s| s.heap_rti == rti)?;
+                        let (field_name, _) = source
+                            .resolve_heap_field(ResTarget::Attno(unsafe { (*var).varattno }))?;
+                        Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
-                            rti,
-                            attno,
-                            field_name,
+                            rti: source.heap_rti,
+                            attno: unsafe { (*var).varattno },
+                            field_name: field_name.into_inner(),
                         }))
                     }
                     FilterExprBuildContext::Having {
@@ -2058,14 +2008,14 @@ impl FilterExpr {
 }
 
 /// Validate that at least one table in the join has a ParadeDB index.
-pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
-    sources.iter().any(|s| s.bm25_index.is_some())
+pub fn has_any_bm25_index(sources: &[SourceContext]) -> bool {
+    sources.iter().any(|s| s.indexrel().is_some())
 }
 
 /// Validate that all tables in the join have a ParadeDB index.
 /// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
-pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
-    sources.iter().all(|s| s.bm25_index.is_some())
+pub fn all_have_bm25_index(sources: &[SourceContext]) -> bool {
+    sources.iter().all(|s| s.indexrel().is_some())
 }
 
 /// Resolve `attno` as a fast field on `(heaprel, indexrel)` and add it to
@@ -2077,14 +2027,13 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
 /// each caller can carry whatever context the user will recognise.
 unsafe fn require_fast_field(
     source: &mut JoinSource,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-    indexrel: &PgSearchRelation,
+    context: &SourceContext,
     attno: pg_sys::AttrNumber,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    match resolve_fast_field(attno as i32, tupdesc, indexrel) {
-        Some(field) => {
-            source.scan_info.add_field(attno, field);
+    match context.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar) {
+        Some(resolved) => {
+            source.scan_info.add_field(attno, resolved.field);
             Ok(())
         }
         None => Err(format!("{} is not columnar", describe())),
@@ -2099,24 +2048,27 @@ unsafe fn require_fast_field(
 /// error, the same contract as [`require_fast_field`].
 unsafe fn require_named_fast_field(
     source: &mut JoinSource,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-    indexrel: &PgSearchRelation,
+    context: &SourceContext,
     attno: pg_sys::AttrNumber,
     field_name: &str,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
     if field_name.contains('.')
-        && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
+        && let Some(resolved) =
+            context.resolve_fast_field(ResTarget::Field(field_name), Access::Any)
     {
-        source.scan_info.add_field_by_name(attno, field);
+        source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
-    if let Some(field) = resolve_fast_field(attno as i32, tupdesc, indexrel) {
-        source.scan_info.add_field(attno, field);
+    if let Some(resolved) = context.resolve_fast_field(
+        ResTarget::Attno(attno as pg_sys::AttrNumber),
+        Access::Scalar,
+    ) {
+        source.scan_info.add_field(attno, resolved.field);
         return Ok(());
     }
-    if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
-        source.scan_info.add_field_by_name(attno, field);
+    if let Some(resolved) = context.resolve_fast_field(ResTarget::Field(field_name), Access::Any) {
+        source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
     Err(format!("{} is not columnar", describe()))
@@ -2158,19 +2110,8 @@ pub unsafe fn populate_required_fields(
 
     let mut sources = plan.sources_mut();
 
-    // Open relations once per source and reuse throughout
-    let source_rels: Vec<_> = sources
-        .iter()
-        .map(|s| {
-            let heaprel = PgSearchRelation::open(s.scan_info.heaprelid);
-            let indexrel = PgSearchRelation::open(s.scan_info.indexrelid);
-            (heaprel, indexrel)
-        })
-        .collect();
-
-    for (idx, source) in sources.iter_mut().enumerate() {
-        let (heaprel, indexrel) = &source_rels[idx];
-        let tupdesc = heaprel.tuple_desc();
+    for source in sources.iter_mut() {
+        let context = source.to_source_context();
 
         // Always add Ctid so the provider schema is never empty (needed for COUNT(*))
         source.scan_info.add_field(
@@ -2189,7 +2130,7 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
-            require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
+            require_named_fast_field(source, &context, gc.attno, &gc.field_name, || {
                 format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
             })?;
         }
@@ -2200,7 +2141,7 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position == r.plan_position {
                     let attno = r.attno;
                     let field_name = &r.field_name;
-                    require_fast_field(source, &tupdesc, indexrel, attno, || {
+                    require_fast_field(source, &context, attno, || {
                         format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;
                 }
@@ -2212,7 +2153,7 @@ pub unsafe fn populate_required_fields(
         for agg in &targetlist.aggregates {
             for ob in &agg.order_by {
                 if source.plan_position == ob.plan_position {
-                    require_fast_field(source, &tupdesc, indexrel, ob.attno, || {
+                    require_fast_field(source, &context, ob.attno, || {
                         format!("aggregate ORDER BY column '{}'", ob.field_name)
                     })?;
                 }
@@ -2225,7 +2166,7 @@ pub unsafe fn populate_required_fields(
             let Some(ref filter) = agg.filter else {
                 continue;
             };
-            for ColumnRef {
+            for FilterColumnRef {
                 plan_position,
                 field_name,
                 ..
@@ -2234,8 +2175,8 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position != plan_position {
                     continue;
                 }
-                if let Some(attno) = get_attno_by_name(&field_name, &tupdesc) {
-                    require_fast_field(source, &tupdesc, indexrel, attno, || {
+                if let Some(attno) = context.get_attno_by_name(&field_name) {
+                    require_fast_field(source, &context, attno, || {
                         format!("FILTER column '{field_name}'")
                     })?;
                 }
@@ -2246,7 +2187,7 @@ pub unsafe fn populate_required_fields(
         // would have no data columns and produce empty RecordBatches.
         for &(plan_position, attno) in &join_key_projections {
             if source.plan_position == plan_position {
-                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                require_fast_field(source, &context, attno, || {
                     format!("join key (plan_position={plan_position}, attno={attno})")
                 })?;
             }
@@ -2256,7 +2197,7 @@ pub unsafe fn populate_required_fields(
         // `b.id > 5` that DataFusion evaluates at join time.
         for &(plan_position, attno) in &multi_table_var_positions {
             if source.plan_position == plan_position {
-                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                require_fast_field(source, &context, attno, || {
                     format!("multi-table predicate column (attno={attno})")
                 })?;
             }
@@ -2265,7 +2206,7 @@ pub unsafe fn populate_required_fields(
         // Join filter columns (from JoinNode.filter)
         for &(rti, attno) in &join_filter_vars {
             if source.contains_rti(rti) {
-                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                require_fast_field(source, &context, attno, || {
                     format!("join filter column (attno={attno})")
                 })?;
             }
@@ -2279,9 +2220,12 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != field.plan_position {
                 continue;
             }
-            let resolved = resolve_fast_field_by_name(&field.field_name, indexrel)
+            let resolved = context
+                .resolve_fast_field(ResTarget::Field(&field.field_name), Access::Any)
                 .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
-            source.scan_info.add_field_by_name(field.attno, resolved);
+            source
+                .scan_info
+                .add_field_by_name(field.attno, resolved.field);
         }
     }
 
@@ -2298,20 +2242,19 @@ pub unsafe fn populate_required_fields(
 unsafe fn all_vars_are_fast_fields_for_agg(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
-    sources: &[JoinAggSource],
+    sources: &[SourceContext],
 ) -> bool {
     let vars = node.collect_var_refs(false);
 
     for var_ref in vars {
         let mut source_found = false;
         for source in sources {
-            if source.rti == var_ref.rti {
-                let bm25_index = match &source.bm25_index {
-                    Some(idx) => idx,
-                    None => return false,
-                };
-                let heaprel = PgSearchRelation::open(source.relid);
-                if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), bm25_index)
+            if source.heap_rti == var_ref.rti {
+                if source
+                    .resolve_fast_field(
+                        ResTarget::Attno(var_ref.attno as pg_sys::AttrNumber),
+                        Access::Scalar,
+                    )
                     .is_none()
                 {
                     return false;
@@ -2324,9 +2267,11 @@ unsafe fn all_vars_are_fast_fields_for_agg(
             && let Some(unnest_info) =
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
                     root,
-                    var_ref.rti,
+                    FunctionRti(var_ref.rti),
                 )
-            && sources.iter().any(|s| s.rti == unnest_info.source_rti.0)
+            && sources
+                .iter()
+                .any(|s| s.heap_rti == unnest_info.source_rti.0)
         {
             source_found = true;
         }
@@ -2348,7 +2293,7 @@ unsafe fn all_vars_are_fast_fields_for_agg(
 unsafe fn build_search_filter(
     root: *mut pg_sys::PlannerInfo,
     clauses: &[*mut pg_sys::Node],
-    _sources: &[JoinAggSource],
+    _sources: &[SourceContext],
     plan: &RelNode,
 ) -> Option<SearchFilterResult> {
     use crate::postgres::customscan::joinscan::predicate::transform_to_search_expr;

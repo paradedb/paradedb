@@ -22,8 +22,7 @@ use crate::postgres::customscan::aggregatescan::{
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::rel::PgSearchRelation;
-use pgrx::pg_sys;
+use crate::postgres::customscan::pullup::SourceContext;
 
 impl CustomScanClause<AggregateScan> for Option<LimitOffset> {
     type Args = <AggregateScan as CustomScan>::Args;
@@ -46,11 +45,7 @@ impl CustomScanClause<AggregateScan> for Option<LimitOffset> {
         Box::new(output.into_iter())
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        _heap_rti: pg_sys::Index,
-        _index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
+    fn from_pg(args: &Self::Args, _context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let parse = args.root().parse;
         let limit_offset = LimitOffset::from_parse(parse);
 

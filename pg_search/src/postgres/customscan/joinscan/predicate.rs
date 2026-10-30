@@ -32,10 +32,9 @@ use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::customscan::pullup::{Access, ResTarget};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
@@ -275,15 +274,11 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
         let mut source_found = false;
         for source in sources {
             if source.contains_rti(var_ref.rti) {
-                if let Some(base_info) = find_base_info_recursive(source, var_ref.rti) {
-                    let heaprel = PgSearchRelation::open(base_info.heaprelid);
-                    let indexrel = PgSearchRelation::open(base_info.indexrelid);
-                    if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), &indexrel)
-                        .is_none()
-                    {
-                        return false;
-                    }
-                } else {
+                let context = source.to_source_context();
+                if context
+                    .resolve_fast_field(ResTarget::Attno(var_ref.attno), Access::Scalar)
+                    .is_none()
+                {
                     return false;
                 }
                 source_found = true;

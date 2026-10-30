@@ -27,31 +27,7 @@ use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinLevelExpr, 
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_distributed::{DistributedExec, display_plan_ascii};
-use pgrx::pg_sys;
 use std::sync::Arc;
-
-/// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
-pub fn get_attname_safe(
-    heaprelid: Option<pg_sys::Oid>,
-    attno: pg_sys::AttrNumber,
-    rel_name: &str,
-) -> String {
-    let Some(oid) = heaprelid else {
-        return format!("{}.{}", rel_name, attno);
-    };
-
-    unsafe {
-        let attname_ptr = pg_sys::get_attname(oid, attno, true); // missing_ok = true
-        if attname_ptr.is_null() {
-            format!("{}.{}", rel_name, attno)
-        } else {
-            let attname = std::ffi::CStr::from_ptr(attname_ptr)
-                .to_str()
-                .unwrap_or("?");
-            format!("{}.{}", rel_name, attname)
-        }
-    }
-}
 
 /// Format a join-level expression tree for EXPLAIN output.
 pub fn format_join_level_expr(

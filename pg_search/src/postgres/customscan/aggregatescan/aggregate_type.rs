@@ -21,18 +21,17 @@ use crate::api::{
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, expr_is_securely_promotable, extract_quals,
 };
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
-use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
+use crate::postgres::var::{VarContext, fieldname_from_var, find_one_fieldname};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::{Context, bail};
@@ -130,11 +129,15 @@ impl SolvePostgresExpressions for AggregateType {
 impl AggregateType {
     pub unsafe fn try_from(
         aggref: *mut pg_sys::Aggref,
-        bm25_index: &PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
-        heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
+        source_context: &SourceContext,
     ) -> anyhow::Result<Self> {
+        let index = source_context
+            .indexrel
+            .as_ref()
+            .expect("index should always exist at this point");
+        let schema = index.schema().expect("should always have a valid shcema");
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -146,10 +149,10 @@ impl AggregateType {
             Some(
                 extract_quals(
                     &context,
-                    heap_rti,
+                    source_context.heap_rti,
                     (*aggref).aggfilter as *mut pg_sys::Node,
                     RestrictInfoType::BaseRelation,
-                    bm25_index,
+                    index,
                     false,
                     qual_state,
                     true,
@@ -162,7 +165,11 @@ impl AggregateType {
         };
         // SECURITY: PostgreSQL evaluates FILTER after RLS; as a heap filter it would run first.
         if qual_state.uses_heap_expr
-            && !expr_is_securely_promotable(root, heap_rti, (*aggref).aggfilter.cast())
+            && !expr_is_securely_promotable(
+                root,
+                source_context.heap_rti,
+                (*aggref).aggfilter.cast(),
+            )
         {
             bail!(
                 "aggregate FILTER has a predicate that must be evaluated after row-level security policies"
@@ -181,12 +188,11 @@ impl AggregateType {
                 args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
             )
             .context("pdb.agg argument must be a constant for aggregate pushdown")?;
-            let schema = bm25_index.schema().expect("could not get index schema");
 
             // A spec written for a join names its fields `alias.field`, and the
             // planner can reduce that join to this one relation. A qualifier
             // naming it is dropped so the spec runs the same on either path.
-            if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, heap_rti) {
+            if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, source_context.heap_rti) {
                 strip_relation_qualifier(&mut json_value, &alias, &schema);
             }
 
@@ -210,7 +216,7 @@ impl AggregateType {
             return Ok(AggregateType::Custom {
                 agg_json: json_value,
                 filter: filter_query,
-                indexrelid: bm25_index.oid(),
+                indexrelid: index.oid(),
                 mvcc_visibility,
             });
         }
@@ -218,7 +224,7 @@ impl AggregateType {
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
             return Ok(AggregateType::CountAny {
                 filter: filter_query,
-                indexrelid: bm25_index.oid(),
+                indexrelid: index.oid(),
             });
         }
 
@@ -230,24 +236,20 @@ impl AggregateType {
         let aggregate_field = ParsedAggregateField::from_index(
             (*first_arg).expr.cast(),
             VarContext::from_planner(root),
-            bm25_index,
-            heap_rti,
+            source_context,
         )?;
         let field = aggregate_field.field_name().clone();
-        let missing = aggregate_field.missing_for(aggfnoid, || bm25_index.schema().ok())?;
+        let missing = aggregate_field.missing_for(aggfnoid, || Some(schema.clone()))?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
         // aggregates over them route to the DataFusion backend at path
         // creation time and never reach this classifier.
-        if !bm25_index
-            .supports_tantivy_aggregate(&field)
-            .unwrap_or(false)
-        {
+        if !index.supports_tantivy_aggregate(&field).unwrap_or(false) {
             bail!("field '{}' does not support aggregate pushdown", field);
         }
 
-        let agg_type = Self::from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
+        let agg_type = Self::from_oid(aggfnoid, field, missing, filter_query, index.oid())
             .with_context(|| {
                 if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
                     pg_sys::Oid::from(aggfnoid),
@@ -826,20 +828,15 @@ impl ParsedAggregateField {
     pub(crate) unsafe fn from_index(
         expr: *mut pg_sys::Node,
         context: VarContext,
-        bm25_index: &PgSearchRelation,
-        heap_rti: pg_sys::Index,
+        source: &SourceContext,
     ) -> anyhow::Result<Self> {
         let expression = AggregateFieldExpression::from_node(expr)?;
         let field_expr = expression.field_expression();
 
-        let field_name = if let Ok(schema) = bm25_index.schema()
-            && let Some(fast_field) = find_matching_fast_field(
-                field_expr,
-                &bm25_index.index_expressions(),
-                schema,
-                heap_rti,
-            ) {
-            FieldName::from(fast_field.name())
+        let field_name = if let Some(resolved) =
+            source.resolve_fast_field(ResTarget::Expr(field_expr), Access::Scalar)
+        {
+            FieldName::from(resolved.field.name())
         } else {
             expression.field_name(context)?
         };
@@ -987,7 +984,7 @@ impl AggregateFieldExpression {
 
     unsafe fn field_name(&self, context: VarContext) -> anyhow::Result<FieldName> {
         let expression = self.field_expression();
-        if let Some((_, field_name)) = find_one_var_and_fieldname(context, expression) {
+        if let Some(field_name) = find_one_fieldname(context, expression) {
             return Ok(field_name);
         }
 
@@ -999,7 +996,7 @@ impl AggregateFieldExpression {
         let var = <*mut pg_sys::Var>::unwrap_from_expr(expression as *mut pg_sys::Expr)
             .context("first argument of COALESCE must resolve to a field")?;
         let (heaprelid, varattno) = context.var_relation(var);
-        fieldname_from_var(heaprelid, var, varattno)
+        fieldname_from_var(heaprelid, varattno)
             .context("first argument of COALESCE must resolve to a field")
     }
 }

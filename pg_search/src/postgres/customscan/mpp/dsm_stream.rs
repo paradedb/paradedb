@@ -70,27 +70,29 @@ pub struct DsmMeshHeader {
 
 const _: () = assert!(std::mem::size_of::<DsmMeshHeader>() == 64);
 
-/// Producer-owned 64-byte cache line of an SPSC ring.
+/// Producer-owned 128-byte cache line of an SPSC ring (padded to 128 bytes to prevent false
+/// sharing on Apple Silicon / ARM64 as well as x86_64).
 #[repr(C, align(8))]
 pub struct RingProducerLine {
     pub write_pos: AtomicU64,
     pub sleeping: AtomicBool,
     pub closed: AtomicBool,
-    _pad: [u8; 54],
+    _pad: [u8; 118],
 }
 
-const _: () = assert!(std::mem::size_of::<RingProducerLine>() == 64);
+const _: () = assert!(std::mem::size_of::<RingProducerLine>() == 128);
 
-/// Consumer-owned 64-byte cache line of an SPSC ring.
+/// Consumer-owned 128-byte cache line of an SPSC ring (padded to 128 bytes to prevent false
+/// sharing on Apple Silicon / ARM64 as well as x86_64).
 #[repr(C, align(8))]
 pub struct RingConsumerLine {
     pub read_pos: AtomicU64,
     pub sleeping: AtomicBool,
     pub closed: AtomicBool,
-    _pad: [u8; 54],
+    _pad: [u8; 118],
 }
 
-const _: () = assert!(std::mem::size_of::<RingConsumerLine>() == 64);
+const _: () = assert!(std::mem::size_of::<RingConsumerLine>() == 128);
 
 /// Cache-line-separated lock-free SPSC byte-ring header in DSM.
 #[repr(C, align(8))]
@@ -101,7 +103,7 @@ pub struct DsmRingHeader {
     _pad: [u8; 56],
 }
 
-const _: () = assert!(std::mem::size_of::<DsmRingHeader>() == 192);
+const _: () = assert!(std::mem::size_of::<DsmRingHeader>() == 320);
 
 #[inline]
 const fn align_up_64(val: usize) -> usize {
@@ -229,13 +231,13 @@ pub unsafe fn init_dsm_mesh(
                         write_pos: AtomicU64::new(0),
                         sleeping: AtomicBool::new(false),
                         closed: AtomicBool::new(false),
-                        _pad: [0u8; 54],
+                        _pad: [0u8; 118],
                     },
                     consumer: RingConsumerLine {
                         read_pos: AtomicU64::new(0),
                         sleeping: AtomicBool::new(false),
                         closed: AtomicBool::new(false),
-                        _pad: [0u8; 54],
+                        _pad: [0u8; 118],
                     },
                     capacity: ring_capacity as u64,
                     _pad: [0u8; 56],
@@ -404,7 +406,9 @@ impl AsyncRead for DsmAsyncStream {
                     .read_pos
                     .store(read_pos.wrapping_add(to_read as u64), Ordering::Release);
                 fence(Ordering::SeqCst);
-                if hdr.producer.sleeping.swap(false, Ordering::SeqCst) {
+                if hdr.producer.sleeping.load(Ordering::SeqCst)
+                    && hdr.producer.sleeping.swap(false, Ordering::SeqCst)
+                {
                     self.wake_peer();
                 }
                 return Poll::Ready(Ok(()));
@@ -541,7 +545,9 @@ impl AsyncWrite for DsmAsyncStream {
                     .write_pos
                     .store(cur_write_pos, Ordering::Release);
                 fence(Ordering::SeqCst);
-                if hdr.consumer.sleeping.swap(false, Ordering::SeqCst) {
+                if hdr.consumer.sleeping.load(Ordering::SeqCst)
+                    && hdr.consumer.sleeping.swap(false, Ordering::SeqCst)
+                {
                     self.wake_peer();
                 }
                 return Poll::Ready(Ok(total_written));

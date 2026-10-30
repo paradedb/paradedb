@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793396653315,
+  "lastUpdate": 1793398905077,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21004,6 +21004,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13013900398-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c13589ac7c12f28081e0a9cb222ce6d544cca76",
+          "message": "fix: omit graph dependencies from Stressgres runtime image (#7129)\n\nThe Stressgres runtime image installs Fontconfig and its font/XML\ndependencies for graph generation, although Antithesis only needs the\nworkload runner. Make graph generation a default-enabled Cargo feature\nand disable it in the Docker build. Normal source builds retain the\ngraph command; the image retains UI, headless, auto, and CSV commands.\n\nRemove the graphics development packages from the builder and\nlibfontconfig1 from the runtime. Debian's package resolver confirms this\navoids eight runtime packages: libfontconfig1, libexpat1, libfreetype6,\nlibpng16-16t64, libbrotli1, fontconfig-config, fonts-dejavu-core, and\nfonts-dejavu-mono. Keep the libraries needed by PostgreSQL TLS and the\ncopied psql client, plus Bash and flock for Antithesis scripts.\n\nDocument that the image disables graph generation. A temporary\nruntime-dependency smoke step passed in GitHub Actions and was then\nremoved; the existing Docker test remains unchanged.\n\nValidation: built the full ARM64 DST Docker image with Rust 1.99.0 and\nran the temporary runtime smoke step successfully, both locally and in\nGitHub Actions. Stressgres/headless/CSV help, psql, and flock run; ldd\nreports no missing libraries; Fontconfig and Expat are absent. The\nnormal default-feature source build passes cargo check --locked -p\nstressgres (Rust 1.99.1), retaining graph support. Rust formatting,\nPrettier, actionlint, shell syntax, and git diff --check pass.\n\nNo image has been published and Docker Scout has not rescanned a\nreplacement digest; this does not claim all remaining image CVEs are\nfixed. Local Docker credentials could not access the private published\nimage, so the package comparison uses Debian's resolver rather than that\nimage's inventory.",
+          "timestamp": "2026-10-30T14:09:31-07:00",
+          "tree_id": "079231639b10698c1921ac5cbe988ae6d705ab27",
+          "url": "https://github.com/paradedb/paradedb/commit/3c13589ac7c12f28081e0a9cb222ce6d544cca76"
+        },
+        "date": 1793398904244,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.09,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.373,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 328.302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 14.057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 101.343,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 179.441,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.413,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 147.896,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 215.182,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.41,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 197.627,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.3,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 78.239,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 160.834,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13017258671-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -44629,6 +44729,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13013900398-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c13589ac7c12f28081e0a9cb222ce6d544cca76",
+          "message": "fix: omit graph dependencies from Stressgres runtime image (#7129)\n\nThe Stressgres runtime image installs Fontconfig and its font/XML\ndependencies for graph generation, although Antithesis only needs the\nworkload runner. Make graph generation a default-enabled Cargo feature\nand disable it in the Docker build. Normal source builds retain the\ngraph command; the image retains UI, headless, auto, and CSV commands.\n\nRemove the graphics development packages from the builder and\nlibfontconfig1 from the runtime. Debian's package resolver confirms this\navoids eight runtime packages: libfontconfig1, libexpat1, libfreetype6,\nlibpng16-16t64, libbrotli1, fontconfig-config, fonts-dejavu-core, and\nfonts-dejavu-mono. Keep the libraries needed by PostgreSQL TLS and the\ncopied psql client, plus Bash and flock for Antithesis scripts.\n\nDocument that the image disables graph generation. A temporary\nruntime-dependency smoke step passed in GitHub Actions and was then\nremoved; the existing Docker test remains unchanged.\n\nValidation: built the full ARM64 DST Docker image with Rust 1.99.0 and\nran the temporary runtime smoke step successfully, both locally and in\nGitHub Actions. Stressgres/headless/CSV help, psql, and flock run; ldd\nreports no missing libraries; Fontconfig and Expat are absent. The\nnormal default-feature source build passes cargo check --locked -p\nstressgres (Rust 1.99.1), retaining graph support. Rust formatting,\nPrettier, actionlint, shell syntax, and git diff --check pass.\n\nNo image has been published and Docker Scout has not rescanned a\nreplacement digest; this does not claim all remaining image CVEs are\nfixed. Local Docker credentials could not access the private published\nimage, so the package comparison uses Debian's resolver rather than that\nimage's inventory.",
+          "timestamp": "2026-10-30T14:09:31-07:00",
+          "tree_id": "079231639b10698c1921ac5cbe988ae6d705ab27",
+          "url": "https://github.com/paradedb/paradedb/commit/3c13589ac7c12f28081e0a9cb222ce6d544cca76"
+        },
+        "date": 1793398905067,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.18009183429462,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.732680893097516,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.754384172936607,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.66250132116352,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.8972257117715,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13017258671-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

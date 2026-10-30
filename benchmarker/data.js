@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793324668430,
+  "lastUpdate": 1793324707746,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -53883,6 +53883,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12947846235-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9c322104f2b41650691488e4bb708363cb9ac8f",
+          "message": "fix: leave NULL comparison values to PostgreSQL in pushdown (#7102)\n\n# Ticket(s) Closed\n\n- Closes #7029\n\n## What\n\n`NULL::text = ANY(array_column)` and `NULL::text <> ALL(array_column)`\non an indexed array column no longer raise `pushdown expression should\nnot evaluate to NULL`. They now return the same rows as PostgreSQL.\n\n## Why\n\n`try_build_pushdown_qual` turned the comparison into a\n`paradedb.term_with_operator(field, op, NULL)` call. That function is\nstrict, so it evaluated to NULL and the `expect` in `Qual::PushdownExpr`\nfailed.\n\nThe value can't be pushed down even with a NULL-aware query. `NULL =\nANY(arr)` is never true, but `NULL <> ALL(arr)` is true when `arr` is\nempty, and the index stores an empty array and a NULL array the same way\n(no terms).\n\n## How\n\n`try_build_pushdown_qual` declines when the value it would push is a\nNULL `Const`. The qual then takes the existing non-pushdown path. With\nthe default settings that is a heap filter on top of the Custom Scan, as\nthe EXPLAIN in the new test shows. The check sits after the array-field\nswap, so it covers the value on either side.\n\n## Tests\n\nNew regression test `issue_7029`, using the issue's repro on PG18. It\ncovers `NULL = ANY`, `NULL <> ALL` and `NOT (NULL = ANY)` with the\nCustom Scan on and off, plus a non-NULL control that is still pushed\ndown. Without the fix, the three NULL queries and the EXPLAIN fail with\nthe error from the issue.",
+          "timestamp": "2026-10-29T18:11:28-07:00",
+          "tree_id": "8fc3b92875f2832e082a0520e2f368490e5cc9a2",
+          "url": "https://github.com/paradedb/paradedb/commit/e9c322104f2b41650691488e4bb708363cb9ac8f"
+        },
+        "date": 1793324706331,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.267,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.134,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.475,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.413,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 13.305,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 19.333,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 20.11,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 20.407,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 17.699,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.668,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.954,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 17.632,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.77,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.757,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 19.132,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.801,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 9.502,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.847,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 9.702,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.391,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 10.773,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 13.65,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 14.648,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 15.459,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12946759313-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -55751,6 +55911,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12947846235-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9c322104f2b41650691488e4bb708363cb9ac8f",
+          "message": "fix: leave NULL comparison values to PostgreSQL in pushdown (#7102)\n\n# Ticket(s) Closed\n\n- Closes #7029\n\n## What\n\n`NULL::text = ANY(array_column)` and `NULL::text <> ALL(array_column)`\non an indexed array column no longer raise `pushdown expression should\nnot evaluate to NULL`. They now return the same rows as PostgreSQL.\n\n## Why\n\n`try_build_pushdown_qual` turned the comparison into a\n`paradedb.term_with_operator(field, op, NULL)` call. That function is\nstrict, so it evaluated to NULL and the `expect` in `Qual::PushdownExpr`\nfailed.\n\nThe value can't be pushed down even with a NULL-aware query. `NULL =\nANY(arr)` is never true, but `NULL <> ALL(arr)` is true when `arr` is\nempty, and the index stores an empty array and a NULL array the same way\n(no terms).\n\n## How\n\n`try_build_pushdown_qual` declines when the value it would push is a\nNULL `Const`. The qual then takes the existing non-pushdown path. With\nthe default settings that is a heap filter on top of the Custom Scan, as\nthe EXPLAIN in the new test shows. The check sits after the array-field\nswap, so it covers the value on either side.\n\n## Tests\n\nNew regression test `issue_7029`, using the issue's repro on PG18. It\ncovers `NULL = ANY`, `NULL <> ALL` and `NOT (NULL = ANY)` with the\nCustom Scan on and off, plus a non-NULL control that is still pushed\ndown. Without the fix, the three NULL queries and the EXPLAIN fail with\nthe error from the issue.",
+          "timestamp": "2026-10-29T18:11:28-07:00",
+          "tree_id": "8fc3b92875f2832e082a0520e2f368490e5cc9a2",
+          "url": "https://github.com/paradedb/paradedb/commit/e9c322104f2b41650691488e4bb708363cb9ac8f"
+        },
+        "date": 1793324707148,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 81.06718007961467,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 80.13681185430198,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 51.776487557645694,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 57.8585892019284,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 58.086426268611504,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 57.600642215856006,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 112.38594073916278,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 102.22128809112006,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 72.65792517702745,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12946759313-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -56519,6 +56749,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12947846235-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9c322104f2b41650691488e4bb708363cb9ac8f",
+          "message": "fix: leave NULL comparison values to PostgreSQL in pushdown (#7102)\n\n# Ticket(s) Closed\n\n- Closes #7029\n\n## What\n\n`NULL::text = ANY(array_column)` and `NULL::text <> ALL(array_column)`\non an indexed array column no longer raise `pushdown expression should\nnot evaluate to NULL`. They now return the same rows as PostgreSQL.\n\n## Why\n\n`try_build_pushdown_qual` turned the comparison into a\n`paradedb.term_with_operator(field, op, NULL)` call. That function is\nstrict, so it evaluated to NULL and the `expect` in `Qual::PushdownExpr`\nfailed.\n\nThe value can't be pushed down even with a NULL-aware query. `NULL =\nANY(arr)` is never true, but `NULL <> ALL(arr)` is true when `arr` is\nempty, and the index stores an empty array and a NULL array the same way\n(no terms).\n\n## How\n\n`try_build_pushdown_qual` declines when the value it would push is a\nNULL `Const`. The qual then takes the existing non-pushdown path. With\nthe default settings that is a heap filter on top of the Custom Scan, as\nthe EXPLAIN in the new test shows. The check sits after the array-field\nswap, so it covers the value on either side.\n\n## Tests\n\nNew regression test `issue_7029`, using the issue's repro on PG18. It\ncovers `NULL = ANY`, `NULL <> ALL` and `NOT (NULL = ANY)` with the\nCustom Scan on and off, plus a non-NULL control that is still pushed\ndown. Without the fix, the three NULL queries and the EXPLAIN fail with\nthe error from the issue.",
+          "timestamp": "2026-10-29T18:11:28-07:00",
+          "tree_id": "8fc3b92875f2832e082a0520e2f368490e5cc9a2",
+          "url": "https://github.com/paradedb/paradedb/commit/e9c322104f2b41650691488e4bb708363cb9ac8f"
+        },
+        "date": 1793324707734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.6466336021833334,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.2578125,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12946759313-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [

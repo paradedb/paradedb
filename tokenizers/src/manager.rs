@@ -1595,6 +1595,28 @@ mod tests {
         assert!(!tokens_chinese.iter().any(|t| t.trim().is_empty()));
     }
 
+    #[rstest]
+    #[case(r#"{"type": "literal_normalized", "trim": true, "remove_short": 3}"#, "   a   ", vec![])]
+    #[case(r#"{"type": "literal_normalized", "trim": true, "remove_long": 5}"#, "  hello  ", vec!["hello"])]
+    fn test_token_length_filter_applies_to_trimmed_token(
+        #[case] json: &str,
+        #[case] text: &str,
+        #[case] expected: Vec<&str>,
+    ) {
+        use tantivy::tokenizer::TokenStream;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+        let mut token_stream = analyzer.token_stream(text);
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            tokens.push(token_stream.token().text.clone());
+        }
+
+        assert_eq!(tokens, expected);
+    }
+
     /// Verify that a tantivy index whose schema references the old tokenizer name
     /// ("chinese_lindera") uses the deprecated tokenizer which preserves whitespace,
     /// while an index using the new name ("chinese_lindera_keepwhitespace:{false|true}")

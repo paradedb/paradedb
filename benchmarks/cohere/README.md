@@ -28,6 +28,18 @@ REINDEX to select a different router.
    `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
+   After the sweeps, CI downloads diagnostics from the latest successful main
+   push preceding this workflow run with an unexpired artifact for that corpus
+   size. `pdbench compare --html` compares each query at matched recall
+   and saves offline HTML reports, text deltas, labeled JSON inputs, and commit
+   provenance under `comparison/` in the diagnostics artifact. The job summary
+   identifies the baseline run and report filenames. The PR comment's **Reports**
+   section links the sweep comparisons under **Sweep** and the existing k6
+   graphs under **Search**. Missing baselines or queries
+   and differing config fingerprints are reported as skipped comparisons; CI
+   does not force comparisons across benchmark configurations. Main runs compare
+   with the previous successful main run. This reuses recorded mainline sweeps
+   rather than rebuilding and measuring main on the current runner.
 3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
    It rejects selections below their target and does not select probes or
    calculate latency. Unreached targets remain visible and do not run in k6.

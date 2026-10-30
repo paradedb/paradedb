@@ -23,6 +23,10 @@ inputs:
     description: "Optional Markdown context to include above the benchmark comparison"
     required: false
     default: ""
+  sweep_reports_dir:
+    description: "Optional directory containing sweep comparison HTML and metadata"
+    required: false
+    default: ""
   index_metrics_file:
     description: "Optional JSON metrics for index build time and size"
     required: false
@@ -221,10 +225,11 @@ runs:
         sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_index.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (index build)" '.entries[$suite][-2] // {}' > _index_baseline.json
 
-    - name: Stage Dashboards (HTML Only) for gh-pages
+    - name: Stage Reports (HTML Only) for gh-pages
       shell: bash
       env:
         RESULTS_DIR: benchmarker/results
+        SWEEP_REPORTS_DIR: ${{ inputs.sweep_reports_dir }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -233,10 +238,17 @@ runs:
         if [ ${#htmls[@]} -gt 0 ]; then
           cp "${htmls[@]}" _ghpages_html/
         fi
+        if [ -n "$SWEEP_REPORTS_DIR" ] && [ -d "$SWEEP_REPORTS_DIR" ]; then
+          sweep_htmls=("${SWEEP_REPORTS_DIR}"/*.html)
+          if [ ${#sweep_htmls[@]} -gt 0 ]; then
+            mkdir -p _ghpages_html/sweep
+            cp "${sweep_htmls[@]}" _ghpages_html/sweep/
+          fi
+        fi
         ls -la _ghpages_html
 
-    - name: Stage Dashboards in Pages Checkout
-      if: hashFiles('_ghpages_html/*.html') != ''
+    - name: Stage Reports in Pages Checkout
+      if: hashFiles('_ghpages_html/**/*.html') != ''
       shell: bash
       env:
         COMMIT_SHA: ${{ inputs.ref }}
@@ -244,11 +256,11 @@ runs:
       run: |
         destination="benchmarker-runs/${COMMIT_SHA}/${DATASET}"
         mkdir -p "benchmark-data-repository/${destination}"
-        cp _ghpages_html/*.html "benchmark-data-repository/${destination}/"
+        cp -R _ghpages_html/. "benchmark-data-repository/${destination}/"
         git -C benchmark-data-repository add --sparse -- "$destination"
 
-    - name: Comment Benchmark Comparison and Dashboard Links
-      if: inputs.pr_number != '' && (hashFiles('_ghpages_html/*.html') != '' || inputs.context_file != '' || inputs.index_metrics_file != '' || inputs.buffer_metrics_file != '')
+    - name: Comment Benchmark Comparison and Report Links
+      if: inputs.pr_number != '' && (hashFiles('_ghpages_html/**/*.html') != '' || inputs.context_file != '' || inputs.sweep_reports_dir != '' || inputs.index_metrics_file != '' || inputs.buffer_metrics_file != '')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -259,6 +271,7 @@ runs:
         METRICS_FILE: benchmarker/benchmarker_metrics.json
         THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
         CONTEXT_FILE: ${{ inputs.context_file }}
+        SWEEP_REPORTS_DIR: ${{ inputs.sweep_reports_dir }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -312,6 +325,27 @@ runs:
           '
           printf '\nRatio: current/previous for latency, shared hits/query, build time, and index size; previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
           printf '\n'
+          printf '#### Reports\n\n'
+          if [ -n "$SWEEP_REPORTS_DIR" ]; then
+            printf '##### Sweep\n\n'
+            if [ -f "$SWEEP_REPORTS_DIR/metadata.json" ]; then
+              jq -r '"Compared with [main `\(.baseline_commit[0:7])`](\(.baseline_url)) at matched recall.\n"' \
+                "$SWEEP_REPORTS_DIR/metadata.json"
+            fi
+            sweep_htmls=(_ghpages_html/sweep/*.html)
+            for h in "${sweep_htmls[@]}"; do
+              nm="$(basename "$h" .html)"
+              printf -- '- [%s](%s/sweep/%s.html)\n' "$nm" "$BASE" "$nm"
+            done
+            if [ -f "$SWEEP_REPORTS_DIR/metadata.json" ]; then
+              jq -r '.queries | to_entries[] | select(.value.skipped) |
+                "- `\(.key)`: skipped (\(.value.skipped))."' "$SWEEP_REPORTS_DIR/metadata.json"
+            elif [ ${#sweep_htmls[@]} -eq 0 ]; then
+              printf 'No comparable mainline sweep results are available for this run.\n'
+            fi
+            printf '\n'
+          fi
+          printf '##### Search\n\n'
           printf 'Interactive per-script graphs (latency timeline, throughput, and resource metrics when available):\n\n'
           printf '%s\n' "$links"
           printf 'Over-time tracking (latency, QPS, and available buffer and index build metrics across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"

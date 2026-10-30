@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793318246067,
+  "lastUpdate": 1793319672227,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -52413,6 +52413,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12940672421-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d84a6744f0e5eb1bb0dcb018ca468c12cc7162f1",
+          "message": "fix: authenticate benchmark metric staging (#7113)\n\nBoth benchmark publishers failed at `git add` when the sparse checkout\nneeded a missing object after checkout removed its credentials.\n\nPass the existing App token as a command-scoped Git HTTP header when\nstaging metrics. Preserve the sparse checkout and `persist-credentials:\nfalse` so publishing avoids downloading the full gh-pages tree.\n\nValidation: Prettier, staging shell syntax, and `git diff --check`\npassed. Live publication remains unverified.\n\nFailure:\nhttps://github.com/paradedb/paradedb-enterprise/actions/runs/40968245617/job/123791539652",
+          "timestamp": "2026-10-29T16:46:56-07:00",
+          "tree_id": "8bc71b0f02531fa5609aaa3efd3c89d4cce7d146",
+          "url": "https://github.com/paradedb/paradedb/commit/d84a6744f0e5eb1bb0dcb018ca468c12cc7162f1"
+        },
+        "date": 1793319669112,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.375,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 12.821,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 11.737,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.56,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.07,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 17.119,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 18.17,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 18.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 16.949,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 17.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.936,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.273,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 16.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 17.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.289,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.501,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 9.303,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.623,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.305,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.249,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 20.494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 21.571,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 22.566,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12943508423-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -54071,6 +54231,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12940672421-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d84a6744f0e5eb1bb0dcb018ca468c12cc7162f1",
+          "message": "fix: authenticate benchmark metric staging (#7113)\n\nBoth benchmark publishers failed at `git add` when the sparse checkout\nneeded a missing object after checkout removed its credentials.\n\nPass the existing App token as a command-scoped Git HTTP header when\nstaging metrics. Preserve the sparse checkout and `persist-credentials:\nfalse` so publishing avoids downloading the full gh-pages tree.\n\nValidation: Prettier, staging shell syntax, and `git diff --check`\npassed. Live publication remains unverified.\n\nFailure:\nhttps://github.com/paradedb/paradedb-enterprise/actions/runs/40968245617/job/123791539652",
+          "timestamp": "2026-10-29T16:46:56-07:00",
+          "tree_id": "8bc71b0f02531fa5609aaa3efd3c89d4cce7d146",
+          "url": "https://github.com/paradedb/paradedb/commit/d84a6744f0e5eb1bb0dcb018ca468c12cc7162f1"
+        },
+        "date": 1793319670714,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 85.91897779765874,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 84.75152981292867,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 58.24304952991364,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 60.34365026805121,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 60.255329819292946,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 60.32396811087285,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 116.12705845168564,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 95.72605911397963,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 48.447370859146076,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12943508423-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -54734,6 +54964,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12940672421-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d84a6744f0e5eb1bb0dcb018ca468c12cc7162f1",
+          "message": "fix: authenticate benchmark metric staging (#7113)\n\nBoth benchmark publishers failed at `git add` when the sparse checkout\nneeded a missing object after checkout removed its credentials.\n\nPass the existing App token as a command-scoped Git HTTP header when\nstaging metrics. Preserve the sparse checkout and `persist-credentials:\nfalse` so publishing avoids downloading the full gh-pages tree.\n\nValidation: Prettier, staging shell syntax, and `git diff --check`\npassed. Live publication remains unverified.\n\nFailure:\nhttps://github.com/paradedb/paradedb-enterprise/actions/runs/40968245617/job/123791539652",
+          "timestamp": "2026-10-29T16:46:56-07:00",
+          "tree_id": "8bc71b0f02531fa5609aaa3efd3c89d4cce7d146",
+          "url": "https://github.com/paradedb/paradedb/commit/d84a6744f0e5eb1bb0dcb018ca468c12cc7162f1"
+        },
+        "date": 1793319672216,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.6501644999666665,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.703125,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12943508423-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [

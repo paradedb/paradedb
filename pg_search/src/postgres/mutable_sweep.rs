@@ -15,13 +15,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::merge_policy::LayeredMergePolicy;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::writer::index::SearchIndexMerger;
+use crate::postgres::delete::VacuumSignal;
 use crate::postgres::index::free_leaf_partition_indexes;
-use crate::postgres::merge::sweep_mutable;
+use crate::postgres::merge::{
+    MergeMode, MergeSlot, MergeSlotVariant, merge_crash_details, merge_index,
+    warn_unsupported_vector_merge,
+};
+use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
+use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
-    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, Spi, check_for_interrupts, pg_guard,
-    pg_sys,
+    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, Spi,
+    check_for_interrupts, pg_guard, pg_sys,
 };
+use std::panic::AssertUnwindSafe;
 use std::time::Duration;
 
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
@@ -175,7 +185,60 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
             };
             use crate::postgres::catalog::OidExt;
             if (*index.rd_rel).relam.is_paradedb_am() && index.is_valid() {
-                sweep_mutable(&index);
+                if VacuumSignal::new(index.oid()).wants_cancel() {
+                    return;
+                }
+                let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
+                else {
+                    return;
+                };
+                let metadata = MetaPage::open(&index);
+                let Some(merge_pins) = metadata.try_pin_merge() else {
+                    return;
+                };
+                let merge_lock = metadata.acquire_merge_lock();
+                PgTryBuilder::new(AssertUnwindSafe(|| {
+                    if metadata.freeze_mutable_segments().is_empty() {
+                        return;
+                    }
+                    set_ps_display_suffix(MERGING.as_ptr());
+                    pg_sys::pgstat_report_activity(
+                        pg_sys::BackendState::STATE_RUNNING,
+                        MERGING.as_ptr(),
+                    );
+                    let merger = SearchIndexMerger::open(&index, MvccSatisfies::Mergeable)
+                        .expect("should be able to open mutable sweeper merger");
+                    let mut policy = LayeredMergePolicy::new(Vec::new());
+                    policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+                    let (candidates, _, skipped) = policy
+                        .simulate_supported(&merger)
+                        .expect("should be able to validate mutable sweep candidates");
+                    warn_unsupported_vector_merge(&index, skipped);
+                    let candidates = candidates
+                        .into_iter()
+                        .map(|(_, candidate)| candidate)
+                        .collect::<Vec<_>>();
+                    let xid = pg_sys::GetCurrentFullTransactionId();
+                    merge_index(
+                        &index,
+                        merger,
+                        &candidates,
+                        merge_lock,
+                        merge_pins,
+                        MergeMode::Background,
+                        xid,
+                        xid,
+                    );
+                }))
+                .catch_others(|caught| {
+                    dst::observe!(|| {
+                        if let Some(details) = merge_crash_details(&caught) {
+                            dst::assert_unreachable!("pg_search mutable sweep crashed", &details);
+                        }
+                    });
+                    caught.rethrow()
+                })
+                .execute();
             }
         });
     }

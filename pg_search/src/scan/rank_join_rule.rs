@@ -29,9 +29,11 @@
 //!    - Scored leaves (`OrderByFeature::Score`) must have at least one non-constant-score BM25
 //!      query (`!SearchQueryInput::is_constant_score`) so Tantivy's `TopDocs` / Block-Max WAND
 //!      collector can prune by score.
-//!    - Non-score fast-field sorts (`OrderByFeature::Field`) are allowed only when every join on
-//!      the path from the root `RankJoinExec` to the leaf is single-sided (`LeftScore` or
-//!      `RightScore`), and the column is a non-deferred sortable fast field.
+//!    - Vector-ordered leaves (`OrderByFeature::VectorDistance`, exposed as
+//!      `pdb.vector_score({table})`) and non-score fast-field sorts (`OrderByFeature::Field`) are
+//!      allowed when every join on the path from the root `RankJoinExec` to the leaf is
+//!      single-sided (`LeftScore` or `RightScore`, across `Inner`, `LeftSemi`, or `RightSemi`
+//!      joins), and any secondary tie-breaker columns on the same leaf are sortable fast fields.
 //!    - When the root `HashJoinExec` has a pure-`OR` cross-table search tag filter
 //!      (`ScanMode::Tagged`), `try_elide_disjunctive_tags` attempts to strip the boolean
 //!      `__<alias>_tag_<idx>` columns and convert the leaves to `ScanMode::Disjunctive` for
@@ -53,11 +55,23 @@
 //! 3. **Gate 3 (Cardinality, Unscored Selectivity & Initial Window Scaling)**:
 //!    - Requires `K <= 1,000` ([`MAX_RANK_JOIN_K`]), estimated rows `>=`
 //!      `paradedb.rank_join_min_rows` on every joined input, and combined unscored (`RA`)
-//!      selectivity `>= 0.08` ([`UNSCORED_SELECTIVITY_THRESHOLD`]) in single-sided (`NRJN`)
-//!      joins.
+//!      selectivity `>= paradedb.rank_join_unscored_selectivity_threshold` (default `0.08`,
+//!      [`UNSCORED_SELECTIVITY_THRESHOLD`]) in single-sided (`NRJN`) joins.
 //!    - Scales each `SA` leaf's `initial_window` inversely by the subtree survival probability
 //!      `p_survive = p_unscored * p_tagged` via
 //!      [`TopKSelectivity::compute_initial_window`].
+//!    - When `RankJoinExec` is declined on a single-sided top-K join (e.g. when the unscored
+//!      build side is selective `< paradedb.rank_join_unscored_selectivity_threshold`, or for
+//!      `OrderByFeature::VectorDistance` when `K > 1,000` or `paradedb.enable_rank_join = false`),
+//!      [`try_rewrite_lazy_sort_probe_join`] places the sorted branch on the probe (right) side of
+//!      `HashJoinExec(mode=CollectLeft)`, pushes any outer [`VisibilityFilterExec`] below the
+//!      `HashJoinExec` onto its build and probe inputs (allowing `LimitPushdown` to push
+//!      `fetch=K` directly into `HashJoinExec`), and configures the probe leaf scan with
+//!      `LazySortConfig` (`LazyParallelMode::Unpartitioned`). For `OrderByFeature::Score` and
+//!      `OrderByFeature::Field`, this rewrite is gated on the selective build side fitting within
+//!      `paradedb.hash_join_inlist_pushdown_max_distinct_values` and the probe leaf supporting
+//!      indexed `InList` pushdown on the join keys, so the build side's `InList` dynamic filter
+//!      restricts the probe's `TopDocs` / Block-Max WAND collector directly.
 //!
 //! # Why Physical-Time Optimization & Tag Elision (`ScanMode::Tagged` -> `ScanMode::Disjunctive`)
 //!
@@ -116,7 +130,7 @@ use arrow_array::{RecordBatch, RecordBatchOptions};
 use arrow_schema::{DataType, Schema, SchemaRef, SortOptions};
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{NullEquality, Result, ScalarValue};
+use datafusion::common::{DataFusionError, NullEquality, Result, ScalarValue};
 use datafusion::logical_expr::{ColumnarValue, JoinType, Operator};
 use datafusion::physical_expr::expressions::{BinaryExpr, CastExpr, Column, Literal, TryCastExpr};
 use datafusion::physical_expr::projection::ProjectionExpr;
@@ -124,6 +138,7 @@ use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::filter::FilterExec;
 use datafusion::physical_plan::joins::utils::JoinFilter;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion::physical_plan::projection::ProjectionExec;
@@ -133,9 +148,9 @@ use datafusion::physical_plan::{
 };
 
 use crate::api::{FieldName, OrderByFeature, OrderByInfo, SortDirection};
-use crate::postgres::customscan::joinscan::ScoreColumn;
 use crate::postgres::customscan::joinscan::range_partitioning_rule::is_hash_join_range_co_partitioned;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+use crate::postgres::customscan::joinscan::{ScoreColumn, VectorScoreColumn};
 use crate::query::SearchQueryInput;
 use crate::scan::ScanMode;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
@@ -204,7 +219,9 @@ impl PhysicalOptimizerRule for RankJoinRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        if !crate::gucs::enable_rank_join() {
+        let enable_rank_join = crate::gucs::enable_rank_join();
+        let has_vector_order_by = any_scan(&plan, |s| s.vector_order_by().is_some());
+        if !enable_rank_join && !has_vector_order_by {
             return Ok(plan);
         }
         let min_rows = crate::gucs::rank_join_min_rows();
@@ -217,12 +234,16 @@ impl PhysicalOptimizerRule for RankJoinRule {
                 let Some(k) = sort_exec.fetch() else {
                     return Ok(Transformed::no(node));
                 };
-                if k == 0 || k > MAX_RANK_JOIN_K {
+                if !has_vector_order_by && (k == 0 || k > MAX_RANK_JOIN_K) {
                     return Ok(Transformed::no(node));
                 };
 
-                let Some(rewritten_input) =
-                    try_rewrite_under_sort(sort_exec.input(), sort_exec.expr(), k, min_rows)?
+                let Some(rewritten_input) = try_rewrite_under_sort(
+                    sort_exec.input(),
+                    sort_exec.expr(),
+                    k.max(1),
+                    min_rows,
+                )?
                 else {
                     return Ok(Transformed::no(node));
                 };
@@ -233,11 +254,22 @@ impl PhysicalOptimizerRule for RankJoinRule {
             })
             .map(|t| t.data)?;
 
-        debug_assert!(
-            !any_scan(&rewritten, |s| s.is_tagless_disjunctive()
-                && s.lazy_sort().is_none()),
-            "RankJoinRule produced a ScanMode::Disjunctive scan without lazy_sort"
-        );
+        if any_scan(&rewritten, |s| {
+            s.is_tagless_disjunctive() && s.lazy_sort().is_none()
+        }) {
+            return Err(DataFusionError::Internal(
+                "RankJoinRule produced a ScanMode::Disjunctive scan without lazy_sort".to_string(),
+            ));
+        }
+
+        if any_scan(&rewritten, |s| {
+            s.vector_order_by().is_some() && s.lazy_sort().is_none_or(|ls| ls.ordering.is_none())
+        }) {
+            return Err(DataFusionError::Internal(
+                "RankJoinRule could not configure lazy_sort for vector distance ORDER BY"
+                    .to_string(),
+            ));
+        }
 
         Ok(rewritten)
     }
@@ -359,7 +391,7 @@ impl SubtreeScoreStats {
             if min_matched < min_rows as u64 {
                 return None;
             }
-            if unscored_selectivity.0 < UNSCORED_SELECTIVITY_THRESHOLD {
+            if unscored_selectivity.0 < crate::gucs::rank_join_unscored_selectivity_threshold() {
                 return None;
             }
         }
@@ -383,10 +415,10 @@ impl SubtreeScoreStats {
     }
 }
 
-/// Controls whether leaf scans in a join branch may sort by a non-score fast-field column
-/// (`OrderByFeature::Field`). Non-score column sorting is only valid when every join from the
-/// root `RankJoinExec` down to the leaf scan is single-sided (`ScoreCombiner::LeftScore` or
-/// `ScoreCombiner::RightScore`).
+/// Controls whether leaf scans in a join branch may sort by a feature that `search_ra_lookup`
+/// cannot `RA`-score (`OrderByFeature::Field` or `OrderByFeature::VectorDistance`). Such sorts
+/// are only valid when every join from the root `RankJoinExec` down to the leaf scan is
+/// single-sided (`ScoreCombiner::LeftScore` or `ScoreCombiner::RightScore`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldSortPolicy {
     Allowed,
@@ -411,7 +443,9 @@ pub(crate) struct DecomposedJoinScore {
 }
 
 /// Walks down from `SortExec` through pass-through nodes to find, verify (Gates 1, 2, and 3),
-/// and rewrite an eligible `HashJoinExec` subtree into `RankJoinExec` in a single pass.
+/// and rewrite an eligible `HashJoinExec` subtree into `RankJoinExec` in a single pass, or falls
+/// back to [`try_rewrite_lazy_sort_probe_join`] when `RankJoinExec` is declined on a single-sided
+/// top-K join.
 ///
 /// When the root `HashJoinExec` has a pure-`OR` cross-table search tag filter (`ScanMode::Tagged`
 /// with `SearchQueryInput::All` base queries), attempts to elide the tag columns and convert leaf
@@ -439,45 +473,74 @@ fn try_rewrite_under_sort(
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let mut eager_fields = Vec::new();
     let mut rewritten_with_stats = None;
-    if let Some(tagless_node) = try_elide_disjunctive_tags(node)? {
-        let join_mode = subtree_join_partition_mode(&tagless_node)?;
-        rewritten_with_stats = try_rewrite_scored_branch(
-            &tagless_node,
-            required_ordering,
-            &[],
-            ScoredBranchContext {
-                min_rows,
-                join_mode,
-                field_sort_policy: FieldSortPolicy::Allowed,
-                level: BranchLevel::RootJoin,
-            },
-            &mut eager_fields,
-        )?;
+    if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K {
+        if let Some(tagless_node) = try_elide_disjunctive_tags(node)? {
+            let join_mode = subtree_join_partition_mode(&tagless_node)?;
+            rewritten_with_stats = try_rewrite_scored_branch(
+                &tagless_node,
+                required_ordering,
+                &[],
+                ScoredBranchContext {
+                    min_rows,
+                    join_mode,
+                    field_sort_policy: FieldSortPolicy::Allowed,
+                    level: BranchLevel::RootJoin,
+                },
+                &mut eager_fields,
+            )?;
+        }
+        if rewritten_with_stats.is_none() {
+            eager_fields.clear();
+            let join_mode = subtree_join_partition_mode(node)?;
+            rewritten_with_stats = try_rewrite_scored_branch(
+                node,
+                required_ordering,
+                &[],
+                ScoredBranchContext {
+                    min_rows,
+                    join_mode,
+                    field_sort_policy: FieldSortPolicy::Allowed,
+                    level: BranchLevel::RootJoin,
+                },
+                &mut eager_fields,
+            )?;
+        }
     }
-    if rewritten_with_stats.is_none() {
-        eager_fields.clear();
-        let join_mode = subtree_join_partition_mode(node)?;
-        rewritten_with_stats = try_rewrite_scored_branch(
-            node,
-            required_ordering,
-            &[],
-            ScoredBranchContext {
-                min_rows,
-                join_mode,
-                field_sort_policy: FieldSortPolicy::Allowed,
-                level: BranchLevel::RootJoin,
-            },
-            &mut eager_fields,
-        )?;
+    if let Some((rewritten, root_stats)) = rewritten_with_stats {
+        let initial_window = compute_initial_window(k, root_stats.survival_selectivity());
+        let rewritten = apply_sa_initial_window(rewritten, initial_window)?;
+        let rewritten =
+            crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
+        return Ok(Some(rewritten));
     }
-    let Some((rewritten, root_stats)) = rewritten_with_stats else {
-        return Ok(None);
-    };
-    let initial_window = compute_initial_window(k, root_stats.survival_selectivity());
-    let rewritten = apply_sa_initial_window(rewritten, initial_window)?;
-    let rewritten =
-        crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
-    Ok(Some(rewritten))
+    eager_fields.clear();
+    let max_inlist_distinct =
+        crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize;
+    let non_vector_eligibility =
+        if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K && max_inlist_distinct > 0 {
+            NonVectorProbeEligibility::Eligible
+        } else {
+            NonVectorProbeEligibility::Disallowed
+        };
+    if let Some(rewritten) = try_rewrite_lazy_sort_probe_join(
+        node,
+        required_ordering,
+        &[],
+        LazySortProbeContext {
+            k,
+            level: BranchLevel::RootJoin,
+            min_rows,
+            non_vector_eligibility,
+            max_inlist_distinct,
+        },
+        &mut eager_fields,
+        &mut Vec::new(),
+    )? {
+        let rewritten =
+            crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
+        return Ok(Some(rewritten));
+    }
+    Ok(None)
 }
 
 /// Returns `PartitionMode::Partitioned` iff every `HashJoinExec` in `node` is range
@@ -642,7 +705,7 @@ fn strip_disjunctive_tags_from_plan(
     }
 
     if let Some(join) = node.downcast_ref::<HashJoinExec>() {
-        if !is_hash_join_eligible(join) {
+        if *join.join_type() != JoinType::Inner || !is_hash_join_eligible(join) {
             return Ok(None);
         }
         if elided_tags.is_none() {
@@ -881,7 +944,7 @@ fn try_rewrite_scored_branch(
         }
         return Ok(try_rewrite_scored_leaf(
             scan,
-            &required_ordering[0],
+            required_ordering,
             ctx.join_mode,
             ctx.field_sort_policy,
         ));
@@ -897,14 +960,24 @@ fn try_rewrite_scored_branch(
     let unprojected_ordering = unproject_join_ordering(join, required_ordering)?;
     let left_schema = join.left().schema();
     let right_schema = join.right().schema();
-    let Some(decomposed) =
-        analyze_join_score_expr(&unprojected_ordering[0], &left_schema, &right_schema)
-    else {
+    let left_len = join_schema_left_len(*join.join_type(), &left_schema);
+    let Some(decomposed) = analyze_join_score_expr(
+        &unprojected_ordering[0],
+        *join.join_type(),
+        &left_schema,
+        &right_schema,
+    ) else {
         return Ok(None);
     };
 
     let uses_left = decomposed.combiner.uses_left();
     let uses_right = decomposed.combiner.uses_right();
+    match *join.join_type() {
+        JoinType::Inner => {}
+        JoinType::LeftSemi if uses_left && !uses_right => {}
+        JoinType::RightSemi if uses_right && !uses_left => {}
+        _ => return Ok(None),
+    }
     let has_disjunctive_scans = any_scan(node, PgSearchScanPlan::is_tagless_disjunctive);
 
     // Tagless disjunctive (`ScanMode::Disjunctive`) joins require `combiner` to satisfy
@@ -950,7 +1023,16 @@ fn try_rewrite_scored_branch(
     };
 
     let Some((new_left, left_stats)) = (if uses_left {
-        let Some(left_ordering) = LexOrdering::new(vec![decomposed.left_sort_expr.clone()]) else {
+        let mut left_sort_exprs = vec![decomposed.left_sort_expr.clone()];
+        if !uses_right
+            && unprojected_ordering
+                .iter()
+                .skip(1)
+                .all(|tb| classify_expr_side(&tb.expr, left_len) == ExprSide::LeftOnly)
+        {
+            left_sort_exprs.extend(unprojected_ordering.iter().skip(1).cloned());
+        }
+        let Some(left_ordering) = LexOrdering::new(left_sort_exprs) else {
             return Ok(None);
         };
         try_rewrite_scored_branch(
@@ -967,8 +1049,21 @@ fn try_rewrite_scored_branch(
     };
 
     let Some((new_right, right_stats)) = (if uses_right {
-        let Some(right_ordering) = LexOrdering::new(vec![decomposed.right_sort_expr.clone()])
-        else {
+        let mut right_sort_exprs = vec![decomposed.right_sort_expr.clone()];
+        if !uses_left
+            && unprojected_ordering
+                .iter()
+                .skip(1)
+                .all(|tb| classify_expr_side(&tb.expr, left_len) == ExprSide::RightOnly)
+        {
+            for tb in unprojected_ordering.iter().skip(1) {
+                right_sort_exprs.push(PhysicalSortExpr {
+                    expr: shift_right_expr(&tb.expr, left_len)?,
+                    options: tb.options,
+                });
+            }
+        }
+        let Some(right_ordering) = LexOrdering::new(right_sort_exprs) else {
             return Ok(None);
         };
         try_rewrite_scored_branch(
@@ -997,6 +1092,7 @@ fn try_rewrite_scored_branch(
         },
         join.on().to_vec(),
         join.filter().cloned(),
+        *join.join_type(),
         join.projection.as_deref().map(<[usize]>::to_vec),
         ctx.join_mode,
         RankJoinSortExprs {
@@ -1065,7 +1161,7 @@ fn map_key_sets_through_passthrough(
     key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
 ) -> Option<Vec<Vec<Arc<dyn PhysicalExpr>>>> {
     if key_sets.is_empty() {
-        return is_passthrough_node(node).then(Vec::new);
+        return (is_passthrough_node(node) || node.is::<FilterExec>()).then(Vec::new);
     }
     if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
         let proj_exprs = proj.expr();
@@ -1105,12 +1201,7 @@ fn map_key_sets_through_passthrough(
             .iter()
             .map(|keys| {
                 keys.iter()
-                    .map(|key| {
-                        let col = key.downcast_ref::<Column>()?;
-                        let &in_idx = proj.get(col.index())?;
-                        let field = in_schema.fields().get(in_idx)?;
-                        Some(Arc::new(Column::new(field.name(), in_idx)) as Arc<dyn PhysicalExpr>)
-                    })
+                    .map(|key| unproject_column(key.downcast_ref::<Column>()?, proj, &in_schema))
                     .collect()
             })
             .collect();
@@ -1135,6 +1226,16 @@ fn map_key_sets_through_passthrough(
     None
 }
 
+/// Returns the number of left-side columns in `join.join_schema()` (`0` for `JoinType::RightSemi`,
+/// whose `join_schema` contains only right-side columns `0..right_len`, and `left_schema.fields().len()`
+/// for `JoinType::Inner` and `JoinType::LeftSemi`).
+fn join_schema_left_len(join_type: JoinType, left_schema: &SchemaRef) -> usize {
+    match join_type {
+        JoinType::RightSemi => 0,
+        _ => left_schema.fields().len(),
+    }
+}
+
 /// Routes incoming `parent_key_sets` across `join` to its `left` and `right` children, and
 /// appends `join.on()`'s own `RA` lookup keys for each side that can be `RA`-probed.
 fn route_join_key_sets(
@@ -1144,7 +1245,7 @@ fn route_join_key_sets(
 ) -> Result<Option<(JoinKeySets, JoinKeySets)>> {
     let uses_left = combiner.is_some_and(ScoreCombiner::uses_left);
     let uses_right = combiner.is_some_and(ScoreCombiner::uses_right);
-    let left_len = join.left().schema().fields().len();
+    let left_len = join_schema_left_len(*join.join_type(), &join.left().schema());
     let mut left_key_sets = Vec::new();
     let mut right_key_sets = Vec::new();
 
@@ -1229,7 +1330,7 @@ fn try_rewrite_unscored_branch(
         return Ok(Some((rebuilt, stats)));
     }
     if let Some(join) = node.downcast_ref::<HashJoinExec>() {
-        if !is_hash_join_eligible(join) {
+        if *join.join_type() != JoinType::Inner || !is_hash_join_eligible(join) {
             return Ok(None);
         }
         let Some((left_key_sets, right_key_sets)) =
@@ -1271,6 +1372,7 @@ fn try_rewrite_unscored_branch(
             },
             join.on().to_vec(),
             join.filter().cloned(),
+            JoinType::Inner,
             join.projection.as_deref().map(<[usize]>::to_vec),
             join_mode,
             RankJoinSortExprs {
@@ -1323,10 +1425,11 @@ fn try_rewrite_unscored_branch(
 
 fn try_rewrite_scored_leaf(
     scan: &PgSearchScanPlan,
-    required_sort: &PhysicalSortExpr,
+    required_ordering: &LexOrdering,
     join_mode: PartitionMode,
     field_sort_policy: FieldSortPolicy,
 ) -> Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)> {
+    let required_sort = &required_ordering[0];
     let order_by = resolve_scan_order_by(scan, required_sort, field_sort_policy)?;
     let stats = match scan.scan_mode() {
         ScanMode::Standard { .. } => SubtreeScoreStats::from_leaf_queries(
@@ -1355,14 +1458,24 @@ fn try_rewrite_scored_leaf(
         ),
         ScanMode::Tagged { .. } => None,
     }?;
+    let (orderby_info, leaf_ordering) = if let Some(all_order_bys) =
+        resolve_leaf_order_bys(scan, order_by.clone(), required_ordering)
+    {
+        (Some(all_order_bys), Some(required_ordering.clone()))
+    } else {
+        (
+            Some(vec![order_by]),
+            LexOrdering::new(vec![required_sort.clone()]),
+        )
+    };
     // Placeholder `initial_window: 1.0` marks this leaf as `SA`; `try_rewrite_under_sort`
     // replaces it with the final selectivity-scaled window once the full join tree's
     // `SubtreeScoreStats` has been computed.
     let configured_scan = configure_leaf_lazy_sort(
         scan,
         LazySortConfig {
-            orderby_info: Some(vec![order_by]),
-            ordering: LexOrdering::new(vec![required_sort.clone()]),
+            orderby_info,
+            ordering: leaf_ordering,
             initial_window: 1.0,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
@@ -1370,6 +1483,431 @@ fn try_rewrite_scored_leaf(
         join_mode,
     );
     Some((Arc::new(configured_scan), stats))
+}
+
+/// Whether non-vector (`OrderByFeature::Score` / `OrderByFeature::Field`) leaf sorts are
+/// eligible for [`try_rewrite_lazy_sort_probe_join`] along the current probe spine.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NonVectorProbeEligibility {
+    Eligible,
+    Disallowed,
+}
+
+/// Top-down context threaded through [`try_rewrite_lazy_sort_probe_join`].
+#[derive(Clone, Copy)]
+struct LazySortProbeContext {
+    k: usize,
+    level: BranchLevel,
+    min_rows: usize,
+    non_vector_eligibility: NonVectorProbeEligibility,
+    max_inlist_distinct: usize,
+}
+
+/// A per-table MVCC visibility check extracted from an outer [`VisibilityFilterExec`] above a
+/// `HashJoinExec` so it can be pushed down onto the build or probe input that owns `plan_pos`.
+#[derive(Clone, Debug)]
+struct PendingVisibilityCheck {
+    plan_pos: usize,
+    table_name: String,
+    rel_oid: pgrx::pg_sys::Oid,
+}
+
+fn has_hash_join(plan: &Arc<dyn ExecutionPlan>) -> bool {
+    plan.exists(|n| Ok(n.is::<HashJoinExec>())).unwrap_or(false)
+}
+
+/// Drains and returns all [`PendingVisibilityCheck`]s from `pending_vis` whose `__ctid_<plan_pos>`
+/// column is present in `schema`.
+fn take_matching_visibility_checks(
+    pending_vis: &mut Vec<PendingVisibilityCheck>,
+    schema: &SchemaRef,
+) -> Vec<PendingVisibilityCheck> {
+    let mut matched = Vec::new();
+    let mut remaining = Vec::with_capacity(pending_vis.len());
+    for item in pending_vis.drain(..) {
+        let ctid_name =
+            crate::postgres::customscan::joinscan::CtidColumn::new(item.plan_pos).to_string();
+        if schema.column_with_name(&ctid_name).is_some() {
+            matched.push(item);
+        } else {
+            remaining.push(item);
+        }
+    }
+    *pending_vis = remaining;
+    matched
+}
+
+/// Wraps `plan` with a [`VisibilityFilterExec`] for `checks`, placing the visibility check
+/// beneath any leading [`TantivyDecodeExec`] / [`TantivyFetchExec`] nodes so deferred column
+/// lookups only run on MVCC-visible rows.
+fn wrap_with_pending_visibility(
+    plan: Arc<dyn ExecutionPlan>,
+    checks: &[PendingVisibilityCheck],
+) -> Result<Arc<dyn ExecutionPlan>> {
+    if checks.is_empty() {
+        return Ok(plan);
+    }
+    let mut lookups = Vec::new();
+    let mut current = plan;
+    while current.is::<TantivyDecodeExec>() || current.is::<TantivyFetchExec>() {
+        let child = Arc::clone(current.children()[0]);
+        lookups.push(current);
+        current = child;
+    }
+    let plan_pos_oids = checks.iter().map(|c| (c.plan_pos, c.rel_oid)).collect();
+    let table_names = checks.iter().map(|c| c.table_name.clone()).collect();
+    let mut result = Arc::new(VisibilityFilterExec::new(
+        current,
+        plan_pos_oids,
+        table_names,
+    )?) as Arc<dyn ExecutionPlan>;
+    for lookup in lookups.into_iter().rev() {
+        result = replace_children_if_necessary(lookup, vec![result])?;
+    }
+    Ok(result)
+}
+
+/// Estimates an upper bound on the row count of a build-side subtree from its leaf
+/// `PgSearchScanPlan::planner_estimated_rows()`.
+fn estimate_subtree_rows(plan: &Arc<dyn ExecutionPlan>) -> Option<u64> {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+        return Some(scan.planner_estimated_rows());
+    }
+    if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
+        let left = estimate_subtree_rows(join.left())?;
+        let right = estimate_subtree_rows(join.right())?;
+        return Some(left.min(right));
+    }
+    if plan.children().len() == 1 {
+        return estimate_subtree_rows(plan.children()[0]);
+    }
+    None
+}
+
+/// Routes `parent_key_sets` through `join` to `probe_side` and appends `join`'s own probe-side
+/// equi-join key, returning `None` if `join` has composite join keys (`join.on().len() != 1`)
+/// or if any parent key cannot be unprojected cleanly.
+fn route_probe_join_key_sets(
+    join: &HashJoinExec,
+    parent_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
+    probe_side: ExprSide,
+) -> Result<Option<JoinKeySets>> {
+    // DataFusion's `HashJoinExec` wraps composite join keys in `struct(col1, col2) IN (...)`,
+    // which `try_convert_in_list_to_query` cannot convert into a single-column `TermSetQuery`.
+    if join.on().len() != 1 {
+        return Ok(None);
+    }
+    let left_len = join_schema_left_len(*join.join_type(), &join.left().schema());
+    let mut routed = Vec::new();
+    for key_set in parent_key_sets {
+        if key_set.is_empty() {
+            return Ok(None);
+        }
+        let mut target_side: Option<ExprSide> = None;
+        let mut shifted = Vec::with_capacity(key_set.len());
+        for key in key_set {
+            if !key.is::<Column>() {
+                return Ok(None);
+            }
+            let Some(unproj_key) = unproject_join_expr(join, key)? else {
+                return Ok(None);
+            };
+            if !unproj_key.is::<Column>() {
+                return Ok(None);
+            }
+            let side = classify_expr_side(&unproj_key, left_len);
+            if !matches!(side, ExprSide::LeftOnly | ExprSide::RightOnly) {
+                return Ok(None);
+            }
+            if target_side.replace(side).is_some_and(|prev| prev != side) {
+                return Ok(None);
+            }
+            if side == probe_side {
+                let child_expr = if side == ExprSide::LeftOnly {
+                    unproj_key
+                } else {
+                    shift_right_expr(&unproj_key, left_len)?
+                };
+                shifted.push(child_expr);
+            }
+        }
+        if !shifted.is_empty() {
+            routed.push(shifted);
+        }
+    }
+    match probe_side {
+        ExprSide::LeftOnly => {
+            routed.push(join.on().iter().map(|(l, _)| Arc::clone(l)).collect());
+        }
+        ExprSide::RightOnly => {
+            routed.push(join.on().iter().map(|(_, r)| Arc::clone(r)).collect());
+        }
+        _ => return Ok(None),
+    }
+    Ok(Some(routed))
+}
+
+/// Updates `ctx` and routes `probe_key_sets` when descending into `probe_side` of `join`,
+/// disabling non-vector probe eligibility if `join` has a residual `JoinFilter`, if
+/// `build_input`'s estimated rows exceed `ctx.max_inlist_distinct`, or if the join keys
+/// cannot be routed as single-column `InList` dynamic filters.
+fn advance_probe_join_context(
+    ctx: LazySortProbeContext,
+    join: &HashJoinExec,
+    build_input: &Arc<dyn ExecutionPlan>,
+    probe_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
+    probe_side: ExprSide,
+) -> Result<(LazySortProbeContext, JoinKeySets)> {
+    let mut child_ctx = ctx;
+    child_ctx.level = BranchLevel::ChildBranch;
+    if join.filter().is_some()
+        || !estimate_subtree_rows(build_input)
+            .is_some_and(|rows| rows <= ctx.max_inlist_distinct as u64)
+    {
+        child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
+    }
+    let routed_keys = if child_ctx.non_vector_eligibility == NonVectorProbeEligibility::Eligible {
+        if let Some(keys) = route_probe_join_key_sets(join, probe_key_sets, probe_side)? {
+            keys
+        } else {
+            child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    Ok((child_ctx, routed_keys))
+}
+
+/// Rewrites a single-sided top-K `HashJoinExec` branch into a `lazy_sort`-probe `HashJoinExec`
+/// when `RankJoinExec` is declined (e.g. when the unscored build side is selective
+/// `< rank_join_unscored_selectivity_threshold`, or for `OrderByFeature::VectorDistance` when
+/// `estimated_rows < rank_join_min_rows`, `k > MAX_RANK_JOIN_K`, or `enable_rank_join = false`).
+///
+/// Places the sorted branch on the probe (right) side of `HashJoinExec(mode=CollectLeft)`,
+/// pushes any outer [`VisibilityFilterExec`] below `HashJoinExec` onto its build and probe
+/// inputs (so `EnforceSorting` + `LimitPushdown` convert `SortExec(fetch=K)` into
+/// `HashJoinExec(fetch=K)`), and configures the probe leaf `PgSearchScanPlan` with
+/// `LazySortConfig` (`OrderByFeature::VectorDistance`, `OrderByFeature::Score`, or
+/// `OrderByFeature::Field` plus any secondary tie-breakers).
+///
+/// For `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite requires the build
+/// side's estimated row count to fit within `paradedb.hash_join_inlist_pushdown_max_distinct_values`
+/// and the probe leaf to support indexed `InList` pushdown on the join keys.
+fn try_rewrite_lazy_sort_probe_join(
+    node: &Arc<dyn ExecutionPlan>,
+    required_ordering: &LexOrdering,
+    probe_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
+    ctx: LazySortProbeContext,
+    eager_fields: &mut Vec<PhysicalDeferredField>,
+    pending_vis: &mut Vec<PendingVisibilityCheck>,
+) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+    if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>()
+        && vis.projection().is_none()
+        && has_hash_join(vis.children()[0])
+    {
+        for (&(plan_pos, rel_oid), table_name) in vis.plan_pos_oids().iter().zip(vis.table_names())
+        {
+            pending_vis.push(PendingVisibilityCheck {
+                plan_pos,
+                table_name: table_name.clone(),
+                rel_oid,
+            });
+        }
+        return try_rewrite_lazy_sort_probe_join(
+            vis.children()[0],
+            required_ordering,
+            probe_key_sets,
+            ctx,
+            eager_fields,
+            pending_vis,
+        );
+    }
+
+    if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
+        let mut child_ctx = ctx;
+        let mapped_keys = map_key_sets_through_passthrough(node, probe_key_sets);
+        if mapped_keys.is_none() {
+            child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
+        }
+        let child_key_sets = mapped_keys.as_deref().unwrap_or(&[]);
+        let Some(new_child) = try_rewrite_lazy_sort_probe_join(
+            node.children()[0],
+            &child_ordering,
+            child_key_sets,
+            child_ctx,
+            eager_fields,
+            pending_vis,
+        )?
+        else {
+            return Ok(None);
+        };
+        if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
+            collect_decode_tiebreaker_fields(decode, required_ordering, eager_fields);
+        }
+        if node.is::<CoalescePartitionsExec>()
+            && new_child.output_partitioning().partition_count() == 1
+        {
+            return Ok(Some(new_child));
+        }
+        let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
+        return Ok(Some(rebuilt));
+    }
+
+    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+        if required_ordering.len() > crate::index::reader::index::MAX_TOPK_FEATURES {
+            return Ok(None);
+        }
+        let Some(primary_ob) =
+            resolve_scan_order_by(scan, &required_ordering[0], FieldSortPolicy::Allowed)
+        else {
+            return Ok(None);
+        };
+        let selectivity = if primary_ob.is_vector_distance() {
+            if scan.vector_order_by().is_none()
+                || !matches!(
+                    scan.scan_mode(),
+                    ScanMode::Standard { .. } | ScanMode::Tagged { .. }
+                )
+            {
+                return Ok(None);
+            }
+            scan.estimated_tagged_selectivity()
+                .unwrap_or(TopKSelectivity::ALL)
+        } else {
+            if ctx.non_vector_eligibility != NonVectorProbeEligibility::Eligible
+                || ctx.level != BranchLevel::ChildBranch
+                || scan.planner_estimated_rows() < ctx.min_rows as u64
+                || !matches!(scan.scan_mode(), ScanMode::Standard { .. })
+                || probe_key_sets.is_empty()
+                || !leaf_supports_key_sets(scan, probe_key_sets)
+            {
+                return Ok(None);
+            }
+            let Some(_stats) = SubtreeScoreStats::from_leaf_queries(
+                primary_ob.is_score(),
+                scan.resolved_query(),
+                &[],
+                scan.planner_estimated_rows(),
+            ) else {
+                return Ok(None);
+            };
+            TopKSelectivity::ALL
+        };
+        let Some(order_bys) = resolve_leaf_order_bys(scan, primary_ob, required_ordering) else {
+            return Ok(None);
+        };
+        let initial_window = compute_initial_window(ctx.k, selectivity);
+        let configured_scan = Arc::new(scan.clone().with_lazy_sort(LazySortConfig {
+            orderby_info: Some(order_bys),
+            ordering: Some(required_ordering.clone()),
+            initial_window,
+            parallel_mode: LazyParallelMode::WorkerPool,
+            telemetry: None,
+        })) as Arc<dyn ExecutionPlan>;
+        let probe_vis = take_matching_visibility_checks(pending_vis, &configured_scan.schema());
+        if !pending_vis.is_empty() {
+            return Ok(None);
+        }
+        return wrap_with_pending_visibility(configured_scan, &probe_vis).map(Some);
+    }
+
+    let Some(join) = node.downcast_ref::<HashJoinExec>() else {
+        return Ok(None);
+    };
+    if !is_hash_join_eligible(join) {
+        return Ok(None);
+    }
+
+    let unprojected_ordering = unproject_join_ordering(join, required_ordering)?;
+    let left_len = join_schema_left_len(*join.join_type(), &join.left().schema());
+
+    let mut ordering_side = ExprSide::Constant;
+    for sort_expr in unprojected_ordering.iter() {
+        ordering_side = ordering_side.merge(classify_expr_side(&sort_expr.expr, left_len));
+    }
+
+    match (*join.join_type(), ordering_side) {
+        (JoinType::Inner | JoinType::RightSemi, ExprSide::RightOnly) => {
+            let Some(right_ordering) = map_ordering_columns(&unprojected_ordering, |col| {
+                Some(Arc::new(Column::new(col.name(), col.index() - left_len)))
+            })?
+            else {
+                return Ok(None);
+            };
+            let (child_ctx, routed_keys) = advance_probe_join_context(
+                ctx,
+                join,
+                join.left(),
+                probe_key_sets,
+                ExprSide::RightOnly,
+            )?;
+            let build_vis = take_matching_visibility_checks(pending_vis, &join.left().schema());
+            let Some(new_right) = try_rewrite_lazy_sort_probe_join(
+                join.right(),
+                &right_ordering,
+                &routed_keys,
+                child_ctx,
+                eager_fields,
+                pending_vis,
+            )?
+            else {
+                return Ok(None);
+            };
+            let build_left = wrap_with_pending_visibility(Arc::clone(join.left()), &build_vis)?;
+            let mode = if is_hash_join_range_co_partitioned(join)? {
+                PartitionMode::Partitioned
+            } else {
+                PartitionMode::CollectLeft
+            };
+            let new_join = join
+                .builder()
+                .with_new_children(vec![build_left, new_right])?
+                .with_partition_mode(mode)
+                .build_exec()?;
+            Ok(Some(new_join))
+        }
+        (JoinType::Inner | JoinType::LeftSemi, ExprSide::LeftOnly) => {
+            let (child_ctx, routed_keys) = advance_probe_join_context(
+                ctx,
+                join,
+                join.right(),
+                probe_key_sets,
+                ExprSide::LeftOnly,
+            )?;
+            let build_vis = take_matching_visibility_checks(pending_vis, &join.right().schema());
+            let Some(new_left) = try_rewrite_lazy_sort_probe_join(
+                join.left(),
+                &unprojected_ordering,
+                &routed_keys,
+                child_ctx,
+                eager_fields,
+                pending_vis,
+            )?
+            else {
+                return Ok(None);
+            };
+            let build_left = wrap_with_pending_visibility(Arc::clone(join.right()), &build_vis)?;
+            let mode = if is_hash_join_range_co_partitioned(join)? {
+                PartitionMode::Partitioned
+            } else {
+                PartitionMode::CollectLeft
+            };
+            let updated = join
+                .builder()
+                .with_new_children(vec![new_left, build_left])?
+                .build()?;
+            // Delegate to `HashJoinExec::swap_inputs`, which wraps unprojected `Inner` joins in
+            // `reorder_output_after_swap` (`ProjectionExec`) rather than setting an embedded
+            // `HashJoinExec::projection` prematurely. Keeping `HashJoinExec::projection` as `None`
+            // allows the subsequent `ProjectionPushdown` pass to collapse any outer `ProjectionExec`
+            // chain with the swap-reverting projection and embed the combined projection into the
+            // join, avoiding stranded `ProjectionExec` nodes with duplicate field aliases that would
+            // misroute parent `DynamicFilterPhysicalExpr`s in `FilterPushdown (Post)`.
+            Ok(Some(updated.swap_inputs(mode)?))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn configure_leaf_lazy_sort(
@@ -1398,6 +1936,16 @@ fn resolve_scan_order_by(
         }
         OrderByFeature::Score { rti: 0 }
     } else if field_sort_policy == FieldSortPolicy::Allowed
+        && VectorScoreColumn::is_vector_score_column(field_name)
+    {
+        // TODO: Support on-demand `pdb.vector_score` evaluation on matched `DocId`s in
+        // `search_ra_lookup` so two-sided (`HRJN`) rank joins can `RA`-score vector distances:
+        // <https://github.com/paradedb/paradedb/issues/7141>.
+        if !required_sort.options.descending {
+            return None;
+        }
+        return scan.vector_order_by().cloned();
+    } else if field_sort_policy == FieldSortPolicy::Allowed
         && scan.is_sortable_fast_field(col.index())
     {
         OrderByFeature::Field {
@@ -1413,9 +1961,54 @@ fn resolve_scan_order_by(
     })
 }
 
+fn resolve_leaf_order_bys(
+    scan: &PgSearchScanPlan,
+    primary_ob: OrderByInfo,
+    required_ordering: &LexOrdering,
+) -> Option<Vec<OrderByInfo>> {
+    if required_ordering.len() > crate::index::reader::index::MAX_TOPK_FEATURES {
+        return None;
+    }
+    let mut order_bys = Vec::with_capacity(required_ordering.len());
+    order_bys.push(primary_ob);
+    for (idx, sort_expr) in required_ordering.iter().enumerate().skip(1) {
+        order_bys.push(resolve_scan_tiebreaker_order_by(scan, sort_expr, idx)?);
+    }
+    Some(order_bys)
+}
+
+fn resolve_scan_tiebreaker_order_by(
+    scan: &PgSearchScanPlan,
+    required_sort: &PhysicalSortExpr,
+    position: usize,
+) -> Option<OrderByInfo> {
+    let col = required_sort.expr.downcast_ref::<Column>()?;
+    let schema = scan.schema();
+    let field_name = schema.fields().get(col.index())?.name();
+    let feature = if ScoreColumn::is_score_column(field_name) {
+        if !required_sort.options.descending {
+            return None;
+        }
+        OrderByFeature::Score { rti: 0 }
+    } else if scan.is_sortable_tiebreaker_field(col.index(), position) {
+        OrderByFeature::Field {
+            name: FieldName::from(field_name.clone()),
+            rti: 0,
+        }
+    } else {
+        return None;
+    };
+    Some(OrderByInfo {
+        feature,
+        direction: SortDirection::from(required_sort.options),
+    })
+}
+
 fn is_hash_join_eligible(join: &HashJoinExec) -> bool {
-    *join.join_type() == JoinType::Inner
-        && !join.null_aware
+    matches!(
+        *join.join_type(),
+        JoinType::Inner | JoinType::LeftSemi | JoinType::RightSemi
+    ) && !join.null_aware
         && join.null_equality() == NullEquality::NullEqualsNothing
         && !join.on().is_empty()
         && join
@@ -1424,8 +2017,19 @@ fn is_hash_join_eligible(join: &HashJoinExec) -> bool {
             .all(|(l, r)| l.is::<Column>() && r.is::<Column>())
 }
 
+fn unproject_column(
+    col: &Column,
+    proj: &[usize],
+    in_schema: &SchemaRef,
+) -> Option<Arc<dyn PhysicalExpr>> {
+    let &in_idx = proj.get(col.index())?;
+    let field = in_schema.fields().get(in_idx)?;
+    Some(Arc::new(Column::new(field.name(), in_idx)))
+}
+
 /// Maps `ordering` across a pass-through single-child operator (`ProjectionExec`,
-/// `VisibilityFilterExec`, `TantivyDecodeExec`, `TantivyFetchExec`, `CoalescePartitionsExec`).
+/// `FilterExec`, `VisibilityFilterExec`, `TantivyDecodeExec`, `TantivyFetchExec`,
+/// `CoalescePartitionsExec`).
 fn map_ordering_through_passthrough(
     node: &Arc<dyn ExecutionPlan>,
     ordering: &LexOrdering,
@@ -1437,16 +2041,19 @@ fn map_ordering_through_passthrough(
         });
     }
 
-    if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
-        let Some(proj) = vis.projection() else {
+    let filter_or_vis_proj = node
+        .downcast_ref::<FilterExec>()
+        .map(|f| f.projection().as_deref())
+        .or_else(|| {
+            node.downcast_ref::<VisibilityFilterExec>()
+                .map(|v| v.projection())
+        });
+    if let Some(maybe_proj) = filter_or_vis_proj {
+        let Some(proj) = maybe_proj else {
             return Ok(Some(ordering.clone()));
         };
-        let in_schema = vis.children()[0].schema();
-        return map_ordering_columns(ordering, |col| {
-            let &in_idx = proj.get(col.index())?;
-            let field = in_schema.fields().get(in_idx)?;
-            Some(Arc::new(Column::new(field.name(), in_idx)))
-        });
+        let in_schema = node.children()[0].schema();
+        return map_ordering_columns(ordering, |col| unproject_column(col, proj, &in_schema));
     }
 
     if node.is::<CoalescePartitionsExec>() {
@@ -1485,11 +2092,7 @@ fn unproject_join_expr(
         return Ok(Some(Arc::clone(expr)));
     };
     let join_schema = join.join_schema();
-    map_expr_columns(expr, |col| {
-        let &unproj_idx = proj.get(col.index())?;
-        let field = join_schema.fields().get(unproj_idx)?;
-        Some(Arc::new(Column::new(field.name(), unproj_idx)))
-    })
+    map_expr_columns(expr, |col| unproject_column(col, proj, join_schema))
 }
 
 /// Maps `ordering` from `join.schema()` (post-projection) to `join.join_schema()` (unprojected).
@@ -1620,15 +2223,16 @@ fn zero_sort_expr(options: SortOptions) -> PhysicalSortExpr {
     }
 }
 
-/// Analyzes `sort_expr` over `join_schema` (`[left_fields..., right_fields...]`) and
-/// decomposes it into `(left_sort_expr, right_sort_expr, ScoreCombiner)` if it is a
+/// Analyzes `sort_expr` over `join_schema` and decomposes it into
+/// `(left_sort_expr, right_sort_expr, ScoreCombiner)` if it is a
 /// valid monotonic combination of both sides.
 pub(crate) fn analyze_join_score_expr(
     sort_expr: &PhysicalSortExpr,
+    join_type: JoinType,
     left_schema: &SchemaRef,
     _right_schema: &SchemaRef,
 ) -> Option<DecomposedJoinScore> {
-    let left_len = left_schema.fields().len();
+    let left_len = join_schema_left_len(join_type, left_schema);
     let root_options = sort_expr.options;
 
     struct BuilderState {

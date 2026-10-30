@@ -28,7 +28,7 @@ use pgrx::pg_sys;
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, LateralUnnestInfo, RelNode,
-    RelationAlias, ScoreColumn, UnnestNode,
+    RelationAlias, ScoreColumn, UnnestNode, VectorScoreColumn,
 };
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
@@ -772,6 +772,14 @@ pub fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
 /// a column named `pdb.score({table})`.
 pub fn make_source_score_col(source: &JoinSource) -> Expr {
     let score_name = ScoreColumn::new(source.display_alias()).to_string();
+    make_source_col(source, &score_name)
+}
+
+/// Build a DataFusion column expression for the synthetic vector score column
+/// on the given source. Uses `VectorScoreColumn::new(source.display_alias())`
+/// to produce a column named `pdb.vector_score({table})`.
+pub fn make_source_vector_score_col(source: &JoinSource) -> Expr {
+    let score_name = VectorScoreColumn::new(source.display_alias()).to_string();
     make_source_col(source, &score_name)
 }
 

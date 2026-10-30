@@ -32,7 +32,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
-use datafusion::physical_expr::{LexOrdering, PhysicalExpr};
+use datafusion::physical_expr::{DynamicFilterTracking, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, Count, ExecutionPlanMetricsSet, MetricBuilder, RecordOutput,
 };
@@ -56,7 +56,9 @@ use crate::scan::Scanner;
 use crate::scan::execution_plan::{
     FilterStepMetrics, ScanStreamContext, ScannerConfig, UnsafeSendSync, build_filters,
 };
-use crate::scan::pre_filter::{PreFilter, PreFilters, RankLookupPhysicalExpr};
+use crate::scan::pre_filter::{
+    InListLinearFallback, PreFilter, PreFilters, RankLookupPhysicalExpr,
+};
 use crate::scan::range_partitioning::RangePartitioning;
 
 /// Controls how a non-range-partitioned (`ExecutionState::Shared`) lazy-sorted
@@ -66,8 +68,8 @@ pub enum LazyParallelMode {
     /// Claims segments from the shared `ParallelScanState` worker pool (when present)
     /// and shares the cross-worker Top-K threshold on the initial window pull.
     WorkerPool,
-    /// Ignores `ParallelScanState` so a single-task scan searches all segments in the
-    /// index without cross-worker threshold sharing.
+    /// Ignores `ParallelScanState` so a single-task `RankJoinExec` or `HashJoinExec` probe
+    /// leaf scan searches all segments in the index without cross-worker threshold sharing.
     Unpartitioned,
 }
 
@@ -275,7 +277,7 @@ enum LazySegmentTarget {
     },
     Dynamic {
         parallel_state: Option<*mut ParallelScanState>,
-        claim_source_idx: usize,
+        source_idx: Option<usize>,
         claimed_segments: Rc<RefCell<Vec<SegmentId>>>,
         all_segments_claimed: Rc<Cell<bool>>,
     },
@@ -300,7 +302,7 @@ impl LazySegmentTarget {
         } else {
             Self::Dynamic {
                 parallel_state,
-                claim_source_idx: source_idx.unwrap_or(0),
+                source_idx,
                 claimed_segments: Rc::new(RefCell::new(Vec::new())),
                 all_segments_claimed: Rc::new(Cell::new(false)),
             }
@@ -351,7 +353,7 @@ impl LazySegmentTarget {
             }
             Self::Dynamic {
                 parallel_state,
-                claim_source_idx,
+                source_idx,
                 claimed_segments,
                 all_segments_claimed,
             } => {
@@ -363,14 +365,21 @@ impl LazySegmentTarget {
                 } else {
                     None
                 };
+                // Cross-worker DSM threshold sharing (`ParallelScanState::shared_threshold`) is
+                // only valid for single-table `BaseScan` (`source_idx.is_none()`); in `JoinScan`
+                // (`source_idx.is_some()`), passing `None` uses Tantivy's single-process shared
+                // threshold within each worker's scan without pruning against another worker's
+                // pre-join candidates.
                 let shared_threshold_state = match lazy_sort.parallel_mode {
-                    LazyParallelMode::WorkerPool if pull.is_first_pull => *parallel_state,
+                    LazyParallelMode::WorkerPool if pull.is_first_pull && source_idx.is_none() => {
+                        *parallel_state
+                    }
                     LazyParallelMode::WorkerPool | LazyParallelMode::Unpartitioned => None,
                 };
                 let seg_iter = Self::dynamic_segment_iter(
                     reader,
                     *parallel_state,
-                    *claim_source_idx,
+                    source_idx.unwrap_or(0),
                     claimed_segments,
                     all_segments_claimed,
                 );
@@ -658,7 +667,11 @@ impl LazySortStreamState {
         } = ctx;
 
         let queries = MetricBuilder::new(&plan_metrics).counter("queries", target_partition);
-        let filter_metrics = FilterStepMetrics::init(&mut reader, &mut dynamic_filters);
+        let filter_metrics = FilterStepMetrics::init(
+            &mut reader,
+            &mut dynamic_filters,
+            InListLinearFallback::PushToIndex,
+        );
         let segment_target = LazySegmentTarget::new(
             &reader,
             range_boundaries.as_ref(),
@@ -677,11 +690,17 @@ impl LazySortStreamState {
         let window_cursor = TopKWindowCursor::new(lazy_sort.initial_window);
 
         // `RankJoinRule` sets `LazyParallelMode::Unpartitioned`, and `RankJoinExec` pushes its
-        // lookup `DynamicFilterPhysicalExpr` to every child that can be `RA`-probed (the scored
-        // child of a root single-sided `NRJN` join has no lookup filter and simply ends its
-        // stream with `None` via `TerminateStream`).
+        // incomplete (`Watching`) lookup `DynamicFilterPhysicalExpr` to every child that can be
+        // `RA`-probed (whereas a `HashJoinExec` build-side filter is already `Static` or
+        // `AllComplete` before the probe stream is polled, and the scored child of a root
+        // single-sided `NRJN` join has no lookup filter).
         let is_rank_join_leaf = matches!(lazy_sort.parallel_mode, LazyParallelMode::Unpartitioned)
-            && !dynamic_filters.is_empty();
+            && dynamic_filters.first().is_some_and(|df| {
+                matches!(
+                    DynamicFilterTracking::classify(df),
+                    DynamicFilterTracking::Watching(_)
+                )
+            });
         let exhaustion_behavior = if !is_rank_join_leaf {
             ExhaustionBehavior::TerminateStream
         } else if is_disjunctive_sa || lazy_sort.initial_window <= 0.0 {

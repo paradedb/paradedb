@@ -32,24 +32,23 @@ ORDER BY p.id
 LIMIT $1;
 -- The DataFusion plan must keep a SortExec for the ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) EXECUTE issue_5574_page(5);
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER c
    Join Cond: c.parent_id = p.id
    Limit: $1
    Order By: c.parent_id asc
    DataFusion Physical Plan: 
-     : VisibilityFilterExec: tables=[p]
+     : SortExec: TopK(fetch=1000), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
      :   ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :     VisibilityFilterExec: tables=[c], pruned=[c]
-     :       SortExec: expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(15 rows)
+     :     VisibilityFilterExec: tables=[p, c], pruned=[c]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
 
 EXECUTE issue_5574_page(5);
  id 

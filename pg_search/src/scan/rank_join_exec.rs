@@ -41,11 +41,15 @@
 //!   to `u_sa = f(s_l_bottom, s_r_bottom)` without scanning the
 //!   tail of either input or scanning `0.0`-score rows during `SA`.
 //!
-//! - **Single-Sided Ordered Joins (`NRJN` Special Case)**:
+//! - **Single-Sided Ordered Joins (`NRJN` Special Case & Semi-Joins)**:
 //!   When only one child contributes to the sort expression (`combiner.uses_left() !=
 //!   combiner.uses_right()`), the unscored child disables `SA` (`initial_window = 0.0`,
 //!   `sa_exhausted = true`, `s_top = s_bottom = 0.0`) and executes purely
-//!   via batched `RA` point lookups driven by each `SA` window of the ordered child.
+//!   via batched `RA` point lookups driven by each `SA` window of the ordered child (which may
+//!   be ordered by BM25 `pdb.score()`, vector distance `pdb.vector_score()`, or a sortable fast
+//!   field). This includes `JoinType::LeftSemi` (when `Left` is the `SA` side) and
+//!   `JoinType::RightSemi` (when `Right` is the `SA` side), which deduplicate emitted preserved
+//!   rows via `emitted_semi_rows`.
 //!
 //! - **Composable `N >= 3` Multi-Way Joins (`parent_lookup_filters`)**:
 //!   Because `RankJoinExec`'s output is itself a lazily-sorted stream that accepts incoming
@@ -300,12 +304,13 @@ pub struct RankJoinSortExprs {
     pub output: LexOrdering,
 }
 
-/// Symmetric hash rank join physical execution plan node (`JoinType::Inner`).
+/// Symmetric hash rank join physical execution plan node (`Inner`, `LeftSemi`, `RightSemi`).
 #[derive(Debug, Clone)]
 pub struct RankJoinExec {
     pub inputs: RankJoinInputs,
     pub on: JoinOn,
     pub filter: Option<JoinFilter>,
+    pub join_type: JoinType,
     pub projection: Option<Vec<usize>>,
     pub mode: PartitionMode,
     pub sort_exprs: RankJoinSortExprs,
@@ -319,11 +324,13 @@ pub struct RankJoinExec {
 }
 
 impl RankJoinExec {
-    /// Creates a new [`RankJoinExec`].
+    /// Creates a new [`RankJoinExec`] with the given `join_type` (`Inner`, `LeftSemi`, or `RightSemi`).
+    #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         inputs: RankJoinInputs,
         on: JoinOn,
         filter: Option<JoinFilter>,
+        join_type: JoinType,
         projection: Option<Vec<usize>>,
         mode: PartitionMode,
         sort_exprs: RankJoinSortExprs,
@@ -340,6 +347,7 @@ impl RankJoinExec {
             inputs,
             on,
             filter,
+            join_type,
             projection,
             mode,
             sort_exprs,
@@ -355,6 +363,7 @@ impl RankJoinExec {
         inputs: RankJoinInputs,
         on: JoinOn,
         filter: Option<JoinFilter>,
+        join_type: JoinType,
         projection: Option<Vec<usize>>,
         mode: PartitionMode,
         sort_exprs: RankJoinSortExprs,
@@ -367,11 +376,11 @@ impl RankJoinExec {
         let right_schema = inputs.right.schema();
         check_join_is_valid(&left_schema, &right_schema, &on)?;
 
-        let join_schema =
-            Arc::new(build_join_schema(&left_schema, &right_schema, &JoinType::Inner).0);
+        let join_schema = Arc::new(build_join_schema(&left_schema, &right_schema, &join_type).0);
         let cache = Arc::new(Self::compute_properties(
             &inputs,
             &join_schema,
+            join_type,
             &on,
             mode,
             projection.as_deref(),
@@ -382,6 +391,7 @@ impl RankJoinExec {
             inputs,
             on,
             filter,
+            join_type,
             projection,
             mode,
             sort_exprs,
@@ -478,6 +488,7 @@ impl RankJoinExec {
             self.inputs.clone(),
             self.on.clone(),
             self.filter.clone(),
+            self.join_type,
             combined_projection,
             self.mode,
             RankJoinSortExprs {
@@ -502,7 +513,11 @@ impl RankJoinExec {
     ) -> Result<Option<Arc<dyn PhysicalExpr>>> {
         let left_schema = self.inputs.left.schema();
         let right_schema = self.inputs.right.schema();
-        let left_len = left_schema.fields().len();
+        let left_len = if self.join_type == JoinType::RightSemi {
+            0
+        } else {
+            left_schema.fields().len()
+        };
         let total_len = self.join_schema.fields().len();
 
         let mut all_on_side = true;
@@ -543,6 +558,7 @@ impl RankJoinExec {
     fn compute_properties(
         inputs: &RankJoinInputs,
         join_schema: &SchemaRef,
+        join_type: JoinType,
         on: JoinOnRef,
         mode: PartitionMode,
         projection: Option<&[usize]>,
@@ -551,7 +567,7 @@ impl RankJoinExec {
         let mut eq_properties = join_equivalence_properties(
             inputs.left.equivalence_properties().clone(),
             inputs.right.equivalence_properties().clone(),
-            &JoinType::Inner,
+            &join_type,
             Arc::clone(join_schema),
             &[false, false],
             None,
@@ -559,10 +575,14 @@ impl RankJoinExec {
         )?;
 
         let mut output_partitioning = match mode {
-            PartitionMode::Partitioned => adjust_right_output_partitioning(
-                inputs.right.output_partitioning(),
-                inputs.left.schema().fields().len(),
-            )?,
+            PartitionMode::Partitioned => match join_type {
+                JoinType::LeftSemi => inputs.left.output_partitioning().clone(),
+                JoinType::RightSemi => inputs.right.output_partitioning().clone(),
+                _ => adjust_right_output_partitioning(
+                    inputs.right.output_partitioning(),
+                    inputs.left.schema().fields().len(),
+                )?,
+            },
             PartitionMode::CollectLeft | PartitionMode::Auto => {
                 Partitioning::UnknownPartitioning(1)
             }
@@ -672,9 +692,16 @@ impl RankJoinExec {
             ));
         }
 
+        let join_type_tag: u8 = match self.join_type {
+            JoinType::LeftSemi => 1,
+            JoinType::RightSemi => 2,
+            _ => 0,
+        };
+
         let payload = (
             on_bytes,
             filter_bytes,
+            join_type_tag,
             self.projection.clone(),
             mode_tag,
             left_sort_bytes,
@@ -711,6 +738,7 @@ impl RankJoinExec {
         type DispatchPayload = (
             Vec<(Vec<u8>, Vec<u8>)>,
             Option<FilterPayload>,
+            u8,
             Option<Vec<usize>>,
             u8,
             Vec<u8>,
@@ -725,6 +753,7 @@ impl RankJoinExec {
         let (
             on_bytes,
             filter_bytes,
+            join_type_tag,
             projection,
             mode_tag,
             left_sort_bytes,
@@ -860,8 +889,13 @@ impl RankJoinExec {
             &proto_conv,
         )?;
 
-        let join_schema =
-            Arc::new(build_join_schema(&left_schema, &right_schema, &JoinType::Inner).0);
+        let join_type = match join_type_tag {
+            1 => JoinType::LeftSemi,
+            2 => JoinType::RightSemi,
+            _ => JoinType::Inner,
+        };
+
+        let join_schema = Arc::new(build_join_schema(&left_schema, &right_schema, &join_type).0);
         let output_schema = project_schema(&join_schema, projection.as_ref())?;
         let output_exprs = datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
             &output_sort_nodes,
@@ -925,6 +959,7 @@ impl RankJoinExec {
             inputs,
             on,
             filter,
+            join_type,
             projection,
             mode,
             RankJoinSortExprs {
@@ -950,6 +985,10 @@ impl DisplayAs for RankJoinExec {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                let display_join_type = match self.join_type {
+                    JoinType::Inner => String::new(),
+                    other => format!(", join_type={other:?}"),
+                };
                 let display_filter = self.filter.as_ref().map_or_else(
                     || "".to_string(),
                     |filter| format!(", filter={}", filter.expression()),
@@ -977,8 +1016,13 @@ impl DisplayAs for RankJoinExec {
                     .join(", ");
                 write!(
                     f,
-                    "RankJoinExec: mode={:?}, on=[{}], order=[{}]{}{}",
-                    self.mode, on_str, self.sort_exprs.output, display_filter, display_projections
+                    "RankJoinExec: mode={:?}{}, on=[{}], order=[{}]{}{}",
+                    self.mode,
+                    display_join_type,
+                    on_str,
+                    self.sort_exprs.output,
+                    display_filter,
+                    display_projections
                 )
             }
             DisplayFormatType::TreeRender => {
@@ -1105,6 +1149,7 @@ impl ExecutionPlan for RankJoinExec {
             RankJoinInputs { left, right },
             self.on.clone(),
             self.filter.clone(),
+            self.join_type,
             self.projection.clone(),
             self.mode,
             self.sort_exprs.clone(),
@@ -1119,19 +1164,14 @@ impl ExecutionPlan for RankJoinExec {
         &self,
         projection: &ProjectionExec,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-        let mut projected_cols = HashSet::default();
-        for proj_expr in projection.expr() {
-            let _ = proj_expr.expr.apply(|expr| {
-                if let Some(col) = expr.downcast_ref::<Column>() {
-                    projected_cols.insert(col.index());
-                }
-                Ok(TreeNodeRecursion::Continue)
-            });
-        }
         let all_sort_cols_present = self.sort_exprs.output.iter().all(|sort_expr| {
-            collect_columns(&sort_expr.expr)
-                .iter()
-                .all(|col| projected_cols.contains(&col.index()))
+            collect_columns(&sort_expr.expr).iter().all(|col| {
+                projection.expr().iter().any(|pe| {
+                    pe.expr
+                        .downcast_ref::<Column>()
+                        .is_some_and(|c| c.index() == col.index())
+                })
+            })
         });
         if !all_sort_cols_present {
             return Ok(None);
@@ -1252,6 +1292,7 @@ impl ExecutionPlan for RankJoinExec {
                 self.inputs.clone(),
                 self.on.clone(),
                 self.filter.clone(),
+                self.join_type,
                 self.projection.clone(),
                 self.mode,
                 self.sort_exprs.clone(),
@@ -1353,6 +1394,7 @@ impl ExecutionPlan for RankJoinExec {
             left_num_cols: left_schema.fields().len(),
             right_num_cols: self.inputs.right.schema().fields().len(),
             filter: self.filter.clone(),
+            join_type: self.join_type,
             projection: self.projection.clone(),
             output_ordering: self.sort_exprs.output.clone(),
             primary_score_is_f32,
@@ -1364,6 +1406,7 @@ impl ExecutionPlan for RankJoinExec {
             right_cursor,
             candidate_heap: BinaryHeap::new(),
             emitted_pairs: HashSet::default(),
+            emitted_semi_rows: HashSet::default(),
             next_sequence: 0,
             initialized: false,
             batch_size,
@@ -1562,6 +1605,14 @@ impl CandidateMatch {
             sequence,
             left_row,
             right_row,
+        }
+    }
+
+    fn preserved_semi_row(&self, join_type: JoinType) -> Option<BufferedRowRef> {
+        match join_type {
+            JoinType::LeftSemi => Some(self.left_row),
+            JoinType::RightSemi => Some(self.right_row),
+            _ => None,
         }
     }
 }
@@ -2160,6 +2211,7 @@ struct RankJoinStream {
     left_num_cols: usize,
     right_num_cols: usize,
     filter: Option<JoinFilter>,
+    join_type: JoinType,
     projection: Option<Vec<usize>>,
     output_ordering: LexOrdering,
     primary_score_is_f32: bool,
@@ -2171,6 +2223,7 @@ struct RankJoinStream {
     right_cursor: RankedInputCursor,
     candidate_heap: BinaryHeap<CandidateMatch>,
     emitted_pairs: HashSet<(BufferedRowRef, BufferedRowRef)>,
+    emitted_semi_rows: HashSet<BufferedRowRef>,
     next_sequence: u64,
     initialized: bool,
     batch_size: usize,
@@ -2178,6 +2231,29 @@ struct RankJoinStream {
 }
 
 impl RankJoinStream {
+    fn is_semi_row_emitted(&self, cand: &CandidateMatch) -> bool {
+        cand.preserved_semi_row(self.join_type)
+            .is_some_and(|r| self.emitted_semi_rows.contains(&r))
+    }
+
+    fn filter_and_dedup_candidates(
+        &mut self,
+        mut candidates: Vec<CandidateMatch>,
+    ) -> Result<Vec<CandidateMatch>> {
+        if let Some(filter) = &self.filter
+            && !candidates.is_empty()
+        {
+            candidates = self.apply_join_filter(filter, candidates)?;
+        }
+        let join_type = self.join_type;
+        let emitted_semi = &mut self.emitted_semi_rows;
+        candidates.retain(|c| {
+            c.preserved_semi_row(join_type)
+                .is_none_or(|r| emitted_semi.insert(r))
+        });
+        Ok(candidates)
+    }
+
     fn cursor(&self, side: AdvanceSide) -> &RankedInputCursor {
         match side {
             AdvanceSide::Left => &self.left_cursor,
@@ -2747,7 +2823,8 @@ impl RankJoinStream {
         matching_target_rows: &[(BufferedRowRef, OwnedRow)],
         parent_thresh: Option<f32>,
     ) -> Result<RecordBatch> {
-        let _timer = self.elapsed_compute.timer();
+        let elapsed_compute = self.elapsed_compute.clone();
+        let _timer = elapsed_compute.timer();
         let (target_cursor, opp_cursor) = match target_side {
             AdvanceSide::Left => (&self.left_cursor, &self.right_cursor),
             AdvanceSide::Right => (&self.right_cursor, &self.left_cursor),
@@ -2781,7 +2858,11 @@ impl RankJoinStream {
                 }
                 let cand =
                     CandidateMatch::for_side(target_side, *target_row_ref, opp_row_ref, 0.0, 0);
-                if self.emitted_pairs.insert((cand.left_row, cand.right_row)) {
+                if self.emitted_pairs.insert((cand.left_row, cand.right_row))
+                    && !cand
+                        .preserved_semi_row(self.join_type)
+                        .is_some_and(|r| self.emitted_semi_rows.contains(&r))
+                {
                     candidates.push(cand);
                 }
             };
@@ -2797,14 +2878,9 @@ impl RankJoinStream {
             }
         }
 
+        let candidates = self.filter_and_dedup_candidates(candidates)?;
         if candidates.is_empty() {
             return Ok(RecordBatch::new_empty(Arc::clone(&self.schema)));
-        }
-        if let Some(filter) = &self.filter {
-            candidates = self.apply_join_filter(filter, candidates)?;
-            if candidates.is_empty() {
-                return Ok(RecordBatch::new_empty(Arc::clone(&self.schema)));
-            }
         }
         self.materialize_batch(&candidates)
     }
@@ -2812,7 +2888,8 @@ impl RankJoinStream {
     /// Pops ready candidates from `candidate_heap`, applies any residual `JoinFilter`,
     /// and materializes the output `RecordBatch`.
     fn drain_ready_batch(&mut self) -> Result<Option<RecordBatch>> {
-        let _timer = self.elapsed_compute.timer();
+        let elapsed_compute = self.elapsed_compute.clone();
+        let _timer = elapsed_compute.timer();
         let threshold = self.stopping_threshold();
         let mut ready = Vec::new();
         while let Some(top) = self.candidate_heap.peek() {
@@ -2823,6 +2900,7 @@ impl RankJoinStream {
             if !self
                 .emitted_pairs
                 .insert((popped.left_row, popped.right_row))
+                || self.is_semi_row_emitted(&popped)
             {
                 continue;
             }
@@ -2836,7 +2914,9 @@ impl RankJoinStream {
                     while let Some(next) = self.candidate_heap.peek() {
                         if next.rank_value.to_bits() == last_rank_value.to_bits() {
                             let tie = self.candidate_heap.pop().unwrap();
-                            if self.emitted_pairs.insert((tie.left_row, tie.right_row)) {
+                            if self.emitted_pairs.insert((tie.left_row, tie.right_row))
+                                && !self.is_semi_row_emitted(&tie)
+                            {
                                 ready.push(tie);
                             }
                         } else {
@@ -2848,15 +2928,9 @@ impl RankJoinStream {
             }
         }
 
+        let ready = self.filter_and_dedup_candidates(ready)?;
         if ready.is_empty() {
             return Ok(None);
-        }
-
-        if let Some(filter) = &self.filter {
-            ready = self.apply_join_filter(filter, ready)?;
-            if ready.is_empty() {
-                return Ok(None);
-            }
         }
 
         let batch = self.materialize_batch(&ready)?;
@@ -2939,7 +3013,11 @@ impl RankJoinStream {
             .map(|c| (c.right_row.batch.0, c.right_row.row.0))
             .collect();
 
-        let total_unprojected = self.left_num_cols + self.right_num_cols;
+        let (join_left_cols, total_unprojected) = match self.join_type {
+            JoinType::LeftSemi => (self.left_num_cols, self.left_num_cols),
+            JoinType::RightSemi => (0, self.right_num_cols),
+            _ => (self.left_num_cols, self.left_num_cols + self.right_num_cols),
+        };
         let output_col_indices: Vec<usize> = match &self.projection {
             Some(proj) => proj.clone(),
             None => (0..total_unprojected).collect(),
@@ -2947,10 +3025,10 @@ impl RankJoinStream {
 
         let mut columns = Vec::with_capacity(output_col_indices.len());
         for join_col_idx in output_col_indices {
-            let array = if join_col_idx < self.left_num_cols {
+            let array = if join_col_idx < join_left_cols {
                 Self::interleave_column(&self.left_cursor.batches, join_col_idx, &left_indices)?
             } else {
-                let right_col_idx = join_col_idx - self.left_num_cols;
+                let right_col_idx = join_col_idx - join_left_cols;
                 Self::interleave_column(&self.right_cursor.batches, right_col_idx, &right_indices)?
             };
             columns.push(array);
@@ -3240,6 +3318,7 @@ mod tests {
                 Arc::new(Column::new("r_id", 0)),
             )],
             None,
+            JoinType::Inner,
             Some(vec![0, 1, 2, 3]),
             PartitionMode::CollectLeft,
             RankJoinSortExprs {

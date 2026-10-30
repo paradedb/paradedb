@@ -41,6 +41,9 @@ SET enable_nestloop = OFF;
 SET enable_mergejoin = OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan = ON;
+-- Test the standard BatchScanner dynamic-filter pushdown path (KeepAsPreFilter)
+-- first; lazy_sort probe joins (PushToIndex) are covered in TEST L / TEST M.
+SET paradedb.enable_rank_join = OFF;
 -- ============================================================================
 -- Fixtures
 -- ============================================================================
@@ -494,6 +497,104 @@ LIMIT 10;
 
 RESET paradedb.term_set_gallop_enabled;
 -- ============================================================================
+-- TEST L: lazy_sort probe join (enable_rank_join = ON) pushes dense multi-column
+-- InList to the index (InListLinearFallback::PushToIndex → linear)
+-- ============================================================================
+-- Same shape as TEST E (K=60 on ts_multi, K/N = 0.006 > 0.005). On a standard
+-- scan (TEST E), KeepAsPreFilter leaves the InList as a batch PreFilter. On a
+-- lazy_sort probe scan, PushToIndex pushes it into Tantivy so TopDocs filters
+-- during collection, routing to dynamic_filter_pushdown_linear.
+SET paradedb.enable_rank_join = ON;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT ts_outer.id, ts_multi.id
+FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 60
+ORDER BY ts_multi.id ASC
+LIMIT 10;
+                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_multi
+   Join Cond: ts_outer.id = ts_multi.fk
+   Limit: 10
+   Order By: ts_multi.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4], fetch=10, metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=1200.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=60, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :     VisibilityFilterExec: tables=[ts_outer], metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1, ctids_fetched=60, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"val","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}, metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[ts_multi], metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, ctids_fetched=20, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=ts_multi, segments=1, lazy_sort=20, dynamic_filters=1, query="all", metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=20]
+(14 rows)
+
+SELECT ts_outer.id, ts_multi.id
+FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 60
+ORDER BY ts_multi.id ASC
+LIMIT 10;
+ id | id 
+----+----
+  1 |  1
+  2 |  2
+  3 |  3
+  4 |  4
+  5 |  5
+  6 |  6
+  7 |  7
+  8 |  8
+  9 |  9
+ 10 | 10
+(10 rows)
+
+-- ============================================================================
+-- TEST M: lazy_sort probe join (enable_rank_join = ON) with gallop on sorted segment
+-- ============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT ts_outer.id, ts_sorted.id
+FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
+ORDER BY ts_sorted.id ASC
+LIMIT 10;
+                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_sorted
+   Join Cond: ts_outer.id = ts_sorted.fk
+   Limit: 10
+   Order By: ts_sorted.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4], fetch=10, metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :     VisibilityFilterExec: tables=[ts_outer], metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1, ctids_fetched=100, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"val","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[ts_sorted], metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, ctids_fetched=20, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=ts_sorted, segments=1, lazy_sort=20, dynamic_filters=1, query="all", metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, dynamic_filter_pushdown_gallop=1, queries=1, rows_pruned=0, rows_scanned=20]
+(14 rows)
+
+SELECT ts_outer.id, ts_sorted.id
+FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
+ORDER BY ts_sorted.id ASC
+LIMIT 10;
+ id | id 
+----+----
+  1 |  1
+  2 |  2
+  3 |  3
+  4 |  4
+  5 |  5
+  6 |  6
+  7 |  7
+  8 |  8
+  9 |  9
+ 10 | 10
+(10 rows)
+
+-- ============================================================================
 -- Cleanup
 -- ============================================================================
 DROP TABLE IF EXISTS ts_outer CASCADE;
@@ -504,4 +605,5 @@ RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET enable_nestloop;
 RESET enable_mergejoin;
+RESET paradedb.enable_rank_join;
 RESET paradedb.enable_join_custom_scan;

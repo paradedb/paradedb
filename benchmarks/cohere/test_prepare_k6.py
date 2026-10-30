@@ -1,14 +1,9 @@
 """Regression checks for the pdbench-to-k6 handoff."""
 
 import copy
-import json
-import subprocess
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from prepare_k6 import PROBE, QUERIES, buffer_metrics, operating_points, summary
+from prepare_k6 import PROBE, QUERIES, operating_points, summary
 from verify_plans import verify
 
 
@@ -78,56 +73,6 @@ class OperatingPointsTest(unittest.TestCase):
                 self.assertEqual(point["recall"], 0.96)
         self.assertIn("Not reached", summary(points))
         self.assertEqual(inputs, original)
-
-    def test_exports_buffer_metrics_artifact_for_each_reached_target(self):
-        """Publish distinct target series even when they select the same probe."""
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for index, report in enumerate(reports()):
-                (root / f"{index}_search.json").write_text(json.dumps(report))
-            output = root / "output"
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(Path(__file__).with_name("prepare_k6.py")),
-                    "--runs",
-                    str(root),
-                    "--output",
-                    str(output),
-                ],
-                check=True,
-            )
-            metrics = json.loads((output / "buffer-metrics.json").read_text())
-        self.assertEqual(
-            {metric["name"] for metric in metrics},
-            {
-                f"{query}@r{target} shared hits/query"
-                for query in QUERIES
-                for target in (90, 95)
-            },
-        )
-        self.assertEqual(len(metrics), 6)
-        self.assertTrue(all(metric["value"] == 1234.5 for metric in metrics))
-        self.assertTrue(all(metric["unit"] == "hits/query" for metric in metrics))
-
-    def test_buffer_metrics_omit_missing_measurements_and_preserve_zero(self):
-        """Missing EXPLAIN measurements must not become zero-valued baselines."""
-        points = [point for point in operating_points(reports()) if point["reached"]]
-        points = copy.deepcopy(points[:3])
-        points[0]["buffers"] = None
-        points[1]["buffers"]["shared_hit_mean"] = None
-        points[2]["buffers"] = {"shared_hit_mean": 0}
-        self.assertEqual(
-            buffer_metrics(points),
-            [
-                {
-                    "name": f"{points[2]['name']} shared hits/query",
-                    "unit": "hits/query",
-                    "value": 0,
-                }
-            ],
-        )
-        self.assertEqual(buffer_metrics(points[:2]), [])
 
     def test_refuses_below_target_point_even_when_pdbench_labels_it_selected(self):
         """Reject a below-target selection rather than relabeling it."""

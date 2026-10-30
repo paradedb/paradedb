@@ -30,8 +30,8 @@ workers. Both tools use the same database and index throughout a run.
    selected max_probe and all fixed search settings apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
-   Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, shared hits/query,
-   index build time, and index size with baseline comparisons and dashboard links. Recall,
+   Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
+   and index size with baseline comparisons and dashboard links. Recall,
    max_probe, and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
@@ -49,12 +49,6 @@ The old server-time samples are not comparable to k6's client-observed latency
 and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
-
-Shared hits/query uses a separate `benchmarker cohere-<size> (buffers)` history,
-with one series per filter/recall target and lower values considered better.
-The comparison reports current/previous and flags increases above 1.15x, just
-like latency. Unreached targets and missing buffer measurements are omitted.
-Until a main run publishes buffer metrics, comparisons show `n/a` for the baseline.
 
 Artifacts retain index-build logs, pdbench build and search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,

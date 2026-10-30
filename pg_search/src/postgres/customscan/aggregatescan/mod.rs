@@ -2070,6 +2070,8 @@ impl AggregateScan {
 
         unsafe {
             let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
+            let plan_targetlist =
+                PgList::<pg_sys::TargetEntry>::from_pg((*(*state.planstate()).plan).targetlist);
             // Use the reusable slot created in begin_custom_scan to avoid per-row memory leaks
             let slot = state
                 .custom_state()
@@ -2080,6 +2082,7 @@ impl AggregateScan {
             fill_slot_from_row(
                 slot,
                 &tupdesc,
+                &plan_targetlist,
                 &row,
                 &state.custom_state().aggregate_clause,
                 state
@@ -2204,7 +2207,7 @@ impl AggregateScan {
                         None => (pg_sys::Datum::null(), true),
                     }
                 }
-                TargetListEntry::GroupingColumn(_) => {
+                TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => {
                     debug_assert!(
                         i < natts,
                         "aggregate clause entry index out of bounds for tuple descriptor"
@@ -2692,12 +2695,15 @@ unsafe fn aggregate_value_to_datum(
 ///    NULL sentinels and ISO-8601 datetime parsing) via [`group_key_to_datum`].
 /// 2. `GroupingColumn` with an empty row → NULL.
 /// 3. `Aggregate` (any row) → delegate to [`aggregate_value_to_datum`].
+/// 4. `Constant` (any row) → the `Const` at the same position of the plan's
+///    target list.
 ///
 /// Finalizes by setting `tts_flags` and `tts_nvalid` so the slot is in the
 /// "virtual tuple stored" state.
 unsafe fn fill_slot_from_row(
     slot: *mut pg_sys::TupleTableSlot,
     tupdesc: &PgTupleDesc<'_>,
+    plan_targetlist: &PgList<pg_sys::TargetEntry>,
     row: &AggregationResultsRow,
     aggregate_clause: &AggregateCSClause,
     index_info: &AggIndexInfo,
@@ -2747,6 +2753,16 @@ unsafe fn fill_slot_from_row(
                     next_aggregate,
                     index_info,
                 )
+            }
+            TargetListEntry::Constant => {
+                let te = plan_targetlist
+                    .get_ptr(i)
+                    .expect("missing target entry for constant");
+                let konst = crate::nodecast!(Const, T_Const, (*te).expr);
+                debug_assert!(konst.is_some(), "constant target entry should be a Const");
+                konst
+                    .filter(|konst| !(**konst).constisnull)
+                    .map(|konst| (*konst).constvalue)
             }
         };
 

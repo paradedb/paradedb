@@ -286,8 +286,8 @@ fn resolve_vector_expr(
     if relid != source.heaprel.oid() {
         return None;
     }
-    let (_, field_type) = source.resolve_heap_field(attno)?;
-    if let SearchFieldType::Vector(_, _, metric) = field_type {
+    let (_, field) = source.resolve_heap_field(ResTarget::Attno(attno))?;
+    if let SearchFieldType::Vector(_, _, metric) = field.field_type() {
         return Some((var, metric));
     }
     None
@@ -460,8 +460,8 @@ unsafe fn find_target_entry_by_ref(
 /// [`crate::index::reader::sort_by_range`]). A range in a later position makes the whole
 /// ORDER BY unpushable: Top K can't run on a prefix of the pathkeys, so Postgres sorts the
 /// unsorted scan itself.
-fn sortable_at_position(search_field: &SearchField, position: usize) -> bool {
-    position == 0 || !matches!(search_field.field_type(), SearchFieldType::Range(_))
+fn sortable_at_position(field_type: &SearchFieldType, position: usize) -> bool {
+    position == 0 || !matches!(*field_type, SearchFieldType::Range(_))
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
@@ -542,10 +542,13 @@ where
                     }
                     SortExpressionType::Lower => {
                         if let Some(field_name) = field_name_opt
-                            && let Some(schema) = context.schema()
-                            && let Some(search_field) = schema.search_field(field_name.root())
+                            && let Some((_, search_field)) =
+                                context.resolve_heap_field(ResTarget::Field(&field_name))
                             && lower_sortability_check(&search_field)
-                            && sortable_at_position(&search_field, pathkey_styles.len())
+                            && sortable_at_position(
+                                &search_field.field_type(),
+                                pathkey_styles.len(),
+                            )
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -558,10 +561,13 @@ where
                     }
                     SortExpressionType::Raw => {
                         if let Some(field_name) = field_name_opt
-                            && let Some(schema) = context.schema()
-                            && let Some(search_field) = schema.search_field(field_name.root())
+                            && let Some((_, search_field)) =
+                                context.resolve_heap_field(ResTarget::Field(&field_name))
                             && regular_sortability_check(&search_field)
-                            && sortable_at_position(&search_field, pathkey_styles.len())
+                            && sortable_at_position(
+                                &search_field.field_type(),
+                                pathkey_styles.len(),
+                            )
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -574,10 +580,10 @@ where
                     }
                     SortExpressionType::IndexedExpression => {
                         if let Some(field_name) = field_name_opt
-                            && let Some(schema) = context.schema()
-                            && let Some(search_field) = schema.search_field(field_name.root())
-                            && search_field.is_fast()
-                            && sortable_at_position(&search_field, pathkey_styles.len())
+                            && let Some(resolved) = context
+                                .resolve_fast_field(ResTarget::Field(&field_name), Access::Any)
+                            && let Some(field_type) = resolved.field.field_type()
+                            && sortable_at_position(field_type, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -739,10 +745,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         }
 
         // Validate sortability
-        let schema = target_relation_context
-            .as_ref()
-            .and_then(|s| s.schema())
-            .unwrap();
+        let context = target_relation_context.as_ref().unwrap();
 
         match sort_type {
             SortExpressionType::Score => {
@@ -753,11 +756,13 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some(search_field) = schema.search_field(field_name.root()) else {
+                let Some((_, search_field)) =
+                    context.resolve_heap_field(ResTarget::Field(&field_name.root()))
+                else {
                     return false;
                 };
                 if !search_field.is_lower_sortable()
-                    || !sortable_at_position(&search_field, position)
+                    || !sortable_at_position(&search_field.field_type(), position)
                 {
                     return false;
                 }
@@ -766,10 +771,13 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some(search_field) = schema.search_field(field_name.root()) else {
+                let Some((_, search_field)) =
+                    context.resolve_heap_field(ResTarget::Field(&field_name.root()))
+                else {
                     return false;
                 };
-                if !search_field.is_raw_sortable() || !sortable_at_position(&search_field, position)
+                if !search_field.is_raw_sortable()
+                    || !sortable_at_position(&search_field.field_type(), position)
                 {
                     return false;
                 }
@@ -778,10 +786,14 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some(search_field) = schema.search_field(field_name.root()) else {
+                let Some((_, search_field)) =
+                    context.resolve_heap_field(ResTarget::Field(&field_name.root()))
+                else {
                     return false;
                 };
-                if !search_field.is_fast() || !sortable_at_position(&search_field, position) {
+                if !search_field.is_fast()
+                    || !sortable_at_position(&search_field.field_type(), position)
+                {
                     return false;
                 }
             }

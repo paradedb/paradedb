@@ -113,13 +113,19 @@ impl SourceContext {
         })
     }
 
-    pub fn resolve_heap_field(
-        &self,
-        attno: pg_sys::AttrNumber,
-    ) -> Option<(FieldName, SearchFieldType)> {
-        let name = self.get_attname(attno)?;
-        let field_type = self.schema().and_then(|s| s.get_field_type(&name))?;
-        Some((name, field_type))
+    pub fn resolve_heap_field(&self, target: ResTarget) -> Option<(FieldName, SearchField)> {
+        match target {
+            ResTarget::Attno(attno) => {
+                let name = self.get_attname(attno)?;
+                let field = self.schema().and_then(|s| s.search_field(&name))?;
+                Some((name, field))
+            }
+            ResTarget::Field(name) => {
+                let field = self.schema().and_then(|s| s.search_field(name))?;
+                Some((name.into(), field))
+            }
+            _ => unreachable!("only attno and field supported"),
+        }
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source

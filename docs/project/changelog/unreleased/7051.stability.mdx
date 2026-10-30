@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed incorrect `DISTINCT` and `GROUP BY` results for array columns and expressions over them, including slices, subscripts, and domain casts. These queries now use PostgreSQL aggregation to preserve empty arrays, NULL elements, dimensions, and lower bounds.

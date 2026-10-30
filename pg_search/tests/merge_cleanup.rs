@@ -75,6 +75,7 @@ struct Fixture {
     mutable: bool,
     table: &'static str,
     index: String,
+    sweep_interval: i32,
 }
 
 impl Drop for Fixture {
@@ -87,12 +88,51 @@ impl Drop for Fixture {
                 ))
                 .unwrap();
         }
+        let interval = self.sweep_interval;
+        let restored = self
+            .controller
+            .batch_execute(&format!(
+                "ALTER SYSTEM SET paradedb.mutable_sweep_interval = {interval}"
+            ))
+            .and_then(|_| self.controller.simple_query("SELECT pg_reload_conf()"));
+        if !std::thread::panicking() {
+            restored.unwrap();
+        }
     }
 }
 
 impl Fixture {
     fn new(table: &'static str, mutable: bool) -> Self {
         let mut controller = connect();
+        let sweep_interval: i32 = controller
+            .query_one(
+                "SELECT setting::int FROM pg_settings WHERE name='paradedb.mutable_sweep_interval'",
+                &[],
+            )
+            .unwrap()
+            .get(0);
+        if sweep_interval != 0 {
+            controller
+                .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 0")
+                .unwrap();
+            controller.simple_query("SELECT pg_reload_conf()").unwrap();
+            wait_until("sweep configuration reload", || {
+                controller
+                    .query_one(
+                        "SELECT setting::int FROM pg_settings WHERE name='paradedb.mutable_sweep_interval'",
+                        &[],
+                    )
+                    .unwrap()
+                    .get::<_, i32>(0)
+                    == 0
+            });
+        }
+        wait_until("existing sweeps exiting", || {
+            controller.query_one(
+                "SELECT NOT EXISTS(SELECT FROM pg_stat_activity WHERE backend_type='pg_search mutable sweep')",
+                &[],
+            ).unwrap().get(0)
+        });
         controller
             .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE")
             .unwrap();
@@ -113,6 +153,7 @@ impl Fixture {
             mutable,
             table,
             index,
+            sweep_interval,
         }
     }
 
@@ -707,4 +748,144 @@ fn late_reader_does_not_cancel_autovacuum_waiting_for_merger() {
         "SELECT bool_and(passed) FROM pdb.verify_index('{}',heapallindexed=>true)",
         fixture.index
     )));
+}
+
+#[test]
+fn periodic_sweep_cancellation_releases_vacuum_barriers() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for terminate in [false, true] {
+        let table = if terminate {
+            "mutable_sweep_terminated"
+        } else {
+            "mutable_sweep_cancelled"
+        };
+        let mut fixture = Fixture::new(table, true);
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "INSERT INTO {table} SELECT id, 'alpha beta' FROM generate_series(1,50) id"
+            ))
+            .unwrap();
+        let (ready, gate) = fixture.pause_keys();
+        fixture.controller.batch_execute(&format!(
+            "DO $$ BEGIN
+             EXECUTE format('ALTER DATABASE %I SET pg_search.test_merge_ready = %L', current_database(), '{ready}');
+             EXECUTE format('ALTER DATABASE %I SET pg_search.test_merge_gate = %L', current_database(), '{gate}');
+             END $$;"
+        )).unwrap();
+        fixture
+            .controller
+            .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 1000")
+            .unwrap();
+        fixture
+            .controller
+            .simple_query("SELECT pg_reload_conf()")
+            .unwrap();
+        let mut pid = 0;
+        wait_until("periodic sweep reaching merge publication", || {
+            let row = fixture
+                .controller
+                .query_opt(
+                    "SELECT a.pid FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
+                 WHERE a.backend_type='pg_search mutable sweep' AND a.datname=current_database() AND a.query='merging'
+                   AND l.locktype='advisory' AND l.objid::bigint=$1 AND l.granted",
+                    &[&ready],
+                )
+                .unwrap();
+            if let Some(row) = row {
+                pid = row.get(0);
+                true
+            } else {
+                false
+            }
+        });
+        fixture.controller.batch_execute(
+            "DO $$ BEGIN
+             EXECUTE format('ALTER DATABASE %I RESET pg_search.test_merge_ready', current_database());
+             EXECUTE format('ALTER DATABASE %I RESET pg_search.test_merge_gate', current_database());
+             END $$"
+        ).unwrap();
+        fixture.cancel_pid(pid, terminate);
+        wait_until("cancelled sweep releasing its backend", || {
+            fixture
+                .controller
+                .query_one(
+                    "SELECT NOT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1)",
+                    &[&pid],
+                )
+                .unwrap()
+                .get(0)
+        });
+        fixture
+            .controller
+            .query_one("SELECT pg_advisory_unlock($1)", &[&gate])
+            .unwrap();
+        fixture
+            .controller
+            .batch_execute(&format!("VACUUM {table}"))
+            .unwrap();
+        fixture.assert_rows(50);
+        let deadline = Instant::now() + Duration::from_secs(45);
+        while !fixture.value::<bool>(&format!(
+            "SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)",
+            fixture.index
+        )) {
+            assert!(
+                Instant::now() < deadline,
+                "cancelled worker was not rediscovered"
+            );
+            sleep(Duration::from_millis(20));
+        }
+        assert!(fixture.value::<bool>(&format!(
+            "SELECT bool_and(passed) FROM pdb.verify_index('{}', heapallindexed => true)",
+            fixture.index
+        )));
+    }
+}
+
+#[test]
+fn periodic_sweep_skips_exclusive_vacuum_admission() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("sweep_busy_admission", true);
+    let holder = fixture.actor(
+        "merge",
+        format!(
+            "SELECT paradedb.test_hold_cleanup_admission('{}')",
+            fixture.index
+        ),
+    );
+    fixture.stage(&holder);
+    fixture.controller.batch_execute(
+        "DROP TABLE IF EXISTS sweep_free_admission;
+         CREATE TABLE sweep_free_admission (id bigint,body text);
+         CREATE INDEX sweep_free_admission_idx ON sweep_free_admission USING paradedb(id,body) WITH(mutable_segment_rows=10000);
+         INSERT INTO sweep_free_admission VALUES(1,'alpha beta')"
+    ).unwrap();
+    fixture
+        .controller
+        .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 1000")
+        .unwrap();
+    fixture
+        .controller
+        .simple_query("SELECT pg_reload_conf()")
+        .unwrap();
+    wait_until("sweep skipping busy VACUUM admission", || {
+        assert!(!fixture.value::<bool>(
+            "SELECT EXISTS(SELECT FROM pg_locks l JOIN pg_stat_activity a ON l.pid=a.pid
+             WHERE a.backend_type='pg_search mutable sweep' AND l.locktype='page'
+               AND l.relation='sweep_busy_admission_idx'::regclass AND NOT l.granted)"
+        ));
+        fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_free_admission_idx') WHERE visible AND mutable)")
+    });
+    fixture.release(&holder);
+    holder.finish().1.unwrap();
+    fixture
+        .controller
+        .batch_execute("VACUUM sweep_busy_admission")
+        .unwrap();
+    fixture
+        .controller
+        .batch_execute("DROP TABLE sweep_free_admission")
+        .unwrap();
+    fixture.assert_rows(0);
 }

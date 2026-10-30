@@ -75,6 +75,7 @@ Use `--auto` only when you intentionally want to replace the expected output of 
 1. **Non-deterministic Results**: Use fixed dates and ORDER BY clauses to ensure consistent results
 2. **Missing Data**: Verify that all test queries return at least one row of data
 3. **Timing Variations**: Use `COSTS OFF, TIMING OFF` in EXPLAIN to avoid timing-dependent output
+4. **Segment Layout**: Shared setup disables periodic mutable segment flushing with `ALTER SYSTEM` and a config reload, then waits for its workers to exit. Run regressions on a dedicated test cluster; this setting persists until reset. Integration tests cover flushing with it enabled.
 
 ## Contributing New Tests
 

@@ -45,7 +45,7 @@ thread_local! {
 }
 
 /// Warns once per backend and index when merge selection drops unsupported vector storage.
-fn warn_unsupported_vector_merge(index: &PgSearchRelation, skipped: usize) {
+pub(crate) fn warn_unsupported_vector_merge(index: &PgSearchRelation, skipped: usize) {
     if skipped > 0 && WARNED_VECTOR_INDEXES.with(|warned| warned.borrow_mut().insert(index.oid())) {
         pgrx::warning!(
             "index {:?}: skipped {skipped} segment(s) with unsupported vector storage during merge; rebuild with REINDEX",
@@ -58,7 +58,7 @@ fn warn_unsupported_vector_merge(index: &PgSearchRelation, skipped: usize) {
 /// bug. Returns `Some` only for bug-class errors — internal-error / corruption SQLSTATEs and Rust
 /// panics. An interrupt-driven cancellation is not a bug and never reaches here: `merge_index`
 /// downgrades it to a `warning!`, so the faults we deliberately inject do not trip the assertion.
-fn merge_crash_details(caught: &CaughtError) -> Option<serde_json::Value> {
+pub(crate) fn merge_crash_details(caught: &CaughtError) -> Option<serde_json::Value> {
     use pgrx::PgSqlErrorCode::*;
 
     let report = match caught {
@@ -690,7 +690,7 @@ const SLOT_BITS: u32 = 8; // slot is u8
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum MergeSlotVariant {
+pub(crate) enum MergeSlotVariant {
     Small = 0,
     Large = 1,
 }
@@ -708,13 +708,13 @@ impl TryFrom<u8> for MergeSlotVariant {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MergeSlot {
+pub(crate) struct MergeSlot {
     index_oid: pg_sys::Oid,
     variant: MergeSlotVariant,
 }
 
 impl MergeSlot {
-    fn new(index_oid: pg_sys::Oid, variant: MergeSlotVariant) -> Self {
+    pub(crate) fn new(index_oid: pg_sys::Oid, variant: MergeSlotVariant) -> Self {
         Self { index_oid, variant }
     }
 
@@ -726,7 +726,7 @@ impl MergeSlot {
         }
     }
 
-    fn lock(&self) -> Option<AdvisoryLock> {
+    pub(crate) fn lock(&self) -> Option<AdvisoryLock> {
         let key = self.key();
         AdvisoryLock::new_transaction(key)
     }

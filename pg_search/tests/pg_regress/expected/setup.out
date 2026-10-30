@@ -1,3 +1,21 @@
+-- Keep segment layouts stable throughout the SQL regression suite.
+ALTER SYSTEM SET paradedb.mutable_sweep_interval = 0;
+DO $$
+BEGIN
+    PERFORM pg_reload_conf();
+    FOR attempt IN 1..100 LOOP
+        PERFORM pg_stat_clear_snapshot();
+        IF NOT EXISTS (
+            SELECT FROM pg_stat_activity
+            WHERE backend_type = 'pg_search mutable sweep'
+        ) THEN
+            RETURN;
+        END IF;
+        PERFORM pg_sleep(0.1);
+    END LOOP;
+    RAISE EXCEPTION 'mutable segment flushing workers did not stop';
+END
+$$;
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Pin parallelism so regress plans and index builds don't depend on the local cluster's worker

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793324729945,
+  "lastUpdate": 1793326931809,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20404,6 +20404,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12946543542-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f69b6eb17a48e86a26d708e86d543da055ad85e9",
+          "message": "fix: match every row for an empty `<> ALL` array in pushdown (#7100)\n\n# Ticket(s) Closed\n\n- Closes #7001\n\n## What\n\n`NOT (id = ANY('{}'))` and `id <> ALL('{}')` combined with a search now\nreturn the search's matches instead of no rows.\n\n## Why\n\nAn empty `ALL` is true for every row, including rows where the column is\nNULL. PostgreSQL rewrites `NOT (x = ANY(arr))` to `x <> ALL(arr)`, and\n`paradedb.terms_with_operator` turns that into a `Boolean` with one\n`must` clause per array element. With an empty array that is a `Boolean`\nwith no clauses, which matches nothing. It shows up in the plan as the\n`{\"boolean\":{}}` from the issue.\n\n## How\n\nIn conjunction mode, `terms_with_operator` returns\n`SearchQueryInput::All` when there are no terms. The disjunction case\n(`= ANY('{}')`) is unchanged and still matches nothing, which is\ncorrect. An `ALL` array containing a NULL still returns `Empty` as\nbefore, since that check runs first.\n\n## Tests\n\nNew regression test `issue_7001`, run on PG18. It covers the issue's\nrepro, `<> ALL('{}')` written directly, `> ALL('{}')`, a NULL column\nvalue, non-empty arrays, an empty `= ANY`, and the array passed as a\nprepared statement parameter. Without the fix, five of its queries\nreturn no rows and the plan shows `{\"boolean\":{}}`. With it, they match\nPostgreSQL.",
+          "timestamp": "2026-10-29T18:09:57-07:00",
+          "tree_id": "cd8968cb7cf8458d01d6285ff83498567be2d27a",
+          "url": "https://github.com/paradedb/paradedb/commit/f69b6eb17a48e86a26d708e86d543da055ad85e9"
+        },
+        "date": 1793326929882,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 98.949,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 341.863,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.113,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.508,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 185.26,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.573,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 150.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 213.105,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.569,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.055,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 198.882,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.756,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 80.432,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 163.966,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12949063423-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -42829,6 +42929,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12946543542-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f69b6eb17a48e86a26d708e86d543da055ad85e9",
+          "message": "fix: match every row for an empty `<> ALL` array in pushdown (#7100)\n\n# Ticket(s) Closed\n\n- Closes #7001\n\n## What\n\n`NOT (id = ANY('{}'))` and `id <> ALL('{}')` combined with a search now\nreturn the search's matches instead of no rows.\n\n## Why\n\nAn empty `ALL` is true for every row, including rows where the column is\nNULL. PostgreSQL rewrites `NOT (x = ANY(arr))` to `x <> ALL(arr)`, and\n`paradedb.terms_with_operator` turns that into a `Boolean` with one\n`must` clause per array element. With an empty array that is a `Boolean`\nwith no clauses, which matches nothing. It shows up in the plan as the\n`{\"boolean\":{}}` from the issue.\n\n## How\n\nIn conjunction mode, `terms_with_operator` returns\n`SearchQueryInput::All` when there are no terms. The disjunction case\n(`= ANY('{}')`) is unchanged and still matches nothing, which is\ncorrect. An `ALL` array containing a NULL still returns `Empty` as\nbefore, since that check runs first.\n\n## Tests\n\nNew regression test `issue_7001`, run on PG18. It covers the issue's\nrepro, `<> ALL('{}')` written directly, `> ALL('{}')`, a NULL column\nvalue, non-empty arrays, an empty `= ANY`, and the array passed as a\nprepared statement parameter. Without the fix, five of its queries\nreturn no rows and the plan shows `{\"boolean\":{}}`. With it, they match\nPostgreSQL.",
+          "timestamp": "2026-10-29T18:09:57-07:00",
+          "tree_id": "cd8968cb7cf8458d01d6285ff83498567be2d27a",
+          "url": "https://github.com/paradedb/paradedb/commit/f69b6eb17a48e86a26d708e86d543da055ad85e9"
+        },
+        "date": 1793326931802,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.457777509365577,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.931885975078036,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.41758023320183,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.280512501008946,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 35.86136101923578,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12949063423-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

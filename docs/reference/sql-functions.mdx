@@ -85,6 +85,15 @@ These functions are placeholders that ParadeDB's custom scan resolves during que
 | `pdb.agg`            | `pdb.agg(agg jsonb, solve_mvcc bool) -> jsonb`                                                                                                                                         | Execute the same aggregate with explicit MVCC visibility control.               | [Aggregate Syntax](/reference/aggregates/overview) |
 | `paradedb.aggregate` | `paradedb.aggregate(index regclass, query searchqueryinput, agg json, solve_mvcc bool default true, memory_limit bigint default 500000000, bucket_limit bigint default null) -> jsonb` | Execute an aggregate directly against an index.                                 | [Aggregate Syntax](/reference/aggregates/overview) |
 
+`paradedb.aggregate()` requires schema `USAGE`, table-level `SELECT`, and no active
+row-level security for the effective caller. Metadata APIs (schema and field
+configuration, layer sizes, creation details, merge/vacuum/FSM status, segment
+counts, and `pdb.indexes()`) also allow callers with `pg_stat_scan_tables`
+privileges, inherited by `pg_monitor`; those roles can see whole-index metadata
+and counts under RLS, but this exception does not authorize document reads or
+verification. `merge_lock_garbage_collect()` instead requires table `MAINTAIN`
+on PostgreSQL 17+, including `pg_maintain`, or table ownership on older versions.
+
 Supported aggregate JSON shapes are documented under [Aggregates](/reference/aggregates/overview), including [terms](/reference/aggregates/bucket/terms), [range](/reference/aggregates/bucket/range), [histogram](/reference/aggregates/bucket/histogram), [date histogram](/reference/aggregates/bucket/datehistogram), [filters](/reference/aggregates/bucket/filters), [sum](/reference/aggregates/metrics/sum), [average](/reference/aggregates/metrics/average), [min/max](/reference/aggregates/metrics/minmax), [count](/reference/aggregates/metrics/count), [stats](/reference/aggregates/metrics/stats), [percentiles](/reference/aggregates/metrics/percentiles), [cardinality](/reference/aggregates/metrics/cardinality), and [top hits](/reference/aggregates/metrics/tophits).
 
 ## Index Configuration and Tokenizers

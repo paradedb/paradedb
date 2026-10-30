@@ -401,8 +401,8 @@ pub fn init() {
     );
     GucRegistry::define_float_guc(
         c"paradedb.vector_adaptive_recall_exponent",
-        c"Calibrate normalized remaining-weight adaptive recall: miss budget = (1 - target) ^ exponent",
-        c"Larger values delay stopping. 1 uses the original raw target. Default 1.5.",
+        c"Calibrate admission-rate decay: rate fraction = (1 - target) ^ exponent",
+        c"Larger values require more admission-rate decay before stopping. Default 1.5.",
         &VECTOR_ADAPTIVE_RECALL_EXPONENT,
         0.000001,
         f64::MAX,
@@ -422,7 +422,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_adaptive_recall_target",
         c"Recall target for adaptive vector probing (default 0.95)",
-        c"Estimates recall within the routed candidates using centroid gaps and remaining cluster weight. A target of 1 disables early stopping; probe limits still apply.",
+        c"Uses recent versus opening admission rates at the current pruning threshold. A target of 1 disables early stopping; probe limits still apply.",
         &VECTOR_ADAPTIVE_RECALL_TARGET,
         0.000001,
         1.0,
@@ -723,7 +723,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Ignored while vector_adaptive_probing is enabled. Otherwise bounds the per-segment work budget; 1.0 allows every cluster.",
+        c"Bounds the per-segment work budget, including adaptive probing; 1.0 allows every cluster.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,

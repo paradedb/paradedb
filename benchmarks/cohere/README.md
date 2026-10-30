@@ -17,22 +17,23 @@ workers. Both tools use the same database and index throughout a run.
    Snapshot generation continues to use `datasets/cohere/config.toml` and
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
-   `pdbench search` first sweeps `paradedb.vector_cluster_max_probe` with adaptive
-   stopping disabled, selecting a fixed budget for each filter and r90/r95/r99
-   target. It then holds that budget fixed and sweeps
-   `paradedb.vector_adaptive_recall_exponent` from 0.5 to 10 with adaptive stopping
-   enabled and the matching `paradedb.vector_adaptive_recall_target`.
-   This keeps routing and filter bypass identical between the two modes.
-   Reports and calibration caches are separated by filter and target.
-   Its required positive tolerance is 0.000001, below one neighbor's contribution
-   to recall over 100 top-10 queries (0.001).
-3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
-   It rejects selections below their target and does not select probes or
-   calculate latency. Unreached targets remain visible and do not run in k6.
+   `admission_experiment.py` first sweeps `paradedb.vector_cluster_max_probe` with
+   adaptive stopping disabled to establish matched routing plans. It measures
+   each exponent in `{0.25, 0.5, 1, 1.5, 2, 3, 4, 6}` at the requested recall
+   targets 0.90, 0.95 and 0.99, across all three filters. Every measurement uses
+   all 100 vectors, three timed repetitions and a separate EXPLAIN pass.
+3. Select one exponent across all nine operating points, minimizing the worst
+   recall shortfall, then total shortfall, then exponent. No per-filter
+   calibration is allowed. Repeat the matrix with that exponent and a shared
+   probe ceiling of 0.125. Matched-budget results isolate stopping quality;
+   shared-budget results test dependence on routing and filter bypass.
+   Export both matrices with their measured recall. Unreached targets remain
+   visible and do not run in k6. The complete calibration grid is retained.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
-   selected recall exponent, matching recall target, and all fixed search settings apply to every connection.
+   shared recall exponent, requested recall target, and fixed search settings
+   apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,

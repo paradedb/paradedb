@@ -1,0 +1,33 @@
+name: Cron - Compact and Squash gh-pages History
+
+on:
+  schedule:
+    # Run monthly on the 1st at 04:37 UTC (offset to avoid top-of-hour GitHub Actions traffic)
+    - cron: "37 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  squash-gh-pages:
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
+    name: Compact and Squash gh-pages History
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Configure Git Author
+        run: |
+          # Use the same unlinked identity as benchmark publication.
+          git config user.name "ParadeDB Benchmarks"
+          git config user.email "benchmarks@paradedb.invalid"
+
+      - name: Compact and Squash gh-pages
+        run: ./.github/scripts/squash-gh-pages.sh --push origin

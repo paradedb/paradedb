@@ -48,7 +48,7 @@ Since many write operations can be running concurrently, this value should be ra
 The `mutable_segment_rows` setting enables use of mutable segments, which buffer new rows in order to amortize the cost of indexing them.
 By default, it is set to `1000`, which means that up to 1000 writes are buffered before being flushed.
 
-A periodic background sweep also flushes underfilled mutable segments across databases.
+A dedicated background worker in each database with `pg_search` periodically flushes underfilled mutable segments.
 `paradedb.mutable_sweep_interval` defaults to `1s` and can be changed through server configuration and a config reload.
 Set it to `0` to disable periodic sweeps. Sweeping is independent of `background_layer_sizes` and `paradedb.global_enable_background_merging`.
 

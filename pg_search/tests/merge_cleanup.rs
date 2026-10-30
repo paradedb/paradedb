@@ -825,9 +825,17 @@ fn periodic_sweep_cancellation_releases_vacuum_barriers() {
             .batch_execute(&format!("VACUUM {table}"))
             .unwrap();
         fixture.assert_rows(50);
-        wait_until("next periodic sweep draining cancelled work", || {
-            fixture.value::<bool>(&format!("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)", fixture.index))
-        });
+        let deadline = Instant::now() + Duration::from_secs(45);
+        while !fixture.value::<bool>(&format!(
+            "SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)",
+            fixture.index
+        )) {
+            assert!(
+                Instant::now() < deadline,
+                "cancelled worker was not rediscovered"
+            );
+            sleep(Duration::from_millis(20));
+        }
         assert!(fixture.value::<bool>(&format!(
             "SELECT bool_and(passed) FROM pdb.verify_index('{}', heapallindexed => true)",
             fixture.index

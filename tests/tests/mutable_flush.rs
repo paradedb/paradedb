@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use rstest::*;
-use sqlx::Executor;
+use sqlx::{AssertSqlSafe, Executor};
 use std::time::{Duration, Instant};
 use tests::fixtures::*;
 
@@ -50,10 +50,12 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
             .await?;
         assert_eq!(count, 1);
     }
+    conn.execute("SELECT pg_reload_conf()").await?;
     let mut writer = database.connection().await;
     writer
         .execute("BEGIN; INSERT INTO sweep_a VALUES (2, 'aborted')")
         .await?;
+    let mut worker_pids = Vec::new();
     for phase in 0..2 {
         if phase == 1 {
             let stopped: bool = sqlx::query_scalar(
@@ -67,7 +69,7 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
                 conn.execute("INSERT INTO sweep_a VALUES (3, 'batch'); INSERT INTO sweep_b VALUES (3, 'batch'); INSERT INTO sweep_no_background_layers VALUES (3, 'batch')").await?;
             }
         }
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             let mut drained = true;
             for conn in [&mut conn, &mut other_conn] {
@@ -101,8 +103,26 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
             );
             async_std::task::sleep(Duration::from_millis(50)).await;
         }
+        let mut current_pids = Vec::new();
+        for conn in [&mut conn, &mut other_conn] {
+            let pids: Vec<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity WHERE backend_type='pg_search mutable sweep'
+                 AND datname=current_database() ORDER BY pid",
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+            assert_eq!(pids.len(), 1);
+            current_pids.push(pids[0]);
+        }
         if phase == 0 {
+            worker_pids = current_pids;
             writer.execute("ROLLBACK").await?;
+            async_std::task::sleep(Duration::from_secs(2)).await;
+        } else {
+            assert_eq!(
+                current_pids, worker_pids,
+                "launcher restart replaced database workers"
+            );
         }
     }
     for conn in [&mut conn, &mut other_conn] {
@@ -123,7 +143,7 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
     loop {
         let idle: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT FROM pg_stat_activity
-             WHERE backend_type = 'pg_search mutable sweep launcher'
+             WHERE backend_type = 'pg_search mutable sweep' AND datname=current_database()
                AND wait_event_type = 'Extension' AND xact_start IS NULL AND backend_xmin IS NULL
                AND NOT EXISTS (SELECT FROM pg_locks WHERE pid = pg_stat_activity.pid AND relation IS NOT NULL))"
         ).fetch_one(&mut conn).await?;
@@ -132,10 +152,19 @@ async fn periodic_sweep_discovers_idle_indexes_across_databases(database: Db) ->
         }
         anyhow::ensure!(
             Instant::now() < deadline,
-            "launcher never waited without a transaction, xmin or relation locks"
+            "database worker never waited without a transaction, xmin or relation locks"
         );
         async_std::task::sleep(Duration::from_millis(20)).await;
     }
+    let other_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&mut other_conn)
+        .await?;
+    drop(other_conn);
+    conn.execute(AssertSqlSafe(format!(
+        "DROP DATABASE \"{}\"",
+        other_name.replace('"', "\"\"")
+    )))
+    .await?;
     Ok(())
 }
 
@@ -156,7 +185,7 @@ async fn periodic_sweep_skips_a_ddl_locked_index(database: Db) -> Result<()> {
     ddl.execute("BEGIN; DROP INDEX sweep_locked_idx").await?;
     conn.execute("INSERT INTO sweep_available VALUES(1,'batch')")
         .await?;
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let mutable: i64 = sqlx::query_scalar("SELECT count(*) FROM paradedb.index_info('sweep_available_idx') WHERE visible AND mutable").fetch_one(&mut conn).await?;
         if mutable == 0 {

@@ -1213,6 +1213,7 @@ pub mod pdb {
         let index_rel = index.read();
         // Only verification needs each leaf's heap. Keep the other diagnostics'
         // index-only traversal, and authorize the requested relation, as SQL does.
+        // Open each leaf when reached and release its locks before advancing.
         let partitions: Box<dyn Iterator<Item = IndexAccess>> =
             if is_partitioned_index(index_rel.oid()) {
                 Box::new(

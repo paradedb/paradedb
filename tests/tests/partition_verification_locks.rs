@@ -18,7 +18,7 @@
 use anyhow::Result;
 use rstest::rstest;
 use sqlx::Connection;
-use std::time::Duration;
+use tests::fixtures::locking::{execute_ddl_and_finish, index_locked_while_waiting_for_heap};
 use tests::fixtures::*;
 
 #[rstest]
@@ -27,16 +27,18 @@ use tests::fixtures::*;
 #[case::nested_parent("nested")]
 #[case::direct_leaf("leaf")]
 #[case::all_leaves("all_leaves")]
+#[case::sibling_leaf("sibling")]
 #[async_std::test]
 async fn verification_locks_heap_before_index(database: Db, #[case] target: &str) -> Result<()> {
     let mut writer = database.connection().await;
     "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE".execute(&mut writer);
-    let (heap, verification, expected_heap_checks) = if target == "plain" {
+    let (locked_heap, reindexed_heap, verification, expected_heap_checks) = if target == "plain" {
         "CREATE TABLE lock_plain(id integer);
          INSERT INTO lock_plain VALUES (1);
          CREATE INDEX lock_plain_idx ON lock_plain USING paradedb(id);"
             .execute(&mut writer);
         (
+            "lock_plain",
             "lock_plain",
             "pdb.verify_index('lock_plain_idx', heapallindexed => true)".to_string(),
             1,
@@ -62,7 +64,7 @@ async fn verification_locks_heap_before_index(database: Db, #[case] target: &str
             WHERE indrelid = 'lock_leaf'::regclass"
             .fetch_one(&mut writer);
         let (verification, count) = match target {
-            "parent" | "nested" => (
+            "parent" | "nested" | "sibling" => (
                 "pdb.verify_index('lock_parent_idx', heapallindexed => true)".to_string(),
                 2,
             ),
@@ -77,7 +79,18 @@ async fn verification_locks_heap_before_index(database: Db, #[case] target: &str
             ),
             _ => panic!("unknown verification test case: {target}"),
         };
-        ("lock_leaf", verification, count)
+        let locked_heap = if target == "sibling" {
+            // The OID walk visits lock_leaf first, then waits on lock_other.
+            let (first_leaf,) = "SELECT
+                (SELECT indexrelid FROM pg_index WHERE indrelid = 'lock_leaf'::regclass) <
+                (SELECT indexrelid FROM pg_index WHERE indrelid = 'lock_other'::regclass)"
+                .fetch_one::<(bool,)>(&mut writer);
+            assert!(first_leaf, "fixture must visit lock_leaf before lock_other");
+            "lock_other"
+        } else {
+            "lock_leaf"
+        };
+        (locked_heap, "lock_leaf", verification, count)
     };
     let mut reader = database.connection().await;
     "SET statement_timeout = '15s'".execute(&mut writer);
@@ -87,7 +100,7 @@ async fn verification_locks_heap_before_index(database: Db, #[case] target: &str
 
     let mut transaction = writer.begin().await?;
     sqlx::query(sqlx::AssertSqlSafe(format!(
-        "LOCK TABLE {heap} IN ACCESS EXCLUSIVE MODE"
+        "LOCK TABLE {locked_heap} IN ACCESS EXCLUSIVE MODE"
     )))
     .execute(&mut *transaction)
     .await?;
@@ -101,48 +114,16 @@ async fn verification_locks_heap_before_index(database: Db, #[case] target: &str
             .await
     });
 
-    // Synchronize on the real heap-lock wait, not a sleep or the reader starting.
-    async_std::future::timeout(Duration::from_secs(10), async {
-        loop {
-            let waiting: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT FROM pg_locks
-                 WHERE pid = $1 AND relation = $2::text::regclass
-                   AND mode = 'AccessShareLock' AND NOT granted)",
-            )
-            .bind(reader_pid)
-            .bind(heap)
-            .fetch_one(&mut observer)
+    let index_locked =
+        index_locked_while_waiting_for_heap(&mut observer, reader_pid, locked_heap, reindexed_heap)
             .await?;
-            if waiting {
-                return Ok::<_, sqlx::Error>(());
-            }
-            async_std::task::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await??;
-    let index_locked_before_heap: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT FROM pg_locks l JOIN pg_index i ON i.indexrelid = l.relation
-         WHERE l.pid = $1 AND i.indrelid = $2::text::regclass AND l.granted)",
-    )
-    .bind(reader_pid)
-    .bind(heap)
-    .fetch_one(&mut observer)
-    .await?;
-
-    // REINDEX needs the leaf-index lock. Acquiring it before the heap in the
-    // reader would make these sessions wait on each other.
-    let reindex = sqlx::query(sqlx::AssertSqlSafe(format!("REINDEX TABLE {heap}")))
-        .execute(&mut *transaction)
-        .await;
-    if reindex.is_ok() {
-        transaction.commit().await?;
-    } else {
-        transaction.rollback().await?;
-    }
+    // A finished sibling's index must also be released before the next heap wait.
+    let reindex =
+        execute_ddl_and_finish(transaction, &format!("REINDEX TABLE {reindexed_heap}")).await;
     let verified = pending.await;
     assert!(
-        !index_locked_before_heap,
-        "the verifier locked the leaf index before obtaining the leaf heap lock"
+        !index_locked,
+        "the verifier held an index on {reindexed_heap} while waiting for {locked_heap}"
     );
     reindex?;
     assert_eq!(verified?, (true, expected_heap_checks));

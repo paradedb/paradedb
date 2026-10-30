@@ -791,8 +791,7 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -805,8 +804,7 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -818,8 +816,7 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -871,8 +868,7 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
   category   |             min              |             max              
 -------------+------------------------------+------------------------------
  Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT

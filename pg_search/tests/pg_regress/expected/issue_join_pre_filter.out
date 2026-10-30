@@ -55,8 +55,7 @@ LIMIT 10;
      :           PgSearchScan: table=u, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
 (14 rows)
 
--- Keep the original query and validate its tied results without assuming their order.
-WITH results AS MATERIALIZED (
+-- Reproduce the bug
 SELECT
     p.id,
     p.title,
@@ -69,18 +68,20 @@ WHERE
     AND u.reputation > 100
 ORDER BY
     relevance DESC
-LIMIT 10
-)
-SELECT count(*) AS row_count,
-       count(DISTINCT id) AS distinct_ids,
-       bool_and(title = 'how using get create') AS matching_titles,
-       min(relevance) AS min_score,
-       max(relevance) AS max_score
-FROM results;
- row_count | distinct_ids | matching_titles |   min_score   |   max_score   
------------+--------------+-----------------+---------------+---------------
-        10 |           10 | t               | 0.00019978978 | 0.00019978978
-(1 row)
+LIMIT 10;
+  id   |        title         |   relevance   
+-------+----------------------+---------------
+  2000 | how using get create | 0.00019978978
+  3000 | how using get create | 0.00019978978
+  4000 | how using get create | 0.00019978978
+  5000 | how using get create | 0.00019978978
+  6000 | how using get create | 0.00019978978
+  7000 | how using get create | 0.00019978978
+  8000 | how using get create | 0.00019978978
+  9000 | how using get create | 0.00019978978
+ 10000 | how using get create | 0.00019978978
+  1000 | how using get create | 0.00019978978
+(10 rows)
 
 -- Teardown
 RESET paradedb.enable_rank_join;

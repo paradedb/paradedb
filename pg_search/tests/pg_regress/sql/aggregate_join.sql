@@ -485,8 +485,7 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
 
 -- Parity check for TIMESTAMP (no TZ)
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -494,16 +493,14 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
 
 DROP TABLE ts_items;
 DROP TABLE ts_orders;
@@ -553,8 +550,7 @@ SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description ||| 'order'
-GROUP BY o.category
-ORDER BY o.category;
+GROUP BY o.category;
 
 -- Parity check: TIMESTAMPTZ results must match native PG
 SET paradedb.enable_aggregate_custom_scan TO off;

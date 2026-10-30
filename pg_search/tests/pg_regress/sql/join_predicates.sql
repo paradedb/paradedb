@@ -413,9 +413,6 @@ CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description
 
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value);
 
-ANALYZE products;
-ANALYZE suppliers;
-
 -- Test case: Search predicate AND multi-table predicate (both columns are fast fields)
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value
 -- JoinScan SHOULD be proposed because price and min_order_value are fast fields

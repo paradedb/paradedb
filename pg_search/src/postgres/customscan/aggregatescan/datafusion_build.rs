@@ -171,7 +171,7 @@ fn validate_source_field_candidate(
     let is_subfield = FieldName::from(candidate_name).root() != candidate_name;
     let Some(resolved) = resolved else {
         // determine if this was a root json column
-        if is_subfield
+        if !is_subfield
             && let Some((_, data)) = context
                 .schema()
                 .and_then(|s| s.search_field_with_data(candidate_name))

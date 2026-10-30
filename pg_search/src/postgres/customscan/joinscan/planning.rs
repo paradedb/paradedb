@@ -1662,7 +1662,7 @@ pub(super) unsafe fn collect_required_fields(
                     for (source, context) in
                         plan_sources.iter_mut().zip(plan_source_contexts.iter())
                     {
-                        if source.scan_info.alias.as_deref() == Some(alias) {
+                        if context.alias.as_deref() == Some(alias) {
                             if let Some(attno) = context.get_attno_by_name(raw_col_name) {
                                 ensure_field(source, attno);
                             }
@@ -1675,7 +1675,7 @@ pub(super) unsafe fn collect_required_fields(
                     for (source, context) in
                         plan_sources.iter_mut().zip(plan_source_contexts.iter())
                     {
-                        if source.contains_rti(*rti) {
+                        if context.heap_rti == *rti {
                             // Try as a regular column first, then fall back to
                             // expression-indexed field.  The column `name` may
                             // exist in the table but only be indexed via an

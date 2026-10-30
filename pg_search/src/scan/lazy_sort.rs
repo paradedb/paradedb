@@ -375,8 +375,14 @@ impl LazySegmentTarget {
                     all_segments_claimed,
                 );
                 if let Some(ref orderby_info) = lazy_sort.orderby_info {
+                    let segment_batches: Box<dyn Iterator<Item = Vec<SegmentId>>> =
+                        if parallel_state.is_some() {
+                            Box::new(seg_iter.map(|id| vec![id]))
+                        } else {
+                            Box::new(std::iter::once(seg_iter.collect()))
+                        };
                     reader.search_top_k_in_segments(
-                        seg_iter,
+                        segment_batches,
                         orderby_info,
                         pull.window.limit.0,
                         pull.window.offset.0,

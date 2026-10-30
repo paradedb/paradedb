@@ -65,7 +65,7 @@ use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::{ProbeParams, ProbeStats};
+use tantivy::vector::{ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSimilarityFruit};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -2071,6 +2071,7 @@ impl SearchIndexReader {
     }
 
     /// Search the Tantivy index for the Top K matching documents in specific segments.
+    /// Batches are consumed lazily; vector collection receives each batch as a segment slice.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
@@ -2086,7 +2087,7 @@ impl SearchIndexReader {
     /// per-segment JSON in [`TopKSearch::segment_info`].
     pub fn search_top_k_in_segments(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        segment_batches: impl Iterator<Item = Vec<SegmentId>>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
@@ -2094,7 +2095,11 @@ impl SearchIndexReader {
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
         self.search_top_k_in_segments_internal(
-            segment_ids.map(|id| (id, SegmentQueryKind::Unconstrained)),
+            segment_batches.map(|ids| {
+                ids.into_iter()
+                    .map(|id| (id, SegmentQueryKind::Unconstrained))
+                    .collect()
+            }),
             None,
             orderby_info,
             TopKWindow {
@@ -2130,7 +2135,7 @@ impl SearchIndexReader {
                     .map(|id| (id, SegmentQueryKind::RangeConstrained)),
             );
         self.search_top_k_in_segments_internal(
-            segment_iter,
+            segment_iter.map(|segment| vec![segment]),
             Some(partition_bounds),
             orderby_info,
             window,
@@ -2141,7 +2146,7 @@ impl SearchIndexReader {
 
     fn search_top_k_in_segments_internal(
         &self,
-        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        segment_batches: impl Iterator<Item = Vec<(SegmentId, SegmentQueryKind)>>,
         partition_bounds: Option<&SearchQueryInput>,
         orderby_info: &[OrderByInfo],
         window: TopKWindow,
@@ -2177,7 +2182,7 @@ impl SearchIndexReader {
                             )));
                         }
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segments,
+                            segment_batches.flatten(),
                             partition_bounds,
                             (computer, order),
                             erased_features,
@@ -2195,7 +2200,7 @@ impl SearchIndexReader {
                 // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
                     return TopKSearch::new_for_discarded_field(self.top_in_segments(
-                        segments,
+                        segment_batches.flatten(),
                         partition_bounds,
                         (SortByRange::for_field(sort_field), order),
                         erased_features,
@@ -2207,7 +2212,7 @@ impl SearchIndexReader {
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segments,
+                            segment_batches.flatten(),
                             partition_bounds,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
@@ -2222,7 +2227,7 @@ impl SearchIndexReader {
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segments,
+                            segment_batches.flatten(),
                             partition_bounds,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
@@ -2258,7 +2263,7 @@ impl SearchIndexReader {
                         )));
                 }
                 let (top_docs, aggregation_results) = self.top_in_segments(
-                    segments,
+                    segment_batches.flatten(),
                     partition_bounds,
                     (computer, order),
                     erased_features,
@@ -2274,7 +2279,7 @@ impl SearchIndexReader {
                 feature: OrderByFeature::Score { .. },
                 direction,
             } => self.top_by_score_in_segments(
-                segments,
+                segment_batches.flatten(),
                 partition_bounds,
                 *direction,
                 window,
@@ -2344,42 +2349,44 @@ impl SearchIndexReader {
                 // Record only collected candidates, in the same lazy order as their fruits.
                 // Rejected segment IDs have no corresponding ProbeStats entry.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
-                let readers =
-                    self.segment_readers_with_query_kind(segments)
+                let readers = segment_batches.map(|segments| {
+                    self.segment_readers_with_query_kind(segments.into_iter())
                         .inspect(|(_, reader, _)| {
                             collected_ids.borrow_mut().push(reader.segment_id());
-                        });
+                        })
+                        .collect::<Vec<_>>()
+                });
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
                 let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(
+                    0 => self.collect_vector_maybe_auxiliary(
                         readers,
                         partition_bounds,
                         collector.build(),
                         aux_collector,
                     ),
-                    1 => self.collect_maybe_auxiliary(
+                    1 => self.collect_vector_maybe_auxiliary(
                         readers,
                         partition_bounds,
                         collector.with_tie_break(next()).build(),
                         aux_collector,
                     ),
-                    2 => self.collect_maybe_auxiliary(
+                    2 => self.collect_vector_maybe_auxiliary(
                         readers,
                         partition_bounds,
                         collector.with_tie_break((next(), next())).build(),
                         aux_collector,
                     ),
-                    3 => self.collect_maybe_auxiliary(
+                    3 => self.collect_vector_maybe_auxiliary(
                         readers,
                         partition_bounds,
                         collector.with_tie_break((next(), next(), next())).build(),
                         aux_collector,
                     ),
-                    4 => self.collect_maybe_auxiliary(
+                    4 => self.collect_vector_maybe_auxiliary(
                         readers,
                         partition_bounds,
                         collector
@@ -3040,6 +3047,61 @@ impl SearchIndexReader {
         collector
             .merge_fruits(fruits)
             .expect("search should not fail")
+    }
+
+    fn collect_vector_maybe_auxiliary<'a, S>(
+        &self,
+        reader_batches: impl Iterator<Item = Vec<(SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>>,
+        partition_bounds: Option<&SearchQueryInput>,
+        collector: TopDocsByVectorSimilarity<f32, S>,
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> (
+        VectorSimilarityFruit,
+        Option<IntermediateAggregationResults>,
+    )
+    where
+        S: SortKeyComputer + Send + Sync + 'static,
+    {
+        if aux_collector.is_some() || partition_bounds.is_some() {
+            return self.collect_maybe_auxiliary(
+                reader_batches.flatten(),
+                partition_bounds,
+                collector,
+                aux_collector,
+            );
+        }
+        collector
+            .check_schema(self.searcher.schema())
+            .expect("vector schema should be valid");
+        let weight = self
+            .query
+            .weight(enable_scoring(false, &self.searcher))
+            .expect("creating vector filter weight should not fail");
+        if let Some(stats) = &self.directory.io_stats {
+            stats.reset();
+        }
+        let on_segment = |ord: SegmentOrdinal| {
+            if let Some(stats) = &self.directory.io_stats {
+                stats.end_segment(self.searcher.segment_reader(ord).segment_id());
+            }
+        };
+        let fruits = reader_batches
+            .flat_map(|readers| {
+                let readers = readers
+                    .into_iter()
+                    .map(|(ord, reader, _)| (ord, reader))
+                    .collect::<Vec<_>>();
+                collector
+                    .collect_segments(weight.as_ref(), &readers, on_segment)
+                    .expect("vector collection should not fail")
+            })
+            .collect();
+        (
+            collector
+                .merge_fruits(fruits)
+                .expect("vector results should merge"),
+            None,
+        )
     }
 
     /// Collect for the given Collector, optionally paired with / wrapped with the given auxiliary
@@ -4357,6 +4419,63 @@ mod tests {
     }
 
     #[pg_test]
+    fn vector_parallelism_depends_on_filter() {
+        Spi::run(
+            "SET max_parallel_workers_per_gather = 2;
+             SET parallel_setup_cost = 0;
+             SET parallel_tuple_cost = 0;
+             SET paradedb.min_rows_per_worker = 0;
+             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3));
+             CREATE INDEX vector_parallelism_idx ON vector_parallelism
+             USING paradedb (id, (category::pdb.literal), embedding vector_l2_ops)
+             WITH (background_layer_sizes = '0', layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
+             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             RESET paradedb.global_mutable_segment_rows;"
+        ).unwrap();
+        for (predicate, workers, parallel, serial_unfiltered) in [
+            ("", 2, false, true),
+            ("AND category = 'keep'", 2, true, false),
+            ("AND id > 1", 2, true, false),
+            ("AND category = 'keep'", 0, false, false),
+            ("AND id > 1", 0, false, false),
+        ] {
+            Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+            )).unwrap().unwrap().0;
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            let mut workers = false;
+            while let Some(node) = nodes.pop() {
+                workers |= node["Workers Planned"].as_u64().unwrap_or(0) > 0;
+                if node["Index"] == "vector_parallelism_idx" {
+                    found = true;
+                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
+                    assert_eq!(
+                        node["Worker Selection"] == "Unfiltered vector TopK",
+                        serial_unfiltered,
+                        "{plan}"
+                    );
+                    if predicate.contains("category") {
+                        assert!(
+                            node["Tantivy Query"].to_string().contains("category"),
+                            "{plan}"
+                        );
+                        assert!(node.get("Filter").is_none(), "{plan}");
+                    }
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
+            assert_eq!(workers, parallel, "{plan}");
+        }
+    }
+
+    #[pg_test]
     fn vector_topk_reports_only_collected_candidates() {
         use crate::api::QueryVector;
         use crate::vector::metric::VectorMetric;
@@ -4379,13 +4498,25 @@ mod tests {
             (1, 20, 20, 2),
             (99, 100, 0, 0),
         ] {
-            let reader = open_snapshot_reader(&index_rel, range_query("id", lo, hi), false);
             for reverse in [false, true] {
-                let mut ids = reader.segment_ids();
-                if reverse {
-                    ids.reverse();
-                }
-                for tie_break in [false, true] {
+                for (tie_break, individual_segments) in
+                    [(false, false), (true, false), (false, true), (true, true)]
+                {
+                    let reader = SearchIndexReader::open_with_context(
+                        &index_rel,
+                        range_query("id", lo, hi),
+                        false,
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                        false,
+                        Some(io_stats::Trace::default()),
+                    )
+                    .unwrap();
+                    let mut ids = reader.segment_ids();
+                    if reverse {
+                        ids.reverse();
+                    }
                     let mut order = vec![OrderByInfo {
                         feature: OrderByFeature::VectorDistance {
                             name: FieldName::from("embedding"),
@@ -4404,14 +4535,23 @@ mod tests {
                             direction: SortDirection::AscNullsLast,
                         });
                     }
-                    let top = reader.search_top_k_in_segments(
-                        ids.iter().copied(),
-                        &order,
-                        50,
-                        0,
-                        None,
-                        None,
-                    );
+                    let checked_out = std::cell::Cell::new(0);
+                    let initial_reads = io_stats::vector_buffer_reads();
+                    let ids = ids.into_iter().inspect(|_| {
+                        if individual_segments && expected_segments == 2 && checked_out.get() == 1 {
+                            assert!(
+                                io_stats::vector_buffer_reads() > initial_reads,
+                                "collection must search before claiming another segment"
+                            );
+                        }
+                        checked_out.set(checked_out.get() + 1);
+                    });
+                    let batches: Box<dyn Iterator<Item = Vec<SegmentId>>> = if individual_segments {
+                        Box::new(ids.map(|id| vec![id]))
+                    } else {
+                        Box::new(std::iter::once(ids.collect()))
+                    };
+                    let top = reader.search_top_k_in_segments(batches, &order, 50, 0, None, None);
                     let docs = top
                         .results
                         .into_iter()

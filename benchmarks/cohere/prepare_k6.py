@@ -6,6 +6,7 @@ from pathlib import Path
 
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 TARGETS = (0.9, 0.95, 0.99)
+RECALL_ROUNDOFF = 1e-12
 PROBE = "paradedb.vector_cluster_max_probe"
 QVEC = "current_setting('cohere.qvec')"
 
@@ -44,7 +45,7 @@ def operating_points(reports):
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
                     not 0 < float(selected["value"]) <= 1
-                    or not target - 1e-12 <= selected["recall"] <= 1
+                    or not target - RECALL_ROUNDOFF <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
                     raise ValueError(f"{query}: invalid selected point for {target}")

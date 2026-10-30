@@ -24,6 +24,11 @@ on:
         default: ""
   workflow_call:
     inputs:
+      pg_version:
+        description: "PostgreSQL major version for runnable Docker image tests."
+        required: false
+        type: string
+        default: "18"
       ref:
         required: true
         type: string
@@ -51,6 +56,8 @@ permissions:
 jobs:
   test-paradedb:
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
+    env:
+      PG_VERSION: ${{ inputs.pg_version || '18' }}
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -443,6 +450,8 @@ jobs:
   # runnable-image job above.
   test-extension-image:
     name: Test Extension Image Build (${{ matrix.arch }})
+    # Beta releases publish runnable images only.
+    if: ${{ !contains(toJSON(github.event.inputs), '-rc.') && !contains(inputs.ref || github.ref, '-rc.') }}
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}

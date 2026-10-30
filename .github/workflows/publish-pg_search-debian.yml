@@ -2,6 +2,7 @@
 #
 # Publish pg_search (Debian)
 # Build and publish the pg_search extension as signed .deb packages to GitHub Releases.
+# Stable tags trigger this workflow. Betas are dispatched with an explicit PostgreSQL major.
 
 name: Publish pg_search (Debian)
 
@@ -9,12 +10,29 @@ on:
   push:
     tags:
       - "v*"
+      - "!v*-rc.*"
   workflow_dispatch:
     inputs:
       version:
         description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). Builds the selected branch or tag."
         required: true
         default: ""
+      pg_version:
+        description: "PostgreSQL major to package. Beta releases require one major. Stable releases can use all."
+        type: choice
+        required: false
+        default: all
+        options:
+          - all
+          - "15"
+          - "16"
+          - "17"
+          - "18"
+      publish_docker:
+        description: "Publish Docker images after packaging succeeds. Enabled by the beta release workflow."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: publish-pg_search-debian-${{ github.head_ref || github.ref }}
@@ -26,8 +44,7 @@ permissions:
   id-token: write
 
 jobs:
-  # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
-  # Docker image needs (the Debian 13 (Trixie) .deb for both arches).
+  # Stable releases build every row. Betas build the selected major on Debian 13 for both arches.
   publish-pg_search-debian:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
@@ -183,11 +200,23 @@ jobs:
     steps:
       # A job-level `if` cannot read the `matrix` context, so beta filtering happens here, per step:
       # stable releases build every row; beta (`-rc.`) releases build only the Debian 13 (Trixie)
-      # PG 18 .deb (both arches) that the PG 18 Docker image installs.
+      # selected major (both arches) that the Docker image installs.
       - name: Determine Whether to Build This Row
         id: guard
+        env:
+          RELEASE_TAG: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+          PG_VERSION: ${{ inputs.pg_version || 'all' }}
         run: |
-          if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "18" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
+          case "$PG_VERSION" in
+            all | 15 | 16 | 17 | 18) ;;
+            *) echo "Unsupported PostgreSQL major: $PG_VERSION" >&2; exit 1 ;;
+          esac
+          if [[ "$RELEASE_TAG" == *-rc.* && "$PG_VERSION" == all ]]; then
+            echo "Select one PostgreSQL major for a beta release." >&2
+            exit 1
+          fi
+          if [[ ( "$PG_VERSION" == all || "$PG_VERSION" == "${{ matrix.pg_version }}" ) &&
+                ( "$RELEASE_TAG" != *-rc.* || "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
             echo "build=false" >> "$GITHUB_OUTPUT"
@@ -431,8 +460,9 @@ jobs:
     name: Trigger ParadeDB Docker Publish
     runs-on: ubuntu-latest
     needs: publish-pg_search-debian
-    # Only on release-tag pushes, so a manual .deb rebuild doesn't also republish the Docker images.
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    # Stable tag pushes and beta release dispatches continue to Docker publishing.
+    # Manual package rebuilds only continue when publish_docker is selected.
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || inputs.publish_docker }}
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -441,17 +471,24 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
-      # This job only runs on a version-tag push, so the version is always the tag.
       - name: Resolve Release Version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: echo "version=${RELEASE_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch ParadeDB Docker Publish on This Release Ref
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
+          PG_VERSION: ${{ inputs.pg_version || 'all' }}
         run: |
+          PG_VERSIONS='[15,16,17,18]'
+          if [[ "$PG_VERSION" != all ]]; then
+            PG_VERSIONS="[$PG_VERSION]"
+          fi
           gh workflow run publish-paradedb-docker.yml \
             --repo "${GITHUB_REPOSITORY}" \
-            --ref "${GITHUB_REF_NAME}" \
-            -f version="${STEP_VERSION_VERSION}"
+            --ref "v${STEP_VERSION_VERSION}" \
+            -f version="${STEP_VERSION_VERSION}" \
+            -f pg_version="$PG_VERSIONS"

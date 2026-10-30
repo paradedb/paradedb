@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{HashMap, HashSet};
+use crate::api::HashSet;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
 
 // Check for missing workers and new databases independently of the sweep interval.
-const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 pub(crate) fn init() {
     GucRegistry::define_int_guc(
@@ -82,13 +82,11 @@ unsafe fn connect(database: Option<pg_sys::Oid>) {
     }
 }
 
-unsafe fn reload() -> bool {
+unsafe fn reload() {
     check_for_interrupts!();
-    let reloaded = BackgroundWorker::sighup_received();
-    if reloaded {
+    if BackgroundWorker::sighup_received() {
         pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
     }
-    reloaded
 }
 
 #[pg_guard]
@@ -96,11 +94,8 @@ unsafe fn reload() -> bool {
 unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
     connect(None);
     let mut worker_context = pgrx::PgMemoryContexts::new("pg_search sweep worker handles");
-    let mut probe_after = HashMap::default();
     loop {
-        if reload() {
-            probe_after.clear();
-        }
+        reload();
         if INTERVAL_MS.get() != 0 {
             let (databases, active) = BackgroundWorker::transaction(|| {
                 let mut active = HashSet::default();
@@ -151,28 +146,17 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
                 pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
                 (databases, active)
             });
-            probe_after
-                .retain(|database, _| databases.contains(database) && !active.contains(database));
             for database in databases {
-                if active.contains(&database)
-                    || probe_after
-                        .get(&database)
-                        .is_some_and(|deadline| *deadline > Instant::now())
-                {
+                if active.contains(&database) {
                     continue;
                 }
                 worker_context.switch_to(|_| {
-                    if BackgroundWorkerBuilder::new("pg_search mutable sweep")
+                    let _ = BackgroundWorkerBuilder::new("pg_search mutable sweep")
                         .enable_spi_access()
                         .set_library("pg_search")
                         .set_function("mutable_sweep_database")
                         .set_argument(database.into_datum())
-                        .load_dynamic()
-                        .is_ok()
-                    {
-                        // Databases without pg_search need only an occasional installation check.
-                        probe_after.insert(database, Instant::now() + Duration::from_secs(30));
-                    }
+                        .load_dynamic();
                 });
                 worker_context.reset();
             }

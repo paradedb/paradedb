@@ -19,11 +19,10 @@ RELEASE_FILES = {
 
 def permitted_change(path, status, version):
     """Only release metadata, generated migrations, and consumed fragments may change."""
-    clean_version = version.split("-", 1)[0]
     if path in RELEASE_FILES:
         return status == "M"
     if re.fullmatch(
-        rf"pg_search/sql/pg_search--\d+\.\d+\.\d+--{re.escape(clean_version)}\.sql",
+        rf"pg_search/sql/pg_search--\d+\.\d+\.\d+--{re.escape(version)}\.sql",
         path,
     ):
         return status == "A"

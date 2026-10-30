@@ -86,6 +86,14 @@ class ReleasePatchTests(unittest.TestCase):
         apply_patch(self.repo, self.patch, "0.26.3-rc.0")
         self.assertEqual(self.git("status", "--porcelain"), b"")
 
+    def test_beta_migration_retains_rc_suffix_and_unreleased_fragments(self):
+        migration = "pg_search/sql/pg_search--0.26.2--0.26.3-rc.0.sql"
+        self.write(migration, "SELECT 1;\n")
+        self.export()
+        apply_patch(self.repo, self.patch, "0.26.3-rc.0")
+        self.assertTrue((self.repo / migration).is_file())
+        self.assertTrue((self.repo / "pg_search/sql/unreleased/123.sql").is_file())
+
 
 class ReleaseWorkflowBoundaryTests(unittest.TestCase):
     """Keep build tools and secrets on distinct GitHub-hosted jobs."""

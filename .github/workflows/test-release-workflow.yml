@@ -1,0 +1,26 @@
+name: Test Release Workflow
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/publish-github-release.yml"
+      - ".github/workflows/test-release-workflow.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-release-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Test Release Scripts and Credential Boundary
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 -m unittest discover -s .github/scripts

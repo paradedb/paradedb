@@ -37,6 +37,8 @@ jobs:
   prepare-release:
     name: Prepare Release Without Publishing Credentials
     runs-on: ubuntu-latest
+    outputs:
+      is_latest: ${{ steps.release_latest.outputs.is_latest }}
     permissions:
       contents: read
     steps:
@@ -295,12 +297,17 @@ jobs:
         env:
           INPUTS_BETA: ${{ github.event.inputs.beta }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
+          EXPECTED_LATEST: ${{ needs.prepare-release.outputs.is_latest }}
         run: |
           FLAGS=""
           if [[ "${INPUTS_BETA}" == "true" ]]; then
             FLAGS="--beta"
           fi
           IS_LATEST=$(./scripts/release.sh is-latest "${INPUTS_VERSION}" $FLAGS)
+          if [[ "$IS_LATEST" != "$EXPECTED_LATEST" ]]; then
+            echo "::error::Release ordering changed since preparation. Re-run to prepare and review current metadata."
+            exit 1
+          fi
           echo "is_latest=${IS_LATEST}"
           echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 

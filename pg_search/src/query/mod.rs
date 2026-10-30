@@ -111,6 +111,18 @@ pub enum SearchQueryInput {
         tie_breaker: Option<f32>,
     },
     Empty,
+    /// A deferred expression that evaluated to SQL NULL (unknown). A filter
+    /// keeps a row only when its predicate is true, so NULL matches nothing,
+    /// the same as `Empty`. The two differ under negation: `NOT NULL` is NULL,
+    /// which also matches nothing, while `NOT Empty` matches every row. The
+    /// query builder therefore turns a boolean with `Null` in `must_not` into a
+    /// query that matches nothing.
+    ///
+    /// Only a direct `Null` child of `must_not` is handled this way. SQL query
+    /// wrappers such as `boost` and `const_score` are STRICT, so a SQL NULL
+    /// argument makes the entire wrapper NULL. The boolean builder instead
+    /// omits optional SQL NULL arguments; it does not embed them as `Null`.
+    Null,
     MoreLikeThis {
         #[serde(flatten)]
         options: MoreLikeThisOptions,
@@ -211,6 +223,7 @@ macro_rules! visit_search_query_input {
             SearchQueryInput::Uninitialized
             | SearchQueryInput::All
             | SearchQueryInput::Empty
+            | SearchQueryInput::Null
             | SearchQueryInput::MoreLikeThis { .. }
             | SearchQueryInput::Parse { .. }
             | SearchQueryInput::TermSet { .. }
@@ -451,6 +464,80 @@ impl SearchQueryInput {
         }
     }
 
+    /// Returns `true` if `self` produces a flat/constant BM25 score across all matching documents
+    /// (e.g. `All`, `ConstScore`, `Range`, `TermSet`), making it unsuitable for BM25 Top-K pruning.
+    pub(crate) fn is_constant_score(&self) -> bool {
+        match self {
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::Null
+            | SearchQueryInput::ConstScore { .. }
+            | SearchQueryInput::TermSet { .. } => true,
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::HeapFilter {
+                indexed_query: query,
+                ..
+            } => query.is_constant_score(),
+            SearchQueryInput::ScoreFilter { query, .. } => {
+                query.as_deref().is_none_or(Self::is_constant_score)
+            }
+            SearchQueryInput::Boolean { must, should, .. } => {
+                (must.is_empty() && should.is_empty())
+                    || must
+                        .iter()
+                        .chain(should.iter())
+                        .all(Self::is_constant_score)
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.is_empty() || disjuncts.iter().all(Self::is_constant_score)
+            }
+            SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::PostgresExpression { .. } => false,
+            SearchQueryInput::FieldedQuery { query, .. } => query.is_constant_score(),
+        }
+    }
+
+    /// Estimates a relative upper bound on the BM25 score of `self`, accounting for query-level
+    /// `Boost`, `ConstScore`, `Boolean` sums, and `DisjunctionMax`.
+    pub(crate) fn estimate_max_score(&self) -> f64 {
+        match self {
+            SearchQueryInput::Uninitialized | SearchQueryInput::Empty | SearchQueryInput::Null => {
+                0.0
+            }
+            SearchQueryInput::All | SearchQueryInput::TermSet { .. } => 1.0,
+            SearchQueryInput::ConstScore { score, .. } => (*score as f64).max(0.0),
+            SearchQueryInput::Boost { query, factor } => {
+                (*factor as f64).max(0.0) * query.estimate_max_score()
+            }
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::HeapFilter {
+                indexed_query: query,
+                ..
+            } => query.estimate_max_score(),
+            SearchQueryInput::ScoreFilter { query, .. } => {
+                query.as_deref().map_or(1.0, Self::estimate_max_score)
+            }
+            SearchQueryInput::Boolean { must, should, .. } => must
+                .iter()
+                .chain(should.iter())
+                .map(Self::estimate_max_score)
+                .sum::<f64>()
+                .max(1.0),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
+                .iter()
+                .map(Self::estimate_max_score)
+                .fold(0.0_f64, f64::max)
+                .max(1.0),
+            SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::PostgresExpression { .. } => 1.0,
+            SearchQueryInput::FieldedQuery { query, .. } => query.estimate_max_score(),
+        }
+    }
+
     pub fn index_oid(&self) -> Option<pg_sys::Oid> {
         match self {
             SearchQueryInput::WithIndex { oid, .. } => Some(*oid),
@@ -557,6 +644,9 @@ impl SearchQueryInput {
                 Self::is_full_scan_query(indexed_query)
             }
 
+            // A NULL predicate matches no row, so it can never be a full scan.
+            SearchQueryInput::Null => false,
+
             // All other variants are not full scans
             _ => false,
         }
@@ -567,6 +657,7 @@ impl SearchQueryInput {
             SearchQueryInput::Uninitialized
             | SearchQueryInput::All
             | SearchQueryInput::Empty
+            | SearchQueryInput::Null
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. } => false,
 
@@ -868,6 +959,7 @@ impl SearchQueryInput {
                 Self::Uninitialized
                 | Self::All
                 | Self::Empty
+                | Self::Null
                 | Self::Boolean { .. }
                 | Self::Boost { .. }
                 | Self::ConstScore { .. }
@@ -1377,6 +1469,22 @@ impl SearchQueryInput {
                 must_not,
                 minimum_should_match,
             } => {
+                // `NOT NULL` is NULL, and a filter keeps a row only when the
+                // predicate is true, so a NULL under `must_not` makes the whole
+                // boolean match nothing. `must_not: [Empty]` is different: it
+                // excludes nothing, so the boolean can still match rows.
+                if must_not
+                    .iter()
+                    .any(|input| matches!(input, SearchQueryInput::Null))
+                {
+                    let query = Box::new(EmptyQuery);
+                    return Ok(builder.build_leaf(
+                        query,
+                        || "Null Boolean Query".to_string(),
+                        cloned_for_estimate,
+                    ));
+                }
+
                 // ---------------------------------
                 // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
                 //
@@ -1575,6 +1683,10 @@ impl SearchQueryInput {
             SearchQueryInput::Empty => {
                 let query = Box::new(EmptyQuery);
                 Ok(builder.build_leaf(query, || "Empty Query".to_string(), cloned_for_estimate))
+            }
+            SearchQueryInput::Null => {
+                let query = Box::new(EmptyQuery);
+                Ok(builder.build_leaf(query, || "Null Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::MoreLikeThis { options, document } => {
                 let mlt_builder = MoreLikeThisQueryBuilder::new(options, index_created_by_version);
@@ -1973,7 +2085,8 @@ impl Serialize for PostgresPointer {
             serializer.serialize_none()
         } else {
             unsafe {
-                let s = pg_sys::nodeToString(self.0.cast());
+                let stripped = crate::postgres::utils::strip_placeholder_vars_deep(self.0.cast());
+                let s = pg_sys::nodeToString(stripped.cast());
                 let cstr = core::ffi::CStr::from_ptr(s)
                     .to_str()
                     .map_err(serde::ser::Error::custom)?;
@@ -2224,6 +2337,9 @@ mod tests {
         // Empty query is not a full scan
         assert!(!SearchQueryInput::Empty.is_full_scan_query());
 
+        // Null matches no row, so it is not a full scan
+        assert!(!SearchQueryInput::Null.is_full_scan_query());
+
         // Uninitialized is not a full scan
         assert!(!SearchQueryInput::Uninitialized.is_full_scan_query());
 
@@ -2378,6 +2494,17 @@ mod tests {
                 must: vec![SearchQueryInput::All],
                 should: vec![],
                 must_not: vec![SearchQueryInput::Empty, create_term_query()],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
+
+        // Must with All, MustNot with Null → not full scan (NOT NULL matches nothing)
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::Null],
                 minimum_should_match: None,
             }
             .is_full_scan_query()

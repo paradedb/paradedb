@@ -44,7 +44,7 @@ def operating_points(reports):
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
                     not 0 < float(selected["value"]) <= 1
-                    or not target <= selected["recall"] <= 1
+                    or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
                     raise ValueError(f"{query}: invalid selected point for {target}")

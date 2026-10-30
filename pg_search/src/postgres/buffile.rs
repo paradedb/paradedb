@@ -21,6 +21,7 @@
 use pgrx::PgMemoryContexts;
 use pgrx::pg_sys;
 use std::ffi::c_void;
+use std::io;
 use std::os::raw::c_int;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -167,6 +168,68 @@ impl Drop for BufFileReleaseGuard {
                 Some(Self::on_release),
                 std::ptr::from_mut(self).cast::<c_void>(),
             );
+        }
+    }
+}
+
+pub(crate) trait TempFileHandle: Copy {
+    unsafe fn close(self);
+}
+
+impl TempFileHandle for *mut pg_sys::BufFile {
+    unsafe fn close(self) {
+        unsafe { pg_sys::BufFileClose(self) };
+    }
+}
+
+impl TempFileHandle for pg_sys::File {
+    unsafe fn close(self) {
+        unsafe { pg_sys::FileClose(self) };
+    }
+}
+
+/// Owns a PostgreSQL temporary file and prevents reuse or close after failed I/O or release.
+pub(crate) struct TempFileOwner<H: TempFileHandle> {
+    handle: H,
+    poisoned: AtomicBool,
+    release_guard: Arc<BufFileReleaseGuard>,
+}
+
+// SAFETY: These bounds serve Tantivy/DataFusion; every access and drop stays on the
+// creating backend's main thread, including streams polled by its current-thread runtime.
+unsafe impl<H: TempFileHandle> Send for TempFileOwner<H> {}
+unsafe impl<H: TempFileHandle> Sync for TempFileOwner<H> {}
+
+impl<H: TempFileHandle> TempFileOwner<H> {
+    pub fn new(handle: H, release_guard: Arc<BufFileReleaseGuard>) -> Self {
+        assert_eq!(release_guard.owner(), unsafe {
+            pg_sys::CurrentResourceOwner
+        });
+        Self {
+            handle,
+            poisoned: AtomicBool::new(false),
+            release_guard,
+        }
+    }
+
+    pub fn with<T>(&self, action: impl FnOnce(H) -> io::Result<T>) -> io::Result<T> {
+        if !self.release_guard.may_close() || self.poisoned.swap(true, Ordering::Relaxed) {
+            return Err(io::Error::other(
+                "PostgreSQL temporary file is no longer usable",
+            ));
+        }
+        let result = action(self.handle);
+        self.poisoned.store(result.is_err(), Ordering::Relaxed);
+        result
+    }
+}
+
+// We intentionally do NOT use `impl_safe_drop!` here because the release and poison
+// guards also cover errors caught before drop and resource release before Rust cleanup.
+impl<H: TempFileHandle> Drop for TempFileOwner<H> {
+    fn drop(&mut self) {
+        if !self.poisoned.load(Ordering::Relaxed) && self.release_guard.may_close() {
+            unsafe { self.handle.close() };
         }
     }
 }

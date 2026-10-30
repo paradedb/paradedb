@@ -21,23 +21,26 @@ use pgrx::pg_sys;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tantivy::index::SegmentId;
+use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
-    directory::RamDirectory,
+    directory::{ManagedDirectory, RamDirectory, TerminatingWrite},
 };
 
 use crate::index::ctid_map;
+use crate::index::directory::build::BuildDirectory;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::needs_rebuild;
 use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent};
+use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
+use std::io::Write;
 
 struct PendingSegment {
     segment: Segment,
@@ -119,17 +122,14 @@ impl IndexWriterConfig {
     }
 }
 
-/// Pre-flight disk-space check run before each segment flush during an index build.
-///
-/// Index build feeds the guard the on-disk size of a written segment and how many segments it
-/// still intends to write. From those the guard projects the space the build still needs and
-/// aborts early — before it saturates the tablespace volume — rather than failing on `ENOSPC`
-/// deep into a large build.
+/// Estimates remaining disk usage during index builds from the first staged segment.
+/// Temporary files are checked before and after staging and when the build-wide estimate
+/// advances. Final outputs are checked against the index tablespace before promotion or merge.
 #[derive(Clone)]
 pub struct DiskSpaceGuard {
     indexrel: PgSearchRelation,
-    /// On-disk size of a written segment, once index build has observed one. `None` until then,
-    /// which makes [`check`](Self::check) a no-op.
+    /// Sampled temporary segment size, or its projected final-segment size for the index guard.
+    /// Checks are inactive until the first staged segment supplies a sample.
     segment_bytes: Option<u64>,
     /// How many more segments index build still intends to write.
     remaining_segments: usize,
@@ -159,17 +159,20 @@ impl DiskSpaceGuard {
     /// Error out if the remaining segments are projected not to fit within the tablespace's
     /// available space.
     fn check(&self) -> Result<()> {
+        self.check_available(self.indexrel.available_disk_bytes(), "index's tablespace")
+    }
+
+    fn check_available(&self, available_bytes: Option<u64>, location: &str) -> Result<()> {
         let Some(segment_bytes) = self.segment_bytes else {
             // no sample yet: we can't estimate segment size until one has been written
             return Ok(());
         };
 
-        // One extra segment of headroom for the transient space a merge occupies before its
-        // inputs are freed.
+        // Leave headroom for the output currently being written.
         let projected_segments = (self.remaining_segments as u64).saturating_add(1);
         let required = segment_bytes.saturating_mul(projected_segments);
 
-        let Some(available_bytes) = self.indexrel.available_disk_bytes() else {
+        let Some(available_bytes) = available_bytes else {
             return Ok(());
         };
 
@@ -183,7 +186,7 @@ impl DiskSpaceGuard {
             )
             .set_detail(format!(
                 "estimated ~{} of additional disk space is required, but only ~{} is available \
-                 on the index's tablespace",
+                 on the {location}",
                 format_bytes(required),
                 format_bytes(usable),
             ))
@@ -217,13 +220,127 @@ pub struct SerialIndexWriter {
     schema: SearchIndexSchema,
     disk_guard: Option<DiskSpaceGuard>,
     logical_bounds: Option<Arc<LogicalBoundsByField>>,
+    build: Option<BuildSegments>,
+}
+
+struct BuildSegments {
+    directory: BuildDirectory,
+    index: Index,
+    disk_guard: Option<DiskSpaceGuard>,
+    sampled_docs: Option<u32>,
 }
 
 impl SerialIndexWriter {
-    /// Attach a pre-flight disk-space check that runs before each segment flush.
+    pub fn for_build(
+        index_relation: &PgSearchRelation,
+        config: IndexWriterConfig,
+        worker_number: i32,
+    ) -> Result<Self> {
+        let mut writer = Self::open(index_relation, config, worker_number)?;
+        let directory = BuildDirectory::new();
+        let mut index = writer.index.clone();
+        *index.directory_mut() = ManagedDirectory::wrap(Box::new(directory.clone()))?;
+        writer.build = Some(BuildSegments {
+            directory,
+            index,
+            disk_guard: None,
+            sampled_docs: None,
+        });
+        Ok(writer)
+    }
+
+    pub fn persist_build_segments(&mut self, metas: &[SegmentMeta]) -> Result<Option<SegmentMeta>> {
+        if metas.is_empty() {
+            return Ok(None);
+        }
+        pgrx::check_for_interrupts!();
+        if let Some(disk_guard) = &self.disk_guard {
+            disk_guard.check()?;
+        }
+        let build = self.build.as_ref().expect("writer must be an index build");
+        let segment = if let [meta] = metas
+            && (!self.schema.has_vector_field()
+                || (meta.num_docs() as usize) < self.index.settings().vector_clustering_threshold())
+        {
+            let paths = build.directory.segment_files([meta.id()]);
+            anyhow::ensure!(
+                !paths.is_empty(),
+                "build segment {} has no files",
+                meta.id()
+            );
+            for path in paths {
+                let source = build.index.directory().open_read(&path)?;
+                let mut target = self.index.directory().open_write(&path)?;
+                for chunk in source.stream_file_chunks() {
+                    pgrx::check_for_interrupts!();
+                    target.write_all(&chunk?)?;
+                }
+                target.terminate()?;
+            }
+            self.index.segment(meta.clone())
+        } else {
+            let segments: Vec<_> = metas
+                .iter()
+                .map(|meta| build.index.segment(meta.clone()))
+                .collect();
+            let directory = self.index.directory().clone();
+            let merger = IndexMerger::open(
+                self.index.schema(),
+                self.index.settings().clone(),
+                &segments,
+                Box::new(move || directory.wants_cancel()),
+                true,
+            )?;
+            let target = self.index.new_segment();
+            let num_docs = merger.write(&target)?;
+            target.with_max_doc(num_docs)
+        };
+        let meta = self.commit_segment(segment)?;
+        let build = self.build.as_ref().unwrap();
+        for path in build
+            .directory
+            .segment_files(metas.iter().map(SegmentMeta::id))
+        {
+            build.directory.delete(&path)?;
+        }
+        Ok(Some(meta))
+    }
+
+    /// Attach separate guards for temporary staging and final writes to the index tablespace.
     pub fn with_disk_guard(mut self, disk_guard: Option<DiskSpaceGuard>) -> Self {
+        if let Some(build) = self.build.as_mut() {
+            build.disk_guard = disk_guard.clone();
+        }
         self.disk_guard = disk_guard;
         self
+    }
+
+    pub fn update_build_estimate(
+        &mut self,
+        remaining_docs: usize,
+        docs_per_final_segment: usize,
+    ) -> Result<Option<u64>> {
+        let build = self.build.as_mut().expect("writer must be an index build");
+        let Some(guard) = &mut build.disk_guard else {
+            return Ok(None);
+        };
+        let (Some(bytes), Some(docs)) = (guard.segment_bytes, build.sampled_docs) else {
+            return Ok(None);
+        };
+        let docs = docs.max(1) as usize;
+        guard.set_remaining_segments(remaining_docs.div_ceil(docs));
+        guard.check_available(
+            build.directory.available_disk_bytes(),
+            "temporary tablespace",
+        )?;
+        let final_bytes = (bytes as u128 * docs_per_final_segment as u128)
+            .div_ceil(docs as u128)
+            .min(u64::MAX as u128) as u64;
+        if let Some(guard) = &mut self.disk_guard {
+            guard.set_segment_bytes(final_bytes);
+            guard.check()?;
+        }
+        Ok(Some(final_bytes))
     }
 
     pub fn set_segment_byte_size(&mut self, bytes: u64) {
@@ -297,6 +414,7 @@ impl SerialIndexWriter {
             schema,
             disk_guard: None,
             logical_bounds: None,
+            build: None,
         })
     }
 
@@ -339,6 +457,7 @@ impl SerialIndexWriter {
             schema,
             disk_guard: None,
             logical_bounds: None,
+            build: None,
         })
     }
 
@@ -401,18 +520,20 @@ impl SerialIndexWriter {
     }
 
     pub fn commit(mut self) -> Result<Option<(SegmentMeta, PgSearchRelation)>> {
+        assert!(
+            self.build.is_none(),
+            "build segments must be persisted explicitly"
+        );
         self.finalize_segment(|| {})
             .map(|segment_meta| segment_meta.map(|segment_meta| (segment_meta, self.indexrel)))
     }
 
-    /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
-    ///
-    /// If we know that the segment we're about to create will be merged with the last segment,
-    /// we create a RAMDirectory-backed segment.
-    ///
-    /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        let mut pending = PendingSegment::new(&self.index, self.config.memory_budget)?;
+        let index = self
+            .build
+            .as_ref()
+            .map_or(&self.index, |build| &build.index);
+        let mut pending = PendingSegment::new(index, self.config.memory_budget)?;
         if let Some(bounds) = &self.logical_bounds {
             pending.set_logical_bounds(bounds.clone());
         }
@@ -420,6 +541,9 @@ impl SerialIndexWriter {
     }
 
     pub fn finalize_nocommit(&mut self) -> Result<Option<SegmentMeta>> {
+        if self.build.is_some() {
+            return self.finalize_segment(|| {});
+        }
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(None);
@@ -428,13 +552,6 @@ impl SerialIndexWriter {
         Ok(Some(pending_segment.finalize()?.meta().clone()))
     }
 
-    /// Once the memory budget is reached, we "finalize" the segment:
-    ///
-    /// 1. Serialize the segment to disk
-    /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
-    /// 3. Save the new meta entry
-    /// 4. Return any free space to the FSM
-    ///
     /// The `on_finalize` closure is called immediately before segment finalization (commit), and
     /// then, only if a segment was created.
     fn finalize_segment<OnFinalize: FnOnce()>(
@@ -449,7 +566,14 @@ impl SerialIndexWriter {
             return Ok(None);
         }
 
-        if let Some(disk_guard) = &self.disk_guard {
+        if let Some(build) = &self.build {
+            if let Some(guard) = &build.disk_guard {
+                guard.check_available(
+                    build.directory.available_disk_bytes(),
+                    "temporary tablespace",
+                )?;
+            }
+        } else if let Some(disk_guard) = &self.disk_guard {
             disk_guard.check()?;
         }
 
@@ -457,7 +581,23 @@ impl SerialIndexWriter {
 
         on_finalize();
         let finalized_segment = pending_segment.finalize()?;
-        Ok(Some(self.commit_segment(finalized_segment)?))
+        if let Some(build) = self.build.as_mut() {
+            if let Some(guard) = &mut build.disk_guard {
+                if guard.segment_bytes.is_none() {
+                    guard.set_segment_bytes(
+                        build.directory.segment_byte_size(finalized_segment.id()),
+                    );
+                    build.sampled_docs = Some(finalized_segment.meta().max_doc());
+                }
+                guard.check_available(
+                    build.directory.available_disk_bytes(),
+                    "temporary tablespace",
+                )?;
+            }
+            Ok(Some(finalized_segment.meta().clone()))
+        } else {
+            Ok(Some(self.commit_segment(finalized_segment)?))
+        }
     }
 
     fn commit_segment(&mut self, finalized_segment: Segment) -> Result<SegmentMeta> {
@@ -549,27 +689,6 @@ impl SearchIndexMerger {
 
     pub fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
         self.directory.all_entries()
-    }
-
-    pub fn flat_vector_segments(&self, segment_ids: &HashSet<SegmentId>) -> Vec<SegmentId> {
-        let threshold = self.index.settings().vector_clustering_threshold();
-        self.directory
-            .all_entries()
-            .into_iter()
-            .filter_map(|(id, entry)| {
-                if !segment_ids.contains(&id) || entry.num_docs() < threshold {
-                    return None;
-                }
-                match entry.content {
-                    SegmentMetaEntryContent::Immutable(content)
-                        if content.vec.is_some() && content.centroids.is_none() =>
-                    {
-                        Some(id)
-                    }
-                    _ => None,
-                }
-            })
-            .collect()
     }
 
     pub fn searchable_segment_ids(&self) -> tantivy::Result<HashSet<SegmentId>> {
@@ -741,6 +860,115 @@ mod tests {
 
         segment_ids.extend(writer.commit().unwrap().iter().map(|(meta, _)| meta.id()));
         segment_ids
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "insufficient disk space to complete the index build")]
+    fn test_build_disk_guard_fires_during_staging() {
+        let indexrel = PgSearchRelation::open(get_relation_oid(false));
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: None,
+        };
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config, 0)
+            .unwrap()
+            .with_disk_guard(Some(DiskSpaceGuard::new(&indexrel)));
+        writer
+            .build
+            .as_mut()
+            .unwrap()
+            .disk_guard
+            .as_mut()
+            .unwrap()
+            .set_remaining_segments(usize::MAX);
+        let field = writer.schema().search_field("data").unwrap().field();
+        let mut doc = TantivyDocument::new();
+        doc.add_text(field, "staged");
+        assert!(writer.insert(doc, 1, || {}).unwrap().is_none());
+        writer.finalize_nocommit().unwrap();
+        panic!("staging guard did not fire before final promotion");
+    }
+
+    #[pg_test]
+    fn test_build_segments_stay_temporary_until_persisted() {
+        let indexrel = PgSearchRelation::open(get_relation_oid(false));
+        let blocks_before = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(indexrel.as_ptr(), indexrel.fork_number())
+        };
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: Some(2),
+        };
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config.clone(), 0)
+            .unwrap()
+            .with_disk_guard(Some(DiskSpaceGuard::new(&indexrel)));
+        let field = writer.schema().search_field("data").unwrap().field();
+        let mut metas = Vec::new();
+        for ctid in 1..=5 {
+            let mut doc = TantivyDocument::new();
+            doc.add_text(field, "staged");
+            if let Some(meta) = writer.insert(doc, ctid, || {}).unwrap() {
+                metas.push(meta);
+            }
+        }
+        metas.extend(writer.finalize_nocommit().unwrap());
+        assert_eq!(metas.len(), 3);
+        writer.set_remaining_segments(1);
+        let final_bytes = writer.update_build_estimate(0, 5).unwrap().unwrap();
+        let build = writer.build.as_ref().unwrap();
+        let staged_bytes = build.disk_guard.as_ref().unwrap().segment_bytes.unwrap();
+        assert_eq!(build.sampled_docs, Some(2));
+        assert_eq!(final_bytes, (staged_bytes * 5).div_ceil(2));
+        assert_eq!(
+            writer.disk_guard.as_ref().unwrap().segment_bytes,
+            Some(final_bytes)
+        );
+        assert_eq!(
+            unsafe {
+                pg_sys::RelationGetNumberOfBlocksInFork(indexrel.as_ptr(), indexrel.fork_number())
+            },
+            blocks_before,
+            "scratch segments must not allocate relation blocks"
+        );
+        let before = SerialIndexWriter::open(&indexrel, config.clone(), 0).unwrap();
+        assert_eq!(before.index.searchable_segment_metas().unwrap().len(), 1);
+        drop(before);
+
+        let merged = writer.persist_build_segments(&metas[..2]).unwrap().unwrap();
+        assert_eq!(merged.num_docs(), 4);
+        let promoted = writer.persist_build_segments(&metas[2..]).unwrap().unwrap();
+        assert_eq!(promoted.id(), metas[2].id());
+        assert!(
+            writer
+                .build
+                .as_ref()
+                .unwrap()
+                .directory
+                .list_managed_files()
+                .unwrap()
+                .is_empty()
+        );
+        drop(writer);
+
+        let persisted = SerialIndexWriter::open(&indexrel, config, 0).unwrap();
+        assert_eq!(persisted.index.searchable_segment_metas().unwrap().len(), 3);
+        let reader: tantivy::IndexReader = persisted
+            .index
+            .reader_builder()
+            .reload_policy(tantivy::ReloadPolicy::Manual)
+            .try_into()
+            .unwrap();
+        let query = tantivy::query::TermQuery::new(
+            tantivy::Term::from_field_text(field, "staged"),
+            tantivy::schema::IndexRecordOption::Basic,
+        );
+        assert_eq!(
+            reader
+                .searcher()
+                .search(&query, &tantivy::collector::Count)
+                .unwrap(),
+            5
+        );
     }
 
     #[pg_test]

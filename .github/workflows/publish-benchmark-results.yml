@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Download Benchmark Results
         uses: actions/download-artifact@v8
@@ -100,6 +100,16 @@ jobs:
           echo "App token never became usable after 10 attempts" >&2
           exit 1
 
+      - name: Checkout Published Metrics
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: benchmark-data-repository
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /${{ fromJSON(steps.metadata.outputs.json).benchmark_type == 'queries' && 'benchmarks' || fromJSON(steps.metadata.outputs.json).benchmark_type }}/
+
       - name: Publish Benchmarker Results
         if: fromJSON(steps.metadata.outputs.json).benchmark_type == 'benchmarker'
         uses: ./.github/actions/publish-benchmarker-results
@@ -109,6 +119,9 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}
           context_file: ${{ fromJSON(steps.metadata.outputs.json).context_file || '' }}
+          sweep_reports_dir: ${{ fromJSON(steps.metadata.outputs.json).sweep_reports_dir || '' }}
+          buffer_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).buffer_metrics_file || '' }}
+          index_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).index_metrics_file || '' }}
           publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
 
       - name: Publish Query Results
@@ -131,6 +144,19 @@ jobs:
           test_file: ${{ fromJSON(steps.metadata.outputs.json).test_file }}
           ref: ${{ fromJSON(steps.metadata.outputs.json).ref }}
           github_token: ${{ steps.app-token.outputs.token }}
+
+      - name: Push Benchmark Results
+        working-directory: benchmark-data-repository
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='github-actions[bot]@users.noreply.github.com' \
+            commit -m "Publish benchmark results ${BENCHMARK_PUBLICATION_ID}"
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
 
       - name: Record Successful Publication
         uses: actions/upload-artifact@v7

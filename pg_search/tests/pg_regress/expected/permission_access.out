@@ -1,0 +1,211 @@
+-- Direct APIs share a read policy; maintenance has a separate privilege policy.
+-- Every negative assertion checks 42501, so a malformed call cannot pass.
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+BEGIN;
+CREATE ROLE permission_access_reader NOSUPERUSER NOBYPASSRLS;
+CREATE SCHEMA permission_access;
+GRANT USAGE ON SCHEMA permission_access TO permission_access_reader;
+CREATE TABLE permission_access.docs(id integer PRIMARY KEY, email text);
+INSERT INTO permission_access.docs VALUES (1, 'first'), (2, 'second');
+CREATE INDEX docs_idx ON permission_access.docs USING paradedb (id, (email::pdb.literal));
+CREATE FUNCTION permission_access.assert_denied(queries text[]) RETURNS integer
+LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE q text; n integer := 0;
+BEGIN
+  FOREACH q IN ARRAY queries LOOP
+    BEGIN
+      EXECUTE q;
+      RAISE EXCEPTION 'unexpected successful access: %', q;
+    EXCEPTION WHEN insufficient_privilege THEN n := n + 1;
+    END;
+  END LOOP;
+  RETURN n;
+END $$;
+CREATE FUNCTION permission_access.read_queries() RETURNS text[]
+LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
+  'SELECT * FROM paradedb.schema(''permission_access.docs_idx'')',
+  'SELECT paradedb.index_fields(''permission_access.docs_idx'')',
+  'SELECT paradedb.layer_sizes(''permission_access.docs_idx'')',
+  'SELECT paradedb.background_layer_sizes(''permission_access.docs_idx'')',
+  'SELECT paradedb.combined_layer_sizes(''permission_access.docs_idx'')',
+  'SELECT paradedb.index_created_at(''permission_access.docs_idx'')',
+  'SELECT paradedb.index_created_by(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.merge_info(''permission_access.docs_idx'')',
+  'SELECT paradedb.is_merging(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.vacuum_info(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.fsm_info(''permission_access.docs_idx'')',
+  'SELECT paradedb.fsm_size(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.index_info(''permission_access.docs_idx'')',
+  'SELECT * FROM pdb.index_segments(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.vector_info(''permission_access.docs_idx'', ''missing'')',
+  'SELECT * FROM paradedb.vector_config(''permission_access.docs_idx'', ''missing'')',
+  'SELECT * FROM paradedb.vector_clusters(''permission_access.docs_idx'', ''missing'')',
+  'SELECT paradedb.find_ctid(''permission_access.docs_idx'', ''(0,1)''::tid)',
+  'SELECT * FROM paradedb.validate_checksum(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.storage_info(''permission_access.docs_idx'')',
+  'SELECT * FROM paradedb.page_info(''permission_access.docs_idx'', 0)',
+  'SELECT * FROM pdb.verify_index(''permission_access.docs_idx'')',
+  'SELECT paradedb.aggregate(''permission_access.docs_idx'', paradedb.all(), ''{"a":{"terms":{"field":"email"}}}'')'
+] $$;
+-- Audit every regclass overload, including functions that do not read an index.
+-- A new signature must be classified and its access/lock policy covered explicitly.
+-- Exceptions: with_index constructs query input; deprecated bgmerger_state,
+-- reset_bgworker_state and both force_merge overloads read no index data.
+-- SQL signatures cannot distinguish IndexOid from pgrx's implicitly locking PgRelation;
+-- the lock-order tests independently check that argument decoding takes no index lock.
+SELECT n.nspname || '.' || p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ')' AS regclass_function
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_depend d ON d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
+JOIN pg_extension e ON e.oid = d.refobjid AND e.extname = 'pg_search'
+WHERE 'regclass'::regtype::oid = ANY (p.proargtypes::oid[])
+ORDER BY 1;
+                                                                                regclass_function                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ paradedb.aggregate(index regclass, query paradedb.searchqueryinput, agg json, solve_mvcc boolean, memory_limit bigint, bucket_limit bigint, visibility text)
+ paradedb.background_layer_sizes(index regclass)
+ paradedb.bgmerger_state(index regclass)
+ paradedb.combined_layer_sizes(index regclass)
+ paradedb.find_ctid(index regclass, ctid tid)
+ paradedb.force_merge(_index regclass, _oversized_layer_size_bytes bigint)
+ paradedb.force_merge(_index regclass, _oversized_layer_size_pretty text)
+ paradedb.fsm_info(index regclass)
+ paradedb.fsm_size(index regclass)
+ paradedb.index_created_at(index regclass)
+ paradedb.index_created_by(index regclass)
+ paradedb.index_fields(index regclass)
+ paradedb.index_info(index regclass, show_invisible boolean)
+ paradedb.is_merging(index regclass)
+ paradedb.layer_sizes(index regclass)
+ paradedb.merge_info(index regclass)
+ paradedb.merge_lock_garbage_collect(index regclass)
+ paradedb.page_info(index regclass, blockno bigint)
+ paradedb.reset_bgworker_state(index regclass)
+ paradedb.schema(index regclass)
+ paradedb.storage_info(index regclass)
+ paradedb.vacuum_info(index regclass)
+ paradedb.validate_checksum(index regclass)
+ paradedb.vector_clusters(index regclass, field text)
+ paradedb.vector_config(index regclass, field text)
+ paradedb.vector_estimator_info(index regclass, field text, queries vector[])
+ paradedb.vector_info(index regclass, field text)
+ paradedb.with_index(index regclass, query paradedb.searchqueryinput)
+ pdb.index_segments(index regclass)
+ pdb.verify_index(index regclass, heapallindexed boolean, sample_rate double precision, report_progress boolean, "verbose" boolean, on_error_stop boolean, segment_ids integer[])
+(30 rows)
+
+SET ROLE permission_access_reader;
+SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;
+ no_grant_denials 
+------------------
+               23
+(1 row)
+
+SELECT permission_access.assert_denied(ARRAY[
+  'SELECT * FROM paradedb.vector_estimator_info(''permission_access.docs_idx'', ''missing'')'
+]) AS vector_estimator_denial;
+ vector_estimator_denial 
+-------------------------
+                       1
+(1 row)
+
+SELECT count(*) AS hidden_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';
+ hidden_inventory 
+------------------
+                0
+(1 row)
+
+SELECT count(*) AS hidden_bulk_checks FROM pdb.verify_all_indexes(schema_pattern => 'permission_access');
+ hidden_bulk_checks 
+--------------------
+                  0
+(1 row)
+
+RESET ROLE;
+GRANT SELECT ON permission_access.docs TO permission_access_reader;
+SET ROLE permission_access_reader;
+SELECT count(*) AS allowed_fields FROM paradedb.schema('permission_access.docs_idx');
+ allowed_fields 
+----------------
+              3
+(1 row)
+
+SELECT paradedb.fsm_size('permission_access.docs_idx') > 0 AS allowed_fsm_size;
+ allowed_fsm_size 
+------------------
+ t
+(1 row)
+
+SELECT count(*) >= 0 AS allowed_fsm_info FROM paradedb.fsm_info('permission_access.docs_idx');
+ allowed_fsm_info 
+------------------
+ t
+(1 row)
+
+SELECT sum(num_docs) AS allowed_docs FROM pdb.index_segments('permission_access.docs_idx');
+ allowed_docs 
+--------------
+            2
+(1 row)
+
+SELECT count(*) AS visible_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';
+ visible_inventory 
+-------------------
+                 1
+(1 row)
+
+SELECT bool_and(passed) AS allowed_verification FROM pdb.verify_index('permission_access.docs_idx');
+ allowed_verification 
+----------------------
+ t
+(1 row)
+
+SELECT permission_access.assert_denied(ARRAY[
+  'SELECT * FROM paradedb.merge_lock_garbage_collect(''permission_access.docs_idx'')'
+]) AS reader_cannot_maintain;
+ reader_cannot_maintain 
+------------------------
+                      1
+(1 row)
+
+RESET ROLE;
+SELECT count(*) AS owner_maintenance FROM paradedb.merge_lock_garbage_collect('permission_access.docs_idx');
+ owner_maintenance 
+-------------------
+                 0
+(1 row)
+
+ALTER TABLE permission_access.docs ENABLE ROW LEVEL SECURITY;
+SET ROLE permission_access_reader;
+SELECT count(*) AS ordinary_rls_rows FROM permission_access.docs;
+ ordinary_rls_rows 
+-------------------
+                 0
+(1 row)
+
+-- Name the backing table when a multi-index diagnostic hits active RLS.
+SAVEPOINT named_rls_error;
+SELECT * FROM pdb.index_segments('permission_access.docs_idx');
+ERROR:  direct index reads are not supported when row-level security applies to table permission_access.docs
+ROLLBACK TO SAVEPOINT named_rls_error;
+SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_denials;
+ rls_denials 
+-------------
+          23
+(1 row)
+
+SELECT count(*) AS rls_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';
+ rls_inventory 
+---------------
+             0
+(1 row)
+
+RESET ROLE;
+ROLLBACK;

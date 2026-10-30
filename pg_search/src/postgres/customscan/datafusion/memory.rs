@@ -17,6 +17,7 @@
 
 use super::spill::{SpillNotify, buffile_disk_manager_mode};
 use crate::gucs;
+use crate::scan::rank_join_exec::RankJoinExec;
 use datafusion::common::DataFusionError;
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
@@ -109,7 +110,7 @@ pub fn create_memory_pool(
     let mut total_memory = 0usize;
     plan.apply(|node| {
         let partitions = node.output_partitioning().partition_count();
-        if node.is::<HashJoinExec>() {
+        if node.is::<HashJoinExec>() || node.is::<RankJoinExec>() {
             total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
         } else if node.is::<SortExec>() || node.is::<SortMergeJoinExec>() {
             total_memory += work_mem * partitions;

@@ -107,7 +107,7 @@ jobs:
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
 
-      - name: Test recall-to-k6 handoff
+      - name: Test Cohere benchmark helpers
         run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 
       - name: Configure RunsOn caching
@@ -181,11 +181,26 @@ jobs:
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
             -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c "SELECT name, setting, unit FROM pg_settings
+                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                               'max_worker_processes', 'max_parallel_maintenance_workers',
+                               'parallel_leader_participation', 'paradedb.global_target_segment_count')
+                ORDER BY name;" \
+            | tee benchmark-artifacts/index-build-settings.log
+          cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
+          pdbench build --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
+            --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
+            --force-rebuild \
+            | tee benchmark-artifacts/index-build.log
+          jq '.data | [
+            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
+          ]' benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
-            -f benchmarks/datasets/cohere/indexes/pg_search.sql \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
-            | tee benchmark-artifacts/index-build.log
+            | tee benchmark-artifacts/index-vacuum.log
 
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@v14
@@ -231,10 +246,69 @@ jobs:
               --query "$query" --no-compare --html
           done
 
+      - name: Find mainline pdbench baseline
+        id: pdbench_baseline
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const name = `cohere-${process.env.COHERE_SIZE}-diagnostics`;
+            const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
+              ...context.repo,
+              workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
+              branch: 'main', event: 'push', status: 'success', per_page: 100,
+            });
+            for await (const { data: runs } of pages) {
+              for (const run of runs) {
+                // Keep the baseline stable if a newer main run finishes first.
+                if (run.run_number >= context.runNumber) continue;
+                const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                  ...context.repo, run_id: run.id, per_page: 100,
+                });
+                const artifact = artifacts.find(a => a.name === name && !a.expired);
+                if (!artifact) continue;
+                core.setOutput('run_id', run.id);
+                core.setOutput('commit', run.head_sha);
+                core.setOutput('url', run.html_url);
+                core.info(`Baseline: ${run.html_url} (${run.head_sha})`);
+                return;
+              }
+            }
+            await core.summary.addHeading('pdbench mainline comparison', 3)
+              .addRaw(`Skipped: no successful main push has an unexpired ${name} artifact.\n`)
+              .write();
+
+      - name: Download mainline pdbench baseline
+        if: steps.pdbench_baseline.outputs.run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: cohere-${{ matrix.size }}-diagnostics
+          path: benchmark-baseline
+          run-id: ${{ steps.pdbench_baseline.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Compare pdbench sweeps with mainline
+        if: steps.pdbench_baseline.outputs.run_id != ''
+        env:
+          BASELINE_COMMIT: ${{ steps.pdbench_baseline.outputs.commit }}
+          BASELINE_URL: ${{ steps.pdbench_baseline.outputs.url }}
+          CURRENT_COMMIT: ${{ steps.commit_info.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          python3 benchmarks/cohere/compare_search.py \
+            --baseline "benchmark-baseline/search/${COHERE_SIZE}" \
+            --current "benchmark-artifacts/search/${COHERE_SIZE}" \
+            --output benchmark-artifacts/comparison \
+            --baseline-commit "$BASELINE_COMMIT" --baseline-url "$BASELINE_URL" \
+            --current-commit "$CURRENT_COMMIT"
+          cat benchmark-artifacts/comparison/summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Prepare k6 operating points
         run: |
           set -euo pipefail
           python3 benchmarks/cohere/prepare_k6.py --runs benchmark-artifacts/search --output benchmark-artifacts
+          jq '[.[] | select(.reached and .buffers.shared_hit_mean != null)
+            | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
+          ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json
           psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
             -c 'SELECT json_agg(emb::text ORDER BY id) FROM pdbench_queries' \
             > benchmark-artifacts/query_vectors.json
@@ -281,7 +355,10 @@ jobs:
             {"dataset":"cohere-${{ matrix.size }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
-             "context_file":"benchmark-artifacts/operating_points.md"}
+             "context_file":"benchmark-artifacts/operating_points.md",
+             "sweep_reports_dir":"benchmark-artifacts/comparison",
+             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()

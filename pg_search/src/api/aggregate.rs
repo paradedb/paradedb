@@ -58,7 +58,7 @@
 
 use std::error::Error;
 
-use pgrx::{FromDatum, Json, JsonB, PgRelation, default, pg_extern};
+use pgrx::{FromDatum, Json, JsonB, default, pg_extern};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{AggregateRequest, execute_aggregate};
@@ -67,6 +67,7 @@ use crate::api::version::VersionInfo;
 use crate::gucs;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
+use crate::postgres::access::IndexOid;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
@@ -75,7 +76,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
 fn aggregate_impl(
-    index: PgRelation,
+    index: IndexOid,
     query: SearchQueryInput,
     agg: Json,
     visibility: MvccVisibility,
@@ -92,7 +93,7 @@ fn aggregate_impl(
         .try_into()
         .unwrap_or_else(|_| pgrx::error!("bucket_limit must be <= {}", u32::MAX));
 
-    let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
+    let relation = index.read();
 
     // Validate aggregation fields exist and are supported before executing.
     // This path bypasses the planner, so we validate here directly.
@@ -182,7 +183,7 @@ fn resolve_udf_visibility(solve_mvcc: Option<bool>, visibility: Option<String>) 
 /// in place so that positional calls written against the old signature still resolve.
 #[pg_extern]
 pub fn aggregate(
-    index: PgRelation,
+    index: IndexOid,
     query: SearchQueryInput,
     agg: Json,
     solve_mvcc: default!(Option<bool>, "NULL"),

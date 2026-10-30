@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793324648400,
+  "lastUpdate": 1793324668430,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -47392,6 +47392,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12944801679-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f69b6eb17a48e86a26d708e86d543da055ad85e9",
+          "message": "fix: match every row for an empty `<> ALL` array in pushdown (#7100)\n\n# Ticket(s) Closed\n\n- Closes #7001\n\n## What\n\n`NOT (id = ANY('{}'))` and `id <> ALL('{}')` combined with a search now\nreturn the search's matches instead of no rows.\n\n## Why\n\nAn empty `ALL` is true for every row, including rows where the column is\nNULL. PostgreSQL rewrites `NOT (x = ANY(arr))` to `x <> ALL(arr)`, and\n`paradedb.terms_with_operator` turns that into a `Boolean` with one\n`must` clause per array element. With an empty array that is a `Boolean`\nwith no clauses, which matches nothing. It shows up in the plan as the\n`{\"boolean\":{}}` from the issue.\n\n## How\n\nIn conjunction mode, `terms_with_operator` returns\n`SearchQueryInput::All` when there are no terms. The disjunction case\n(`= ANY('{}')`) is unchanged and still matches nothing, which is\ncorrect. An `ALL` array containing a NULL still returns `Empty` as\nbefore, since that check runs first.\n\n## Tests\n\nNew regression test `issue_7001`, run on PG18. It covers the issue's\nrepro, `<> ALL('{}')` written directly, `> ALL('{}')`, a NULL column\nvalue, non-empty arrays, an empty `= ANY`, and the array passed as a\nprepared statement parameter. Without the fix, five of its queries\nreturn no rows and the plan shows `{\"boolean\":{}}`. With it, they match\nPostgreSQL.",
+          "timestamp": "2026-10-29T18:09:57-07:00",
+          "tree_id": "cd8968cb7cf8458d01d6285ff83498567be2d27a",
+          "url": "https://github.com/paradedb/paradedb/commit/f69b6eb17a48e86a26d708e86d543da055ad85e9"
+        },
+        "date": 1793324667106,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.068,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.627,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 10.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.025,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.62,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 10.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.068,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.662,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 10.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.323,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.902,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 10.135,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.91,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 10.141,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.897,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 10.114,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.683,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.565,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.16,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.721,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.035,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.962,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.644,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 10.016,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12946479677-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -49395,6 +49555,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12944801679-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f69b6eb17a48e86a26d708e86d543da055ad85e9",
+          "message": "fix: match every row for an empty `<> ALL` array in pushdown (#7100)\n\n# Ticket(s) Closed\n\n- Closes #7001\n\n## What\n\n`NOT (id = ANY('{}'))` and `id <> ALL('{}')` combined with a search now\nreturn the search's matches instead of no rows.\n\n## Why\n\nAn empty `ALL` is true for every row, including rows where the column is\nNULL. PostgreSQL rewrites `NOT (x = ANY(arr))` to `x <> ALL(arr)`, and\n`paradedb.terms_with_operator` turns that into a `Boolean` with one\n`must` clause per array element. With an empty array that is a `Boolean`\nwith no clauses, which matches nothing. It shows up in the plan as the\n`{\"boolean\":{}}` from the issue.\n\n## How\n\nIn conjunction mode, `terms_with_operator` returns\n`SearchQueryInput::All` when there are no terms. The disjunction case\n(`= ANY('{}')`) is unchanged and still matches nothing, which is\ncorrect. An `ALL` array containing a NULL still returns `Empty` as\nbefore, since that check runs first.\n\n## Tests\n\nNew regression test `issue_7001`, run on PG18. It covers the issue's\nrepro, `<> ALL('{}')` written directly, `> ALL('{}')`, a NULL column\nvalue, non-empty arrays, an empty `= ANY`, and the array passed as a\nprepared statement parameter. Without the fix, five of its queries\nreturn no rows and the plan shows `{\"boolean\":{}}`. With it, they match\nPostgreSQL.",
+          "timestamp": "2026-10-29T18:09:57-07:00",
+          "tree_id": "cd8968cb7cf8458d01d6285ff83498567be2d27a",
+          "url": "https://github.com/paradedb/paradedb/commit/f69b6eb17a48e86a26d708e86d543da055ad85e9"
+        },
+        "date": 1793324667924,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 98.63064513889636,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 98.97043884109739,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 98.60067982601798,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 106.0981695416948,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 105.84228382965706,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 105.89528490738999,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 147.41525807798848,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 138.33614948559375,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 110.24132291294046,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12946479677-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -57057,6 +57287,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12944801679-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f69b6eb17a48e86a26d708e86d543da055ad85e9",
+          "message": "fix: match every row for an empty `<> ALL` array in pushdown (#7100)\n\n# Ticket(s) Closed\n\n- Closes #7001\n\n## What\n\n`NOT (id = ANY('{}'))` and `id <> ALL('{}')` combined with a search now\nreturn the search's matches instead of no rows.\n\n## Why\n\nAn empty `ALL` is true for every row, including rows where the column is\nNULL. PostgreSQL rewrites `NOT (x = ANY(arr))` to `x <> ALL(arr)`, and\n`paradedb.terms_with_operator` turns that into a `Boolean` with one\n`must` clause per array element. With an empty array that is a `Boolean`\nwith no clauses, which matches nothing. It shows up in the plan as the\n`{\"boolean\":{}}` from the issue.\n\n## How\n\nIn conjunction mode, `terms_with_operator` returns\n`SearchQueryInput::All` when there are no terms. The disjunction case\n(`= ANY('{}')`) is unchanged and still matches nothing, which is\ncorrect. An `ALL` array containing a NULL still returns `Empty` as\nbefore, since that check runs first.\n\n## Tests\n\nNew regression test `issue_7001`, run on PG18. It covers the issue's\nrepro, `<> ALL('{}')` written directly, `> ALL('{}')`, a NULL column\nvalue, non-empty arrays, an empty `= ANY`, and the array passed as a\nprepared statement parameter. Without the fix, five of its queries\nreturn no rows and the plan shows `{\"boolean\":{}}`. With it, they match\nPostgreSQL.",
+          "timestamp": "2026-10-29T18:09:57-07:00",
+          "tree_id": "cd8968cb7cf8458d01d6285ff83498567be2d27a",
+          "url": "https://github.com/paradedb/paradedb/commit/f69b6eb17a48e86a26d708e86d543da055ad85e9"
+        },
+        "date": 1793324668422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.3913837358833333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.6015625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12946479677-index"
       }
     ]
   }

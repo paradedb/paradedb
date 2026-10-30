@@ -133,7 +133,7 @@ pub unsafe fn pullup_fast_fields(
         // Try to match complex expression (or Var with source mismatch) against index expressions
         if let Some(resolved) = context.resolve(
             ColumnRef::Expr((*te).expr as *mut pg_sys::Node),
-            Access::Any,
+            Access::Scalar,
         ) {
             matches.push(resolved.field);
             continue;
@@ -216,9 +216,10 @@ pub unsafe fn pullup_fast_fields(
                     0,
                 );
 
-                if let Some(resolved) =
-                    context.resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), Access::Any)
-                {
+                if let Some(resolved) = context.resolve(
+                    ColumnRef::Expr(dummy_var as *mut pg_sys::Node),
+                    Access::Scalar,
+                ) {
                     matches.push(resolved.field);
                 }
             }

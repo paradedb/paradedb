@@ -834,7 +834,7 @@ impl ParsedAggregateField {
         let field_expr = expression.field_expression();
 
         let field_name =
-            if let Some(resolved) = source.resolve(ColumnRef::Expr(field_expr), Access::Any) {
+            if let Some(resolved) = source.resolve(ColumnRef::Expr(field_expr), Access::Scalar) {
                 FieldName::from(resolved.field.name())
             } else {
                 expression.field_name(context)?

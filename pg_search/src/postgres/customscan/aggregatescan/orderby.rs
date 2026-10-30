@@ -89,7 +89,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                         Some(field_name.into_inner())
                     } else {
                         context
-                            .resolve(ColumnRef::Expr(expr), Access::Any)
+                            .resolve(ColumnRef::Expr(expr), Access::Scalar)
                             .map(|r| r.field.name())
                     }
                 })

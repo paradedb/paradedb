@@ -2111,7 +2111,10 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             } else {
                 let mut found = false;
                 for source in &sources {
-                    if source.resolve(ColumnRef::Expr(expr), Access::Any).is_some() {
+                    if source
+                        .resolve(ColumnRef::Expr(expr), Access::Scalar)
+                        .is_some()
+                    {
                         found = true;
                         break;
                     }
@@ -2411,7 +2414,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 3: Check if expression matches an indexed expression (existing behavior)
     let matched_source = sources.iter().find_map(|source| {
-        let search_field = source.resolve(ColumnRef::Expr(expr), Access::Any)?.field;
+        let search_field = source.resolve(ColumnRef::Expr(expr), Access::Scalar)?.field;
         Some((source.heap_rti, search_field.name().to_string()))
     });
     if let Some((rti, field_name)) = matched_source {
@@ -2919,7 +2922,7 @@ impl JoinSortExprKind {
             }
             if let Some(resolved) = source.resolve(
                 ColumnRef::Expr(check_expr as *mut pg_sys::Node),
-                Access::Any,
+                Access::Scalar,
             ) {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Field {

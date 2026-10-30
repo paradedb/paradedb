@@ -111,7 +111,9 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         continue;
                     }
                     (field_name.to_string(), attno)
-                } else if let Some(resolved) = context.resolve(ColumnRef::Expr(expr), Access::Any) {
+                } else if let Some(resolved) =
+                    context.resolve(ColumnRef::Expr(expr), Access::Scalar)
+                {
                     (resolved.field.name(), 0) // Complex expressions don't have a single attno
                 } else {
                     last_error =

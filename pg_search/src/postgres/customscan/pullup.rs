@@ -59,10 +59,19 @@ impl ResolvedField {
 }
 
 /// How the caller will use consume the value
+#[derive(Copy, Clone)]
 pub enum Access {
     Scalar,
     List,
     Any,
+}
+impl Access {
+    fn is_unallowed_array(&self, is_array: bool) -> bool {
+        match self {
+            Self::List | Self::Any => false,
+            Self::Scalar => is_array,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -110,15 +119,10 @@ impl SourceContext {
         //consolidate their code here
         match col {
             ColumnRef::Attno(attno) => {
-                let resolved = unsafe { resolve_fast_field(attno, self)? };
-                let array_is_here_and_considered = match access {
-                    Access::List | Access::Any => false,
-                    Access::Scalar => resolved.field.is_array(),
-                };
-
+                let resolved = unsafe { resolve_fast_field(attno, self, access)? };
                 if !field_type_supported_for_pullup(
                     resolved.field.field_type(),
-                    array_is_here_and_considered,
+                    access.is_unallowed_array(resolved.field.is_array()),
                 ) {
                     return None;
                 }
@@ -128,40 +132,21 @@ impl SourceContext {
                 let resolved = resolve_fast_field_by_name(name, self.indexrel()?)?;
                 let is_subfield = FieldName::from(name).root() != name;
                 if !is_subfield
-                    && !field_type_supported_for_pullup(resolved.field.field_type(), false)
+                    && !field_type_supported_for_pullup(
+                        resolved.field.field_type(),
+                        access.is_unallowed_array(resolved.field.is_array()),
+                    )
                 {
                     return None;
                 }
-                match (access, &resolved) {
-                    (
-                        Access::List,
-                        ResolvedField {
-                            field:
-                                _field @ WhichFastField::Named {
-                                    cardinality: FieldCardinality::List,
-                                    ..
-                                },
-                            ..
-                        },
-                    ) => Some(resolved),
-                    (
-                        Access::Scalar,
-                        ResolvedField {
-                            field:
-                                _field @ WhichFastField::Named {
-                                    cardinality: FieldCardinality::Scalar,
-                                    ..
-                                },
-                            ..
-                        },
-                    ) => Some(resolved),
-                    (Access::Any, _) => Some(resolved),
-                    _ => None,
-                }
+                Some(resolved)
             }
             ColumnRef::Expr(node) => {
                 let (ff, is_json) = find_matching_fast_field(node, self)?;
-                if !field_type_supported_for_pullup(ff.field_type(), ff.is_array()) {
+                if !field_type_supported_for_pullup(
+                    ff.field_type(),
+                    access.is_unallowed_array(ff.is_array()),
+                ) {
                     return None;
                 }
                 Some(ResolvedField::new(None, ff, is_json))
@@ -323,6 +308,7 @@ fn find_matching_fast_field(
 unsafe fn resolve_fast_field(
     attno: pg_sys::AttrNumber,
     context: &SourceContext,
+    access: Access,
 ) -> Option<ResolvedField> {
     let Some(index) = &context.indexrel else {
         return None;
@@ -397,7 +383,7 @@ unsafe fn resolve_fast_field(
                 att.attcollation,
                 0,
             );
-            context.resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), Access::Any)
+            context.resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), access)
         }
     }
 }

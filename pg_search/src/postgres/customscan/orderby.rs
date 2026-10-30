@@ -231,7 +231,7 @@ pub unsafe fn analyze_sort_expression(
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
     if let Some(source_context) = source
-        && let Some(resolved) = source_context.resolve(ColumnRef::Expr(node), Access::Any)
+        && let Some(resolved) = source_context.resolve(ColumnRef::Expr(node), Access::Scalar)
     {
         let field_name = FieldName::from(resolved.field.name());
         if let Some(var) = extract_any_var_from_expr(node) {

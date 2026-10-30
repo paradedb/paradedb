@@ -135,7 +135,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 Some(field_name.into_inner())
             } else {
                 context
-                    .resolve(ColumnRef::Expr(actual_expr), Access::Any)
+                    .resolve(ColumnRef::Expr(actual_expr), Access::Scalar)
                     .map(|r| r.field.name())
             };
 

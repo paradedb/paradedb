@@ -109,7 +109,7 @@ pub fn arb_distinct_mode<S: AsRef<str>>(
                         });
                         continue;
                     }
-                    IndexExpression::LiteralNormalized => continue,
+                    IndexExpression::LiteralNormalized | IndexExpression::VectorCosine => continue,
                     IndexExpression::Literal | IndexExpression::UnicodeWordsColumnar => {}
                 }
             }

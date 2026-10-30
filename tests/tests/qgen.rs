@@ -199,6 +199,14 @@ const COLUMNS: &[Column] = &[
                 ELSE ARRAY[]::text[] \
             END)",
         ),
+    Column::new("embedding", "vector(3)", "'[1,1,1]'")
+        .whereable(false)
+        .groupable(false)
+        .orderable(false)
+        .index_expression(IndexExpression::VectorCosine)
+        .random_generator_sql(
+            "ARRAY[(floor(random() * 10) + 1)::float4, (floor(random() * 10) + 1)::float4, (floor(random() * 10) + 1)::float4]::vector(3)",
+        ),
 ];
 
 fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
@@ -1620,9 +1628,16 @@ async fn generated_pdb_agg_single_table(database: Db) {
     });
 }
 
-/// Property test for top-K scored and fast-field-ordered joins comparing `HashJoinExec`
-/// (`paradedb.enable_rank_join = off`) against `RankJoinExec` (`paradedb.enable_rank_join = on`,
-/// `paradedb.rank_join_min_rows = 0`).
+#[derive(Clone, Copy, Debug)]
+enum RankJoinOrderKind {
+    FastField,
+    Score(usize),
+    VectorDistance { query: [u8; 3], table_idx: usize },
+}
+
+/// Property test for top-K scored, fast-field-ordered, and vector-distance-ordered `INNER` and
+/// `SEMI` joins comparing `HashJoinExec` (`paradedb.enable_rank_join = off`) against
+/// `RankJoinExec` (`paradedb.enable_rank_join = on`, `paradedb.rank_join_min_rows = 0`).
 #[rstest]
 #[tokio::test]
 async fn generated_rank_join(database: Db) {
@@ -1656,59 +1671,135 @@ async fn generated_rank_join(database: Db) {
         )
     });
 
+    let order_kind_strategy = prop_oneof![
+        1 => Just(RankJoinOrderKind::FastField),
+        1 => Just(RankJoinOrderKind::Score(1)),
+        1 => Just(RankJoinOrderKind::Score(usize::MAX)),
+        2 => (1..=5u8, 1..=5u8, 1..=5u8, 0..3usize)
+            .prop_map(|(x, y, z, table_idx)| RankJoinOrderKind::VectorDistance {
+                query: [x, y, z],
+                table_idx,
+            }),
+    ];
+
     proptest!(qgen_proptest_config(), |(
-        (join, table_wheres, extra_base_where, mut order_parts) in join_and_where_strategy,
+        (join, table_wheres, extra_base_where, order_parts) in join_and_where_strategy,
+        semi_exists in proptest::option::of(proptest::bool::ANY),
         disjunctive in proptest::bool::ANY,
-        scored_tables in prop_oneof![Just(0usize), Just(1usize), Just(usize::MAX)],
+        order_kind in order_kind_strategy,
+        extra_vector_tiebreaker in proptest::bool::ANY,
         multiply_scores in proptest::bool::ANY,
         descending in proptest::bool::ANY,
         limit in 1..=25usize,
         offset in 0..=10usize,
         mut gucs in any::<PgGucs>(),
     )| {
+        let dir = if descending { "DESC" } else { "ASC" };
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
         let first_table = used_tables[0];
 
-        let where_sep = if disjunctive { " OR " } else { " AND " };
-        let where_clauses = table_wheres
-            .iter()
-            .map(|w| format!("({})", w.to_sql("@@@")))
-            .collect::<Vec<_>>()
-            .join(where_sep);
+        let (from_prefix, where_clauses, visible_tables, mut order_parts, use_disjunctive) =
+            if let Some(((outer, inner, join_col), use_exists)) =
+                join.as_equi_pair().zip(semi_exists)
+            {
+                let outer_where = table_wheres[0].to_sql("@@@");
+                let inner_where = table_wheres[1].to_sql("@@@");
+                let subq = if use_exists {
+                    format!(
+                        "EXISTS (SELECT 1 FROM {inner} WHERE {inner}.{join_col} = {outer}.{join_col} AND ({inner_where}))"
+                    )
+                } else {
+                    format!(
+                        "{outer}.{join_col} IN (SELECT {inner}.{join_col} FROM {inner} WHERE {inner_where})"
+                    )
+                };
+                (
+                    format!("FROM {outer}"),
+                    format!("({outer_where}) AND {subq}"),
+                    &used_tables[..1],
+                    vec![format!("{outer}.id")],
+                    false,
+                )
+            } else {
+                let where_sep = if disjunctive { " OR " } else { " AND " };
+                let where_clauses = table_wheres
+                    .iter()
+                    .map(|w| format!("({})", w.to_sql("@@@")))
+                    .collect::<Vec<_>>()
+                    .join(where_sep);
+                (
+                    join_clause.clone(),
+                    where_clauses,
+                    &used_tables[..],
+                    order_parts,
+                    disjunctive,
+                )
+            };
+
         let where_bm25 = match &extra_base_where {
             Some(base_w) => format!("({}) AND ({where_clauses})", base_w.to_sql("@@@")),
             None => where_clauses,
         };
 
-        // Disjunctive score joins require scoring all tables; conjunctive joins also test
-        // single-sided score (`scored_tables == 1`) and fast-field (`scored_tables == 0`) sorts.
-        let n_scored = if disjunctive {
-            used_tables.len()
-        } else {
-            scored_tables.min(used_tables.len())
+        // Non-equi / keyless steps decline vector distance ORDER BY in JoinScan; fall
+        // back to FastField ordering on keyless join shapes so every vector-ordered
+        // case exercises JoinScan.
+        let effective_order = match order_kind {
+            RankJoinOrderKind::VectorDistance { .. } if join.has_keyless_step() => {
+                RankJoinOrderKind::FastField
+            }
+            other => other,
         };
-        let dir = if descending { "DESC" } else { "ASC" };
-        let score_sep = if !disjunctive && multiply_scores {
-            " * "
-        } else {
-            " + "
+        let is_vector_order = matches!(effective_order, RankJoinOrderKind::VectorDistance { .. });
+
+        let (select_table, order_by) = match effective_order {
+            RankJoinOrderKind::VectorDistance {
+                query: [x, y, z],
+                table_idx,
+            } => {
+                let vec_table = visible_tables[table_idx % visible_tables.len()];
+                let mut parts = vec![format!(
+                    "{vec_table}.embedding <=> '[{x},{y},{z}]'::vector ASC"
+                )];
+                if extra_vector_tiebreaker {
+                    parts.push(format!("{vec_table}.age {dir}"));
+                }
+                parts.push(format!("{vec_table}.id {dir}"));
+                (vec_table, parts.join(", "))
+            }
+            RankJoinOrderKind::FastField | RankJoinOrderKind::Score(_) => {
+                let n_scored = if use_disjunctive {
+                    visible_tables.len()
+                } else {
+                    match effective_order {
+                        RankJoinOrderKind::FastField => 0,
+                        RankJoinOrderKind::Score(n) => n.min(visible_tables.len()),
+                        RankJoinOrderKind::VectorDistance { .. } => unreachable!(),
+                    }
+                };
+                let score_sep = if !use_disjunctive && multiply_scores {
+                    " * "
+                } else {
+                    " + "
+                };
+                let lead_order = if n_scored == 0 {
+                    format!("{first_table}.quantity {dir}")
+                } else {
+                    let combined = visible_tables[..n_scored]
+                        .iter()
+                        .map(|t| format!("pdb.score({t}.id)"))
+                        .collect::<Vec<_>>()
+                        .join(score_sep);
+                    format!("{combined} {dir}")
+                };
+                order_parts.insert(0, lead_order);
+                (first_table, order_parts.join(", "))
+            }
         };
-        let lead_order = if n_scored == 0 {
-            format!("{first_table}.quantity {dir}")
-        } else {
-            let combined = used_tables[..n_scored]
-                .iter()
-                .map(|t| format!("pdb.score({t}.id)"))
-                .collect::<Vec<_>>()
-                .join(score_sep);
-            format!("{combined} {dir}")
-        };
-        order_parts.insert(0, lead_order);
-        let order_by = order_parts.join(", ");
 
         let bm25_query = format!(
-            "SELECT {first_table}.id, {first_table}.name {join_clause} \
+            "SELECT {select_table}.id, {select_table}.name {from_prefix} \
              WHERE {where_bm25} \
              ORDER BY {order_by} \
              LIMIT {limit} OFFSET {offset}"
@@ -1716,12 +1807,23 @@ async fn generated_rank_join(database: Db) {
 
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
+        if is_vector_order {
+            // Vector distance ORDER BY requires `enable_filter_pushdown` when local scalar/heap
+            // predicates are present so `RankJoinExec` and `HashJoinExec` push identical index queries.
+            gucs.filter_pushdown = true;
+        }
 
         let base_gucs = gucs.set();
         let sides = Sides {
-            baseline: format!("{base_gucs}SET paradedb.enable_rank_join TO off;\n"),
+            baseline: format!(
+                "{base_gucs}\
+                 SET paradedb.vector_cluster_max_probe TO 1.0;\n\
+                 SET paradedb.enable_rank_join TO off;\n"
+            ),
             candidate: format!(
-                "{base_gucs}SET paradedb.enable_rank_join TO on;\n\
+                "{base_gucs}\
+                 SET paradedb.vector_cluster_max_probe TO 1.0;\n\
+                 SET paradedb.enable_rank_join TO on;\n\
                  SET paradedb.rank_join_min_rows TO 0;\n"
             ),
         };
@@ -1743,12 +1845,20 @@ async fn generated_rank_join(database: Db) {
             && !join_clause.contains(".name =")
             && !join_clause.contains(".big_numeric =")
             && extra_base_where.is_none()
-            && (n_scored == 0 || descending)
+            && (matches!(
+                effective_order,
+                RankJoinOrderKind::FastField | RankJoinOrderKind::VectorDistance { .. }
+            ) || descending)
             && !gucs.parallel_workers
             && table_wheres
                 .iter()
                 .all(|w| matches!(w, WhereExpr::Atom { is_indexed: true, .. }))
         {
+            let forbidden_candidate: &[&str] = if is_vector_order {
+                &["Sort Key:"]
+            } else {
+                &[]
+            };
             qgen_oracle!(
                 "qgen: generated_rank_join - RankJoinExec planned",
                 compare_plan_retrying_on(
@@ -1758,9 +1868,28 @@ async fn generated_rank_join(database: Db) {
                     &pool,
                     &setup_sql,
                     &["RankJoinExec"],
-                    &[],
+                    forbidden_candidate,
                 )
             )?;
+
+            if is_vector_order {
+                let baseline_plan_sides = Sides {
+                    baseline: sides.candidate.clone(),
+                    candidate: sides.baseline.clone(),
+                };
+                qgen_oracle!(
+                    "qgen: generated_rank_join - vector HashJoinExec + LazySortExec planned",
+                    compare_plan_retrying_on(
+                        &baseline_plan_sides,
+                        &bm25_query,
+                        &bm25_query,
+                        &pool,
+                        &setup_sql,
+                        &["LazySortExec"],
+                        &["Sort Key:", "RankJoinExec"],
+                    )
+                )?;
+            }
         }
     });
 }

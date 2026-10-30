@@ -138,6 +138,22 @@ impl JoinExpr {
             .any(|s| matches!(s.on_condition, Some(OnCondition::NonEqui { .. })))
     }
 
+    /// If this is a 2-table equi-join with no lateral unnests, returns `(outer, inner, col)`.
+    pub fn as_equi_pair(&self) -> Option<(&str, &str, &str)> {
+        if self.steps.len() == 1
+            && self.unnests.is_empty()
+            && let Some(OnCondition::Equi { col }) = &self.steps[0].on_condition
+        {
+            Some((
+                self.initial_table.as_str(),
+                self.steps[0].table.as_str(),
+                col.as_str(),
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Whether PostgreSQL's `reduce_outer_joins` and `remove_useless_joins` can prune
     /// every joined relation, reducing the join to a single-table scan on `initial_table`.
     ///

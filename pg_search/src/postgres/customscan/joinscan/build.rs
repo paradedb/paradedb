@@ -169,6 +169,31 @@ impl fmt::Display for ScoreColumn {
     }
 }
 
+/// DataFusion-facing synthetic vector score column name helper.
+///
+/// JoinScan formats vector similarity score column names as `pdb.vector_score({table})`
+/// to distinguish them from Tantivy BM25 `pdb.score({table})` columns.
+#[derive(Debug, Clone)]
+pub struct VectorScoreColumn(String);
+
+impl VectorScoreColumn {
+    pub const PREFIX: &'static str = "pdb.vector_score(";
+
+    pub fn new(table: impl Into<String>) -> Self {
+        Self(table.into())
+    }
+
+    pub fn is_vector_score_column(name: &str) -> bool {
+        name.starts_with(Self::PREFIX) && name.ends_with(')')
+    }
+}
+
+impl fmt::Display for VectorScoreColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "pdb.vector_score({})", self.0)
+    }
+}
+
 /// DataFusion/planning identity for the PostgreSQL planner root that produced a source.
 ///
 /// We carry this through JoinScan planning so repeated RTIs from different
@@ -612,7 +637,7 @@ impl JoinSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| {
-                if f.field.is_score() {
+                if f.field.is_score() || f.field.is_vector_score() {
                     None
                 } else {
                     Some(f.field.name())
@@ -677,6 +702,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                vector_order_by: None,
             },
         })
     }
@@ -1704,6 +1730,42 @@ impl RelNode {
         }
     }
 
+    /// Returns true if `target_rti` is reachable through a branch of `Inner`, `Semi` (when in
+    /// `left`), and `RightSemi` (when in `right`) equi-joins (plus optional `Filter` nodes), with
+    /// no `Unnest`, outer, anti, mark, or keyless joins along that branch.
+    pub fn supports_vector_order_by(&self, target_rti: pg_sys::Index) -> bool {
+        match self {
+            RelNode::Scan(s) => s.contains_rti(target_rti),
+            RelNode::Filter(f) => f.input.supports_vector_order_by(target_rti),
+            RelNode::Unnest(_) => false,
+            RelNode::Join(j) => {
+                if j.equi_keys.is_empty() {
+                    return false;
+                }
+                match j.join_type {
+                    JoinType::Inner => {
+                        if j.left.contains_rti(target_rti) {
+                            j.left.supports_vector_order_by(target_rti)
+                        } else if j.right.contains_rti(target_rti) {
+                            j.right.supports_vector_order_by(target_rti)
+                        } else {
+                            false
+                        }
+                    }
+                    JoinType::Semi => {
+                        j.left.contains_rti(target_rti)
+                            && j.left.supports_vector_order_by(target_rti)
+                    }
+                    JoinType::RightSemi => {
+                        j.right.contains_rti(target_rti)
+                            && j.right.supports_vector_order_by(target_rti)
+                    }
+                    _ => false,
+                }
+            }
+        }
+    }
+
     /// Recursively renders a human-readable representation of the join tree.
     pub fn explain(&self) -> String {
         self.explain_internal(true)
@@ -2071,22 +2133,42 @@ impl JoinCSClause {
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.has_postgres_expressions() {
-                found = true;
-            }
+        let mut found = self.order_by.iter().any(|ob| {
+            matches!(
+                ob.feature,
+                crate::api::OrderByFeature::VectorDistance {
+                    query_vector: crate::api::QueryVector::Expr(_),
+                    ..
+                }
+            )
         });
+        if !found {
+            self.visit_queries(&mut |q| {
+                if q.has_postgres_expressions() {
+                    found = true;
+                }
+            });
+        }
         found
     }
 
     pub fn has_parameters(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.has_parameters() {
-                found = true;
-            }
+        let mut found = self.order_by.iter().any(|ob| {
+            matches!(
+                ob.feature,
+                crate::api::OrderByFeature::VectorDistance {
+                    query_vector: crate::api::QueryVector::Param(_),
+                    ..
+                }
+            )
         });
+        if !found {
+            self.visit_queries(&mut |q| {
+                if q.has_parameters() {
+                    found = true;
+                }
+            });
+        }
         found
     }
 

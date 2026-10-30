@@ -1667,6 +1667,17 @@ pub(super) unsafe fn collect_required_fields(
                     ensure_score_bubbling(source);
                 }
             }
+            OrderByFeature::VectorDistance { rti, .. } => {
+                if let Some(source) = plan_sources
+                    .iter_mut()
+                    .find(|s| s.scan_info.heap_rti == *rti)
+                {
+                    source
+                        .scan_info
+                        .add_field(0, WhichFastField::vector_score());
+                    source.scan_info.vector_order_by = Some(info.clone());
+                }
+            }
             OrderByFeature::Var { rti, attno, .. } => {
                 ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
             }
@@ -2047,19 +2058,76 @@ fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
 /// - All relevant ORDER BY columns are fast fields, score functions, or valid distinct expressions
 /// - All relevant ORDER BY columns have a byte-ordered (C-like) collation
 ///
-/// Returns `Err(JoinDeclineReason)` if validation fails, indicating whether it failed due to
-/// an unsupported expression shape or an unsupported primitive.
-pub(super) unsafe fn order_by_columns_are_fast_fields(
+unsafe fn pathkey_is_asc(pathkey: *const pg_sys::PathKey) -> bool {
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    {
+        match (*pathkey).pk_strategy as u32 {
+            pg_sys::BTLessStrategyNumber => true,
+            pg_sys::BTGreaterStrategyNumber => false,
+            _ => true,
+        }
+    }
+    #[cfg(feature = "pg18")]
+    {
+        match (*pathkey).pk_cmptype {
+            pg_sys::CompareType::COMPARE_LT => true,
+            pg_sys::CompareType::COMPARE_GT => false,
+            _ => true,
+        }
+    }
+}
+
+fn validate_vector_tiebreaker(
+    v_rti: pg_sys::Index,
+    source: &JoinSource,
+    schema: Option<&SearchIndexSchema>,
+    field_name: &str,
+    is_null_test: bool,
+    pathkey_idx: usize,
+) -> Result<(), JoinDeclineReason> {
+    if is_null_test {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: IS NULL / IS NOT NULL tie-breakers are not supported with vector distance ORDER BY",
+        ));
+    }
+    if !source.contains_rti(v_rti) {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: tie-breaker columns for vector distance ORDER BY must belong to the same table as the vector column",
+        ));
+    }
+    let is_sortable = schema
+        .and_then(|s| s.search_field(field_name))
+        .is_some_and(|sf| {
+            sf.is_raw_sortable()
+                && crate::postgres::customscan::orderby::sortable_at_position(&sf, pathkey_idx)
+        });
+    if !is_sortable {
+        return Err(JoinDeclineReason::new(format!(
+            "JoinScan not used: ORDER BY tie-breaker '{field_name}' is not sortable in vector Top-K",
+        )));
+    }
+    Ok(())
+}
+
+/// Validates that all `ORDER BY` pathkeys can be evaluated by `JoinScan`.
+pub(super) unsafe fn validate_order_by(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[&JoinSource],
-    has_distinct: bool,
+    join_clause: &JoinCSClause,
 ) -> Result<(), JoinDeclineReason> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
         return Ok(());
     }
 
+    let plan = &join_clause.plan;
+    let sources = plan.sources();
+    let sources = sources.as_slice();
+    let has_limit = join_clause.limit_offset.is_some();
+    let has_window_aggs = !join_clause.window_aggs.is_empty();
+    let has_distinct = join_clause.has_distinct;
     let source_rtis = collect_source_rtis(sources);
+    let mut vector_order_rti: Option<pg_sys::Index> = None;
+    let mut relevant_pathkey_idx: usize = 0;
 
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = &*(*pathkey_ptr).pk_eclass;
@@ -2076,6 +2144,17 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         {
             continue;
         }
+
+        if vector_order_rti.is_some()
+            && relevant_pathkey_idx >= crate::index::reader::index::MAX_TOPK_FEATURES
+        {
+            return Err(JoinDeclineReason::new(format!(
+                "JoinScan not used: vector distance ORDER BY supports at most {} sort columns",
+                crate::index::reader::index::MAX_TOPK_FEATURES,
+            )));
+        }
+
+        let is_asc = pathkey_is_asc(pathkey_ptr);
 
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
         // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
@@ -2095,20 +2174,25 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             let mut expr = strip_identity_wrappers(strip_wrappers(raw_expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
-            if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
+            let is_null_test = if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
                 expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
-            }
+                true
+            } else {
+                false
+            };
 
-            if let Some((_, rtis)) = extract_score_sum(expr.cast())
-                && rtis.iter().all(|rti| source_rtis.contains(rti))
-            {
-                continue 'pathkey;
-            }
-
-            if sources
-                .iter()
-                .any(|s| is_score_func_recursive(expr.cast(), s))
-            {
+            let is_score = extract_score_sum(expr.cast())
+                .is_some_and(|(_, rtis)| rtis.iter().all(|rti| source_rtis.contains(rti)))
+                || sources
+                    .iter()
+                    .any(|s| is_score_func_recursive(expr.cast(), s));
+            if is_score {
+                if vector_order_rti.is_some() {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: pdb.score() cannot be used as a tie-breaker with vector distance ORDER BY",
+                    ));
+                }
+                relevant_pathkey_idx += 1;
                 continue 'pathkey;
             }
 
@@ -2122,6 +2206,13 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     )
                     && source_rtis.contains(&unnest_info.source_rti.0)
                 {
+                    if vector_order_rti.is_some() {
+                        candidate_decline = Some(JoinDeclineReason::new(
+                            "JoinScan not used: lateral unnest columns cannot be used as tie-breakers with vector distance ORDER BY",
+                        ));
+                        continue;
+                    }
+                    relevant_pathkey_idx += 1;
                     continue 'pathkey;
                 }
 
@@ -2134,14 +2225,28 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     if source.contains_rti(varno) {
                         let hr = PgSearchRelation::open(source.scan_info.heaprelid);
                         let ir = PgSearchRelation::open(source.scan_info.indexrelid);
-                        if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_some() {
-                            is_fast = true;
-                            break;
-                        }
                         let col_name =
                             fieldname_from_var(source.scan_info.heaprelid, var, varattno)
                                 .map(|f| f.to_string())
                                 .unwrap_or_else(|| format!("attno {varattno}"));
+                        if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_some() {
+                            if let Some(v_rti) = vector_order_rti {
+                                let schema = SearchIndexSchema::open(&ir).ok();
+                                if let Err(err) = validate_vector_tiebreaker(
+                                    v_rti,
+                                    source,
+                                    schema.as_ref(),
+                                    &col_name,
+                                    is_null_test,
+                                    relevant_pathkey_idx,
+                                ) {
+                                    candidate_decline = Some(err);
+                                    break;
+                                }
+                            }
+                            is_fast = true;
+                            break;
+                        }
                         candidate_decline = Some(JoinDeclineReason::new(format!(
                             "JoinScan not used: ORDER BY column '{col_name}' is not columnar indexed (fast = true)",
                         )));
@@ -2149,33 +2254,137 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     }
                 }
                 if is_fast {
+                    relevant_pathkey_idx += 1;
                     continue 'pathkey;
                 }
             } else {
+                for source in sources {
+                    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                        continue;
+                    };
+                    if let Some((var, vec_sort)) =
+                        crate::postgres::customscan::orderby::extract_vector_distance(
+                            expr,
+                            crate::postgres::var::VarContext::from_planner(root),
+                            &schema,
+                        )
+                    {
+                        let varno = (*var).varno as pg_sys::Index;
+                        if !source.contains_rti(varno) {
+                            continue;
+                        }
+                        match vec_sort {
+                            crate::postgres::customscan::orderby::SortExpressionType::VectorMetricMismatch {
+                                field_metric,
+                                op_metric,
+                            } => {
+                                return Err(JoinDeclineReason::new(format!(
+                                    "JoinScan not used: ORDER BY uses the {} ({:?}) operator but the index attribute was built with the {} opclass ({:?}). Either change the ORDER BY operator to {} (matching the index opclass), or rebuild the index with the {} opclass on the vector column.",
+                                    op_metric.operator(),
+                                    op_metric,
+                                    field_metric.opclass_name(),
+                                    field_metric,
+                                    field_metric.operator(),
+                                    op_metric.opclass_name(),
+                                )));
+                            }
+                            crate::postgres::customscan::orderby::SortExpressionType::VectorDistance { .. } => {
+                                if is_null_test {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: IS NULL / IS NOT NULL on vector distance ORDER BY is not supported",
+                                    ));
+                                }
+                                if relevant_pathkey_idx != 0 {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: vector distance ORDER BY can only be the primary sort key",
+                                    ));
+                                }
+                                if !is_asc {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: vector distance ORDER BY only supports ascending (ASC) order",
+                                    ));
+                                }
+                                if !has_limit {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: vector distance ORDER BY requires a LIMIT clause",
+                                    ));
+                                }
+                                if has_distinct {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: vector distance ORDER BY is not supported with DISTINCT",
+                                    ));
+                                }
+                                if has_window_aggs || crate::gucs::joinscan_force_topk_as_agg() {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: vector distance ORDER BY is not supported with window functions",
+                                    ));
+                                }
+                                if !plan.supports_vector_order_by(varno) {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: vector distance ORDER BY is only supported on the preserved side of INNER and SEMI equi-joins",
+                                    ));
+                                }
+                                if source.contains_score((*root).processed_tlist.cast()) {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: pdb.score() on the same table as a vector distance ORDER BY is not supported",
+                                    ));
+                                }
+                                vector_order_rti = Some(varno);
+                                relevant_pathkey_idx += 1;
+                                continue 'pathkey;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                if vector_order_rti.is_some() && expr.contains_score() {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: pdb.score() cannot be used as a tie-breaker with vector distance ORDER BY",
+                    ));
+                }
+
                 let mut found = false;
                 for source in sources {
                     let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
                     let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
                         continue;
                     };
-                    if find_matching_fast_field(
+                    if let Some(wff) = find_matching_fast_field(
                         expr,
                         &index_rel.index_expressions(),
-                        schema,
+                        schema.clone(),
                         source.scan_info.heap_rti,
-                    )
-                    .is_some()
-                    {
+                    ) {
+                        if let Some(v_rti) = vector_order_rti
+                            && let Err(err) = validate_vector_tiebreaker(
+                                v_rti,
+                                source,
+                                Some(&schema),
+                                &wff.name(),
+                                is_null_test,
+                                relevant_pathkey_idx,
+                            )
+                        {
+                            candidate_decline = Some(err);
+                            continue;
+                        }
                         found = true;
                         break;
                     }
                 }
 
-                if !found && has_distinct && expression_vars_all_fast(expr.cast(), sources) {
+                if !found
+                    && vector_order_rti.is_none()
+                    && has_distinct
+                    && expression_vars_all_fast(expr.cast(), sources)
+                {
                     found = true;
                 }
 
                 if found {
+                    relevant_pathkey_idx += 1;
                     continue 'pathkey;
                 }
 
@@ -2185,7 +2394,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     ));
                 } else if candidate_decline.is_none() {
                     candidate_decline = Some(JoinDeclineReason::new(
-                        "JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls",
+                        "JoinScan not used: unsupported ORDER BY expression shape; expressions must be fast-field columns, indexed expressions, pdb.score() / sums of pdb.score(), or vector distance expressions (<->, <=>, <#>)",
                     ));
                 }
             }
@@ -3059,6 +3268,33 @@ impl JoinSortExprKind {
             let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
                 continue;
             };
+            if let Some((
+                var,
+                crate::postgres::customscan::orderby::SortExpressionType::VectorDistance {
+                    query_vector,
+                    metric,
+                },
+            )) = crate::postgres::customscan::orderby::extract_vector_distance(
+                check_expr as *mut pg_sys::Node,
+                crate::postgres::var::VarContext::from_planner(root),
+                &schema,
+            ) {
+                let varno = (*var).varno as pg_sys::Index;
+                if source.contains_rti(varno)
+                    && let Some(field_name) = find_base_info_recursive(source, varno)
+                        .and_then(|info| fieldname_from_var(info.heaprelid, var, (*var).varattno))
+                {
+                    return Self::Resolved(OrderByInfo {
+                        feature: OrderByFeature::VectorDistance {
+                            name: field_name,
+                            rti: source.scan_info.heap_rti,
+                            query_vector,
+                            metric,
+                        },
+                        direction,
+                    });
+                }
+            }
             if let Some(search_field) = find_matching_fast_field(
                 check_expr as *mut pg_sys::Node,
                 &index_rel.index_expressions(),
@@ -3164,7 +3400,7 @@ pub(super) unsafe fn extract_orderby(
         let pathkey = pathkey_ptr;
         let equivclass = &*(*pathkey).pk_eclass;
 
-        // `order_by_columns_are_fast_fields` declines volatile keys on these same pathkeys
+        // `validate_order_by` declines volatile keys on these same pathkeys
         // first; one arriving here would pass `pathkey_is_outer_only` and drop out of the sort.
         debug_assert!(
             !equivclass.ec_has_volatile,
@@ -3178,18 +3414,7 @@ pub(super) unsafe fn extract_orderby(
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members);
 
         let nulls_first = (*pathkey).pk_nulls_first;
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-        let is_asc = match (*pathkey).pk_strategy as u32 {
-            pg_sys::BTLessStrategyNumber => true,
-            pg_sys::BTGreaterStrategyNumber => false,
-            _ => true,
-        };
-        #[cfg(feature = "pg18")]
-        let is_asc = match (*pathkey).pk_cmptype {
-            pg_sys::CompareType::COMPARE_LT => true,
-            pg_sys::CompareType::COMPARE_GT => false,
-            _ => true,
-        };
+        let is_asc = pathkey_is_asc(pathkey);
 
         let direction = SortDirection::from(arrow_schema::SortOptions {
             descending: !is_asc,
@@ -3219,12 +3444,20 @@ pub(super) unsafe fn extract_orderby(
                 }
             }
 
+            let allowed_rtis: &[pg_sys::Index] = match result.first() {
+                Some(OrderByInfo {
+                    feature: OrderByFeature::VectorDistance { rti, .. },
+                    ..
+                }) => std::slice::from_ref(rti),
+                _ => output_rtis,
+            };
+
             match JoinSortExprKind::classify(
                 root,
                 check_expr,
                 direction,
                 sources,
-                output_rtis,
+                allowed_rtis,
                 true,
             ) {
                 JoinSortExprKind::Resolved(info) => {

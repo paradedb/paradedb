@@ -414,6 +414,7 @@ pub fn is_all_special_or_junk_fields<'a>(
                 | WhichFastField::TableOid
                 | WhichFastField::Ctid
                 | WhichFastField::Score(_)
+                | WhichFastField::VectorScore(_)
         )
     })
 }

@@ -117,7 +117,6 @@ async fn verification_locks_heap_before_index(database: Db, #[case] target: &str
     let index_locked =
         index_locked_while_waiting_for_heap(&mut observer, reader_pid, locked_heap, reindexed_heap)
             .await?;
-    // A finished sibling's index must also be released before the next heap wait.
     let reindex =
         execute_ddl_and_finish(transaction, &format!("REINDEX TABLE {reindexed_heap}")).await;
     let verified = pending.await;

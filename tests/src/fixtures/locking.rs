@@ -19,7 +19,8 @@ use anyhow::Result;
 use sqlx::{PgConnection, Postgres, Transaction};
 use std::time::Duration;
 
-/// Wait for the reader's heap-lock wait, then inspect indexes on `indexed_heap`.
+/// Wait until the reader is blocked on `locked_heap`, then return whether it
+/// holds a granted lock on any index of `indexed_heap`.
 /// The heaps may differ when testing release of a previously visited sibling.
 pub async fn index_locked_while_waiting_for_heap(
     observer: &mut PgConnection,

@@ -650,7 +650,6 @@ fn validate_checksum(index: IndexOid) -> Result<SetOfIterator<'static, String>> 
 type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
 
 /// Helper function to verify that all indexed ctids exist in the heap.
-/// The caller retains the heap/index guard throughout this check.
 /// Returns (total_checked, total_docs, missing_ctids).
 fn verify_heap_references(
     heap_rel: &PgSearchRelation,

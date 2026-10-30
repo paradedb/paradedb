@@ -2257,7 +2257,7 @@ unsafe fn column_name_for_var(
             if varattno == 0 {
                 return format!("{tbl}.*");
             }
-            return source.get_attname_safe(varattno, &tbl);
+            return source.get_attname_for_display(varattno, &tbl);
         }
     }
     format!("rti {}, attno {}", varno, varattno)

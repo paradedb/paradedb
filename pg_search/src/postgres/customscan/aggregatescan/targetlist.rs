@@ -134,12 +134,15 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 Access::Scalar
             };
 
-            let (_resolved, maybe_field_name) = unsafe {
+            let (resolved, maybe_field_name) = unsafe {
                 find_one_resolved_var_and_fieldname(var_context, context, actual_expr, access)
             };
+            let maybe_field_name = resolved
+                .map(|r| r.field.name())
+                .or_else(|| maybe_field_name.map(|f| f.into_inner()));
 
             // Try to extract field name from the expression (handles both Var and JSON operators)
-            if let Some(field_name) = maybe_field_name.map(|f| f.into_inner()) {
+            if let Some(field_name) = maybe_field_name {
                 // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                 // Find which grouping column this is
                 let mut found = false;

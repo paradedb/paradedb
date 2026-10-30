@@ -200,10 +200,18 @@ impl SourceContext {
     }
 
     /// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
-    pub fn get_attname_safe(&self, attno: pg_sys::AttrNumber, rel_name: &str) -> String {
-        self.get_attname(attno)
-            .map(|f| format!("{rel_name}.{f}"))
-            .unwrap_or(format!("{}.{}", rel_name, attno))
+    pub fn get_attname_for_display(&self, attno: pg_sys::AttrNumber, rel_name: &str) -> String {
+        unsafe {
+            let attname_ptr = pg_sys::get_attname(self.heaprel.oid(), attno, true); // missing_ok = true
+            if attname_ptr.is_null() {
+                format!("{rel_name}.{attno}")
+            } else {
+                let attname = std::ffi::CStr::from_ptr(attname_ptr)
+                    .to_str()
+                    .unwrap_or("?");
+                format!("{rel_name}.{attname}")
+            }
+        }
     }
 }
 

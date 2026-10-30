@@ -606,18 +606,14 @@ pub unsafe fn json_path_fieldname(
 ) -> Option<FieldName> {
     if is_a(node, T_OpExpr) {
         let opexpr = node.cast::<OpExpr>();
-        if is_json_operator((*opexpr).opno) {
-            let path = find_json_path(&context, node);
-            return Some(path.join(".").into());
+        if !is_json_operator((*opexpr).opno) {
+            return None;
         }
-        None
-    } else if is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
-        // Handle PostgreSQL 14+ bracket notation: json['key']
-        let path = find_json_path(&context, node);
-        Some(path.join(".").into())
-    } else {
-        None
+    } else if !is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
+        return None;
     }
+    node.find_single_node::<pg_sys::Var>()?;
+    Some(find_json_path(&context, node).join(".").into())
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the JSON path that the

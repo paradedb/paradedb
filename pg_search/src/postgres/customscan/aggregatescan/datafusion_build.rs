@@ -1832,15 +1832,13 @@ impl FilterExpr {
                             return None;
                         }
                         let source = sources.iter().find(|s| s.heap_rti == rti)?;
-                        let resolved = source.resolve_fast_field(
-                            ResTarget::Attno(unsafe { (*var).varattno }),
-                            Access::Any,
-                        )?;
+                        let (field_name, _) = source
+                            .resolve_heap_field(ResTarget::Attno(unsafe { (*var).varattno }))?;
                         Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
                             rti: source.heap_rti,
                             attno: unsafe { (*var).varattno },
-                            field_name: resolved.field.name(),
+                            field_name: field_name.into_inner(),
                         }))
                     }
                     FilterExprBuildContext::Having {

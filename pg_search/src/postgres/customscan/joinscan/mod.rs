@@ -1453,10 +1453,10 @@ impl CustomScan for JoinScan {
                             "{} = {}",
                             outer_source
                                 .to_source_context()
-                                .get_attname_safe(outer_attno, &outer_alias),
+                                .get_attname_for_display(outer_attno, &outer_alias),
                             inner_source
                                 .to_source_context()
-                                .get_attname_safe(inner_attno, &inner_alias)
+                                .get_attname_for_display(inner_attno, &inner_alias)
                         ));
                     }
 
@@ -1553,7 +1553,7 @@ impl CustomScan for JoinScan {
                         }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(context) = contexts.iter().find(|i| i.heap_rti == *rti) {
-                                let col_name = context.get_attname_safe(
+                                let col_name = context.get_attname_for_display(
                                     *attno,
                                     context.alias.as_deref().unwrap_or("?"),
                                 );

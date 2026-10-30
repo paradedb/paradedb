@@ -37,6 +37,7 @@ pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggTy
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
+use crate::postgres::var::{VarContext, find_one_fieldname, find_one_var};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_guard;
@@ -909,7 +910,7 @@ unsafe fn resolve_var_source<'a>(
                     RelationAlias::new(source.alias.as_deref()).display(source.heap_rti as usize);
                 format!(
                     "{what} {} is not columnar indexed",
-                    source.get_attname_safe(attno, &alias)
+                    source.get_attname_for_display(attno, &alias)
                 )
             })?,
     };
@@ -993,21 +994,18 @@ unsafe fn extract_raw_group_column(
                  expressions are pushed down"
             ));
         }
-        let (res_source, resolved) = context
-            .sources
-            .iter()
-            .find_map(|s| {
-                s.resolve_fast_field(ResTarget::Expr(expr), Access::Any)
-                    .map(|r| (s, r))
-            })
-            .ok_or_else(|| {
-                format!(
-                    "GROUP BY item {position} is an unsupported expression; only plain columns \
+        let unsupported = || {
+            format!(
+                "GROUP BY item {position} is an unsupported expression; only plain columns \
                  and indexed expressions are pushed down"
-                )
-            })?;
-        let rti = res_source.heap_rti;
-        let attno = resolved.attno.expect("should always have an attno");
+            )
+        };
+        let var_context = VarContext::from_planner(context.root);
+        let var = find_one_var(var_context, expr).ok_or_else(unsupported)?;
+        let field_name = find_one_fieldname(var_context, expr).ok_or_else(unsupported)?;
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+        let res_source = context.sources.iter().find(|s| s.heap_rti == rti);
         let plan_position = context
             .plan
             .plan_position(context.outer_root_id, rti, attno)
@@ -1017,12 +1015,7 @@ unsafe fn extract_raw_group_column(
                      unique output-visible source in the plan tree"
                 )
             })?;
-        (
-            attno,
-            resolved.field.name(),
-            plan_position,
-            Some(res_source),
-        )
+        (attno, field_name.into_inner(), plan_position, res_source)
     };
     let numeric_info = numeric_source
         .and_then(|source| source.schema())

@@ -23,7 +23,7 @@ use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::pullup::{Access, SourceContext};
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
-use crate::schema::{SearchFieldType, SearchIndexSchema};
+use crate::schema::{FieldSource, SearchFieldType, SearchIndexSchema};
 use pgrx::pg_sys;
 use pgrx::{PgList, pg_guard};
 
@@ -196,6 +196,14 @@ fn unresolved_reason(
             "grouping field {name} is an array, which requires UNNEST() to be used in GROUP BY"
         )
         .into());
+    }
+    if matches!(
+        data.source,
+        FieldSource::Expression { .. } | FieldSource::CompositeField { .. }
+    ) {
+        return Ok(format!(
+            "grouping column {name} is indexed as a computed expression, which cannot be read back as the column"
+        ));
     }
     Ok(format!("could not resolve grouping column {name}"))
 }

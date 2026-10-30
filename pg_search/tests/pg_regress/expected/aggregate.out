@@ -610,6 +610,176 @@ FROM products;
 (1 row)
 
 -- =====================================================================
+-- SECTION 8: Array Counts
+-- =====================================================================
+-- COUNT(array) counts non-NULL rows, including empty arrays and arrays whose
+-- elements are all NULL. Tantivy's value_count counts stored elements instead.
+CREATE TABLE count_array_test (id int PRIMARY KEY, ints int[], words text[]);
+INSERT INTO count_array_test VALUES
+    (1, '{3,1,1}', '{red,blue,red}'),
+    (2, '{}', '{}'),
+    (3, NULL, NULL),
+    (4, '{NULL,NULL}', '{NULL,NULL}'),
+    (5, '{NULL,3}', '{NULL,red}'),
+    (6, '{{1,2},{3,4}}', '{{red,blue},{green,red}}');
+CREATE INDEX count_array_test_idx ON count_array_test
+USING paradedb (id, ints, words) WITH (
+    text_fields = '{"words": {"fast": true, "tokenizer": {"type": "raw"}}}'
+);
+ANALYZE count_array_test;
+SET max_parallel_workers_per_gather = 0;
+RESET paradedb.max_term_agg_buckets;
+-- With the normal bucket cap, array counts must use PostgreSQL aggregation.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, COUNT(ints), COUNT(words) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+WARNING:  Aggregate Scan not used: aggregate pushdown is not supported for array columns. To disable this warning: SET paradedb.planner_warnings = 'off' (table: count_array_test)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: id
+   ->  Sort
+         Sort Key: id
+         ->  Custom Scan (ParadeDB Base Scan) on count_array_test
+               Table: count_array_test
+               Index: count_array_test_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT id, COUNT(ints), COUNT(words) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+WARNING:  Aggregate Scan not used: aggregate pushdown is not supported for array columns. To disable this warning: SET paradedb.planner_warnings = 'off' (table: count_array_test)
+ id | count | count 
+----+-------+-------
+  1 |     1 |     1
+  2 |     1 |     1
+  3 |     0 |     0
+  4 |     1 |     1
+  5 |     1 |     1
+  6 |     1 |     1
+(6 rows)
+
+SELECT COUNT(*), COUNT(ints), COUNT(words),
+       COUNT(ints) FILTER (WHERE id > 2)
+FROM count_array_test WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: aggregate pushdown is not supported for array columns. To disable this warning: SET paradedb.planner_warnings = 'off' (table: count_array_test)
+ count | count | count | count 
+-------+-------+-------+-------
+     6 |     5 |     5 |     3
+(1 row)
+
+SELECT COUNT(words) FROM count_array_test WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: aggregate pushdown is not supported for array columns. To disable this warning: SET paradedb.planner_warnings = 'off' (table: count_array_test)
+ count 
+-------
+     5
+(1 row)
+
+-- Compare with PostgreSQL without aggregate pushdown.
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT id, COUNT(ints), COUNT(words) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+ id | count | count 
+----+-------+-------
+  1 |     1 |     1
+  2 |     1 |     1
+  3 |     0 |     0
+  4 |     1 |     1
+  5 |     1 |     1
+  6 |     1 |     1
+(6 rows)
+
+SELECT COUNT(*), COUNT(ints), COUNT(words),
+       COUNT(ints) FILTER (WHERE id > 2)
+FROM count_array_test WHERE id @@@ pdb.all();
+ count | count | count | count 
+-------+-------+-------+-------
+     6 |     5 |     5 |     3
+(1 row)
+
+SELECT COUNT(words) FROM count_array_test WHERE id @@@ pdb.all();
+ count 
+-------
+     5
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan = on;
+-- Scalar counts still use the Tantivy aggregate path.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, COUNT(*), COUNT(id) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on count_array_test
+   Index: count_array_test_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*), COUNT(id)
+     Group By: id
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT id, COUNT(*), COUNT(id) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+ id | count | count 
+----+-------+-------
+  1 |     1 |     1
+  2 |     1 |     1
+  3 |     1 |     1
+  4 |     1 |     1
+  5 |     1 |     1
+  6 |     1 |     1
+(6 rows)
+
+-- Window counts must also count rows before LIMIT, not stored array elements.
+-- A supported COUNT(*) before the array counts must fall back with them.
+SELECT id, COUNT(*) OVER (), COUNT(ints) OVER (), COUNT(words) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+ id | count | count | count 
+----+-------+-------+-------
+  1 |     6 |     5 |     5
+  2 |     6 |     5 |     5
+(2 rows)
+
+SELECT id, COUNT(words) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+ id | count 
+----+-------
+  1 |     5
+  2 |     5
+(2 rows)
+
+-- Scalar window counts still use the Tantivy Top-K path.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, COUNT(*) OVER (), COUNT(id) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on count_array_test
+         Table: count_array_test
+         Index: count_array_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id, COUNT(*) OVER (), COUNT(id) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+ id | count | count 
+----+-------+-------
+  1 |     6 |     6
+  2 |     6 |     6
+(2 rows)
+
+DROP TABLE count_array_test;
+RESET max_parallel_workers_per_gather;
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE IF EXISTS products CASCADE;

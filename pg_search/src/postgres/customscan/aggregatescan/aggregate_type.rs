@@ -964,6 +964,13 @@ enum AggregateFieldExpression {
 
 impl AggregateFieldExpression {
     unsafe fn from_node(expr: *mut pg_sys::Node) -> anyhow::Result<Self> {
+        // Tantivy counts array elements, but SQL COUNT(array) counts non-NULL rows.
+        // Empty and all-NULL arrays have no stored values, so even a field-exists
+        // filter cannot recover the SQL count. Leave these aggregates to Postgres.
+        if pg_sys::get_base_element_type(pg_sys::exprType(expr)) != pg_sys::InvalidOid {
+            bail!("aggregate pushdown is not supported for array columns");
+        }
+
         let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, expr) else {
             return Ok(Self::Direct(expr));
         };

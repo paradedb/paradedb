@@ -70,6 +70,21 @@ def operating_points(reports):
     return sorted(points, key=lambda point: point["name"])
 
 
+def buffer_metrics(points):
+    """Export measured shared hits for each reached recall target."""
+    return [
+        {
+            "name": f"{point['name']} shared hits/query",
+            "unit": "hits/query",
+            "value": point["buffers"]["shared_hit_mean"],
+        }
+        for point in points
+        if point["reached"]
+        and point["buffers"]
+        and point["buffers"]["shared_hit_mean"] is not None
+    ]
+
+
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
     lines = [
@@ -118,3 +133,6 @@ if __name__ == "__main__":
         json.dumps(selected_points, indent=2) + "\n"
     )
     (args.output / "operating_points.md").write_text(summary(selected_points))
+    (args.output / "buffer-metrics.json").write_text(
+        json.dumps(buffer_metrics(selected_points), indent=2) + "\n"
+    )

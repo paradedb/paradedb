@@ -297,6 +297,7 @@ jobs:
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
              "context_file":"benchmark-artifacts/operating_points.md",
+             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
              "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
 
       - name: Upload index, recall, and buffer diagnostics

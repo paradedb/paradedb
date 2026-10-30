@@ -401,7 +401,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
         c"Stop vector probing early using admission-rate decay",
-        c"Enabled by default. Uses one router window scaled by recall target, segment size, and filter selectivity, with admission-based early stopping.",
+        c"Enabled by default. Uses one router window scaled by recall target, exponent, segment size, and filter selectivity, with admission-based early stopping.",
         &VECTOR_ADAPTIVE_PROBING,
         GucContext::Userset,
         GucFlags::default(),
@@ -409,7 +409,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_adaptive_recall_exponent",
         c"Calibrate admission-rate decay: rate fraction = (1 - target) ^ exponent",
-        c"Larger values require more admission-rate decay before stopping. Default 1.25.",
+        c"Larger values request more clusters and require more admission-rate decay before stopping. Default 1.25.",
         &VECTOR_ADAPTIVE_RECALL_EXPONENT,
         0.000001,
         f64::MAX,

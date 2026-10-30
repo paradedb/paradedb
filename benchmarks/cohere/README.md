@@ -23,9 +23,20 @@ workers. Both tools use the same database and index throughout a run.
    Every measurement uses all 100 vectors, three timed repetitions and a separate
    EXPLAIN pass. All
    adaptive runs use `max_probe=0` (automatic headroom); no per-case budget is
-   selected. One router window scales with target, segment size, and the existing
-   filter-aware cluster-cost estimate; probing stops early on admission evidence
-   and does not re-query the router.
+   selected. One router window scales with target, exponent, segment size, and
+   the existing filter-aware cluster-cost estimate; probing stops early on admission evidence
+   and does not re-query the router. The stopping fraction `(1 - target)^exponent`
+   also scales the window, so stricter stopping requests more routing headroom.
+   The base fraction is `b = min(1, 0.002 / fraction^0.625)`. With the existing
+   cluster cost `c`, the window fraction is
+   `b + min(0.4, 0.05 * (1/sqrt(c) - 1)) * b^0.125 * (1-b) * min(1, (1-b)/0.9)^2`.
+   The final taper reduces the filter allowance once the base window exceeds
+   10% of the segment, preserving narrower windows below that point.
+   The requested window also covers the existing expected-work estimate under
+   the filter-aware cluster cost, subject to the explicit work ceiling. This
+   only sets the ranked window; admission evidence can stop probing earlier.
+   These coefficients are shared across segments and filters. Bypass selection
+   retains its existing estimate based on the target and segment size.
 3. For each recall goal (90%, 95%, 99%), bisect the knob over [0.01, 1.0] on a
    0.001 grid. Every candidate is measured across all three filters; it passes
    only when all three reach that goal. Reuse previously measured candidates.

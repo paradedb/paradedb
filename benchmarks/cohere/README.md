@@ -21,6 +21,27 @@ the workflow enables the setting again in its vacuum session before that
 rebuild. `index-vacuum.log` records the setting used; a setting from the
 initial build session alone does not establish the router used by searches.
 
+Plan verification enables `paradedb.vector_stats` and requires the unfiltered
+query to exercise `quantized_stacked` routing with nonzero approximate and exact
+scores. Per-segment `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` reports:
+
+- `routing_kind` and `routing_lists_scanned` identify the router and its work.
+- `routing_approximate_scored` counts one-bit scores across all router levels.
+- `routing_approximate_members_scored` counts bottom-router member scores only.
+- `routing_approximate_pruned` counts scored members excluded from the padded
+  shortlist, before any raw vector is read for reranking.
+- `routing_exact_scored`, `routing_exact_pruned`, and `routing_candidate_count`
+  count reranked members, members rejected by reranking, and returned candidates.
+
+For finite queries, approximate members scored equals approximate members
+pruned plus exact scores; exact scores equals exact pruned plus candidates.
+Unopened lists and members skipped by APS are excluded from the pruning count.
+Non-finite queries fall back to exact scoring and report zero approximate work.
+Flat and located scans do not invoke a router and omit these counters.
+`router-metrics.json` and `router-metrics.md` summarize the first fixture vector
+at each selected operating point, with a table in the CI summary and PR results.
+These diagnostic counts are separate from pdbench's averages over all vectors.
+
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
    pdbench records build time, index size, and segment diagnostics before vacuum.

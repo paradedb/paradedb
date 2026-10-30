@@ -17,7 +17,6 @@
 
 use crate::api::version::Version;
 use crate::gucs;
-use crate::index::kdtree::KdTree;
 use crate::index::stats::partition_box;
 use crate::index::writer::index::{DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter};
 use crate::launch_parallel_process;
@@ -27,7 +26,9 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle, chunk_range,
 };
-use crate::postgres::build_partitioning::{PartitionField, plan_partition_boundaries};
+use crate::postgres::build_partitioning::{
+    BuildPartitioning, PartitionField, PartitionPoint, plan_partition_boundaries,
+};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
@@ -260,7 +261,7 @@ struct WorkerResponse {
     nmerges: usize,
 }
 
-fn deserialize_partitioning(bytes: &[u8]) -> Option<KdTree> {
+fn deserialize_partitioning(bytes: &[u8]) -> Option<BuildPartitioning> {
     if bytes.is_empty() {
         return None;
     }
@@ -279,7 +280,7 @@ struct BuildWorker<'a> {
     heaprel: PgSearchRelation,
     indexrel: PgSearchRelation,
     /// Global partition boundaries computed by the leader; `None` without `partition_by`.
-    partitioning: Option<KdTree>,
+    partitioning: Option<BuildPartitioning>,
     /// The spill fileset of a parallel partitioned build, in the DSM. Null on the serial path.
     fileset: *mut pg_sys::SharedFileSet,
 }
@@ -387,7 +388,7 @@ impl<'a> BuildWorker<'a> {
         snapshot: pg_sys::Snapshot,
         config: WorkerConfig,
         coordination: &'a mut WorkerCoordination,
-        partitioning: Option<KdTree>,
+        partitioning: Option<BuildPartitioning>,
         fileset: *mut pg_sys::SharedFileSet,
     ) -> Self {
         Self {
@@ -411,7 +412,7 @@ impl<'a> BuildWorker<'a> {
                 gucs::adjust_maintenance_work_mem(nparticipants).get() / nparticipants;
             let target_segment_count = self.partitioning.as_ref().map_or_else(
                 || plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel),
-                KdTree::partition_count,
+                BuildPartitioning::partition_count,
             );
             // Workers are numbered from 0 and a participating leader runs as one more, so the
             // leader takes the last participant slot.
@@ -430,7 +431,11 @@ impl<'a> BuildWorker<'a> {
             // `None` without `partition_by`: the worker then takes the regular per-row path.
             let partitioning = self.partitioning.take();
             if let Some(partitioning) = &partitioning {
-                pgrx::debug1!("build_worker {worker_number}: partition boundaries: {partitioning}");
+                pgrx::debug1!(
+                    "build_worker {worker_number}: {} partitions over {:?}",
+                    partitioning.partition_count(),
+                    partitioning.dims()
+                );
             }
 
             // Only a partitioned drain re-fetches, and only a concurrent one has to land on the
@@ -700,12 +705,12 @@ fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
 }
 
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
-/// routed to a partition by the leader's kd-tree boundaries and its ctid appended to that
+/// routed to a partition by the leader's shared model and its ctid appended to that
 /// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
 /// participants' files, so a partition ends up as one segment however many workers scanned it.
 struct PartitionSpill {
-    tree: KdTree,
-    /// The `partition_by` fields in `tree.dims()` order, resolved to either `Ctid` or the index's categorized
+    model: BuildPartitioning,
+    /// The `partition_by` fields in `model.dims()` order, resolved to either `Ctid` or the index's categorized
     /// fields so the callback can project each scanned row onto them.
     dim_fields: Vec<PartitionField>,
     files: PartitionSpillFiles,
@@ -716,15 +721,15 @@ struct PartitionSpill {
 
 impl PartitionSpill {
     fn new(
-        tree: KdTree,
+        model: BuildPartitioning,
         categorized_fields: &[(SearchField, CategorizedFieldData)],
         files: PartitionSpillFiles,
         created_by_version: Option<Version>,
     ) -> anyhow::Result<Self> {
-        let dim_fields = PartitionField::resolve_dims(tree.dims(), categorized_fields)?;
-        let files = files.with_partitions(tree.partition_count());
+        let dim_fields = PartitionField::resolve_dims(model.dims(), categorized_fields)?;
+        let files = files.with_partitions(model.partition_count());
         Ok(Self {
-            tree,
+            model,
             dim_fields,
             files,
             created_by_version,
@@ -732,7 +737,7 @@ impl PartitionSpill {
     }
 
     /// Route one scanned row to its partition by projecting it onto the `partition_by` dimensions and
-    /// consulting the kd-tree. `unpacked_composites` must be built over the full field set so a
+    /// consulting the partition model. `unpacked_composites` must be built over the full field set so a
     /// composite `partition_by` field resolves the same way the document build would.
     unsafe fn route(
         &self,
@@ -741,6 +746,20 @@ impl PartitionSpill {
         ctid: u64,
         unpacked_composites: &CompositeSlotValues,
     ) -> anyhow::Result<usize> {
+        if let BuildPartitioning::Vector(_) = &self.model {
+            let [PartitionField::Categorized(categorized)] = self.dim_fields.as_slice() else {
+                unreachable!("vector partitioning requires one vector field")
+            };
+            let (datum, is_null) = get_field_value(
+                &categorized.categorized.source,
+                categorized.categorized.attno,
+                values,
+                isnull,
+                unpacked_composites,
+            );
+            let vector = unsafe { categorized.datum_to_vector(datum, is_null) };
+            return Ok(self.model.route(&PartitionPoint::Vector(vector)));
+        }
         let point = self
             .dim_fields
             .iter()
@@ -758,7 +777,7 @@ impl PartitionSpill {
                 }
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(self.tree.route(&point))
+        Ok(self.model.route(&PartitionPoint::Range(point)))
     }
 }
 
@@ -821,7 +840,7 @@ impl<'a> WorkerBuildState<'a> {
         coordination: &'a mut WorkerCoordination,
         worker_number: i32,
         is_leader: bool,
-        partitioning: Option<KdTree>,
+        partitioning: Option<BuildPartitioning>,
         spill_files: PartitionSpillFiles,
         build_snapshot: Option<pg_sys::Snapshot>,
     ) -> anyhow::Result<Self> {
@@ -1104,7 +1123,7 @@ impl<'a> WorkerBuildState<'a> {
     /// segment, whichever participants scanned its rows.
     fn drain_partitioned(&mut self) -> anyhow::Result<()> {
         let PartitionSpill {
-            tree, mut files, ..
+            model, mut files, ..
         } = self
             .partitioning
             .take()
@@ -1148,8 +1167,11 @@ impl<'a> WorkerBuildState<'a> {
         });
 
         let prefetch_distance = unsafe { pg_sys::maintenance_io_concurrency }.max(0) as usize;
-        let (first_partition, owned_partitions) =
-            chunk_range(tree.partition_count(), self.nparticipants, self.participant);
+        let (first_partition, owned_partitions) = chunk_range(
+            model.partition_count(),
+            self.nparticipants,
+            self.participant,
+        );
         for partition in first_partition..first_partition + owned_partitions {
             check_for_interrupts!();
             let Some(mut sorter) = (unsafe { files.gather(partition, self.gather_budget)? }) else {
@@ -1163,7 +1185,14 @@ impl<'a> WorkerBuildState<'a> {
             self.writer
                 .as_mut()
                 .expect("drain_partitioned: writer should be set")
-                .set_logical_bounds(partition_box(&tree, partition));
+                .set_logical_bounds(match &model {
+                    BuildPartitioning::Range(tree) => partition_box(tree, partition),
+                    BuildPartitioning::Vector(_) => None,
+                });
+            self.writer
+                .as_mut()
+                .unwrap()
+                .set_vector_partition(model.vector_partition(partition));
             let mut partition_metas: Vec<SegmentMeta> = Vec::new();
             let mut ctids = PrefetchWindow::new(
                 &heaprel,
@@ -1408,13 +1437,19 @@ pub(super) fn build_index(
     )?;
     let target_segment_count = partitioning.as_ref().map_or_else(
         || plan::adjusted_target_segment_count(&heaprel, &indexrel),
-        KdTree::partition_count,
+        BuildPartitioning::partition_count,
     );
     if let Some(partitioning) = &partitioning {
+        let description = match partitioning {
+            BuildPartitioning::Range(tree) => tree.bounds_listing().to_string(),
+            BuildPartitioning::Vector(_) => {
+                format!("vector centroids over {:?}", partitioning.dims())
+            }
+        };
         pgrx::debug1!(
-            "build_index: {} partition boundaries:\n{}",
+            "build_index: {} partitions:\n{}",
             partitioning.partition_count(),
-            partitioning.bounds_listing()
+            description
         );
     }
     let partitioning_bytes = match &partitioning {
@@ -1996,43 +2031,44 @@ mod tests {
         )
         .unwrap();
 
-        for (partitioned, workers, target, leader) in [
-            (false, 0, 1, true),
-            (false, 0, 4, true),
-            (false, 2, 4, true),
-            (false, 2, 4, false),
-            (false, 8, 8, true),
-            (false, 8, 8, false),
-            (true, 0, 4, true),
-            (true, 2, 4, false),
+        for (partition_by, workers, target, leader) in [
+            (None, 0, 1, true),
+            (None, 0, 4, true),
+            (None, 2, 4, true),
+            (None, 2, 4, false),
+            (None, 8, 8, true),
+            (None, 8, 8, false),
+            (Some("tenant_id"), 0, 4, true),
+            (Some("tenant_id"), 2, 4, false),
+            (Some(""), 8, 8, false),
         ] {
             Spi::run(&format!(
                 "SET max_parallel_maintenance_workers = {workers};
                  SET parallel_leader_participation = {leader};"
             ))
             .unwrap();
-            let partition_by = if partitioned {
-                ", partition_by = 'tenant_id'"
-            } else {
-                ""
-            };
+            let partition_option = partition_by
+                .map(|field| format!(", partition_by = '{field}'"))
+                .unwrap_or_default();
             Spi::run(&format!(
                 "CREATE INDEX vector_build_idx ON vector_build USING paradedb
-                 (id, tenant_id, name, empty_emb vector_l2_ops, emb vector_l2_ops)
-                 WITH (target_segment_count = {target}{partition_by});"
+                 (id, tenant_id, name, emb vector_l2_ops)
+                 WITH (target_segment_count = {target}{partition_option});"
             ))
             .unwrap();
-            let segment_count =
+            let segments =
                 Spi::get_one::<i64>("SELECT count(*) FROM paradedb.index_info('vector_build_idx')")
                     .unwrap()
                     .unwrap();
-            if partitioned || workers == 0 {
-                assert_eq!(segment_count, target);
-            } else {
-                // Parallel heap scans can leave participants without rows to index.
+            if partition_by == Some("") && workers > 0 {
                 assert!(
-                    (1..=target).contains(&segment_count),
-                    "segments={segment_count}, target={target}, workers={workers}, leader={leader}"
+                    (1..=target).contains(&segments),
+                    "segments={segments}, workers={workers}, leader={leader}"
+                );
+            } else {
+                assert_eq!(
+                    segments, target,
+                    "partition_by={partition_by:?}, workers={workers}, leader={leader}"
                 );
             }
             assert_eq!(
@@ -2042,24 +2078,47 @@ mod tests {
                 .unwrap(),
                 Some(20000)
             );
-            for (field, vectors) in [("empty_emb", 0), ("emb", 20000)] {
-                assert_eq!(
-                    Spi::get_one::<bool>(&format!(
-                        "SELECT count(*) = {segment_count} AND bool_and(vector_format = 'ivf')
-                         AND sum(vector_num_vectors) = {vectors}
-                         FROM paradedb.vector_info('vector_build_idx', '{field}')"
-                    ))
-                    .unwrap(),
-                    Some(true),
-                    "field={field}, partitioned={partitioned}, workers={workers}, leader={leader}"
-                );
-            }
+            assert_eq!(
+                Spi::get_one::<bool>(&format!(
+                    "SELECT count(*) = {segments} AND bool_and(vector_format = 'ivf')
+                     AND sum(vector_num_vectors) = 20000
+                     FROM paradedb.vector_info('vector_build_idx', 'emb')"
+                ))
+                .unwrap(),
+                Some(true),
+                "partition_by={partition_by:?}, workers={workers}, leader={leader}"
+            );
             assert_eq!(
                 Spi::get_one::<i64>(
                     "SELECT sum(id)::bigint FROM vector_build WHERE name ||| 'even'"
                 )
                 .unwrap(),
                 Some(100010000)
+            );
+            Spi::run("DROP INDEX vector_build_idx").unwrap();
+        }
+        for (partition_option, segments) in [("", 1), (", partition_by = 'tenant_id'", 4)] {
+            Spi::run(&format!(
+                "CREATE INDEX vector_build_idx ON vector_build USING paradedb
+                 (id, tenant_id, empty_emb vector_l2_ops)
+                 WITH (target_segment_count = 4{partition_option});"
+            ))
+            .unwrap();
+            assert_eq!(
+                Spi::get_one::<bool>(&format!(
+                    "SELECT count(*) = {segments} AND bool_and(vector_format = 'ivf')
+                     AND sum(vector_num_vectors) = 0
+                     FROM paradedb.vector_info('vector_build_idx', 'empty_emb')"
+                ))
+                .unwrap(),
+                Some(true)
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('vector_build_idx')"
+                )
+                .unwrap(),
+                Some(20000)
             );
             Spi::run("DROP INDEX vector_build_idx").unwrap();
         }

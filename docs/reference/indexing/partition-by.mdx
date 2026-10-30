@@ -91,6 +91,14 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
+<Note>
+  When an index includes a vector field, `partition_by` defaults to that field
+  unless explicitly set. Vectors are grouped into coarse clusters during `CREATE
+  INDEX` and `REINDEX`. Their centroids guide vector searches across multiple
+  segments. Newly inserted segments remain searchable without a partition
+  centroid.
+</Note>
+
 Partitioning an index provides two key benefits:
 
 - Accelerating search and filter queries

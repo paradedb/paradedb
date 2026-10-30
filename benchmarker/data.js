@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793393707225,
+  "lastUpdate": 1793395977846,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -33579,6 +33579,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12999382100-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90764dd826e00c5ea5df69bee850d97f8c3ed1b",
+          "message": "perf: pin Tantivy tip for five-list router patience (#7116)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nUpdate Tantivy from `17c53e6357bc7bf91d82e37cee720d1a704d5ee6` to the\nlatest `main`, `7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf`.\n\n## Why\n\nPick up\n[paradedb/tantivy#353](https://github.com/paradedb/tantivy/pull/353).\nRouter patience stops after five lists that leave the top-k heap\nunchanged. The previous `5 \u00d7 k` row window was smaller than one list, so\nthe walk stopped after a single miss. This is the only Tantivy commit\nsince the previous pin. The index format is unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. Nix is\nnot available locally, so `cargoHash` in `nix/pg_search.nix` is\nunchanged; Nix CI can fill in the new hash.\n\n## Tests\n\n- [x] `cargo metadata --locked --format-version 1` resolves all ten\nTantivy Git packages to `7f43bdd2`\n- [x] `python3 .github/scripts/release.py lint-fragments\n--changelog-only`\n- [x] `git diff --check`\n- [ ] SQL regression tests (CI)\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-30T13:20:09-07:00",
+          "tree_id": "d0fe57ecc96badf7d8551530034490f6ceebd00e",
+          "url": "https://github.com/paradedb/paradedb/commit/e90764dd826e00c5ea5df69bee850d97f8c3ed1b"
+        },
+        "date": 1793395977082,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.3,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.68,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.339,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.552,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.052,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.493,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.859,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.392,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.491,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.156,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.147,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.19,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.007,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13011512298-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -38954,6 +39054,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12999382100-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90764dd826e00c5ea5df69bee850d97f8c3ed1b",
+          "message": "perf: pin Tantivy tip for five-list router patience (#7116)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nUpdate Tantivy from `17c53e6357bc7bf91d82e37cee720d1a704d5ee6` to the\nlatest `main`, `7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf`.\n\n## Why\n\nPick up\n[paradedb/tantivy#353](https://github.com/paradedb/tantivy/pull/353).\nRouter patience stops after five lists that leave the top-k heap\nunchanged. The previous `5 \u00d7 k` row window was smaller than one list, so\nthe walk stopped after a single miss. This is the only Tantivy commit\nsince the previous pin. The index format is unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. Nix is\nnot available locally, so `cargoHash` in `nix/pg_search.nix` is\nunchanged; Nix CI can fill in the new hash.\n\n## Tests\n\n- [x] `cargo metadata --locked --format-version 1` resolves all ten\nTantivy Git packages to `7f43bdd2`\n- [x] `python3 .github/scripts/release.py lint-fragments\n--changelog-only`\n- [x] `git diff --check`\n- [ ] SQL regression tests (CI)\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-30T13:20:09-07:00",
+          "tree_id": "d0fe57ecc96badf7d8551530034490f6ceebd00e",
+          "url": "https://github.com/paradedb/paradedb/commit/e90764dd826e00c5ea5df69bee850d97f8c3ed1b"
+        },
+        "date": 1793395977839,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 537.1137336985928,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 502.3891393122831,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 142.1612521744857,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 255.37628488817023,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 373.0824914080821,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13011512298-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

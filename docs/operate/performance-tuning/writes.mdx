@@ -56,15 +56,24 @@ A higher value generally improves write throughput at the expense of read perfor
 since the mutable data structure is slower to search. Additionally, the mutable data structure is read into
 memory, so higher values cause reads to consume more RAM.
 
-Alternatively, this setting can be set to apply to all indexes in the database:
+For indexes without an explicit `mutable_segment_rows` setting, use the global setting as a default.
+The following `SET` applies to the current session:
 
 ```sql
-SET paradedb.global_mutable_segment_rows = 1000
+SET paradedb.global_mutable_segment_rows = 1000;
 ```
 
-If both a per-index setting and global setting exist, the global `paradedb.global_mutable_segment_rows` will be used.
-To ignore the global setting, set `paradedb.global_mutable_segment_rows` to `-1` (this is the default).
+An explicit per-index setting takes precedence over `paradedb.global_mutable_segment_rows`, including
+`mutable_segment_rows = 0`, which disables mutable segments for that index. To make an index inherit
+the global setting again, reset its option:
 
 ```sql
-SET paradedb.global_mutable_segment_rows = -1
+ALTER INDEX search_idx RESET (mutable_segment_rows);
+```
+
+When the index option is unset and `paradedb.global_mutable_segment_rows` is `-1` (the default),
+the built-in default of `1000` rows applies:
+
+```sql
+SET paradedb.global_mutable_segment_rows = -1;
 ```

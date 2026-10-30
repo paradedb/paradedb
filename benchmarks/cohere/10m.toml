@@ -27,6 +27,8 @@ warmup_runs = 1
 explain_sample = 100
 
 [search.session]
+"paradedb.vector_adaptive_probing" = "on"
+"paradedb.vector_adaptive_recall_target" = "0.95"
 "cohere.titles_1pct" = "battle"
 "cohere.titles_10pct" = "year"
 max_parallel_workers_per_gather = "8"
@@ -34,10 +36,10 @@ jit = "off"
 plan_cache_mode = "force_custom_plan"
 
 [search.sweep]
-param = "paradedb.vector_cluster_max_probe"
-min = 0.0001
-max = 1.0
-start = 0.005
+param = "paradedb.vector_adaptive_recall_exponent"
+min = 0.5
+max = 10.0
+start = 1.5
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001
 max_probes = 20

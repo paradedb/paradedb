@@ -3,7 +3,15 @@
 import copy
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, operating_points, summary
+from prepare_k6 import (
+    EXPONENT,
+    PROBE,
+    QUERIES,
+    RECALL_TARGET,
+    TARGETS,
+    operating_points,
+    summary,
+)
 from verify_plans import verify
 
 
@@ -108,6 +116,39 @@ class OperatingPointsTest(unittest.TestCase):
                 inputs[0][section][key] = value
             with self.assertRaisesRegex(ValueError, "strict recall targets"):
                 operating_points(inputs)
+
+    def test_adaptive_targets_keep_independent_calibration_and_session(self):
+        """Each target must retain its own exponent and recall setting in k6."""
+        inputs = []
+        for target, exponent in zip(TARGETS, ["1.2", "2.0", "3.5"]):
+            for report in reports():
+                report["config"]["search"]["sweep"]["targets"] = [target]
+                report["config"]["search"]["session"][RECALL_TARGET] = str(target)
+                report["config"]["search"]["session"][PROBE] = str(target / 10)
+                report["data"]["sweep_param"] = EXPONENT
+                result = next(iter(report["data"]["variants"].values()))
+                result["targets"] = {str(target): {"value": exponent, "recall": target}}
+                result["points"][0]["value"] = exponent
+                result["points"][0]["metrics"]["recall"]["recall"] = target
+                inputs.append(report)
+        original = copy.deepcopy(inputs)
+        points = operating_points(inputs)
+        self.assertEqual(len(points), 9)
+        for point in points:
+            self.assertEqual(point["param"], EXPONENT)
+            self.assertEqual(float(point["session"][RECALL_TARGET]), point["target"])
+            self.assertEqual(float(point["session"][PROBE]), point["target"] / 10)
+            self.assertEqual(
+                point["probe"],
+                dict(zip(TARGETS, ["1.2", "2.0", "3.5"]))[point["target"]],
+            )
+        self.assertEqual(inputs, original)
+        self.assertIn("recall exponent", summary(points))
+        with self.assertRaisesRegex(ValueError, "Missing recall sweeps"):
+            operating_points(inputs[:-1])
+        inputs[0]["config"]["search"]["session"][RECALL_TARGET] = "0.99"
+        with self.assertRaisesRegex(ValueError, "one matching recall target"):
+            operating_points(inputs)
 
     def test_plan_guard_requires_index_scan_and_filter_pushdown(self):
         """Reject fallback scans and filters outside the index."""

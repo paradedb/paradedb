@@ -7,7 +7,27 @@ from pathlib import Path
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
+EXPONENT = "paradedb.vector_adaptive_recall_exponent"
+RECALL_TARGET = "paradedb.vector_adaptive_recall_target"
 QVEC = "current_setting('cohere.qvec')"
+
+
+def sweep_settings(report):
+    """Normalize shared settings while keeping target-specific sessions intact."""
+    current = json.loads(json.dumps(report["config"]))
+    current["search"].pop("query", None)
+    param = report["data"]["sweep_param"]
+    session = dict(current["search"]["session"])
+    targets = TARGETS
+    if param == EXPONENT:
+        current["search"]["session"].pop(PROBE)
+        targets = current["search"]["sweep"].pop("targets")
+        target = float(current["search"]["session"].pop(RECALL_TARGET))
+        if targets != [target] or target not in TARGETS:
+            raise ValueError(
+                "Adaptive sweeps must calibrate one matching recall target"
+            )
+    return current, session, targets, param
 
 
 def operating_points(reports):
@@ -16,15 +36,16 @@ def operating_points(reports):
     seen = set()
     config = None
     for report in reports:
-        current = json.loads(json.dumps(report["config"]))
-        current["search"].pop("query", None)
+        current, session, targets, param = sweep_settings(report)
         if config is not None and config != current:
             raise ValueError(
                 "Recall sweeps must use the same dataset, index, and session settings"
             )
         config = current
-        if report["kind"] != "search" or report["data"]["sweep_param"] != PROBE:
-            raise ValueError("Expected a pdbench max_probe search report")
+        if report["kind"] != "search" or param not in (PROBE, EXPONENT):
+            raise ValueError(
+                "Expected a pdbench probe or adaptive recall search report"
+            )
         if (
             report["data"]["query_vectors"] != 100
             or not 0 < current["search"]["sweep"]["tolerance"] < 0.001
@@ -33,17 +54,19 @@ def operating_points(reports):
                 "CI requires all 100 query vectors and strict recall targets"
             )
         for query, result in report["data"]["variants"].items():
-            if query not in QUERIES or query in seen:
-                raise ValueError(f"Unexpected or duplicate query: {query}")
-            seen.add(query)
+            if query not in QUERIES:
+                raise ValueError(f"Unexpected query: {query}")
             if result["query"].count(QVEC) != 1:
                 raise ValueError(f"{query}: expected exactly one query-vector operand")
             measured = {point["value"]: point["metrics"] for point in result["points"]}
-            for target in TARGETS:
+            for target in targets:
+                if (query, target) in seen:
+                    raise ValueError(f"Unexpected or duplicate query: {query}@{target}")
+                seen.add((query, target))
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
-                    not 0 < float(selected["value"]) <= 1
+                    not 0 < float(selected["value"]) <= (10 if param == EXPONENT else 1)
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
@@ -55,29 +78,33 @@ def operating_points(reports):
                         "target": target,
                         "reached": selected is not None,
                         "probe": selected["value"] if selected else None,
+                        "param": param,
                         "recall": selected["recall"]
                         if selected
                         else max(
                             point["recall"]["recall"] for point in measured.values()
                         ),
                         "sql": result["query"].replace(QVEC, "$1"),
-                        "session": current["search"]["session"],
+                        "session": session,
                         "buffers": metrics["buffers"] if metrics else None,
                     }
                 )
-    if seen != set(QUERIES):
-        raise ValueError(f"Missing recall sweeps: {set(QUERIES) - seen}")
+    if seen != {(query, target) for query in QUERIES for target in TARGETS}:
+        raise ValueError(
+            "Missing recall sweeps: expected every filter and recall target"
+        )
     return sorted(points, key=lambda point: point["name"])
 
 
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
+    parameter = "recall exponent" if points[0]["param"] == EXPONENT else "max_probe"
     lines = [
         (
-            "| Filter / recall target | max_probe | Achieved recall@10 "
+            f"| Filter / recall target | {parameter} | Fixed probe budget | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
-        "|---|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for point in points:
         buffers = point["buffers"]
@@ -92,11 +119,14 @@ def summary(points):
             else "—"
         )
         probe = f"`{point['probe']}`" if point["reached"] else "⚠️ Not reached"
+        budget = point["session"].get(PROBE, "—")
         lines.append(
-            f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
+            f"| `{point['name']}` | {probe} | {budget} | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects max_probe separately for each filter and recall target on this index. "
+        f"\npdbench selects {parameter} separately for each filter and recall target "
+        "on this index. Adaptive calibration retains the probe budget selected "
+        "with early stopping disabled. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

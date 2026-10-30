@@ -237,14 +237,8 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep max_probe with pdbench
-        run: |
-          set -euo pipefail
-          for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-            pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
-              --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
-              --query "$query" --no-compare --html
-          done
+      - name: Measure admission calibration across filters and targets
+        run: python3 benchmarks/cohere/admission_experiment.py
 
       - name: Find mainline pdbench baseline
         id: pdbench_baseline
@@ -286,7 +280,7 @@ jobs:
           run-id: ${{ steps.pdbench_baseline.outputs.run_id }}
           github-token: ${{ github.token }}
 
-      - name: Compare pdbench sweeps with mainline
+      - name: Compare nonadaptive control sweeps with mainline
         if: steps.pdbench_baseline.outputs.run_id != ''
         env:
           BASELINE_COMMIT: ${{ steps.pdbench_baseline.outputs.commit }}
@@ -296,16 +290,16 @@ jobs:
           set -euo pipefail
           python3 benchmarks/cohere/compare_search.py \
             --baseline "benchmark-baseline/search/${COHERE_SIZE}" \
-            --current "benchmark-artifacts/search/${COHERE_SIZE}" \
+            --current "benchmark-artifacts/fixed-budget/${COHERE_SIZE}" \
             --output benchmark-artifacts/comparison \
             --baseline-commit "$BASELINE_COMMIT" --baseline-url "$BASELINE_URL" \
             --current-commit "$CURRENT_COMMIT"
+          echo 'Sweep reports compare nonadaptive controls with main; adaptive results are in the operating-point table and k6 comparisons.' >> "$GITHUB_STEP_SUMMARY"
           cat benchmark-artifacts/comparison/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare k6 operating points
         run: |
           set -euo pipefail
-          python3 benchmarks/cohere/prepare_k6.py --runs benchmark-artifacts/search --output benchmark-artifacts
           jq '[.[] | select(.reached and .buffers.shared_hit_mean != null)
             | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
           ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json

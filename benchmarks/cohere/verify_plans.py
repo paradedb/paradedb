@@ -41,7 +41,12 @@ def routing_metrics(scans, require_routing):
     totals = dict.fromkeys(ROUTING_COUNTERS, 0)
     routed_segments = 0
     for scan in scans:
-        for segment in scan.get("Segment Info", {}).values():
+        segments = scan.get("Segment Info", {})
+        # EXPLAIN's add_json uses a JSON-valued text property. Accept decoded
+        # objects too, as used by callers that already normalize plan fields.
+        if isinstance(segments, str):
+            segments = json.loads(segments)
+        for segment in segments.values():
             kind = segment.get("routing_kind")
             if kind is None:
                 continue  # Located and flat scans do not invoke a router.

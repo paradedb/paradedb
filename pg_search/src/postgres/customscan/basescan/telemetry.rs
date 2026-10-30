@@ -36,6 +36,12 @@ fn is_segment_inventory_gauge(name: &str) -> bool {
     matches!(name, "segment_rows" | "segment_clusters")
 }
 
+/// Readings of the RateAPS: a repeated top-k call on a segment replaces them, so the last call's
+/// reading wins.
+fn is_rate_reading(name: &str) -> bool {
+    matches!(name, "rate_opening" | "rate_current" | "rate_evidence")
+}
+
 fn sum_numbers(left: &Number, right: &Number) -> Number {
     if let (Some(left), Some(right)) = (left.as_u64(), right.as_u64()) {
         return left.saturating_add(right).into();
@@ -88,6 +94,7 @@ fn merge_segment_value(existing: &mut Value, incoming: Value) {
             continue;
         };
         match (existing_value.as_number(), incoming_value.as_number()) {
+            (Some(_), Some(_)) if is_rate_reading(&name) => *existing_value = incoming_value,
             (Some(existing_number), Some(incoming_number)) => {
                 let merged = if is_segment_inventory_gauge(&name) {
                     max_numbers(existing_number, incoming_number)
@@ -265,6 +272,36 @@ mod tests {
         assert_eq!(value["segment_rows"], 100);
         assert_eq!(value["segment_clusters"], 3);
         assert_eq!(value["termination"], "second");
+    }
+
+    #[test]
+    fn repeated_topk_calls_keep_the_last_rate_reading() {
+        let segment_id = SegmentId::from_bytes([1; 16]);
+        let mut telemetry = ScanTelemetry::default();
+        telemetry.accumulate_segment_info(segment_info(
+            segment_id,
+            json!({
+                "rate_stops": 1,
+                "rate_opening": 0.5,
+                "rate_current": 0.05,
+                "rate_evidence": 6.0
+            }),
+        ));
+        telemetry.accumulate_segment_info(segment_info(
+            segment_id,
+            json!({
+                "rate_stops": 1,
+                "rate_opening": 0.25,
+                "rate_current": 0.02,
+                "rate_evidence": 9.5
+            }),
+        ));
+
+        let value = &telemetry.segment_info()[&segment_id];
+        assert_eq!(value["rate_stops"], 2);
+        assert_eq!(value["rate_opening"], 0.25);
+        assert_eq!(value["rate_current"], 0.02);
+        assert_eq!(value["rate_evidence"], 9.5);
     }
 
     #[test]

@@ -17,7 +17,11 @@ def reports():
                 "search": {
                     "query": query,
                     "sweep": {"tolerance": 0.000001},
-                    "session": {"cohere.titles_10pct": "year", "jit": "off"},
+                    "session": {
+                        "cohere.titles_10pct": "year",
+                        "jit": "off",
+                        "paradedb.vector_cluster_max_probe": "1.0",
+                    },
                 },
             },
             "data": {
@@ -28,12 +32,12 @@ def reports():
                         "query": "SELECT _id FROM cohere_wiki ORDER BY emb <=> "
                         "current_setting('cohere.qvec')::vector(1024) LIMIT 10",
                         "targets": {
-                            "0.9": {"value": "0.001", "recall": 0.96},
-                            "0.95": {"value": "0.001", "recall": 0.96},
+                            "0.9": {"value": "0.95", "recall": 0.96},
+                            "0.95": {"value": "0.95", "recall": 0.96},
                         },
                         "points": [
                             {
-                                "value": "0.001",
+                                "value": "0.95",
                                 "metrics": {
                                     "recall": {"recall": 0.96},
                                     "buffers": {
@@ -66,7 +70,7 @@ class OperatingPointsTest(unittest.TestCase):
             self.assertIn("$1::vector(1024)", point["sql"])
             self.assertEqual(point["session"], inputs[0]["config"]["search"]["session"])
             if point["reached"]:
-                self.assertEqual(point["probe"], "0.001")
+                self.assertEqual(point["probe"], "0.95")
                 self.assertEqual(point["buffers"]["shared_hit_mean"], 1234.5)
             else:
                 self.assertIsNone(point["probe"])
@@ -78,7 +82,7 @@ class OperatingPointsTest(unittest.TestCase):
         """Reject a below-target selection rather than relabeling it."""
         inputs = reports()
         inputs[0]["data"]["variants"][QUERIES[0]]["targets"]["0.99"] = {
-            "value": "0.001",
+            "value": "0.95",
             "recall": 0.96,
         }
         with self.assertRaisesRegex(ValueError, "invalid selected point"):

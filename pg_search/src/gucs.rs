@@ -324,8 +324,10 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Maximum fraction of each segment's IVF clusters probed by a vector query.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+/// Work budget of each segment's vector scan, as a fraction of its capacity in
+/// cluster units; below a `vector_recall_target` of 1.0 it is the ceiling the
+/// RateAPS stops under.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.1);
 
 /// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
@@ -360,8 +362,18 @@ pub fn vector_stats() -> bool {
 /// Registered for compatibility. Nothing reads it.
 static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// Registered for compatibility. Nothing reads it.
-static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+/// Target of the RateAPS, the adaptive stop of each routed segment scan.
+/// Below `1.0` the scan stops once the rate of rows entering the top k, read
+/// under the pruning threshold, has decayed to `1 - target` of its level in
+/// the first doubling of work after the heap filled, with
+/// `vector_cluster_max_probe` as the ceiling; `1.0` leaves that ceiling as the
+/// only bound.
+static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(0.95);
+
+/// Returns the RateAPS target.
+pub fn vector_recall_target() -> f32 {
+    VECTOR_RECALL_TARGET.get() as f32
+}
 
 /// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
@@ -666,7 +678,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"A work budget of this fraction of each segment's capacity in cluster units, at least 16 units and at most the segment; 1.0 probes every cluster. With paradedb.vector_recall_target below 1.0 it is the ceiling the RateAPS stops under.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -685,7 +697,6 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    // Registered so SHOW and pg_settings stay stable. Nothing reads these.
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
         c"Registered for compatibility; nothing reads it",
@@ -699,8 +710,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
-        c"Registered for compatibility; nothing reads it",
-        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
+        c"RateAPS target for each segment's cluster scan in vector ORDER BY queries",
+        c"Below 1.0 each routed segment scan stops once the rate of rows entering the top k, read under the pruning threshold, has decayed to 1 - target of its level in the first doubling of work after the heap filled (the RateAPS), with paradedb.vector_cluster_max_probe as the ceiling. A filter matching at most 5% of a segment's documents, and no more rows than that ceiling's budget scores, is located rather than routed. Set 1.0 with paradedb.vector_cluster_max_probe = 0.02 for the fixed-budget scan of earlier releases.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,

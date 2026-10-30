@@ -6,7 +6,7 @@ from pathlib import Path
 
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 TARGETS = (0.9, 0.95, 0.99)
-PROBE = "paradedb.vector_cluster_max_probe"
+PROBE = "paradedb.vector_recall_target"
 QVEC = "current_setting('cohere.qvec')"
 
 
@@ -24,7 +24,7 @@ def operating_points(reports):
             )
         config = current
         if report["kind"] != "search" or report["data"]["sweep_param"] != PROBE:
-            raise ValueError("Expected a pdbench max_probe search report")
+            raise ValueError("Expected a pdbench recall_target search report")
         if (
             report["data"]["query_vectors"] != 100
             or not 0 < current["search"]["sweep"]["tolerance"] < 0.001
@@ -74,7 +74,7 @@ def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
     lines = [
         (
-            "| Filter / recall target | max_probe | Achieved recall@10 "
+            "| Filter / recall target | recall_target | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|",
@@ -96,7 +96,8 @@ def summary(points):
             f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects max_probe separately for each filter and recall target on this index. "
+        "\npdbench selects recall_target separately for each filter and recall target "
+        "on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

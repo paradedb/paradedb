@@ -325,6 +325,15 @@ jobs:
       - name: Verify k6 query plans and filter pushdown
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
+      - name: Upload index, recall, and buffer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cohere-${{ matrix.size }}-diagnostics
+          path: benchmark-artifacts/
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
@@ -363,15 +372,6 @@ jobs:
              "sweep_reports_dir":"benchmark-artifacts/comparison",
              "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
              "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
-
-      - name: Upload index, recall, and buffer diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: cohere-${{ matrix.size }}-diagnostics
-          path: benchmark-artifacts/
-          retention-days: 30
-          if-no-files-found: warn
 
       - name: Database logs
         if: failure() || cancelled()

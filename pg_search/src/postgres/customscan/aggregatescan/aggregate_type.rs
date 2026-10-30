@@ -30,7 +30,6 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::{VarContext, fieldname_from_var, find_one_fieldname};
 use crate::query::SearchQueryInput;
@@ -834,12 +833,13 @@ impl ParsedAggregateField {
         let expression = AggregateFieldExpression::from_node(expr)?;
         let field_expr = expression.field_expression();
 
-        let field_name =
-            if let Some(resolved) = source.resolve(ResTarget::Expr(field_expr), Access::Scalar) {
-                FieldName::from(resolved.field.name())
-            } else {
-                expression.field_name(context)?
-            };
+        let field_name = if let Some(resolved) =
+            source.resolve_fast_field(ResTarget::Expr(field_expr), Access::Scalar)
+        {
+            FieldName::from(resolved.field.name())
+        } else {
+            expression.field_name(context)?
+        };
 
         Ok(Self {
             expression,
@@ -996,8 +996,7 @@ impl AggregateFieldExpression {
         let var = <*mut pg_sys::Var>::unwrap_from_expr(expression as *mut pg_sys::Expr)
             .context("first argument of COALESCE must resolve to a field")?;
         let (heaprelid, varattno) = context.var_relation(var);
-        let heaprel = PgSearchRelation::open(heaprelid);
-        fieldname_from_var(&heaprel, varattno)
+        fieldname_from_var(heaprelid, varattno)
             .context("first argument of COALESCE must resolve to a field")
     }
 }

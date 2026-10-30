@@ -902,7 +902,7 @@ unsafe fn resolve_var_source<'a>(
     let field_name = match unnest_field {
         Some(field_name) => field_name,
         None => source
-            .resolve(ResTarget::Attno(attno), Access::Any)
+            .resolve_fast_field(ResTarget::Attno(attno), Access::Any)
             .map(|r| r.field.name())
             .ok_or_else(|| {
                 let alias =
@@ -997,7 +997,7 @@ unsafe fn extract_raw_group_column(
             .sources
             .iter()
             .find_map(|s| {
-                s.resolve(ResTarget::Expr(expr), Access::Any)
+                s.resolve_fast_field(ResTarget::Expr(expr), Access::Any)
                     .map(|r| (s, r))
             })
             .ok_or_else(|| {
@@ -1535,7 +1535,7 @@ unsafe fn extract_aggref_order_by(
         let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
 
         let field_name = source
-            .resolve(ResTarget::Attno(attno), Access::Any)
+            .resolve_fast_field(ResTarget::Attno(attno), Access::Any)
             .map(|r| r.field.name())
             .ok_or_else(|| {
                 format!(

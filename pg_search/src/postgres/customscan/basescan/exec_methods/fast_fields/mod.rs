@@ -114,7 +114,7 @@ pub unsafe fn pullup_fast_fields(
         if let Some(var) = maybe_var {
             let start_len = matches.len();
             if let Some(resolved) =
-                context.resolve(ResTarget::Attno((*var).varattno), Access::Scalar)
+                context.resolve_fast_field(ResTarget::Attno((*var).varattno), Access::Scalar)
             {
                 matches.push(resolved.field);
             }
@@ -126,7 +126,7 @@ pub unsafe fn pullup_fast_fields(
         }
 
         // Try to match complex expression (or Var with source mismatch) against index expressions
-        if let Some(resolved) = context.resolve(
+        if let Some(resolved) = context.resolve_fast_field(
             ResTarget::Expr((*te).expr as *mut pg_sys::Node),
             Access::Scalar,
         ) {
@@ -192,7 +192,8 @@ pub unsafe fn pullup_fast_fields(
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
         let start_len = matches.len();
-        if let Some(resolved) = context.resolve(ResTarget::Attno(attno), Access::Scalar) {
+        if let Some(resolved) = context.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)
+        {
             matches.push(resolved.field);
         }
         // If not added (e.g. because of source mismatch), try expression matching for this column.
@@ -211,7 +212,7 @@ pub unsafe fn pullup_fast_fields(
                     0,
                 );
 
-                if let Some(resolved) = context.resolve(
+                if let Some(resolved) = context.resolve_fast_field(
                     ResTarget::Expr(dummy_var as *mut pg_sys::Node),
                     Access::Scalar,
                 ) {

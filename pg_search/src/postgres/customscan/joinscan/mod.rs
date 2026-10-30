@@ -800,9 +800,9 @@ impl JoinScan {
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let outer_resolved =
-                        outer.resolve(ResTarget::Attno(jk.outer_attno), Access::Scalar);
+                        outer.resolve_fast_field(ResTarget::Attno(jk.outer_attno), Access::Scalar);
                     let inner_resolved =
-                        inner.resolve(ResTarget::Attno(jk.inner_attno), Access::Scalar);
+                        inner.resolve_fast_field(ResTarget::Attno(jk.inner_attno), Access::Scalar);
                     match (&outer_resolved, &inner_resolved) {
                         (Some(outer_resolved), Some(inner_resolved)) => {
                             let either_numeric = outer_resolved

@@ -497,12 +497,13 @@ fn find_targetlist_relation(
 
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
 pub unsafe fn fieldname_from_var(
-    heaprel: &PgSearchRelation,
+    heaprelid: pg_sys::Oid,
     varattno: pg_sys::AttrNumber,
 ) -> Option<FieldName> {
-    if varattno == 0 {
+    if varattno == 0 || heaprelid == pg_sys::InvalidOid {
         return None;
     }
+    let heaprel = PgSearchRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
     if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
         Some(CTID_FIELD_NAME.into())
@@ -528,8 +529,7 @@ pub unsafe fn find_one_fieldname(
         find_one_fieldname(context, arg as *mut pg_sys::Node)
     } else if is_a(node, T_Var) {
         let (heaprelid, varattno) = context.var_relation(node.cast::<pg_sys::Var>());
-        let heaprel = PgSearchRelation::open(heaprelid);
-        fieldname_from_var(&heaprel, varattno)
+        fieldname_from_var(heaprelid, varattno)
     } else {
         unsafe { json_path_fieldname(context, node) }
     }
@@ -581,16 +581,22 @@ pub unsafe fn find_one_resolved_var_and_fieldname(
             .tupdesc()
             .get(varattno as usize - 1)
             .map(|n| n.name().into());
-        (source.resolve(ResTarget::Attno(varattno), access), name)
+        (
+            source.resolve_fast_field(ResTarget::Attno(varattno), access),
+            name,
+        )
     } else if let Some(name) = unsafe { json_path_fieldname(context, node) } {
-        let resolved = source.resolve(ResTarget::Field(name.as_ref()), access);
+        let resolved = source.resolve_fast_field(ResTarget::Field(name.as_ref()), access);
         (resolved, Some(name))
     } else if is_a(node, T_OpExpr) {
         // any opexpr not handled by json_path_fieldname does not have a json operator and is not
         // findable here
         (None, None)
     } else {
-        (source.resolve(ResTarget::Expr(node), access), None)
+        (
+            source.resolve_fast_field(ResTarget::Expr(node), access),
+            None,
+        )
     }
 }
 
@@ -625,9 +631,8 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
     if is_a(node, T_Var) {
         let node = node as *mut Var;
         let (heaprelid, varattno) = context.var_relation(node);
-        let heaprel = PgSearchRelation::open(heaprelid);
         // Return empty path if we can't get a valid field name (e.g., due to out-of-bounds varno)
-        if let Some(field_name) = fieldname_from_var(&heaprel, varattno) {
+        if let Some(field_name) = fieldname_from_var(heaprelid, varattno) {
             path.push(field_name.root());
         }
         return path;

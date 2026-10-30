@@ -750,8 +750,8 @@ unsafe fn collect_join_sources_join_rel(
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let (Some(outer_resolved), Some(inner_resolved)) = (
-                        outer.resolve(ResTarget::Attno(jk.outer_attno), Access::Scalar),
-                        inner.resolve(ResTarget::Attno(jk.inner_attno), Access::Scalar),
+                        outer.resolve_fast_field(ResTarget::Attno(jk.outer_attno), Access::Scalar),
+                        inner.resolve_fast_field(ResTarget::Attno(jk.inner_attno), Access::Scalar),
                     ) else {
                         return None;
                     };
@@ -1807,7 +1807,9 @@ pub(super) unsafe fn collect_required_fields(
                         continue;
                     };
                     let context = source.to_source_context();
-                    match context.resolve(ResTarget::Field(&field.field_name), Access::Any) {
+                    match context
+                        .resolve_fast_field(ResTarget::Field(&field.field_name), Access::Any)
+                    {
                         Some(resolved) => source
                             .scan_info
                             .add_field_by_name(field.attno, resolved.field),
@@ -1880,7 +1882,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
         return Some(());
     }
     let context = side.to_source_context();
-    let resolved = context.resolve(ResTarget::Attno(attno), Access::Scalar)?;
+    let resolved = context.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)?;
     side.scan_info.add_field(attno, resolved.field);
     Some(())
 }
@@ -1891,7 +1893,7 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let context = side.to_source_context();
-    if let Some(resolved) = context.resolve(ResTarget::Field(field_name), Access::Any) {
+    if let Some(resolved) = context.resolve_fast_field(ResTarget::Field(field_name), Access::Any) {
         side.scan_info.add_field(attno, resolved.field);
     }
 }
@@ -1906,7 +1908,7 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
 unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
     let context = source.to_source_context();
     let resolved = context
-        .resolve(ResTarget::Field(field_name), Access::Any)
+        .resolve_fast_field(ResTarget::Field(field_name), Access::Any)
         .ok_or(format!("Failed to resolve field {field_name}"))?;
 
     // TODO: Why is this done, and can we make it guaranteed to not collide with system cols?
@@ -2090,7 +2092,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 for source in &sources {
                     if source.heap_rti == varno {
                         if source
-                            .resolve(ResTarget::Attno(varattno), Access::Scalar)
+                            .resolve_fast_field(ResTarget::Attno(varattno), Access::Scalar)
                             .is_some()
                         {
                             is_fast = true;
@@ -2113,7 +2115,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 let mut found = false;
                 for source in &sources {
                     if source
-                        .resolve(ResTarget::Expr(expr), Access::Scalar)
+                        .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
                         .is_some()
                     {
                         found = true;
@@ -2302,7 +2304,7 @@ pub fn resolve_fast_field_from_join_sources(
             return None;
         }
         source
-            .resolve(ResTarget::Attno(varattno), Access::Scalar)
+            .resolve_fast_field(ResTarget::Attno(varattno), Access::Scalar)
             .map(|r| r.field)
     })
 }
@@ -2415,7 +2417,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 3: Check if expression matches an indexed expression (existing behavior)
     let matched_source = sources.iter().find_map(|source| {
-        let search_field = source.resolve(ResTarget::Expr(expr), Access::Scalar)?.field;
+        let search_field = source
+            .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)?
+            .field;
         Some((source.heap_rti, search_field.name().to_string()))
     });
     if let Some((rti, field_name)) = matched_source {
@@ -2505,7 +2509,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         match source {
             Some(source) => {
                 if source
-                    .resolve(ResTarget::Attno(varattno), Access::Scalar)
+                    .resolve_fast_field(ResTarget::Attno(varattno), Access::Scalar)
                     .is_none()
                 {
                     let col = column_name_for_var(&plan.sources(), varno, varattno);
@@ -2920,7 +2924,7 @@ impl JoinSortExprKind {
             if !output_rtis.contains(&source.heap_rti) {
                 continue;
             }
-            if let Some(resolved) = source.resolve(
+            if let Some(resolved) = source.resolve_fast_field(
                 ResTarget::Expr(check_expr as *mut pg_sys::Node),
                 Access::Scalar,
             ) {

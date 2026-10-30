@@ -145,7 +145,7 @@ fn source_field_candidates<'a>(
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
-        let resolved = source.resolve(ResTarget::Field(field), Access::Any);
+        let resolved = source.resolve_fast_field(ResTarget::Field(field), Access::Any);
         match validate_source_field_candidate(source, resolved, field) {
             Ok(Some(r)) => matches.push((source, r)),
             Ok(None) => {}
@@ -1832,8 +1832,10 @@ impl FilterExpr {
                             return None;
                         }
                         let source = sources.iter().find(|s| s.heap_rti == rti)?;
-                        let resolved = source
-                            .resolve(ResTarget::Attno(unsafe { (*var).varattno }), Access::Any)?;
+                        let resolved = source.resolve_fast_field(
+                            ResTarget::Attno(unsafe { (*var).varattno }),
+                            Access::Any,
+                        )?;
                         Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
                             rti: source.heap_rti,
@@ -2025,7 +2027,7 @@ unsafe fn require_fast_field(
     attno: pg_sys::AttrNumber,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    match context.resolve(ResTarget::Attno(attno), Access::Scalar) {
+    match context.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar) {
         Some(resolved) => {
             source.scan_info.add_field(attno, resolved.field);
             Ok(())
@@ -2048,19 +2050,20 @@ unsafe fn require_named_fast_field(
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
     if field_name.contains('.')
-        && let Some(resolved) = context.resolve(ResTarget::Field(field_name), Access::Any)
+        && let Some(resolved) =
+            context.resolve_fast_field(ResTarget::Field(field_name), Access::Any)
     {
         source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
-    if let Some(resolved) = context.resolve(
+    if let Some(resolved) = context.resolve_fast_field(
         ResTarget::Attno(attno as pg_sys::AttrNumber),
         Access::Scalar,
     ) {
         source.scan_info.add_field(attno, resolved.field);
         return Ok(());
     }
-    if let Some(resolved) = context.resolve(ResTarget::Field(field_name), Access::Any) {
+    if let Some(resolved) = context.resolve_fast_field(ResTarget::Field(field_name), Access::Any) {
         source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
@@ -2214,7 +2217,7 @@ pub unsafe fn populate_required_fields(
                 continue;
             }
             let resolved = context
-                .resolve(ResTarget::Field(&field.field_name), Access::Any)
+                .resolve_fast_field(ResTarget::Field(&field.field_name), Access::Any)
                 .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source
                 .scan_info
@@ -2244,7 +2247,7 @@ unsafe fn all_vars_are_fast_fields_for_agg(
         for source in sources {
             if source.heap_rti == var_ref.rti {
                 if source
-                    .resolve(
+                    .resolve_fast_field(
                         ResTarget::Attno(var_ref.attno as pg_sys::AttrNumber),
                         Access::Scalar,
                     )

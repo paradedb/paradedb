@@ -231,7 +231,8 @@ pub unsafe fn analyze_sort_expression(
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
     if let Some(source_context) = source
-        && let Some(resolved) = source_context.resolve(ResTarget::Expr(node), Access::Scalar)
+        && let Some(resolved) =
+            source_context.resolve_fast_field(ResTarget::Expr(node), Access::Scalar)
     {
         let field_name = FieldName::from(resolved.field.name());
         if let Some(var) = extract_any_var_from_expr(node) {
@@ -248,8 +249,7 @@ pub unsafe fn analyze_sort_expression(
 
     if let Some(var) = extract_lower_var(node) {
         let (relid, attno) = context.var_relation(var);
-        let heaprel = PgSearchRelation::open(relid);
-        let field_name = fieldname_from_var(&heaprel, attno);
+        let field_name = fieldname_from_var(relid, attno);
         return Some((SortExpressionType::Lower, var, field_name));
     }
 
@@ -260,11 +260,8 @@ pub unsafe fn analyze_sort_expression(
     }
 
     if let Some(var) = find_one_var(context, node) {
-        return Some((
-            SortExpressionType::Raw,
-            var,
-            find_one_fieldname(context, node),
-        ));
+        let field_name = find_one_fieldname(context, node)?;
+        return Some((SortExpressionType::Raw, var, Some(field_name)));
     }
 
     None
@@ -286,10 +283,12 @@ fn resolve_vector_expr(
     }
     let var = node as *mut pg_sys::Var;
     let (relid, attno) = context.var_relation(var);
-    assert_eq!(relid, source.heaprel.oid());
-    let resolved = source.resolve(ResTarget::Attno(attno), Access::Any)?;
-    if let Some(SearchFieldType::Vector(_, _, metric)) = resolved.field.field_type() {
-        return Some((var, *metric));
+    if relid != source.heaprel.oid() {
+        return None;
+    }
+    let (_, field_type) = source.resolve_heap_field(attno)?;
+    if let SearchFieldType::Vector(_, _, metric) = field_type {
+        return Some((var, metric));
     }
     None
 }

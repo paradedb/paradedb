@@ -113,8 +113,17 @@ impl SourceContext {
         })
     }
 
+    pub fn resolve_heap_field(
+        &self,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<(FieldName, SearchFieldType)> {
+        let name = self.get_attname(attno)?;
+        let field_type = self.schema().and_then(|s| s.get_field_type(&name))?;
+        Some((name, field_type))
+    }
+
     /// Resolves a ColumnRef to a Tantivy fast field, from this source
-    pub fn resolve(&self, col: ResTarget, access: Access) -> Option<ResolvedField> {
+    pub fn resolve_fast_field(&self, col: ResTarget, access: Access) -> Option<ResolvedField> {
         //TODO:  This will swtich on columnref and just call resovlers. (once that works,
         //consolidate their code here
         match col {
@@ -389,7 +398,7 @@ unsafe fn resolve_fast_field(
                 att.attcollation,
                 0,
             );
-            context.resolve(ResTarget::Expr(dummy_var as *mut pg_sys::Node), access)
+            context.resolve_fast_field(ResTarget::Expr(dummy_var as *mut pg_sys::Node), access)
         }
     }
 }

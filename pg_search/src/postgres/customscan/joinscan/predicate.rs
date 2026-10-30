@@ -276,7 +276,7 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
             if source.contains_rti(var_ref.rti) {
                 let context = source.to_source_context();
                 if context
-                    .resolve(ResTarget::Attno(var_ref.attno), Access::Scalar)
+                    .resolve_fast_field(ResTarget::Attno(var_ref.attno), Access::Scalar)
                     .is_none()
                 {
                     return false;

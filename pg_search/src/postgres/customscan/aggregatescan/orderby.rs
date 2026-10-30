@@ -84,7 +84,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                 .filter_map(|sort_clause| {
                     let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
                     context
-                        .resolve(ResTarget::Expr(expr), Access::Scalar)
+                        .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
                         .map(|r| r.field.name())
                 })
                 .collect::<HashSet<String>>()

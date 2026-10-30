@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793398933595,
+  "lastUpdate": 1793402456617,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -58093,6 +58093,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13013703232-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42704c3c907735cd47b21da98060457a93a6b73b",
+          "message": "ci: Use an unlinked author for benchmark commits (#7131)\n\n## What\n\nUse `ParadeDB Benchmarks <benchmarks@paradedb.invalid>` for benchmark\npublication and the monthly gh-pages squash. The reserved `.invalid`\ndomain keeps generated commits from linking to a GitHub account.\n\n## Why\n\nThe gh-pages publisher currently authors every benchmark result as\ngithub-actions[bot]. Using an unlinked automation identity stops new\nbenchmark commits from adding to that account's contribution\nattribution.\n\nThis changes future commits. Existing commits are unchanged until the\nscheduled gh-pages compaction replaces that branch's history. GitHub's\nsidebar is cached, and its removal of existing attribution still needs\nverification after that refresh. The contributors API for main currently\ndoes not list github-actions[bot], so the sidebar and default-branch\ncontributors data differ.\n\n## Validation\n\nBoth workflow files parse as YAML and git diff --check passes. No\nbenchmark publication or history compaction was run.",
+          "timestamp": "2026-10-30T15:47:05-07:00",
+          "tree_id": "80ab731b26bdd71a35f5a9e3cf127875fcf1b344",
+          "url": "https://github.com/paradedb/paradedb/commit/42704c3c907735cd47b21da98060457a93a6b73b"
+        },
+        "date": 1793402454608,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.759,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.641,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.561,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 11.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.77,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.598,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 18.113,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 19.28,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 19.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 16.917,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.163,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.633,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.883,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.708,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 16.817,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.086,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.674,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.108,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 8.98,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.355,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 9.252,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 10.849,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 13.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 15.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 15.806,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13019172900-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -60381,6 +60541,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13013703232-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42704c3c907735cd47b21da98060457a93a6b73b",
+          "message": "ci: Use an unlinked author for benchmark commits (#7131)\n\n## What\n\nUse `ParadeDB Benchmarks <benchmarks@paradedb.invalid>` for benchmark\npublication and the monthly gh-pages squash. The reserved `.invalid`\ndomain keeps generated commits from linking to a GitHub account.\n\n## Why\n\nThe gh-pages publisher currently authors every benchmark result as\ngithub-actions[bot]. Using an unlinked automation identity stops new\nbenchmark commits from adding to that account's contribution\nattribution.\n\nThis changes future commits. Existing commits are unchanged until the\nscheduled gh-pages compaction replaces that branch's history. GitHub's\nsidebar is cached, and its removal of existing attribution still needs\nverification after that refresh. The contributors API for main currently\ndoes not list github-actions[bot], so the sidebar and default-branch\ncontributors data differ.\n\n## Validation\n\nBoth workflow files parse as YAML and git diff --check passes. No\nbenchmark publication or history compaction was run.",
+          "timestamp": "2026-10-30T15:47:05-07:00",
+          "tree_id": "80ab731b26bdd71a35f5a9e3cf127875fcf1b344",
+          "url": "https://github.com/paradedb/paradedb/commit/42704c3c907735cd47b21da98060457a93a6b73b"
+        },
+        "date": 1793402455411,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 84.62906184045643,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 83.96645160051727,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 55.034658537789326,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 60.140734874508034,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 60.317087601135405,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 60.4422698718471,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 121.38828287590236,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 106.6535482126011,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 70.75371900127813,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13019172900-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -61359,6 +61589,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13013703232-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42704c3c907735cd47b21da98060457a93a6b73b",
+          "message": "ci: Use an unlinked author for benchmark commits (#7131)\n\n## What\n\nUse `ParadeDB Benchmarks <benchmarks@paradedb.invalid>` for benchmark\npublication and the monthly gh-pages squash. The reserved `.invalid`\ndomain keeps generated commits from linking to a GitHub account.\n\n## Why\n\nThe gh-pages publisher currently authors every benchmark result as\ngithub-actions[bot]. Using an unlinked automation identity stops new\nbenchmark commits from adding to that account's contribution\nattribution.\n\nThis changes future commits. Existing commits are unchanged until the\nscheduled gh-pages compaction replaces that branch's history. GitHub's\nsidebar is cached, and its removal of existing attribution still needs\nverification after that refresh. The contributors API for main currently\ndoes not list github-actions[bot], so the sidebar and default-branch\ncontributors data differ.\n\n## Validation\n\nBoth workflow files parse as YAML and git diff --check passes. No\nbenchmark publication or history compaction was run.",
+          "timestamp": "2026-10-30T15:47:05-07:00",
+          "tree_id": "80ab731b26bdd71a35f5a9e3cf127875fcf1b344",
+          "url": "https://github.com/paradedb/paradedb/commit/42704c3c907735cd47b21da98060457a93a6b73b"
+        },
+        "date": 1793402456605,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.7410139413666665,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.46875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13019172900-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -62619,6 +62884,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13013703232-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42704c3c907735cd47b21da98060457a93a6b73b",
+          "message": "ci: Use an unlinked author for benchmark commits (#7131)\n\n## What\n\nUse `ParadeDB Benchmarks <benchmarks@paradedb.invalid>` for benchmark\npublication and the monthly gh-pages squash. The reserved `.invalid`\ndomain keeps generated commits from linking to a GitHub account.\n\n## Why\n\nThe gh-pages publisher currently authors every benchmark result as\ngithub-actions[bot]. Using an unlinked automation identity stops new\nbenchmark commits from adding to that account's contribution\nattribution.\n\nThis changes future commits. Existing commits are unchanged until the\nscheduled gh-pages compaction replaces that branch's history. GitHub's\nsidebar is cached, and its removal of existing attribution still needs\nverification after that refresh. The contributors API for main currently\ndoes not list github-actions[bot], so the sidebar and default-branch\ncontributors data differ.\n\n## Validation\n\nBoth workflow files parse as YAML and git diff --check passes. No\nbenchmark publication or history compaction was run.",
+          "timestamp": "2026-10-30T15:47:05-07:00",
+          "tree_id": "80ab731b26bdd71a35f5a9e3cf127875fcf1b344",
+          "url": "https://github.com/paradedb/paradedb/commit/42704c3c907735cd47b21da98060457a93a6b73b"
+        },
+        "date": 1793402456011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 17848.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 17848.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 43192.36,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 39718.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 39718.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 39718.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 5557.59,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 8622.13,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 21894.59,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13019172900-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793350704596,
+  "lastUpdate": 1793350734838,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112436,6 +112436,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881674346-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350731590,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1769.925291306194,
+            "unit": "median tps",
+            "extra": "avg tps: 1792.1055581226403, max tps: 2008.808097628174, count: 59441"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.071075852046438,
+            "unit": "median tps",
+            "extra": "avg tps: 6.113888893943128, max tps: 7.179594615677377, count: 59441"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1949.3997249277252,
+            "unit": "median tps",
+            "extra": "avg tps: 1938.1878503806224, max tps: 1956.3983576263042, count: 59441"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3121.0957640324104,
+            "unit": "median tps",
+            "extra": "avg tps: 3050.018982380618, max tps: 3451.1037404880285, count: 59441"
+          }
+        ],
+        "publication_id": "12965162138-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -156294,6 +156341,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881674346-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350734728,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0638279975101361, max background_merging: 2.0, count: 59441"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.736063,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629970496046191, max cpu: 9.580839, count: 59441"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.585473410608838, max mem: 27.5859375, count: 59441"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.797357949410184, max cpu: 9.756097, count: 59441"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.026741130385595, max mem: 44.03125, count: 59441"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45111,
+            "unit": "median block_count",
+            "extra": "avg block_count: 44851.83868037214, max block_count: 45111.0, count: 59441"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.715061994246396, max segment_count: 19.0, count: 59441"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.762377,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.895865732654222, max cpu: 33.718014, count: 59441"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 38.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.669740267660366, max mem: 38.69140625, count: 59441"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7501235,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.667718445558998, max cpu: 9.514371, count: 59441"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 44.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.38973651393819, max mem: 44.3984375, count: 59441"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.736063,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.737855153145674, max cpu: 9.585621, count: 59441"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.02648181337376, max mem: 44.02734375, count: 59441"
+          }
+        ],
+        "publication_id": "12965162138-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

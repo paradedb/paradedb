@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793327610036,
+  "lastUpdate": 1793329863942,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20604,6 +20604,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12948958010-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "114429499+ygxio@users.noreply.github.com",
+            "name": "yogesh",
+            "username": "ygxio"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-29T18:59:03-07:00",
+          "tree_id": "49b293e0d1146eef6f915bbd8f4c137bf43f3807",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793329863058,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.086,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 95.179,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 326.487,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 14.605,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 101.218,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 181.517,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.756,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.277,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.662,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.794,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.216,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.713,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 80.645,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 183.99,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12950309678-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -43429,6 +43529,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12948958010-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "114429499+ygxio@users.noreply.github.com",
+            "name": "yogesh",
+            "username": "ygxio"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-29T18:59:03-07:00",
+          "tree_id": "49b293e0d1146eef6f915bbd8f4c137bf43f3807",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793329863927,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.10074041356352,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.49261390551263,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.70625185625588,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.88762277569473,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.29753838007106,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12950309678-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

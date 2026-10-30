@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793350674153,
+  "lastUpdate": 1793350704596,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -340644,6 +340644,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881128250-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350701387,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.025232651917,
+            "unit": "median tps",
+            "extra": "avg tps: 56.41145367903543, max tps: 659.4260332387821, count: 59323"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.47227927740164,
+            "unit": "median tps",
+            "extra": "avg tps: 56.132247668072516, max tps: 659.7105293957309, count: 59323"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.32508259222163,
+            "unit": "median tps",
+            "extra": "avg tps: 59.1625174776588, max tps: 799.4918836601506, count: 59323"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.43470853944218,
+            "unit": "median tps",
+            "extra": "avg tps: 56.0700407492697, max tps: 686.0416430072289, count: 59323"
+          }
+        ],
+        "publication_id": "12962555719-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -361922,6 +361969,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881128250-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350704486,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.8745340988033, max cpu: 42.415318, count: 59323"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 50.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.74893854407228, max mem: 60.33203125, count: 59323"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.6950481605818033, max cpu: 4.7058825, count: 59323"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 20.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.11909048240143, max mem: 20.17578125, count: 59323"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708234599768559, max cpu: 9.43489, count: 59323"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.85494862342599, max mem: 30.85546875, count: 59323"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 2277,
+            "unit": "median pages",
+            "extra": "avg pages: 2097.1931797110733, max pages: 3143.0, count: 59323"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 17.7890625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 16.384321848187042, max relation_size:MB: 24.5546875, count: 59323"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.5092122785428925, max segment_count: 15.0, count: 59323"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6489105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8809082180391523, max cpu: 4.6966734, count: 59323"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 19.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.906773089695395, max mem: 19.92578125, count: 59323"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.0132046707379, max cpu: 42.415318, count: 59323"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 50.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.2658791699678, max mem: 60.3984375, count: 59323"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.088022,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.886138813662335, max cpu: 47.128128, count: 59323"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 45.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.29076188303862, max mem: 57.48046875, count: 59323"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 92.0438003540039,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 198.1433178634956, max replication_lag:MB: 1010.1808471679688, count: 59323"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.021674486000258, max cpu: 42.415318, count: 59323"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 56.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.34339225247796, max mem: 68.51171875, count: 59323"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.279845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.088964418271335, max cpu: 32.74854, count: 59323"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 20.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.435911701089797, max mem: 22.34375, count: 59323"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.288824,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.132893962279704, max cpu: 32.70073, count: 59323"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 20.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.4275561597104, max mem: 22.34375, count: 59323"
+          }
+        ],
+        "publication_id": "12962555719-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

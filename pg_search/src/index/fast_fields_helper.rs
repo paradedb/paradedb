@@ -917,6 +917,13 @@ pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
 pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -> Result<ArrayRef> {
+    ords_to_string_array_with_block_limit::<{ u32::MAX }>(str_ff, term_ords)
+}
+
+fn ords_to_string_array_with_block_limit<const BLOCK_LIMIT: u32>(
+    str_ff: StrColumn,
+    term_ords: &UInt64Array,
+) -> Result<ArrayRef> {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
     let mut term_ords = term_ords
         .iter()
@@ -929,10 +936,11 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
     // term to a StringViewBuilder's data buffer, and record a view to be appended later in sorted
     // order.
     let mut builder = StringViewBuilder::with_capacity(term_ords.len());
-    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32, u32)>> = Vec::with_capacity(term_ords.len());
     views.resize(term_ords.len(), None);
 
     let mut buffer = Vec::new();
+    let mut block_no = 0;
     let mut bytes = Vec::new();
     let mut current_block_addr = str_ff
         .dictionary()
@@ -946,7 +954,7 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
         .sstable_delta_reader_block(current_block_addr.clone())
         .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    let mut previous_term: Option<(TermOrdinal, (u32, u32, u32))> = None;
     for (row_idx, ord) in term_ords {
         if ord == NULL_TERM_ORDINAL {
             // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
@@ -970,68 +978,87 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
 
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
-        // check if block changed for new term_ord
-        let new_block_addr = str_ff
-            .dictionary()
-            .sstable_index
-            .get_block_with_ord(ord)
-            .map_err(|e| {
-                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        // Adjacent ordinals can advance the current decoder without another index lookup.
+        // A gap or the end of a block still uses the ordinary seek path below.
+        let consecutive = ord == current_ordinal
+            && current_sstable_delta_reader.advance().map_err(|e| {
+                DataFusionError::Execution(format!("Failed to decode dictionary block: {e}"))
             })?;
-        if new_block_addr != current_block_addr {
-            current_block_addr = new_block_addr;
-            current_ordinal = current_block_addr.first_ordinal;
-            current_sstable_delta_reader = str_ff
-                .dictionary()
-                .sstable_delta_reader_block(current_block_addr.clone())
-                .map_err(|e| {
-                    DataFusionError::Execution(format!(
-                        "Failed to fetch next dictionary block: {e}"
-                    ))
-                })?;
-            bytes.clear();
-        }
-
-        // Move to ord inside that block
-        for _ in current_ordinal..=ord {
-            match current_sstable_delta_reader.advance() {
-                Ok(true) => {}
-                Ok(false) => {
-                    return Err(DataFusionError::Execution(format!(
-                        "Term ordinal {ord} did not exist in the dictionary."
-                    )));
-                }
-                Err(e) => {
-                    return Err(DataFusionError::Execution(format!(
-                        "Failed to decode dictionary block: {e}"
-                    )));
-                }
-            }
+        if consecutive {
             bytes.truncate(current_sstable_delta_reader.common_prefix_len());
             bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+        } else {
+            let new_block_addr = str_ff
+                .dictionary()
+                .sstable_index
+                .get_block_with_ord(ord)
+                .map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to read dictionary block address: {e}"
+                    ))
+                })?;
+            if new_block_addr != current_block_addr {
+                current_block_addr = new_block_addr;
+                current_ordinal = current_block_addr.first_ordinal;
+                current_sstable_delta_reader = str_ff
+                    .dictionary()
+                    .sstable_delta_reader_block(current_block_addr.clone())
+                    .map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to fetch next dictionary block: {e}"
+                        ))
+                    })?;
+                bytes.clear();
+            }
+
+            // Move to ord inside that block.
+            for _ in current_ordinal..=ord {
+                match current_sstable_delta_reader.advance() {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Err(DataFusionError::Execution(format!(
+                            "Term ordinal {ord} did not exist in the dictionary."
+                        )));
+                    }
+                    Err(e) => {
+                        return Err(DataFusionError::Execution(format!(
+                            "Failed to decode dictionary block: {e}"
+                        )));
+                    }
+                }
+                bytes.truncate(current_sstable_delta_reader.common_prefix_len());
+                bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+            }
         }
         current_ordinal = ord + 1;
 
         // Set the view for this row_idx.
-        let offset: u32 = buffer
-            .len()
-            .try_into()
-            .expect("Too many terms requested in `ords_to_string_array`");
         let len: u32 = bytes
             .len()
             .try_into()
             .expect("Single term is too long in `ords_to_string_array`");
+        assert!(
+            len < BLOCK_LIMIT,
+            "Single term exceeds the string block limit"
+        );
+        // Arrow requires each block to be strictly smaller than u32::MAX. Keep
+        // each term intact and retain its block index when later reusing its view.
+        if buffer.len() >= (BLOCK_LIMIT - len) as usize {
+            builder.append_block(Buffer::from(std::mem::take(&mut buffer)));
+            block_no += 1;
+        }
+        let offset = buffer.len() as u32;
         buffer.extend_from_slice(&bytes);
-        previous_term = Some((ord, (offset, len)));
-        views[row_idx] = Some((offset, len));
+        previous_term = Some((ord, (block_no, offset, len)));
+        views[row_idx] = Some((block_no, offset, len));
     }
 
     // Append all the rows' views to the builder.
-    let block_no = builder.append_block(Buffer::from(buffer));
+    builder.append_block(Buffer::from(buffer));
     for view in views {
-        // Each view is an offset and len in our single block, or None for a null.
+        // Each view identifies its block, offset and len, or is None for a null.
         match view {
-            Some((offset, len)) => unsafe {
+            Some((block_no, offset, len)) => unsafe {
                 builder.append_view_unchecked(block_no, offset, len);
             },
             None => builder.append_null(),
@@ -1051,6 +1078,13 @@ pub(crate) fn ords_to_bytes_array(
     bytes_ff: BytesColumn,
     term_ords: &UInt64Array,
 ) -> Result<ArrayRef> {
+    ords_to_bytes_array_with_block_limit::<{ u32::MAX }>(bytes_ff, term_ords)
+}
+
+fn ords_to_bytes_array_with_block_limit<const BLOCK_LIMIT: u32>(
+    bytes_ff: BytesColumn,
+    term_ords: &UInt64Array,
+) -> Result<ArrayRef> {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
     let mut term_ords = term_ords
         .iter()
@@ -1063,10 +1097,11 @@ pub(crate) fn ords_to_bytes_array(
     // term to a BinaryViewBuilder's data buffer, and record a view to be appended later in sorted
     // order.
     let mut builder = BinaryViewBuilder::with_capacity(term_ords.len());
-    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32, u32)>> = Vec::with_capacity(term_ords.len());
     views.resize(term_ords.len(), None);
 
     let mut buffer = Vec::new();
+    let mut block_no = 0;
     let mut bytes = Vec::new();
     let mut current_block_addr = bytes_ff
         .dictionary()
@@ -1080,7 +1115,7 @@ pub(crate) fn ords_to_bytes_array(
         .sstable_delta_reader_block(current_block_addr.clone())
         .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    let mut previous_term: Option<(TermOrdinal, (u32, u32, u32))> = None;
     for (row_idx, ord) in term_ords {
         if ord == NULL_TERM_ORDINAL {
             // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
@@ -1147,25 +1182,32 @@ pub(crate) fn ords_to_bytes_array(
         current_ordinal = ord + 1;
 
         // Set the view for this row_idx.
-        let offset: u32 = buffer
-            .len()
-            .try_into()
-            .expect("Too many terms requested in `ords_to_bytes_array`");
         let len: u32 = bytes
             .len()
             .try_into()
             .expect("Single term is too long in `ords_to_bytes_array`");
+        assert!(
+            len < BLOCK_LIMIT,
+            "Single term exceeds the binary block limit"
+        );
+        // Arrow requires each block to be strictly smaller than u32::MAX. Keep
+        // each term intact and retain its block index when later reusing its view.
+        if buffer.len() >= (BLOCK_LIMIT - len) as usize {
+            builder.append_block(Buffer::from(std::mem::take(&mut buffer)));
+            block_no += 1;
+        }
+        let offset = buffer.len() as u32;
         buffer.extend_from_slice(&bytes);
-        previous_term = Some((ord, (offset, len)));
-        views[row_idx] = Some((offset, len));
+        previous_term = Some((ord, (block_no, offset, len)));
+        views[row_idx] = Some((block_no, offset, len));
     }
 
     // Append all the rows' views to the builder.
-    let block_no = builder.append_block(Buffer::from(buffer));
+    builder.append_block(Buffer::from(buffer));
     for view in views {
-        // Each view is an offset and len in our single block, or None for a null.
+        // Each view identifies its block, offset and len, or is None for a null.
         match view {
-            Some((offset, len)) => unsafe {
+            Some((block_no, offset, len)) => unsafe {
                 builder.append_view_unchecked(block_no, offset, len);
             },
             None => builder.append_null(),
@@ -1181,6 +1223,156 @@ mod tests {
     use super::*;
     use crate::index::mvcc::MvccSatisfies;
     use pgrx::prelude::*;
+
+    #[test]
+    fn string_decoder_rolls_over_blocks() {
+        use arrow_array::StringViewArray;
+        use tantivy::columnar::{
+            ColumnarReader, ColumnarWriter, DEFAULT_CODEC_TYPES, DynamicColumn,
+        };
+
+        // The two 16-byte strings hit the exclusive 32-byte block boundary.
+        // Longer strings exercise rollover past it and keep views out of line.
+        let terms = [
+            String::new(),
+            "a".repeat(16),
+            "b".repeat(16),
+            "c".repeat(17),
+            "é".repeat(10),
+            "🦀".repeat(4),
+        ];
+        let mut writer = ColumnarWriter::default();
+        for (doc_id, term) in terms.iter().enumerate() {
+            writer.record_str(doc_id as u32, "label", term);
+        }
+        let mut buffer = Vec::new();
+        writer
+            .serialize(terms.len() as u32, None, &DEFAULT_CODEC_TYPES, &mut buffer)
+            .unwrap();
+        let reader = ColumnarReader::open(buffer).unwrap();
+        let DynamicColumn::Str(column) = reader.read_columns("label").unwrap()[0].open().unwrap()
+        else {
+            panic!("expected a string column");
+        };
+
+        for ords in [
+            vec![
+                Some(5),
+                None,
+                Some(2),
+                Some(1),
+                Some(2),
+                Some(0),
+                Some(4),
+                Some(3),
+                Some(5),
+                Some(NULL_TERM_ORDINAL),
+            ],
+            vec![Some(5), Some(2), Some(5), None, Some(0)],
+        ] {
+            let expected = ords
+                .iter()
+                .map(|ord| {
+                    ord.filter(|ord| *ord != NULL_TERM_ORDINAL)
+                        .map(|ord| terms[ord as usize].as_str())
+                })
+                .collect::<Vec<_>>();
+            let decoded = ords_to_string_array_with_block_limit::<32>(
+                column.clone(),
+                &UInt64Array::from(ords),
+            )
+            .unwrap();
+            let decoded = decoded.as_any().downcast_ref::<StringViewArray>().unwrap();
+            assert_eq!(decoded.iter().collect::<Vec<_>>(), expected);
+            assert!(decoded.data_buffers().len() > 1);
+            assert!(
+                decoded
+                    .data_buffers()
+                    .iter()
+                    .all(|buffer| buffer.len() < 32)
+            );
+        }
+    }
+
+    #[test]
+    fn bytes_decoder_rolls_over_blocks() {
+        use arrow_array::BinaryViewArray;
+        use tantivy::columnar::{
+            ColumnarReader, ColumnarWriter, DEFAULT_CODEC_TYPES, DynamicColumn,
+        };
+
+        // The first two nonempty terms hit the exclusive 32-byte boundary.
+        // Longer terms cross it; shared prefixes and non-UTF8 bytes stay intact.
+        let terms = [
+            Vec::new(),
+            vec![0; 16],
+            vec![1; 16],
+            vec![2; 17],
+            [vec![2; 16], vec![3]].concat(),
+            vec![0x80; 20],
+            vec![0xff; 16],
+        ];
+        let mut writer = ColumnarWriter::default();
+        for (doc_id, term) in terms.iter().enumerate() {
+            writer.record_bytes(doc_id as u32, "value", term);
+        }
+        let mut buffer = Vec::new();
+        writer
+            .serialize(terms.len() as u32, None, &DEFAULT_CODEC_TYPES, &mut buffer)
+            .unwrap();
+        let reader = ColumnarReader::open(buffer).unwrap();
+        let DynamicColumn::Bytes(column) = reader.read_columns("value").unwrap()[0].open().unwrap()
+        else {
+            panic!("expected a bytes column");
+        };
+
+        for ords in [
+            vec![
+                Some(6),
+                None,
+                Some(2),
+                Some(1),
+                Some(2),
+                Some(0),
+                Some(5),
+                Some(3),
+                Some(6),
+                Some(1),
+                Some(4),
+                Some(NULL_TERM_ORDINAL),
+            ],
+            vec![
+                Some(6),
+                Some(2),
+                Some(6),
+                None,
+                Some(0),
+                Some(NULL_TERM_ORDINAL),
+            ],
+        ] {
+            let expected = ords
+                .iter()
+                .map(|ord| {
+                    ord.filter(|ord| *ord != NULL_TERM_ORDINAL)
+                        .map(|ord| terms[ord as usize].as_slice())
+                })
+                .collect::<Vec<_>>();
+            let decoded = ords_to_bytes_array_with_block_limit::<32>(
+                column.clone(),
+                &UInt64Array::from(ords),
+            )
+            .unwrap();
+            let decoded = decoded.as_any().downcast_ref::<BinaryViewArray>().unwrap();
+            assert_eq!(decoded.iter().collect::<Vec<_>>(), expected);
+            assert!(decoded.data_buffers().len() > 1);
+            assert!(
+                decoded
+                    .data_buffers()
+                    .iter()
+                    .all(|buffer| buffer.len() < 32)
+            );
+        }
+    }
 
     #[cfg(test)]
     fn text_field(cardinality: FieldCardinality, delivery: FieldDelivery) -> WhichFastField {

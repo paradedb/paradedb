@@ -316,8 +316,8 @@ macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
         // Build the analyzer with static filters first
         let mut builder = tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
-            .filter($filters.token_length_filter())
             .filter($filters.trim_filter())
+            .filter($filters.token_length_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
             .filter($filters.stopwords())

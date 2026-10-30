@@ -21,6 +21,7 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
+use crate::postgres::access::IndexOid;
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -33,7 +34,6 @@ use crate::query::pdb_query::pdb as pdb_query;
 use crate::schema::{IndexRecordOption, SearchFieldType};
 use anyhow::{Context, Result};
 use pgrx::JsonB;
-use pgrx::PgRelation;
 use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use serde_json::Value;
@@ -43,7 +43,7 @@ use tantivy::vector::diagnostics::VectorStorageFormat;
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 pub fn schema(
-    index: PgRelation,
+    index: IndexOid,
 ) -> TableIterator<
     'static,
     (
@@ -59,18 +59,10 @@ pub fn schema(
         name!(normalizer, Option<String>),
     ),
 > {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function so it is not dropped or
-    // altered while we are reading it.
-    //
-    // Because we accept a PgRelation above, we have confidence that Postgres has already
-    // validated the existence of the relation. We are safe calling the function below as
-    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read_metadata();
 
     // We only consider the first partition for the purposes of computing a schema.
-    let index = IndexKind::for_index(index)
+    let index = IndexKind::for_index(index.clone())
         .unwrap()
         .partitions()
         .next()
@@ -141,8 +133,8 @@ pub fn schema(
 }
 
 #[pg_extern]
-pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+pub unsafe fn index_fields(index: IndexOid) -> anyhow::Result<JsonB> {
+    let index = index.read_metadata();
     let schema = index.schema()?;
 
     let mut name_and_config = HashMap::default();
@@ -158,8 +150,8 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
 }
 
 #[pg_extern]
-pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+pub unsafe fn layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
+    let index = index.read_metadata();
     index
         .options()
         .foreground_layer_sizes()
@@ -169,8 +161,8 @@ pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
 }
 
 #[pg_extern]
-pub unsafe fn background_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+pub unsafe fn background_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
+    let index = index.read_metadata();
     index
         .options()
         .background_layer_sizes()
@@ -180,8 +172,8 @@ pub unsafe fn background_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
 }
 
 #[pg_extern]
-pub unsafe fn combined_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+pub unsafe fn combined_layer_sizes(index: IndexOid) -> Vec<AnyNumeric> {
+    let index = index.read_metadata();
     let mut sizes: Vec<_> = index
         .options()
         .foreground_layer_sizes()
@@ -198,8 +190,8 @@ pub unsafe fn combined_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
 /// Returns the wall-clock time the given ParadeDB index was built, or NULL for indices created
 /// before build-time stamping was added.
 #[pg_extern]
-pub fn index_created_at(index: PgRelation) -> Option<pgrx::datum::TimestampWithTimeZone> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+pub fn index_created_at(index: IndexOid) -> Option<pgrx::datum::TimestampWithTimeZone> {
+    let index = index.read_metadata();
     MetaPage::open(&index)
         .created_at()
         .and_then(|ts| pgrx::datum::TimestampWithTimeZone::try_from(ts).ok())
@@ -208,8 +200,8 @@ pub fn index_created_at(index: PgRelation) -> Option<pgrx::datum::TimestampWithT
 /// Returns the pg_search version that created the given ParadeDB index, or NULL for indices
 /// created before version stamping was added.
 #[pg_extern]
-pub fn index_created_by(index: PgRelation) -> Option<String> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+pub fn index_created_by(index: IndexOid) -> Option<String> {
+    let index = index.read_metadata();
     MetaPage::open(&index)
         .created_by_version()
         .map(|version| version.to_string())
@@ -217,7 +209,7 @@ pub fn index_created_by(index: PgRelation) -> Option<String> {
 
 #[pg_extern]
 unsafe fn merge_info(
-    index: PgRelation,
+    index: IndexOid,
 ) -> TableIterator<
     'static,
     (
@@ -227,8 +219,8 @@ unsafe fn merge_info(
         name!(segno, String),
     ),
 > {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let index_kind = IndexKind::for_index(index).unwrap();
+    let index = index.read_metadata();
+    let index_kind = IndexKind::for_index(index.clone()).unwrap();
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
@@ -255,16 +247,16 @@ unsafe fn merge_info(
 
 /// Deprecated: Use `paradedb.merge_info` instead.
 #[pg_extern]
-fn is_merging(index: PgRelation) -> bool {
+fn is_merging(index: IndexOid) -> bool {
     unsafe { merge_info(index).next().is_some() }
 }
 
 #[pg_extern]
 unsafe fn vacuum_info(
-    index: PgRelation,
+    index: IndexOid,
 ) -> TableIterator<'static, (name!(index_name, String), name!(segno, String))> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let index_kind = IndexKind::for_index(index).unwrap();
+    let index = index.read_metadata();
+    let index_kind = IndexKind::for_index(index.clone()).unwrap();
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
@@ -282,7 +274,7 @@ unsafe fn vacuum_info(
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn index_info(
-    index: PgRelation,
+    index: IndexOid,
     show_invisible: default!(bool, false),
 ) -> anyhow::Result<
     TableIterator<
@@ -308,15 +300,7 @@ fn index_info(
         ),
     >,
 > {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function so it is not dropped or
-    // altered while we are reading it.
-    //
-    // Because we accept a PgRelation above, we have confidence that Postgres has already
-    // validated the existence of the relation. We are safe calling the function below as
-    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read_metadata();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
         return Ok(TableIterator::new(Vec::new()));
@@ -398,7 +382,7 @@ fn index_info(
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
-    index: PgRelation,
+    index: IndexOid,
     field: String,
 ) -> anyhow::Result<
     TableIterator<
@@ -421,12 +405,7 @@ fn vector_info(
         ),
     >,
 > {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function (read-only,
-    // AccessShareLock) so it is not dropped or altered while we read it —
-    // identical to `index_info`.
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
         return Ok(TableIterator::new(Vec::new()));
@@ -493,7 +472,7 @@ fn vector_info(
 #[pg_extern]
 #[allow(clippy::type_complexity)]
 fn vector_config(
-    index: PgRelation,
+    index: IndexOid,
     field: String,
 ) -> anyhow::Result<
     TableIterator<
@@ -507,7 +486,7 @@ fn vector_config(
         ),
     >,
 > {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
         return Ok(TableIterator::new(Vec::new()));
@@ -557,7 +536,7 @@ fn vector_config(
 #[pg_extern]
 #[allow(clippy::type_complexity)]
 fn vector_clusters(
-    index: PgRelation,
+    index: IndexOid,
     field: String,
 ) -> anyhow::Result<
     TableIterator<
@@ -569,12 +548,7 @@ fn vector_clusters(
         ),
     >,
 > {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function (read-only,
-    // AccessShareLock) so it is not dropped or altered while we read it —
-    // identical to `index_info`.
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
         return Ok(TableIterator::new(Vec::new()));
@@ -615,8 +589,8 @@ fn vector_clusters(
 /// Otherwise, if this function returns NULL that is likely indicative of a pg_search bug.  We wish
 /// you luck in determining which is which.
 #[pg_extern]
-fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+fn find_ctid(index: IndexOid, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
+    let index = index.read();
     let ctid_u64 = item_pointer_to_u64(ctid);
     let query = SearchQueryInput::FieldedQuery {
         field: CTID_FIELD_NAME.into(),
@@ -649,22 +623,13 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
 /// Deprecated: Use `pdb.verify_index` instead, which includes checksum validation
 /// along with additional integrity checks.
 #[pg_extern]
-fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>> {
+fn validate_checksum(index: IndexOid) -> Result<SetOfIterator<'static, String>> {
+    let index = index.read();
     pgrx::warning!(
         "validate_checksum is deprecated. Use pdb.verify_index('{}') instead, \
          which includes checksum validation along with additional integrity checks.",
         index.name()
     );
-
-    // # Safety
-    //
-    // Lock the index relation until the end of this function so it is not dropped or
-    // altered while we are reading it.
-    //
-    // Because we accept a PgRelation above, we have confidence that Postgres has already
-    // validated the existence of the relation. We are safe calling the function below as
-    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
 
     // open the specified index
     let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
@@ -924,9 +889,9 @@ fn create_bm25_jsonb() {}
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn storage_info(
-    index: PgRelation,
+    index: IndexOid,
 ) -> TableIterator<'static, (name!(block, i64), name!(max_offset, i32))> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read();
     let segment_components = MetaPage::open(&index).segment_metas();
     let bman = segment_components.bman();
     let (mut blockno, mut buffer) = segment_components.get_start_blockno();
@@ -946,7 +911,7 @@ fn storage_info(
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn page_info(
-    index: PgRelation,
+    index: IndexOid,
     blockno: i64,
 ) -> anyhow::Result<
     TableIterator<
@@ -960,7 +925,7 @@ fn page_info(
         ),
     >,
 > {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index = index.read();
     let mut segment_components = MetaPage::open(&index).segment_metas();
     let bman = segment_components.bman_mut();
     let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
@@ -1009,7 +974,7 @@ fn version_info() -> TableIterator<'static, (name!(version, String), name!(build
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_pretty_bytes(
-    _index: PgRelation,
+    _index: IndexOid,
     _oversized_layer_size_pretty: String,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
@@ -1018,7 +983,7 @@ fn force_merge_pretty_bytes(
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_raw_bytes(
-    _index: PgRelation,
+    _index: IndexOid,
     _oversized_layer_size_bytes: i64,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
@@ -1026,14 +991,9 @@ fn force_merge_raw_bytes(
 }
 
 #[pg_extern]
-fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
+fn merge_lock_garbage_collect(index: IndexOid) -> SetOfIterator<'static, i32> {
     unsafe {
-        let index = {
-            let oid = index.oid();
-            drop(index);
-            // reopen the index with a RowExclusiveLock b/c we are going to be changing its physical structure
-            PgSearchRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
-        };
+        let index = index.maintain();
         let metadata = MetaPage::open(&index);
         let merge_lock = metadata.acquire_merge_lock();
         let mut merge_list = merge_lock.merge_list();
@@ -1229,7 +1189,7 @@ pub mod pdb {
     #[allow(clippy::type_complexity)]
     #[pg_extern]
     pub fn verify_index(
-        index: PgRelation,
+        index: IndexOid,
         heapallindexed: default!(bool, false),
         sample_rate: default!(Option<f64>, "NULL"),
         report_progress: default!(bool, false),
@@ -1257,7 +1217,7 @@ pub mod pdb {
                 .collect()
         });
 
-        let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+        let index_rel = index.read();
         let index_kind = IndexKind::for_index(index_rel.clone())?;
 
         let mut results = Vec::new();
@@ -1693,7 +1653,7 @@ pub mod pdb {
     #[allow(clippy::type_complexity)]
     #[pg_extern]
     pub fn index_segments(
-        index: PgRelation,
+        index: IndexOid,
     ) -> Result<
         TableIterator<
             'static,
@@ -1707,7 +1667,7 @@ pub mod pdb {
             ),
         >,
     > {
-        let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+        let index_rel = index.read_metadata();
         let index_kind = IndexKind::for_index(index_rel.clone())?;
 
         let mut results = Vec::new();
@@ -1818,8 +1778,10 @@ pub mod pdb {
                     row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
 
                 // Open the index to get segment information
-                let index_rel =
-                    PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+                let Some(index_rel) = IndexOid::from(indexrelid).read_metadata_if_permitted()
+                else {
+                    continue;
+                };
                 let index_kind = match IndexKind::for_index(index_rel.clone()) {
                     Ok(k) => k,
                     Err(_) => continue,
@@ -1998,7 +1960,9 @@ pub mod pdb {
                 let indexname: String = row.get_by_name("indexname")?.unwrap_or_default();
                 let indexrelid: pg_sys::Oid =
                     row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
-                indexes.push((schemaname, indexname, indexrelid));
+                if IndexOid::from(indexrelid).is_readable() {
+                    indexes.push((schemaname, indexname, indexrelid));
+                }
             }
 
             Ok::<_, pgrx::spi::Error>(indexes)
@@ -2025,10 +1989,8 @@ pub mod pdb {
             }
 
             // Call verify_index for this index
-            let index_rel =
-                unsafe { PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _) };
             let verification = verify_index(
-                index_rel,
+                IndexOid::from(indexrelid),
                 heapallindexed,
                 sample_rate,
                 false, // Don't double-report progress

@@ -23,8 +23,16 @@ inputs:
     description: "Optional Markdown context to include above the benchmark comparison"
     required: false
     default: ""
+  sweep_reports_dir:
+    description: "Optional directory containing sweep comparison HTML and metadata"
+    required: false
+    default: ""
   index_metrics_file:
     description: "Optional JSON metrics for index build time and size"
+    required: false
+    default: ""
+  buffer_metrics_file:
+    description: "Optional JSON metrics for shared buffer hits per query"
     required: false
     default: ""
 
@@ -50,6 +58,7 @@ runs:
         METRICS_FILE: benchmarker/benchmarker_metrics.json
         THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
         INDEX_METRICS_FILE: ${{ inputs.index_metrics_file }}
+        BUFFER_METRICS_FILE: ${{ inputs.buffer_metrics_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -57,9 +66,14 @@ runs:
         printf '{}\n' > _latency_baseline.json
         printf '{}\n' > _throughput_baseline.json
         printf '{}\n' > _index_baseline.json
+        printf '{}\n' > _buffer_baseline.json
         printf '[]\n' > _index_metrics.json
+        printf '[]\n' > _buffer_metrics.json
         if [ -n "$INDEX_METRICS_FILE" ]; then
           cp "$INDEX_METRICS_FILE" _index_metrics.json
+        fi
+        if [ -n "$BUFFER_METRICS_FILE" ]; then
+          cp "$BUFFER_METRICS_FILE" _buffer_metrics.json
         fi
         for j in "${RESULTS_DIR}"/*.json; do
           case "$(basename "$j")" in
@@ -116,6 +130,7 @@ runs:
           cat "${METRICS_FILE}" "${THROUGHPUT_METRICS_FILE}"
         fi
         echo "present=$(jq 'length > 0' "${METRICS_FILE}")" >> "$GITHUB_OUTPUT"
+        echo "buffers_present=$(jq 'length > 0' _buffer_metrics.json)" >> "$GITHUB_OUTPUT"
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
@@ -164,6 +179,29 @@ runs:
         sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_throughput.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (throughput)" '.entries[$suite][-2] // {}' > _throughput_baseline.json
 
+    - name: Publish Buffer Metrics
+      id: publish_buffers
+      if: steps.metrics.outputs.buffers_present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-buffers
+        name: "benchmarker ${{ inputs.dataset }} (buffers)"
+        ref: ${{ inputs.ref }}
+        metrics_file: _buffer_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
+
+    - name: Read Buffer Baseline
+      if: inputs.pr_number != '' && steps.publish_buffers.outcome == 'success'
+      shell: bash
+      env:
+        DATASET: ${{ inputs.dataset }}
+      run: |
+        sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_buffers.outputs.comparison_file }}" |
+          jq --arg suite "benchmarker ${DATASET} (buffers)" '.entries[$suite][-2] // {}' > _buffer_baseline.json
+
     - name: Publish Index Build Metrics
       id: publish_index
       if: inputs.index_metrics_file != ''
@@ -187,10 +225,11 @@ runs:
         sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_index.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (index build)" '.entries[$suite][-2] // {}' > _index_baseline.json
 
-    - name: Stage Dashboards (HTML Only) for gh-pages
+    - name: Stage Reports (HTML Only) for gh-pages
       shell: bash
       env:
         RESULTS_DIR: benchmarker/results
+        SWEEP_REPORTS_DIR: ${{ inputs.sweep_reports_dir }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -199,10 +238,17 @@ runs:
         if [ ${#htmls[@]} -gt 0 ]; then
           cp "${htmls[@]}" _ghpages_html/
         fi
+        if [ -n "$SWEEP_REPORTS_DIR" ] && [ -d "$SWEEP_REPORTS_DIR" ]; then
+          sweep_htmls=("${SWEEP_REPORTS_DIR}"/*.html)
+          if [ ${#sweep_htmls[@]} -gt 0 ]; then
+            mkdir -p _ghpages_html/sweep
+            cp "${sweep_htmls[@]}" _ghpages_html/sweep/
+          fi
+        fi
         ls -la _ghpages_html
 
-    - name: Stage Dashboards in Pages Checkout
-      if: hashFiles('_ghpages_html/*.html') != ''
+    - name: Stage Reports in Pages Checkout
+      if: hashFiles('_ghpages_html/**/*.html') != ''
       shell: bash
       env:
         COMMIT_SHA: ${{ inputs.ref }}
@@ -210,11 +256,11 @@ runs:
       run: |
         destination="benchmarker-runs/${COMMIT_SHA}/${DATASET}"
         mkdir -p "benchmark-data-repository/${destination}"
-        cp _ghpages_html/*.html "benchmark-data-repository/${destination}/"
+        cp -R _ghpages_html/. "benchmark-data-repository/${destination}/"
         git -C benchmark-data-repository add --sparse -- "$destination"
 
-    - name: Comment Benchmark Comparison and Dashboard Links
-      if: inputs.pr_number != '' && (hashFiles('_ghpages_html/*.html') != '' || inputs.context_file != '' || inputs.index_metrics_file != '')
+    - name: Comment Benchmark Comparison and Report Links
+      if: inputs.pr_number != '' && (hashFiles('_ghpages_html/**/*.html') != '' || inputs.context_file != '' || inputs.sweep_reports_dir != '' || inputs.index_metrics_file != '' || inputs.buffer_metrics_file != '')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -225,6 +271,7 @@ runs:
         METRICS_FILE: benchmarker/benchmarker_metrics.json
         THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
         CONTEXT_FILE: ${{ inputs.context_file }}
+        SWEEP_REPORTS_DIR: ${{ inputs.sweep_reports_dir }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -242,8 +289,10 @@ runs:
             printf '\n'
           fi
           jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json \
+            --slurpfile buffers _buffer_baseline.json --slurpfile buffer_metrics _buffer_metrics.json \
             --slurpfile index _index_baseline.json --slurpfile index_metrics _index_metrics.json '
             "Baselines: latency `\(($latency[0].commit.id // "n/a") | .[0:7])`, QPS `\(($throughput[0].commit.id // "n/a") | .[0:7])`" +
+            (if ($buffer_metrics[0] | length) > 0 then ", shared hits/query `\(($buffers[0].commit.id // "n/a") | .[0:7])`" else "" end) +
             (if ($index_metrics[0] | length) > 0 then ", index build `\(($index[0].commit.id // "n/a") | .[0:7])`" else "" end) + ".\n"
           '
           printf '| Benchmark | Current | Previous | Ratio |\n|---|---:|---:|---:|\n'
@@ -253,12 +302,15 @@ runs:
             --slurpfile latency_baseline _latency_baseline.json \
             --slurpfile index _index_metrics.json \
             --slurpfile index_baseline _index_baseline.json \
+            --slurpfile buffers _buffer_metrics.json \
+            --slurpfile buffer_baseline _buffer_baseline.json \
             --slurpfile throughput_baseline _throughput_baseline.json '
             def display: "\(.value * 1000 | round / 1000) \(.unit)";
             (($latency[0] | map(. + {baseline: $latency_baseline[0]})) +
              ($throughput[0] | map(. + {baseline: $throughput_baseline[0]})) +
+             ($buffers[0] | map(. + {baseline: $buffer_baseline[0]})) +
              ($index[0] | map(. + {baseline: $index_baseline[0]})))
-            | sort_by((.name | sub(" (p[0-9]+ latency|QPS)$"; "")), .unit == "queries/s", .name)
+            | sort_by((.name | sub(" (p[0-9]+ latency|QPS|shared hits/query)$"; "")), .unit == "queries/s", .name)
             | .[] as $current
             | ([$current.baseline.benches[]? | select(.name == $current.name)][0]) as $previous
             | (if $previous != null and $previous.value > 0 then
@@ -271,11 +323,32 @@ runs:
                end) as $ratio_text
             | "| `\($current.name)` | \($current | display) | \(if $previous == null then "n/a" else $previous | display end) | \($ratio_text) |"
           '
-          printf '\nRatio: current/previous for latency, build time, and index size; previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
+          printf '\nRatio: current/previous for latency, shared hits/query, build time, and index size; previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
           printf '\n'
+          printf '#### Reports\n\n'
+          if [ -n "$SWEEP_REPORTS_DIR" ]; then
+            printf '##### Sweep\n\n'
+            if [ -f "$SWEEP_REPORTS_DIR/metadata.json" ]; then
+              jq -r '"Compared with [main `\(.baseline_commit[0:7])`](\(.baseline_url)) at matched recall.\n"' \
+                "$SWEEP_REPORTS_DIR/metadata.json"
+            fi
+            sweep_htmls=(_ghpages_html/sweep/*.html)
+            for h in "${sweep_htmls[@]}"; do
+              nm="$(basename "$h" .html)"
+              printf -- '- [%s](%s/sweep/%s.html)\n' "$nm" "$BASE" "$nm"
+            done
+            if [ -f "$SWEEP_REPORTS_DIR/metadata.json" ]; then
+              jq -r '.queries | to_entries[] | select(.value.skipped) |
+                "- `\(.key)`: skipped (\(.value.skipped))."' "$SWEEP_REPORTS_DIR/metadata.json"
+            elif [ ${#sweep_htmls[@]} -eq 0 ]; then
+              printf 'No comparable mainline sweep results are available for this run.\n'
+            fi
+            printf '\n'
+          fi
+          printf '##### Search\n\n'
           printf 'Interactive per-script graphs (latency timeline, throughput, and resource metrics when available):\n\n'
           printf '%s\n' "$links"
-          printf 'Over-time tracking (latency, QPS, and available index build metrics across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
+          printf 'Over-time tracking (latency, QPS, and available buffer and index build metrics across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
           printf '_gh-pages may take ~a minute to deploy after this run._\n'
         } > _comment.md
         cat _comment.md >> "${GITHUB_STEP_SUMMARY}"

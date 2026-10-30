@@ -38,9 +38,9 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
-    FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, prune_redundant_const_equi_keys,
-    strip_node_wrappers, try_extract_equi_key,
+    FilterNode, FunctionRti, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate,
+    JoinType, PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info,
+    prune_redundant_const_equi_keys, strip_node_wrappers, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
@@ -452,7 +452,10 @@ unsafe fn build_relnode_from_fromexpr(
         if (*node).type_ == pg_sys::NodeTag::T_RangeTblRef {
             let rti = (*(node as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
             if let Some(mut unnest_info) =
-                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root,
+                    FunctionRti(rti),
+                )
                 && result.contains_rti(unnest_info.source_rti.0)
             {
                 unnest_info.is_left_join = false;
@@ -693,7 +696,10 @@ unsafe fn build_join_node(
         if !node_arg.is_null() && (*node_arg).type_ == pg_sys::NodeTag::T_RangeTblRef {
             let rti = (*(node_arg as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
             if let Some(mut unnest_info) =
-                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root,
+                    FunctionRti(rti),
+                )
             {
                 let other = build_relnode_from_node(root, other_arg, sources)?;
                 if other.contains_rti(unnest_info.source_rti.0) {
@@ -2261,7 +2267,7 @@ unsafe fn all_vars_are_fast_fields_for_agg(
             && let Some(unnest_info) =
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
                     root,
-                    var_ref.rti,
+                    FunctionRti(var_ref.rti),
                 )
             && sources
                 .iter()

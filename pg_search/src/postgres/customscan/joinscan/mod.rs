@@ -146,7 +146,7 @@ pub mod visibility_filter;
 pub mod window_func;
 
 pub use self::build::{CtidColumn, ScoreColumn};
-use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
+use self::build::{FunctionRti, JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
@@ -710,7 +710,8 @@ impl JoinScan {
                 let is_source_var = all_sources.iter().any(|s| s.contains_rti(rti));
                 let is_lateral_unnest =
                     crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                        root, rti,
+                        root,
+                        FunctionRti(rti),
                     )
                     .is_some_and(|u| all_sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
                 if !is_source_var && !is_lateral_unnest {
@@ -2483,7 +2484,7 @@ impl JoinScan {
             && (1..(*root).simple_rel_array_size).any(|rti| {
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
                     root,
-                    rti as pg_sys::Index,
+                    FunctionRti(rti as pg_sys::Index),
                 )
                 .is_some_and(|u| u.source_rti.0 == sources[0].heap_rti)
             });

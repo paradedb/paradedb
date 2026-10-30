@@ -66,11 +66,21 @@ pub enum Access {
     Any,
 }
 impl Access {
-    fn is_unallowed_array(&self, is_array: bool) -> bool {
+    fn array_gate(&self, is_array: bool) -> bool {
         match self {
-            Self::List | Self::Any => false,
-            Self::Scalar => is_array,
+            Self::List => is_array,
+            Self::Scalar => !is_array,
+            Self::Any => true,
         }
+    }
+
+    fn field_is_supported_for_pullup(&self, field: &WhichFastField) -> bool {
+        self.array_gate(field.is_array())
+            && (self.is_list() || field_type_supported_for_pullup(field.field_type()))
+    }
+
+    fn is_list(&self) -> bool {
+        matches!(self, Self::List)
     }
 }
 
@@ -135,10 +145,7 @@ impl SourceContext {
         match col {
             ResTarget::Attno(attno) => {
                 let resolved = unsafe { resolve_fast_field(attno, self, access)? };
-                if !field_type_supported_for_pullup(
-                    resolved.field.field_type(),
-                    access.is_unallowed_array(resolved.field.is_array()),
-                ) {
+                if !access.field_is_supported_for_pullup(&resolved.field) {
                     return None;
                 }
                 Some(resolved)
@@ -146,22 +153,14 @@ impl SourceContext {
             ResTarget::Field(name) => {
                 let resolved = resolve_fast_field_by_name(name, self.indexrel()?)?;
                 let is_subfield = FieldName::from(name).root() != name;
-                if !is_subfield
-                    && !field_type_supported_for_pullup(
-                        resolved.field.field_type(),
-                        access.is_unallowed_array(resolved.field.is_array()),
-                    )
-                {
+                if !is_subfield && !access.field_is_supported_for_pullup(&resolved.field) {
                     return None;
                 }
                 Some(resolved)
             }
             ResTarget::Expr(node) => {
                 let (ff, is_json) = find_matching_fast_field(node, self)?;
-                if !field_type_supported_for_pullup(
-                    ff.field_type(),
-                    access.is_unallowed_array(ff.is_array()),
-                ) {
+                if !access.field_is_supported_for_pullup(&ff) {
                     return None;
                 }
                 // TODO: Should be able to find an attno sometimes
@@ -449,10 +448,7 @@ fn resolve_fast_field_by_name(field_name: &str, index: &PgSearchRelation) -> Opt
 ///
 /// Returns `Some(SearchFieldType)` if the type is supported for fast field execution,
 /// `None` otherwise (e.g. arrays, JSON which require special handling).
-fn field_type_supported_for_pullup(field_type: Option<&SearchFieldType>, is_array: bool) -> bool {
-    if is_array {
-        return false;
-    }
+fn field_type_supported_for_pullup(field_type: Option<&SearchFieldType>) -> bool {
     match field_type {
         // The field did not have a field type (ctid, score, etc.), which is allowed for pullup
         None => true,

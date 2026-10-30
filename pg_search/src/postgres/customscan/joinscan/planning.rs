@@ -25,8 +25,8 @@
 
 use super::JoinDeclineReason;
 use super::build::{
-    self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, RelNode, RelationAlias, UnnestNode,
+    self as build, FilterNode, FunctionRti, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr,
+    JoinNode, JoinSource, JoinSourceCandidate, JoinType, RelNode, RelationAlias, UnnestNode,
 };
 use super::predicate::{all_vars_are_fast_fields_recursive, resolve_join_conditions};
 use super::privdat::{OutputColumnInfo, PrivateData};
@@ -549,7 +549,7 @@ unsafe fn collect_join_sources_join_rel(
                 return None;
             }
             let rti = bms_iter((*unnest_rel).relids).next().unwrap();
-            let mut unnest_info = build::try_extract_lateral_unnest(root, rti)?;
+            let mut unnest_info = build::try_extract_lateral_unnest(root, FunctionRti(rti))?;
             let input_collected = collect_join_sources(root, input_rel)?;
             if !input_collected.plan.contains_rti(unnest_info.source_rti.0) {
                 return None;
@@ -1497,7 +1497,7 @@ unsafe fn extract_join_conditions_from_list(
                     }
                     if let Some(unnest_info) =
                         crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest_from_rte(
-                            root, rti, rte_ptr,
+                            root, FunctionRti(rti), rte_ptr,
                         )
                         && sources.iter().any(|s| s.contains_rti(unnest_info.source_rti.0))
                     {
@@ -2077,7 +2077,8 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
                 if let Some(unnest_info) =
                     crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                        root, varno,
+                        root,
+                        FunctionRti(varno),
                     )
                     && source_rtis.contains(&unnest_info.source_rti.0)
                 {
@@ -2390,7 +2391,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         let is_fast = resolve_fast_field_from_join_sources(&sources, varno, var.varattno).is_some()
             || {
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                    root, varno,
+                    root,
+                    FunctionRti(varno),
                 )
                 .is_some_and(|u| sources.iter().any(|s| s.heap_rti == u.source_rti.0))
             };
@@ -2527,7 +2529,8 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             None => {
                 let is_lateral_unnest =
                     crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                        root, varno,
+                        root,
+                        FunctionRti(varno),
                     )
                     .is_some_and(|u| sources.iter().any(|s| s.heap_rti == u.source_rti.0));
                 if !is_lateral_unnest {
@@ -2873,7 +2876,8 @@ impl JoinSortExprKind {
 
             if let Some(unnest_info) =
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                    root, varno,
+                    root,
+                    FunctionRti(varno),
                 )
                 && let Some(_source) = sources
                     .iter()

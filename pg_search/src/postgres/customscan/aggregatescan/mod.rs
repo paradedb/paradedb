@@ -131,6 +131,7 @@ use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
+use super::joinscan::build::FunctionRti;
 use super::pullup::SourceContext;
 
 #[derive(Default)]
@@ -1838,7 +1839,7 @@ impl AggregateScan {
                         if let Some(unnest_info) = (unsafe {
                             crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest_from_rte(
                                 root,
-                                rti,
+                                FunctionRti(rti),
                                 rte_ptr,
                             )
                         }) && sources

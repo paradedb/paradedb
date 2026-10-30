@@ -27,7 +27,7 @@
 
 use crate::api::OrderByInfo;
 use crate::nodecast;
-use crate::postgres::customscan::pullup::SourceContext;
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
@@ -2399,7 +2399,7 @@ pub unsafe fn lookup_base_rel_info(
 /// over an array fast field on an indexed base table.
 pub unsafe fn try_extract_lateral_unnest_from_rte(
     root: *mut pg_sys::PlannerInfo,
-    candidate_rti: pg_sys::Index,
+    function_rti: FunctionRti,
     rte: *mut pg_sys::RangeTblEntry,
 ) -> Option<LateralUnnestInfo> {
     if rte.is_null() || (*rte).rtekind != pg_sys::RTEKind::RTE_FUNCTION {
@@ -2429,32 +2429,20 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
         return None;
     }
 
-    let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
-    let bm25_index = bm25_index?;
-
-    let schema = crate::schema::SearchIndexSchema::open(&bm25_index).ok()?;
-    let hr = PgSearchRelation::open(source_relid);
-    let tupdesc = hr.tuple_desc();
-    let att = tupdesc.get((source_attno - 1) as usize)?;
-    let col_name = att.name();
-    let search_field = schema.search_field(col_name)?;
-    if !search_field.is_fast() {
-        return None;
-    }
-    let categorized = schema.categorized_fields();
-    let field_data = categorized
-        .iter()
-        .find(|(sf, _)| sf == &search_field)
-        .map(|(_, data)| data)?;
-    if !field_data.is_array {
-        return None;
-    }
+    let (source_relid, alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
+    let context = SourceContext::new(
+        source_rti.0,
+        PgSearchRelation::open(source_relid),
+        bm25_index,
+        alias,
+    );
+    let resolved = context.resolve_fast_field(ResTarget::Attno(source_attno), Access::List)?;
 
     Some(LateralUnnestInfo {
-        function_rti: FunctionRti(candidate_rti),
+        function_rti,
         source_rti,
         source_attno,
-        field_name: col_name.to_string(),
+        field_name: resolved.field.name(),
         is_left_join: false,
     })
 }
@@ -2462,12 +2450,12 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
 /// Convenience helper to extract lateral unnest info by RTI.
 pub unsafe fn try_extract_lateral_unnest(
     root: *mut pg_sys::PlannerInfo,
-    candidate_rti: pg_sys::Index,
+    candidate_rti: FunctionRti,
 ) -> Option<LateralUnnestInfo> {
     let rte = get_rte(
         (*root).simple_rel_array_size as usize,
         (*root).simple_rte_array,
-        candidate_rti,
+        candidate_rti.0,
     )?;
     try_extract_lateral_unnest_from_rte(root, candidate_rti, rte)
 }

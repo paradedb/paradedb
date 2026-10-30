@@ -110,7 +110,7 @@ ORDER BY p.id, u.id LIMIT 29;
      :                       CooperativeExec
      :                         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"name","value":"alice"}}}}
      :                   CooperativeExec
-     :                     PgSearchScan: table=o, segments=1, query="all"
+     :                     PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
 (25 rows)
 
 SELECT DISTINCT p.id, u.id

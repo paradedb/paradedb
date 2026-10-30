@@ -128,7 +128,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=a, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=a, segments=1, tag_0={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' OR b.txt ||| 'beta' ORDER BY a.id LIMIT 8;

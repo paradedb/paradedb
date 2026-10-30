@@ -35,7 +35,7 @@ ORDER BY p.id, u.id LIMIT 2;
      :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@1, group_id@1)], projection=[ctid_0@3, id@5, ctid_1@0, group_id@1, id@2]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query="all"
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
      :           CooperativeExec
      :             PgSearchScan: table=u, segments=1, dynamic_filters=1, query="all"
 (18 rows)
@@ -76,7 +76,7 @@ ORDER BY p.id LIMIT 10000;
      :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@1, group_id@2)], projection=[ctid_0@3, id@4, ctid_1@0, group_id@1, id@2]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query="all"
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
      :           CooperativeExec
      :             PgSearchScan: table=u, segments=1, dynamic_filters=1, query="all"
 (18 rows)

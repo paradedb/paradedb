@@ -324,12 +324,19 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Maximum fraction of each segment's IVF clusters probed by a vector query.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+/// Optional work ceiling; zero selects the search mode's default.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.0);
 
 /// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
-    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+    let configured = VECTOR_CLUSTER_MAX_PROBE.get();
+    if configured > 0.0 {
+        configured as f32
+    } else if VECTOR_ADAPTIVE_PROBING.get() {
+        1.0
+    } else {
+        0.02
+    }
 }
 
 /// Fixed IVF cluster-open cost measured in fully scored rows.
@@ -373,7 +380,7 @@ pub fn vector_clustering_threshold() -> usize {
 
 static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static VECTOR_ADAPTIVE_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(0.95);
-static VECTOR_ADAPTIVE_RECALL_EXPONENT: GucSetting<f64> = GucSetting::<f64>::new(1.5);
+static VECTOR_ADAPTIVE_RECALL_EXPONENT: GucSetting<f64> = GucSetting::<f64>::new(1.25);
 static VECTOR_CLUSTER_MIN_PROBE: GucSetting<i32> = GucSetting::<i32>::new(16);
 
 pub fn vector_quantized_recall() -> Option<tantivy::vector::QuantizedRecallParams> {
@@ -393,8 +400,8 @@ pub fn vector_cluster_min_probe() -> usize {
 pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
-        c"Stop vector probing early using the estimated recall",
-        c"Enabled by default. Preserves routing and the fixed work budget, and can stop cluster probing sooner.",
+        c"Stop vector probing early using admission-rate decay",
+        c"Enabled by default. Uses one router window scaled by recall target, segment size, and filter selectivity, with admission-based early stopping.",
         &VECTOR_ADAPTIVE_PROBING,
         GucContext::Userset,
         GucFlags::default(),
@@ -402,7 +409,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_adaptive_recall_exponent",
         c"Calibrate admission-rate decay: rate fraction = (1 - target) ^ exponent",
-        c"Larger values require more admission-rate decay before stopping. Default 1.5.",
+        c"Larger values require more admission-rate decay before stopping. Default 1.25.",
         &VECTOR_ADAPTIVE_RECALL_EXPONENT,
         0.000001,
         f64::MAX,
@@ -412,7 +419,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.vector_cluster_min_probe",
         c"Minimum cluster work budget for vector probing",
-        c"Sets the work-budget floor. Adaptive probing may stop before this budget is spent.",
+        c"Sets the work-budget floor when adaptive probing is disabled.",
         &VECTOR_CLUSTER_MIN_PROBE,
         1,
         i32::MAX,
@@ -422,7 +429,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_adaptive_recall_target",
         c"Recall target for adaptive vector probing (default 0.95)",
-        c"Uses recent versus opening admission rates at the current pruning threshold. A target of 1 disables early stopping; probe limits still apply.",
+        c"Larger values request more clusters and require more admission-rate decay. This is an empirical recall control. A target of 1 disables adaptive stopping and window limits; explicit work ceilings still apply.",
         &VECTOR_ADAPTIVE_RECALL_TARGET,
         0.000001,
         1.0,
@@ -723,9 +730,9 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Bounds the per-segment work budget, including adaptive probing; 1.0 allows every cluster.",
+        c"0 selects automatic headroom: 1.0 with adaptive probing, 0.02 otherwise. Positive values explicitly cap the work budget.",
         &VECTOR_CLUSTER_MAX_PROBE,
-        0.000001,
+        0.0,
         1.0,
         GucContext::Userset,
         GucFlags::default(),

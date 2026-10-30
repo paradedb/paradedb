@@ -1,14 +1,22 @@
-"""Compare one admission calibration across all Cohere operating points."""
+"""Calibrate one admission knob shared across filters at each recall goal."""
 
 import json
 import os
 import subprocess
 from pathlib import Path
 
-from prepare_k6 import EXPONENT, PROBE, QUERIES, QVEC, RECALL_TARGET, operating_points
+from prepare_k6 import (
+    EXPONENT,
+    PROBE,
+    QUERIES,
+    QVEC,
+    RECALL_TARGET,
+    TARGETS,
+    operating_points,
+)
 
-EXPONENTS = (0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
-SHARED_BUDGET = 0.125
+SHARED_EXPONENT = 1.25
+AUTO_CEILING = 0.0
 
 
 def fixed_point(report, control, exponent, profile):
@@ -43,54 +51,82 @@ def fixed_point(report, control, exponent, profile):
 
 
 def choose_calibration(points):
-    """Select one exponent for the entire matrix; never select per filter."""
+    """Select one measured knob per recall goal; never select per filter."""
     groups = {}
     for point in points:
-        groups.setdefault(point["exponent"], []).append(point)
-    expected = {(query, target) for query in QUERIES for target in (0.9, 0.95, 0.99)}
+        groups.setdefault(point["probe"], []).append(point)
+    if not groups:
+        raise ValueError("No admission measurements")
     for group in groups.values():
         if (
-            len(group) != len(expected)
-            or {(p["query"], p["target"]) for p in group} != expected
+            len(group) != len(QUERIES)
+            or {p["query"] for p in group} != set(QUERIES)
+            or {p["exponent"] for p in group} != {SHARED_EXPONENT}
+            or {float(p["session"][PROBE]) for p in group} != {AUTO_CEILING}
         ):
             raise ValueError(
-                "Every calibration must cover the complete operating-point matrix"
+                "Every knob must cover all filters with the shared exponent and ceiling"
             )
-
-    def rank(exponent):
-        group = groups[exponent]
-        deficits = [max(0, p["target"] - p["recall"]) for p in group]
-        return (max(deficits), sum(deficits), exponent)
-
-    return min(groups, key=rank)
+    selected = []
+    for target in TARGETS:
+        passing = [
+            knob
+            for knob, group in groups.items()
+            if all(p["recall"] >= target - 1e-12 for p in group)
+        ]
+        knob = min(passing) if passing else max(groups)
+        for point in groups[knob]:
+            selected.append(
+                point
+                | {
+                    "name": f"{point['query']}@r{round(target * 100)}",
+                    "target": target,
+                    "reached": point["recall"] >= target - 1e-12,
+                }
+            )
+    return sorted(selected, key=lambda point: point["name"])
 
 
 def summary(points, selected):
-    """Report the full calibration matrix, including missed targets."""
+    """Separate empirical recall goals from configured knob values."""
     lines = [
-        f"Admission experiment: shared exponent **{selected:g}** across all filters and targets.",
+        f"Admission experiment: exponent **{SHARED_EXPONENT:g}**, automatic ceiling **0**.",
         "",
         (
-            "Matched-budget runs use the budgets selected with adaptive probing off. "
-            f"Shared-budget runs use {SHARED_BUDGET} everywhere with that same exponent. "
-            "Matched-budget results alone do not establish a one-knob interface. "
-            "Recall is measured at the requested target, without per-case recalibration."
+            "Only the recall-target knob is calibrated. Each selected value is shared "
+            "by all three filters at that recall goal. The knob is an empirical control, "
+            "not a guarantee of measured recall. "
+            "The separately calibrated nonadaptive controls are retained in fixed-budget/. "
+            "Calibration and evaluation use the same 100 queries."
         ),
         "",
-        "| Profile | Exponent | Query / target | Budget | Recall | Reached | pdbench p50 ms |",
-        "|---|---:|---|---:|---:|---|---:|",
+        "| Query / recall goal | Configured knob | Recall | Reached | pdbench p50 ms |",
+        "|---|---:|---:|---|---:|",
     ]
-    for point in points:
+    for point in selected:
         lines.append(
-            f"| {point['profile']} | {point['exponent']:g} | {point['name']} | "
-            f"{point['session'][PROBE]} | {point['recall']:.2%} | "
+            f"| {point['name']} | {point['probe']:g} | {point['recall']:.2%} | "
             f"{'yes' if point['reached'] else 'NO'} | {point['metrics']['latency']['p50_ms']:.3f} |"
+        )
+    lines.extend(
+        [
+            "",
+            "All measured settings, including misses:",
+            "",
+            "| Query | Configured knob | Recall | pdbench p50 ms |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for point in sorted(points, key=lambda p: (p["probe"], p["query"])):
+        lines.append(
+            f"| {point['query']} | {point['probe']:g} | {point['recall']:.2%} | "
+            f"{point['metrics']['latency']['p50_ms']:.3f} |"
         )
     return "\n".join(lines) + "\n"
 
 
 def main():
-    """Run controls, calibrate once, then evaluate a shared probe ceiling."""
+    """Run controls, then bisect one shared knob on a 0.001 grid."""
     root = Path("benchmark-artifacts")
     root.mkdir(exist_ok=True)
     common = [
@@ -138,8 +174,9 @@ def main():
     )
     points = []
 
-    def measure(control, exponent, profile, budget):
-        output = root / "admission" / profile / str(exponent) / control["name"]
+    def measure(query, knob):
+        control = {"query": query, "target": knob, "name": f"{query}@knob{knob:g}"}
+        output = root / "admission" / control["name"]
         subprocess.run(
             common
             + [
@@ -161,42 +198,41 @@ def main():
                 "--set",
                 "search.sweep.start=0.95",
                 "--set",
-                f"search.session.{PROBE}={budget}",
+                f"search.session.{PROBE}={AUTO_CEILING}",
                 "--set",
-                f"search.session.{EXPONENT}={exponent}",
+                f"search.session.{EXPONENT}={SHARED_EXPONENT}",
             ],
             check=True,
         )
         (report_path,) = output.rglob("*_search.json")
         point = fixed_point(
-            json.loads(report_path.read_text()), control, exponent, profile
+            json.loads(report_path.read_text()), control, SHARED_EXPONENT, "automatic"
         )
         points.append(point)
         (root / "admission_points.json").write_text(json.dumps(points, indent=2) + "\n")
         print(
-            f"{profile} exponent={exponent} {point['name']}: recall={point['recall']:.4f}",
+            f"{point['name']}: recall={point['recall']:.4f}",
             flush=True,
         )
+        return point
 
-    # Interleave calibrations across operating points to avoid one arm always running first.
-    for index, control in enumerate(controls):
-        exponents = (
-            EXPONENTS[index % len(EXPONENTS) :] + EXPONENTS[: index % len(EXPONENTS)]
-        )
-        for exponent in exponents:
-            measure(control, exponent, "matched-budget", control["probe"])
+    measured = {}
+    for target in TARGETS:
+        low, high = 10, 1000
+        while True:
+            midpoint = (low + high) // 2
+            if midpoint not in measured:
+                measured[midpoint] = [
+                    measure(query, midpoint / 1000) for query in QUERIES
+                ]
+            if low == high:
+                break
+            if all(p["recall"] >= target - 1e-12 for p in measured[midpoint]):
+                high = midpoint
+            else:
+                low = midpoint + 1
     selected = choose_calibration(points)
-    for control in controls:
-        measure(control, selected, "shared-budget", SHARED_BUDGET)
-    exported = []
-    for point in points:
-        if point["exponent"] != selected:
-            continue
-        point = dict(point)
-        if point["profile"] == "shared-budget":
-            point["name"] = "shared-budget_" + point["name"]
-        exported.append(point)
-    (root / "operating_points.json").write_text(json.dumps(exported, indent=2) + "\n")
+    (root / "operating_points.json").write_text(json.dumps(selected, indent=2) + "\n")
     (root / "operating_points.md").write_text(summary(points, selected))
 
 

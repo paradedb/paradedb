@@ -480,7 +480,18 @@ impl SegmentMetaEntry {
         let new_max_doc = self.header.max_doc + items_len;
         match &mut self.content {
             SegmentMetaEntryContent::Mutable(content) if !content.frozen => {
-                unsafe { content.open(indexrel).add_items(items, None) };
+                // The log append and the `max_doc` update below reach WAL as separate records, so a
+                // crash between them leaves entries past the prefix that readers consume. Any new
+                // entry appended after those would fall outside that prefix and be lost, so drop
+                // them first. We hold the metadata page's exclusive lock, so no other writer can
+                // be mid-append, and readers never look beyond their own prefix.
+                let mut log = content.open(indexrel);
+                let valid_entries =
+                    self.header.max_doc as usize + content.num_deleted_docs as usize;
+                unsafe {
+                    log.truncate(valid_entries);
+                    log.add_items(items, None);
+                }
                 let row_limit = indexrel
                     .options()
                     .mutable_segment_rows()
@@ -1087,6 +1098,36 @@ mod tests {
 
     fn decoded(bytes: &[u8]) -> SegmentMetaEntry {
         PgItem(bytes.as_ptr() as pg_sys::Item, bytes.len()).into()
+    }
+
+    /// A crash between the log append and the `max_doc` update leaves an entry past the prefix
+    /// that readers consume. Rows inserted afterwards must still land inside that prefix.
+    #[pg_test]
+    unsafe fn mutable_add_items_discards_entries_past_max_doc() {
+        Spi::run("CREATE TABLE orphan_log (id SERIAL PRIMARY KEY, body TEXT);").unwrap();
+        Spi::run("CREATE INDEX orphan_log_idx ON orphan_log USING paradedb (id, body);").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'orphan_log_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+
+        let (content, mut log) = SegmentMetaEntryMutable::create(&indexrel);
+        log.add_items(&[MutableSegmentEntry::Add(1)], None);
+        let mut entry = SegmentMetaEntry::new_mutable(
+            SegmentId::generate_random(),
+            1,
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+
+        // What a crash leaves behind: the append survived, the metadata update didn't.
+        log.add_items(&[MutableSegmentEntry::Add(99)], None);
+        assert_eq!(entry.mutable_snapshot(&indexrel).unwrap(), vec![1]);
+
+        entry
+            .mutable_add_items(&indexrel, &[MutableSegmentEntry::Add(2)])
+            .unwrap();
+        assert_eq!(entry.mutable_snapshot(&indexrel).unwrap(), vec![1, 2]);
     }
 
     /// Entries written before a trailing component existed are shorter by that component's

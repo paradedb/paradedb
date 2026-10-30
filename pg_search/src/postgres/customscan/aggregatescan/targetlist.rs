@@ -22,11 +22,11 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
+use crate::postgres::customscan::pullup::{Access, SourceContext};
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_unnest_and_relabel;
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
+use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
 use pgrx::PgList;
 use pgrx::pg_sys;
 
@@ -127,20 +127,19 @@ impl CustomScanClause<AggregateScan> for TargetList {
         for expr in target_list.iter_ptr() {
             let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-            let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
-
-            let maybe_field_name = if let Some((_, field_name)) =
-                unsafe { find_one_var_and_fieldname(var_context, actual_expr) }
-            {
-                Some(field_name.into_inner())
+            let (actual_expr, is_unnest) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
+            let access = if is_unnest {
+                Access::List
             } else {
-                context
-                    .resolve(ColumnRef::Expr(actual_expr), Access::Scalar)
-                    .map(|r| r.field.name())
+                Access::Scalar
+            };
+
+            let (_resolved, maybe_field_name) = unsafe {
+                find_one_resolved_var_and_fieldname(var_context, context, actual_expr, access)
             };
 
             // Try to extract field name from the expression (handles both Var and JSON operators)
-            if let Some(field_name) = maybe_field_name {
+            if let Some(field_name) = maybe_field_name.map(|f| f.into_inner()) {
                 // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                 // Find which grouping column this is
                 let mut found = false;

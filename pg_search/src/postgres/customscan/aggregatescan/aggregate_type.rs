@@ -24,14 +24,15 @@ use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, expr_is_securely_promotable, extract_quals,
 };
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{ConstNode, TantivyValue};
-use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
+use crate::postgres::var::{VarContext, fieldname_from_var, find_one_fieldname};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::{Context, bail};
@@ -834,7 +835,7 @@ impl ParsedAggregateField {
         let field_expr = expression.field_expression();
 
         let field_name =
-            if let Some(resolved) = source.resolve(ColumnRef::Expr(field_expr), Access::Scalar) {
+            if let Some(resolved) = source.resolve(ResTarget::Expr(field_expr), Access::Scalar) {
                 FieldName::from(resolved.field.name())
             } else {
                 expression.field_name(context)?
@@ -983,7 +984,7 @@ impl AggregateFieldExpression {
 
     unsafe fn field_name(&self, context: VarContext) -> anyhow::Result<FieldName> {
         let expression = self.field_expression();
-        if let Some((_, field_name)) = find_one_var_and_fieldname(context, expression) {
+        if let Some(field_name) = find_one_fieldname(context, expression) {
             return Ok(field_name);
         }
 
@@ -995,7 +996,8 @@ impl AggregateFieldExpression {
         let var = <*mut pg_sys::Var>::unwrap_from_expr(expression as *mut pg_sys::Expr)
             .context("first argument of COALESCE must resolve to a field")?;
         let (heaprelid, varattno) = context.var_relation(var);
-        fieldname_from_var(heaprelid, var, varattno)
+        let heaprel = PgSearchRelation::open(heaprelid);
+        fieldname_from_var(&heaprel, varattno)
             .context("first argument of COALESCE must resolve to a field")
     }
 }

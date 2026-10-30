@@ -32,7 +32,7 @@ use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{Access, ColumnRef};
+use crate::postgres::customscan::pullup::{Access, ResTarget};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel_get_bm25_index;
@@ -276,7 +276,7 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
             if source.contains_rti(var_ref.rti) {
                 let context = source.to_source_context();
                 if context
-                    .resolve(ColumnRef::Attno(var_ref.attno), Access::Scalar)
+                    .resolve(ResTarget::Attno(var_ref.attno), Access::Scalar)
                     .is_none()
                 {
                     return false;

@@ -22,9 +22,12 @@ use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::{AnyNumeric, PgOid};
-use pgrx::{FromDatum, PgList, PgRelation, is_a, pg_sys};
+use pgrx::{FromDatum, PgList, is_a, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
+
+use super::customscan::pullup::{Access, ResTarget, ResolvedField, SourceContext};
+use super::rel::PgSearchRelation;
 
 /// Operator OIDs
 mod identity_ops {
@@ -494,18 +497,12 @@ fn find_targetlist_relation(
 
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
 pub unsafe fn fieldname_from_var(
-    heaprelid: pg_sys::Oid,
-    var: *mut pg_sys::Var,
+    heaprel: &PgSearchRelation,
     varattno: pg_sys::AttrNumber,
 ) -> Option<FieldName> {
-    if (*var).varattno == 0 || heaprelid == pg_sys::Oid::INVALID {
+    if varattno == 0 {
         return None;
     }
-    // Check for InvalidOid before trying to open the relation
-    if heaprelid == pg_sys::InvalidOid {
-        return None;
-    }
-    let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
     if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
         Some(CTID_FIELD_NAME.into())
@@ -516,43 +513,102 @@ pub unsafe fn fieldname_from_var(
     }
 }
 
+// should be kept in sync with find_one_resolved_var_and_fieldname
+pub unsafe fn find_one_fieldname(
+    context: VarContext,
+    node: *mut pg_sys::Node,
+) -> Option<FieldName> {
+    if is_a(node, T_CoerceViaIO) {
+        let expr = node.cast::<CoerceViaIO>();
+        let arg = (*expr).arg;
+        find_one_fieldname(context, arg as *mut pg_sys::Node)
+    } else if is_a(node, T_RelabelType) {
+        let relabel_type = node.cast::<RelabelType>();
+        let arg = (*relabel_type).arg;
+        find_one_fieldname(context, arg as *mut pg_sys::Node)
+    } else if is_a(node, T_Var) {
+        let (heaprelid, varattno) = context.var_relation(node.cast::<pg_sys::Var>());
+        let heaprel = PgSearchRelation::open(heaprelid);
+        fieldname_from_var(&heaprel, varattno)
+    } else {
+        unsafe { json_path_fieldname(context, node) }
+    }
+}
+
+pub unsafe fn find_one_var(
+    context: VarContext,
+    node: *mut pg_sys::Node,
+) -> Option<*mut pg_sys::Var> {
+    if is_a(node, T_CoerceViaIO) {
+        let expr = node.cast::<CoerceViaIO>();
+        let arg = (*expr).arg;
+        find_one_var(context, arg as *mut pg_sys::Node)
+    } else if is_a(node, T_RelabelType) {
+        let relabel_type = node.cast::<RelabelType>();
+        let arg = (*relabel_type).arg;
+        find_one_var(context, arg as *mut pg_sys::Node)
+    } else if is_a(node, T_Var) {
+        let var = node.cast::<pg_sys::Var>();
+        Some(var)
+    } else if unsafe { json_path_fieldname(context, node).is_some() } {
+        node.find_single_node::<pg_sys::Var>()
+    } else {
+        None
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
 /// the [`FieldName`] that it references.
 ///
 /// It is the caller's responsibility to ensure that the node contains a Var with a valid FieldName.
-pub unsafe fn find_one_var_and_fieldname(
+pub unsafe fn find_one_resolved_var_and_fieldname(
+    context: VarContext,
+    source: &SourceContext,
+    node: *mut pg_sys::Node,
+    access: Access,
+) -> (Option<ResolvedField>, Option<FieldName>) {
+    if is_a(node, T_CoerceViaIO) {
+        let expr = node.cast::<CoerceViaIO>();
+        let arg = (*expr).arg;
+        find_one_resolved_var_and_fieldname(context, source, arg as *mut pg_sys::Node, access)
+    } else if is_a(node, T_RelabelType) {
+        let relabel_type = node.cast::<RelabelType>();
+        let arg = (*relabel_type).arg;
+        find_one_resolved_var_and_fieldname(context, source, arg as *mut pg_sys::Node, access)
+    } else if is_a(node, T_Var) {
+        let (_, varattno) = context.var_relation(node.cast::<pg_sys::Var>());
+        let name = source
+            .tupdesc()
+            .get(varattno as usize - 1)
+            .map(|n| n.name().into());
+        (source.resolve(ResTarget::Attno(varattno), access), name)
+    } else if let Some(name) = unsafe { json_path_fieldname(context, node) } {
+        let resolved = source.resolve(ResTarget::Field(name.as_ref()), access);
+        (resolved, Some(name))
+    } else if is_a(node, T_OpExpr) {
+        // any opexpr not handled by json_path_fieldname does not have a json operator and is not
+        // findable here
+        (None, None)
+    } else {
+        (source.resolve(ResTarget::Expr(node), access), None)
+    }
+}
+
+pub unsafe fn json_path_fieldname(
     context: VarContext,
     node: *mut pg_sys::Node,
-) -> Option<(*mut pg_sys::Var, FieldName)> {
+) -> Option<FieldName> {
     if is_a(node, T_OpExpr) {
         let opexpr = node.cast::<OpExpr>();
-        static JSON_OPERATOR_LOOKUP: OnceLock<HashSet<pg_sys::Oid>> = OnceLock::new();
-        if JSON_OPERATOR_LOOKUP
-            .get_or_init(|| initialize_json_operator_lookup())
-            .contains(&(*opexpr).opno)
-        {
-            let var = node.find_single_node::<pg_sys::Var>()?;
+        if is_json_operator((*opexpr).opno) {
             let path = find_json_path(&context, node);
-            return Some((var, path.join(".").into()));
+            return Some(path.join(".").into());
         }
         None
     } else if is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
         // Handle PostgreSQL 14+ bracket notation: json['key']
-        let var = node.find_single_node::<pg_sys::Var>()?;
         let path = find_json_path(&context, node);
-        Some((var, path.join(".").into()))
-    } else if is_a(node, T_Var) {
-        let var = node.cast::<Var>();
-        let (heaprelid, varattno) = context.var_relation(var);
-        Some((var, fieldname_from_var(heaprelid, var, varattno)?))
-    } else if is_a(node, T_CoerceViaIO) {
-        let expr = node.cast::<CoerceViaIO>();
-        let arg = (*expr).arg;
-        find_one_var_and_fieldname(context, arg as *mut pg_sys::Node)
-    } else if is_a(node, T_RelabelType) {
-        let relabel_type = node.cast::<RelabelType>();
-        let arg = (*relabel_type).arg;
-        find_one_var_and_fieldname(context, arg as *mut pg_sys::Node)
+        Some(path.join(".").into())
     } else {
         None
     }
@@ -569,8 +625,9 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
     if is_a(node, T_Var) {
         let node = node as *mut Var;
         let (heaprelid, varattno) = context.var_relation(node);
+        let heaprel = PgSearchRelation::open(heaprelid);
         // Return empty path if we can't get a valid field name (e.g., due to out-of-bounds varno)
-        if let Some(field_name) = fieldname_from_var(heaprelid, node, varattno) {
+        if let Some(field_name) = fieldname_from_var(&heaprel, varattno) {
             path.push(field_name.root());
         }
         return path;
@@ -613,7 +670,7 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
 }
 
 #[inline(always)]
-unsafe fn initialize_json_operator_lookup() -> HashSet<pg_sys::Oid> {
+fn initialize_json_operator_lookup() -> HashSet<pg_sys::Oid> {
     const OPERATORS: [&str; 2] = ["->", "->>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[
         ["json", "text"],
@@ -625,14 +682,21 @@ unsafe fn initialize_json_operator_lookup() -> HashSet<pg_sys::Oid> {
     let mut lookup = HashSet::default();
     for o in OPERATORS {
         for [l, r] in TYPE_PAIRS {
-            lookup.insert(operator_oid(&format!("{o}({l},{r})")));
+            lookup.insert(unsafe { operator_oid(&format!("{o}({l},{r})")) });
         }
     }
 
-    lookup.insert(operator_oid("#>(json,text[])"));
-    lookup.insert(operator_oid("#>(jsonb,text[])"));
-    lookup.insert(operator_oid("#>>(json,text[])"));
-    lookup.insert(operator_oid("#>>(jsonb,text[])"));
+    lookup.insert(unsafe { operator_oid("#>(json,text[])") });
+    lookup.insert(unsafe { operator_oid("#>(jsonb,text[])") });
+    lookup.insert(unsafe { operator_oid("#>>(json,text[])") });
+    lookup.insert(unsafe { operator_oid("#>>(jsonb,text[])") });
 
     lookup
+}
+
+pub fn is_json_operator(oid: pg_sys::Oid) -> bool {
+    static JSON_OPERATOR_LOOKUP: OnceLock<HashSet<pg_sys::Oid>> = OnceLock::new();
+    JSON_OPERATOR_LOOKUP
+        .get_or_init(initialize_json_operator_lookup)
+        .contains(&oid)
 }

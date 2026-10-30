@@ -34,10 +34,9 @@ use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_relabel;
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_guard;
@@ -903,7 +902,7 @@ unsafe fn resolve_var_source<'a>(
     let field_name = match unnest_field {
         Some(field_name) => field_name,
         None => source
-            .resolve(ColumnRef::Attno(attno), Access::Any)
+            .resolve(ResTarget::Attno(attno), Access::Any)
             .map(|r| r.field.name())
             .ok_or_else(|| {
                 let alias =
@@ -962,6 +961,7 @@ unsafe fn extract_raw_group_column(
         )?;
         // A columnar read of an array cannot tell an empty array from NULL, and
         // it has no NULL elements.
+        // TODO: could we just check if array here?
         if !matches!(origin, GroupColumnOrigin::Clause { .. })
             && pg_sys::get_element_type(pg_sys::getBaseType((*var).vartype)) != pg_sys::InvalidOid
         {
@@ -993,17 +993,21 @@ unsafe fn extract_raw_group_column(
                  expressions are pushed down"
             ));
         }
-        let (var, field_name) =
-            find_one_var_and_fieldname(VarContext::from_planner(context.root), expr).ok_or_else(
-                || {
-                    format!(
-                        "GROUP BY item {position} is an unsupported expression; only plain columns \
+        let (res_source, resolved) = context
+            .sources
+            .iter()
+            .find_map(|s| {
+                s.resolve(ResTarget::Expr(expr), Access::Any)
+                    .map(|r| (s, r))
+            })
+            .ok_or_else(|| {
+                format!(
+                    "GROUP BY item {position} is an unsupported expression; only plain columns \
                  and indexed expressions are pushed down"
-                    )
-                },
-            )?;
-        let rti = (*var).varno as pg_sys::Index;
-        let attno = (*var).varattno;
+                )
+            })?;
+        let rti = res_source.heap_rti;
+        let attno = resolved.attno.expect("should always have an attno");
         let plan_position = context
             .plan
             .plan_position(context.outer_root_id, rti, attno)
@@ -1015,9 +1019,9 @@ unsafe fn extract_raw_group_column(
             })?;
         (
             attno,
-            field_name.into_inner(),
+            resolved.field.name(),
             plan_position,
-            find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
+            Some(res_source),
         )
     };
     let numeric_info = numeric_source
@@ -1531,7 +1535,7 @@ unsafe fn extract_aggref_order_by(
         let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
 
         let field_name = source
-            .resolve(ColumnRef::Attno(attno), Access::Any)
+            .resolve(ResTarget::Attno(attno), Access::Any)
             .map(|r| r.field.name())
             .ok_or_else(|| {
                 format!(

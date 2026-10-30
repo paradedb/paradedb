@@ -217,7 +217,7 @@ use std::sync::Arc;
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 use super::datafusion::topk_agg::bind_topk_agg_fetch;
-use super::pullup::{Access, ColumnRef};
+use super::pullup::{Access, ResTarget};
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -800,9 +800,9 @@ impl JoinScan {
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let outer_resolved =
-                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Scalar);
+                        outer.resolve(ResTarget::Attno(jk.outer_attno), Access::Scalar);
                     let inner_resolved =
-                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Scalar);
+                        inner.resolve(ResTarget::Attno(jk.inner_attno), Access::Scalar);
                     match (&outer_resolved, &inner_resolved) {
                         (Some(outer_resolved), Some(inner_resolved)) => {
                             let either_numeric = outer_resolved

@@ -48,7 +48,7 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, ResolvedField, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedField, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
     has_leaky_heap_filter, optimize_quals_with_heap_expr,
@@ -58,7 +58,6 @@ use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::missing_partial_index_predicate;
-use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
@@ -146,7 +145,7 @@ fn source_field_candidates<'a>(
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
-        let resolved = source.resolve(ColumnRef::Field(field), Access::Any);
+        let resolved = source.resolve(ResTarget::Field(field), Access::Any);
         match validate_source_field_candidate(source, resolved, field) {
             Ok(Some(r)) => matches.push((source, r)),
             Ok(None) => {}
@@ -1833,14 +1832,13 @@ impl FilterExpr {
                             return None;
                         }
                         let source = sources.iter().find(|s| s.heap_rti == rti)?;
-                        let field_name =
-                            unsafe { fieldname_from_var(source.heaprel.oid(), var, attno) }?
-                                .into_inner();
+                        let resolved = source
+                            .resolve(ResTarget::Attno(unsafe { (*var).varattno }), Access::Any)?;
                         Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
-                            rti,
-                            attno,
-                            field_name,
+                            rti: source.heap_rti,
+                            attno: unsafe { (*var).varattno },
+                            field_name: resolved.field.name(),
                         }))
                     }
                     FilterExprBuildContext::Having {
@@ -2027,7 +2025,7 @@ unsafe fn require_fast_field(
     attno: pg_sys::AttrNumber,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    match context.resolve(ColumnRef::Attno(attno), Access::Scalar) {
+    match context.resolve(ResTarget::Attno(attno), Access::Scalar) {
         Some(resolved) => {
             source.scan_info.add_field(attno, resolved.field);
             Ok(())
@@ -2050,19 +2048,19 @@ unsafe fn require_named_fast_field(
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
     if field_name.contains('.')
-        && let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any)
+        && let Some(resolved) = context.resolve(ResTarget::Field(field_name), Access::Any)
     {
         source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
     if let Some(resolved) = context.resolve(
-        ColumnRef::Attno(attno as pg_sys::AttrNumber),
+        ResTarget::Attno(attno as pg_sys::AttrNumber),
         Access::Scalar,
     ) {
         source.scan_info.add_field(attno, resolved.field);
         return Ok(());
     }
-    if let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any) {
+    if let Some(resolved) = context.resolve(ResTarget::Field(field_name), Access::Any) {
         source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
@@ -2216,7 +2214,7 @@ pub unsafe fn populate_required_fields(
                 continue;
             }
             let resolved = context
-                .resolve(ColumnRef::Field(&field.field_name), Access::Any)
+                .resolve(ResTarget::Field(&field.field_name), Access::Any)
                 .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source
                 .scan_info
@@ -2247,7 +2245,7 @@ unsafe fn all_vars_are_fast_fields_for_agg(
             if source.heap_rti == var_ref.rti {
                 if source
                     .resolve(
-                        ColumnRef::Attno(var_ref.attno as pg_sys::AttrNumber),
+                        ResTarget::Attno(var_ref.attno as pg_sys::AttrNumber),
                         Access::Scalar,
                     )
                     .is_none()

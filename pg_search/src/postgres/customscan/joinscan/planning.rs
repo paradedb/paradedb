@@ -44,7 +44,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
     optimize_quals_with_heap_expr,
@@ -54,7 +54,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{missing_partial_index_predicate, strip_wrappers};
-use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
+use crate::postgres::var::strip_identity_wrappers;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
 
@@ -750,8 +750,8 @@ unsafe fn collect_join_sources_join_rel(
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let (Some(outer_resolved), Some(inner_resolved)) = (
-                        outer.resolve(ColumnRef::Attno(jk.outer_attno), Access::Scalar),
-                        inner.resolve(ColumnRef::Attno(jk.inner_attno), Access::Scalar),
+                        outer.resolve(ResTarget::Attno(jk.outer_attno), Access::Scalar),
+                        inner.resolve(ResTarget::Attno(jk.inner_attno), Access::Scalar),
                     ) else {
                         return None;
                     };
@@ -1807,7 +1807,7 @@ pub(super) unsafe fn collect_required_fields(
                         continue;
                     };
                     let context = source.to_source_context();
-                    match context.resolve(ColumnRef::Field(&field.field_name), Access::Any) {
+                    match context.resolve(ResTarget::Field(&field.field_name), Access::Any) {
                         Some(resolved) => source
                             .scan_info
                             .add_field_by_name(field.attno, resolved.field),
@@ -1880,7 +1880,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
         return Some(());
     }
     let context = side.to_source_context();
-    let resolved = context.resolve(ColumnRef::Attno(attno), Access::Scalar)?;
+    let resolved = context.resolve(ResTarget::Attno(attno), Access::Scalar)?;
     side.scan_info.add_field(attno, resolved.field);
     Some(())
 }
@@ -1891,7 +1891,7 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let context = side.to_source_context();
-    if let Some(resolved) = context.resolve(ColumnRef::Field(field_name), Access::Any) {
+    if let Some(resolved) = context.resolve(ResTarget::Field(field_name), Access::Any) {
         side.scan_info.add_field(attno, resolved.field);
     }
 }
@@ -1906,7 +1906,7 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
 unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
     let context = source.to_source_context();
     let resolved = context
-        .resolve(ColumnRef::Field(field_name), Access::Any)
+        .resolve(ResTarget::Field(field_name), Access::Any)
         .ok_or(format!("Failed to resolve field {field_name}"))?;
 
     // TODO: Why is this done, and can we make it guaranteed to not collide with system cols?
@@ -2090,13 +2090,14 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 for source in &sources {
                     if source.heap_rti == varno {
                         if source
-                            .resolve(ColumnRef::Attno(varattno), Access::Scalar)
+                            .resolve(ResTarget::Attno(varattno), Access::Scalar)
                             .is_some()
                         {
                             is_fast = true;
                             break;
                         }
-                        let col_name = fieldname_from_var(source.heaprel.oid(), var, varattno)
+                        let col_name = source
+                            .get_attname(varattno)
                             .map(|f| f.to_string())
                             .unwrap_or_else(|| format!("attno {varattno}"));
                         candidate_decline = Some(JoinDeclineReason::new(format!(
@@ -2112,7 +2113,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 let mut found = false;
                 for source in &sources {
                     if source
-                        .resolve(ColumnRef::Expr(expr), Access::Scalar)
+                        .resolve(ResTarget::Expr(expr), Access::Scalar)
                         .is_some()
                     {
                         found = true;
@@ -2301,7 +2302,7 @@ pub fn resolve_fast_field_from_join_sources(
             return None;
         }
         source
-            .resolve(ColumnRef::Attno(varattno), Access::Scalar)
+            .resolve(ResTarget::Attno(varattno), Access::Scalar)
             .map(|r| r.field)
     })
 }
@@ -2414,7 +2415,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 3: Check if expression matches an indexed expression (existing behavior)
     let matched_source = sources.iter().find_map(|source| {
-        let search_field = source.resolve(ColumnRef::Expr(expr), Access::Scalar)?.field;
+        let search_field = source.resolve(ResTarget::Expr(expr), Access::Scalar)?.field;
         Some((source.heap_rti, search_field.name().to_string()))
     });
     if let Some((rti, field_name)) = matched_source {
@@ -2504,7 +2505,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         match source {
             Some(source) => {
                 if source
-                    .resolve(ColumnRef::Attno(varattno), Access::Scalar)
+                    .resolve(ResTarget::Attno(varattno), Access::Scalar)
                     .is_none()
                 {
                     let col = column_name_for_var(&plan.sources(), varno, varattno);
@@ -2886,8 +2887,7 @@ impl JoinSortExprKind {
 
             for source in sources {
                 if source.heap_rti == varno {
-                    let name = fieldname_from_var(source.heaprel.oid(), var, varattno)
-                        .map(|f| f.to_string());
+                    let name = source.get_attname(varattno).map(|f| f.to_string());
                     return Self::Resolved(OrderByInfo {
                         feature: OrderByFeature::Var {
                             rti: varno,
@@ -2921,7 +2921,7 @@ impl JoinSortExprKind {
                 continue;
             }
             if let Some(resolved) = source.resolve(
-                ColumnRef::Expr(check_expr as *mut pg_sys::Node),
+                ResTarget::Expr(check_expr as *mut pg_sys::Node),
                 Access::Scalar,
             ) {
                 return Self::Resolved(OrderByInfo {

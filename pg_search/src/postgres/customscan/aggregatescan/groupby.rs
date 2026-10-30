@@ -20,17 +20,16 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
+use crate::postgres::customscan::pullup::{Access, SourceContext};
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
-use crate::schema::SearchFieldType;
+use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 use pgrx::pg_sys;
 use pgrx::{PgList, pg_guard};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupingColumn {
     pub field_name: String,
-    pub attno: pg_sys::AttrNumber,
     pub original_type_oid: pg_sys::Oid,
     /// True when the NULL bucket of this column is keyed by a string sentinel (text, bool and
     /// JSON fields), as opposed to a number such as `i64::MAX`.
@@ -77,7 +76,6 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
     fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let mut grouping_columns = Vec::new();
         let schema = context.schema().expect("could not get index schema");
-        let categorized_fields = schema.categorized_fields();
 
         // Use PostgreSQL's processed pathkeys, not `parse.groupClause`: redundant
         // GROUP BY columns may be removed, and AggregateScan eligibility validates
@@ -97,99 +95,59 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                 let member = unsafe { &*member };
                 let (expr, is_unnest) =
                     strip_unnest_and_relabel(member.em_expr as *mut pg_sys::Node);
+                let access = if is_unnest {
+                    Access::List
+                } else {
+                    Access::Scalar
+                };
 
                 let var_context = VarContext::from_planner(args.root);
 
-                let (field_name, attno) = if let Some((var, field_name)) =
-                    unsafe { find_one_var_and_fieldname(var_context, expr) }
-                {
-                    // JSON operator expression or complex field access
-                    let (heaprelid, attno, _) = unsafe { find_var_relation(var, args.root) };
-                    if heaprelid == pg_sys::InvalidOid {
-                        last_error =
-                            Some("find_var_relation returned InvalidOid for var".to_string());
-                        continue;
-                    }
-                    (field_name.to_string(), attno)
-                } else if let Some(resolved) =
-                    context.resolve(ColumnRef::Expr(expr), Access::Scalar)
-                {
-                    (resolved.field.name(), 0) // Complex expressions don't have a single attno
-                } else {
-                    last_error =
-                        Some("could not resolve grouping column from expression".to_string());
+                let (resolved, field_name) = unsafe {
+                    find_one_resolved_var_and_fieldname(var_context, context, expr, access)
+                };
+                let Some(resolved) = resolved else {
+                    last_error = Some(match field_name {
+                        Some(name) => unresolved_reason(&schema, &name, is_unnest)?,
+                        None => "could not resolve grouping column from expression".to_string(),
+                    });
                     continue;
                 };
 
-                // Check if this field exists in the index schema as a fast field
-                if let Some(search_field) = schema.search_field(&field_name) {
-                    // Reject NUMERIC fields - GROUP BY pushdown not supported
-                    // (NUMERIC values are stored scaled and would need descaling)
-                    if search_field.field_type().is_numeric() {
-                        return Err(format!(
-                            "grouping field {} is numeric, which is not supported",
-                            field_name
-                        )
-                        .into());
-                    }
-                    if search_field.is_fast() {
-                        let is_array = categorized_fields
-                            .iter()
-                            .find(|(sf, _)| sf.field_name().as_ref() == field_name)
-                            .map(|(_, data)| data.is_array)
-                            .unwrap_or(false);
-
-                        if is_array && !is_unnest {
-                            return Err(format!(
-                                    "grouping field {} is an array, which requires UNNEST() to be used in GROUP BY",
-                                    field_name
-                                )
-                                .into());
-                        } else if !is_array && is_unnest {
-                            unreachable!(
-                                "Postgres should not allow UNNEST() on a non-array column: {}",
-                                field_name
-                            );
-                        }
-
-                        // Because AggregateScan bypasses Postgres's ExecProject for grouping columns
-                        // and maps them directly to INDEX_VARs pointing at the final scan slot,
-                        // Postgres expects the slot to contain the Datum of the *cast* type (e.g. TEXTOID),
-                        // not the base column type.
-                        // This approach is only valid for known-safe casts (handled in `group_key_to_datum`),
-                        // where the grouping and comparison semantics of the internal fast field value
-                        // are strictly equivalent to the semantics of the projected value. If they were
-                        // different, we would need to evaluate grouping expressions natively via ExecProject.
-                        let original_type_oid = search_field.field_type().typeoid().value();
-                        let string_null_sentinel = matches!(
-                            search_field.field_type(),
-                            SearchFieldType::Text(_)
-                                | SearchFieldType::Tokenized(..)
-                                | SearchFieldType::Bool(_)
-                                | SearchFieldType::Json(_)
-                        );
-                        grouping_columns.push(GroupingColumn {
-                            field_name,
-                            attno,
-                            original_type_oid,
-                            string_null_sentinel,
-                        });
-                        found_valid_column = true;
-                        break; // Found a valid grouping column for this pathkey
-                    } else {
-                        last_error = Some(format!(
-                            "grouping column {} exists, but is not columnar",
-                            field_name
-                        ));
-                        // wait to return error until we check all members
-                    }
-                } else {
-                    last_error = Some(format!(
-                        "grouping column {} is missing from index",
-                        field_name
-                    ));
-                    // wait to return error
+                let field_type = resolved
+                    .field
+                    .field_type()
+                    .expect("All returned fast fields at this point should have a field type");
+                if !resolved.field.is_array() && is_unnest {
+                    unreachable!(
+                        "Postgres should not allow UNNEST() on a non-array column: {}",
+                        resolved.field.name()
+                    );
                 }
+
+                // Because AggregateScan bypasses Postgres's ExecProject for grouping columns
+                // and maps them directly to INDEX_VARs pointing at the final scan slot,
+                // Postgres expects the slot to contain the Datum of the *cast* type (e.g. TEXTOID),
+                // not the base column type.
+                // This approach is only valid for known-safe casts (handled in `group_key_to_datum`),
+                // where the grouping and comparison semantics of the internal fast field value
+                // are strictly equivalent to the semantics of the projected value. If they were
+                // different, we would need to evaluate grouping expressions natively via ExecProject.
+                let original_type_oid = field_type.typeoid().value();
+                let string_null_sentinel = matches!(
+                    field_type,
+                    SearchFieldType::Text(_)
+                        | SearchFieldType::Tokenized(..)
+                        | SearchFieldType::Bool(_)
+                        | SearchFieldType::Json(_)
+                );
+                grouping_columns.push(GroupingColumn {
+                    field_name: resolved.field.name(),
+                    original_type_oid,
+                    string_null_sentinel,
+                });
+                found_valid_column = true;
+                break; // Found a valid grouping column for this pathkey
             }
 
             if !found_valid_column {
@@ -213,6 +171,33 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 
         Ok(Self { grouping_columns })
     }
+}
+
+/// Why `name` did not resolve as a grouping column. `Err` declines outright,
+/// `Ok` is a reason to keep trying the other equivalence members.
+fn unresolved_reason(
+    schema: &SearchIndexSchema,
+    name: &str,
+    is_unnest: bool,
+) -> Result<String, CustomScanBuildError> {
+    let Some((search_field, data)) = schema.search_field_with_data(name) else {
+        return Ok(format!("grouping column {name} is missing from index"));
+    };
+    if search_field.field_type().is_numeric() {
+        return Err(format!("grouping field {name} is numeric, which is not supported").into());
+    }
+    if !search_field.is_fast() {
+        return Ok(format!(
+            "grouping column {name} exists, but is not columnar"
+        ));
+    }
+    if data.is_array && !is_unnest {
+        return Err(format!(
+            "grouping field {name} is an array, which requires UNNEST() to be used in GROUP BY"
+        )
+        .into());
+    }
+    Ok(format!("could not resolve grouping column {name}"))
 }
 
 /// Returns true if the grouped output has a column that PostgreSQL does not

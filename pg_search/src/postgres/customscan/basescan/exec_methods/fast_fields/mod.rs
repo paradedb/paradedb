@@ -31,11 +31,9 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
-
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 
 use pgrx::{PgList, pg_sys};
 
@@ -105,10 +103,7 @@ pub unsafe fn pullup_fast_fields(
                     }
                     continue;
                 }
-                find_one_var_and_fieldname(
-                    VarContext::from_exec(context.heaprel.oid()),
-                    (*te).expr.cast(),
-                )
+                Some(var)
             } else {
                 None
             }
@@ -116,10 +111,10 @@ pub unsafe fn pullup_fast_fields(
             None
         };
 
-        if let Some((var, _fieldname)) = maybe_var {
+        if let Some(var) = maybe_var {
             let start_len = matches.len();
             if let Some(resolved) =
-                context.resolve(ColumnRef::Attno((*var).varattno), Access::Scalar)
+                context.resolve(ResTarget::Attno((*var).varattno), Access::Scalar)
             {
                 matches.push(resolved.field);
             }
@@ -132,7 +127,7 @@ pub unsafe fn pullup_fast_fields(
 
         // Try to match complex expression (or Var with source mismatch) against index expressions
         if let Some(resolved) = context.resolve(
-            ColumnRef::Expr((*te).expr as *mut pg_sys::Node),
+            ResTarget::Expr((*te).expr as *mut pg_sys::Node),
             Access::Scalar,
         ) {
             matches.push(resolved.field);
@@ -197,7 +192,7 @@ pub unsafe fn pullup_fast_fields(
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
         let start_len = matches.len();
-        if let Some(resolved) = context.resolve(ColumnRef::Attno(attno), Access::Scalar) {
+        if let Some(resolved) = context.resolve(ResTarget::Attno(attno), Access::Scalar) {
             matches.push(resolved.field);
         }
         // If not added (e.g. because of source mismatch), try expression matching for this column.
@@ -217,7 +212,7 @@ pub unsafe fn pullup_fast_fields(
                 );
 
                 if let Some(resolved) = context.resolve(
-                    ColumnRef::Expr(dummy_var as *mut pg_sys::Node),
+                    ResTarget::Expr(dummy_var as *mut pg_sys::Node),
                     Access::Scalar,
                 ) {
                     matches.push(resolved.field);

@@ -35,13 +35,13 @@ use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
-    VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,
+    VarContext, fieldname_from_var, find_one_fieldname, find_one_var, strip_identity_wrappers,
 };
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
 use pgrx::{FromDatum, PgList, pg_sys};
 
-use super::pullup::{Access, ColumnRef, SourceContext};
+use super::pullup::{Access, ResTarget, SourceContext};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -231,7 +231,7 @@ pub unsafe fn analyze_sort_expression(
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
     if let Some(source_context) = source
-        && let Some(resolved) = source_context.resolve(ColumnRef::Expr(node), Access::Scalar)
+        && let Some(resolved) = source_context.resolve(ResTarget::Expr(node), Access::Scalar)
     {
         let field_name = FieldName::from(resolved.field.name());
         if let Some(var) = extract_any_var_from_expr(node) {
@@ -240,22 +240,16 @@ pub unsafe fn analyze_sort_expression(
     }
 
     if let Some(source_context) = source
-        && let Some((var, vector_sort)) = extract_vector_distance(
-            node,
-            context,
-            &source_context
-                .schema()
-                .expect("shouuld always have a valid schema"),
-        )
+        && let Some((var, vector_sort)) = extract_vector_distance(node, context, source_context)
     {
-        let (relid, attno) = context.var_relation(var);
-        let field_name = fieldname_from_var(relid, var, attno);
+        let field_name = source_context.get_attname((*var).varattno);
         return Some((vector_sort, var, field_name));
     }
 
     if let Some(var) = extract_lower_var(node) {
         let (relid, attno) = context.var_relation(var);
-        let field_name = fieldname_from_var(relid, var, attno);
+        let heaprel = PgSearchRelation::open(relid);
+        let field_name = fieldname_from_var(&heaprel, attno);
         return Some((SortExpressionType::Lower, var, field_name));
     }
 
@@ -265,8 +259,12 @@ pub unsafe fn analyze_sort_expression(
         return None;
     }
 
-    if let Some((var, field_name)) = find_one_var_and_fieldname(context, node) {
-        return Some((SortExpressionType::Raw, var, Some(field_name)));
+    if let Some(var) = find_one_var(context, node) {
+        return Some((
+            SortExpressionType::Raw,
+            var,
+            find_one_fieldname(context, node),
+        ));
     }
 
     None
@@ -281,17 +279,17 @@ pub unsafe fn analyze_sort_expression(
 fn resolve_vector_expr(
     node: *mut pg_sys::Node,
     context: VarContext,
-    schema: &SearchIndexSchema,
+    source: &SourceContext,
 ) -> Option<(*mut pg_sys::Var, VectorMetric)> {
     if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
         return None;
     }
     let var = node as *mut pg_sys::Var;
     let (relid, attno) = context.var_relation(var);
-    let field_name = unsafe { fieldname_from_var(relid, var, attno) }?;
-    let field_type = schema.get_field_type(field_name.root())?;
-    if let SearchFieldType::Vector(_, _, metric) = field_type {
-        return Some((var, metric));
+    assert_eq!(relid, source.heaprel.oid());
+    let resolved = source.resolve(ResTarget::Attno(attno), Access::Any)?;
+    if let Some(SearchFieldType::Vector(_, _, metric)) = resolved.field.field_type() {
+        return Some((var, *metric));
     }
     None
 }
@@ -307,7 +305,7 @@ fn resolve_vector_expr(
 unsafe fn extract_vector_distance(
     node: *mut pg_sys::Node,
     context: VarContext,
-    schema: &SearchIndexSchema,
+    source: &SourceContext,
 ) -> Option<(*mut pg_sys::Var, SortExpressionType)> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let op_metric = VectorMetric::from_opoid((*opexpr).opno)?;
@@ -325,9 +323,9 @@ unsafe fn extract_vector_distance(
     // attribute's opclass (pgvector convention), not via a cast on the
     // column, so there's no wrapper expression to unwrap here.
     let (var_node, field_metric, value_node) =
-        if let Some((var, metric)) = resolve_vector_expr(left, context, schema) {
+        if let Some((var, metric)) = resolve_vector_expr(left, context, source) {
             (var, metric, right)
-        } else if let Some((var, metric)) = resolve_vector_expr(right, context, schema) {
+        } else if let Some((var, metric)) = resolve_vector_expr(right, context, source) {
             (var, metric, left)
         } else {
             return None;
@@ -670,7 +668,6 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
     let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
 
     // We need to identify the single relation that this Top K query targets
-    // Tuple: (varno, relid, schema, index_expressions)
     let mut target_relation_context: Option<SourceContext> = None;
 
     for (position, sort_clause) in sort_list.iter_ptr().enumerate() {

@@ -24,8 +24,7 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::orderby::{
     PathKeyInfo, extract_pathkey_styles_with_sortability_check,
 };
-use crate::postgres::customscan::pullup::{Access, ColumnRef, SourceContext};
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use pgrx::PgList;
 use pgrx::pg_sys;
 
@@ -84,14 +83,9 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                 .iter_ptr()
                 .filter_map(|sort_clause| {
                     let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
-                    let var_context = VarContext::from_planner(args.root);
-                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
-                        Some(field_name.into_inner())
-                    } else {
-                        context
-                            .resolve(ColumnRef::Expr(expr), Access::Scalar)
-                            .map(|r| r.field.name())
-                    }
+                    context
+                        .resolve(ResTarget::Expr(expr), Access::Scalar)
+                        .map(|r| r.field.name())
                 })
                 .collect::<HashSet<String>>()
         };

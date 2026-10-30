@@ -20,8 +20,8 @@
 //! This module provides shared logic for determining if and how a PostgreSQL
 //! column can be resolved using Tantivy fast fields.
 
-use crate::api::FieldName;
 use crate::api::operator::row_expr_from_indexed_expr;
+use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::postgres::composite::get_composite_type_fields;
 #[cfg(not(feature = "pg15"))]
@@ -32,7 +32,7 @@ use crate::schema::{FieldSource, SearchField, SearchFieldType, SearchIndexSchema
 use pgrx::{PgList, PgTupleDesc, pg_sys};
 
 /// what the caller wants from a single source
-pub enum ColumnRef<'a> {
+pub enum ResTarget<'a> {
     /// A heap column by attno
     Attno(pg_sys::AttrNumber),
     /// A Tantivy field by name: an alias, a JSON sub-field, an array, a pdb.agg field.
@@ -114,11 +114,11 @@ impl SourceContext {
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source
-    pub fn resolve(&self, col: ColumnRef, access: Access) -> Option<ResolvedField> {
+    pub fn resolve(&self, col: ResTarget, access: Access) -> Option<ResolvedField> {
         //TODO:  This will swtich on columnref and just call resovlers. (once that works,
         //consolidate their code here
         match col {
-            ColumnRef::Attno(attno) => {
+            ResTarget::Attno(attno) => {
                 let resolved = unsafe { resolve_fast_field(attno, self, access)? };
                 if !field_type_supported_for_pullup(
                     resolved.field.field_type(),
@@ -128,7 +128,7 @@ impl SourceContext {
                 }
                 Some(resolved)
             }
-            ColumnRef::Field(name) => {
+            ResTarget::Field(name) => {
                 let resolved = resolve_fast_field_by_name(name, self.indexrel()?)?;
                 let is_subfield = FieldName::from(name).root() != name;
                 if !is_subfield
@@ -141,7 +141,7 @@ impl SourceContext {
                 }
                 Some(resolved)
             }
-            ColumnRef::Expr(node) => {
+            ResTarget::Expr(node) => {
                 let (ff, is_json) = find_matching_fast_field(node, self)?;
                 if !field_type_supported_for_pullup(
                     ff.field_type(),
@@ -149,14 +149,15 @@ impl SourceContext {
                 ) {
                     return None;
                 }
+                // TODO: Should be able to find an attno sometimes
                 Some(ResolvedField::new(None, ff, is_json))
             }
-            ColumnRef::Ctid => Some(ResolvedField::new(
+            ResTarget::Ctid => Some(ResolvedField::new(
                 Some(pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber),
                 WhichFastField::Ctid,
                 false,
             )),
-            ColumnRef::Score => Some(ResolvedField::new(None, WhichFastField::score(), false)),
+            ResTarget::Score => Some(ResolvedField::new(None, WhichFastField::score(), false)),
         }
     }
 
@@ -170,19 +171,24 @@ impl SourceContext {
         None
     }
 
+    pub fn get_attname(&self, attno: pg_sys::AttrNumber) -> Option<FieldName> {
+        if attno == 0 {
+            return None;
+        }
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            Some(CTID_FIELD_NAME.into())
+        } else {
+            self.tupdesc()
+                .get(attno as usize - 1)
+                .map(|attribute| attribute.name().into())
+        }
+    }
+
     /// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
     pub fn get_attname_safe(&self, attno: pg_sys::AttrNumber, rel_name: &str) -> String {
-        unsafe {
-            let attname_ptr = pg_sys::get_attname(self.heaprel.oid(), attno, true); // missing_ok = true
-            if attname_ptr.is_null() {
-                format!("{}.{}", rel_name, attno)
-            } else {
-                let attname = std::ffi::CStr::from_ptr(attname_ptr)
-                    .to_str()
-                    .unwrap_or("?");
-                format!("{}.{}", rel_name, attname)
-            }
-        }
+        self.get_attname(attno)
+            .map(|f| format!("{rel_name}.{f}"))
+            .unwrap_or(format!("{}.{}", rel_name, attno))
     }
 }
 
@@ -383,7 +389,7 @@ unsafe fn resolve_fast_field(
                 att.attcollation,
                 0,
             );
-            context.resolve(ColumnRef::Expr(dummy_var as *mut pg_sys::Node), access)
+            context.resolve(ResTarget::Expr(dummy_var as *mut pg_sys::Node), access)
         }
     }
 }

@@ -60,6 +60,35 @@ jobs:
       - name: Run the Stressgres Docker Image
         run: docker run -d --name stressgres paradedb/stressgres:${{ github.sha }}
 
+      - name: Check Runtime Dependencies and Commands
+        env:
+          IMAGE: paradedb/stressgres:${{ github.sha }}
+        run: |
+          docker run --rm "$IMAGE" bash -euo pipefail -c '
+            /symbols/stressgres --help
+            /symbols/stressgres headless --help
+            /symbols/stressgres csv --help
+            psql --version
+            flock --version
+            if /symbols/stressgres graph --help; then
+              echo "Graph generation should be disabled in the runtime image" >&2
+              exit 1
+            fi
+            for binary in /symbols/stressgres /usr/local/bin/psql; do
+              libraries=$(ldd "$binary")
+              printf "%s\n" "$libraries"
+              if grep -q "not found" <<< "$libraries"; then
+                exit 1
+              fi
+            done
+            for package in libfontconfig1 libexpat1; do
+              if dpkg-query -W -f="\${Status}" "$package" 2>/dev/null | grep -q "install ok installed"; then
+                echo "Unexpected graphics dependency: $package" >&2
+                exit 1
+              fi
+            done
+          '
+
       - name: Check that the Stressgres Docker Image Runs Properly
         run: |
           CONTAINER_ID=$(docker ps -aq --filter "name=stressgres")

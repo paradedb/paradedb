@@ -9,6 +9,8 @@ license = { workspace = true }
 workspace = true
 
 [features]
+default = ["graph"]
+graph = ["dep:image", "dep:plotters"]
 dst = ["dst/enabled"]
 
 [dependencies]
@@ -22,12 +24,12 @@ cursive_table_view = "0.15.0"
 dst = { path = "../dst" }
 human_bytes = "0.4.3"
 humantime = "2.3.0"
-image = "0.25.9"
+image = { version = "0.25.9", optional = true }
 libc = "0.2.190"
 openssl = "0.10.78"
 parking_lot = "0.12.5"
 pgrx-pg-config = "=0.19.3"
-plotters = "0.3.7"
+plotters = { version = "0.3.7", optional = true }
 postgres = "0.19.13"
 postgres-openssl = "0.5.3"
 rust_decimal = { version = "1.43.0", features = ["db-postgres"] }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793402479734,
+  "lastUpdate": 1793404766693,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21104,6 +21104,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13017258671-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42704c3c907735cd47b21da98060457a93a6b73b",
+          "message": "ci: Use an unlinked author for benchmark commits (#7131)\n\n## What\n\nUse `ParadeDB Benchmarks <benchmarks@paradedb.invalid>` for benchmark\npublication and the monthly gh-pages squash. The reserved `.invalid`\ndomain keeps generated commits from linking to a GitHub account.\n\n## Why\n\nThe gh-pages publisher currently authors every benchmark result as\ngithub-actions[bot]. Using an unlinked automation identity stops new\nbenchmark commits from adding to that account's contribution\nattribution.\n\nThis changes future commits. Existing commits are unchanged until the\nscheduled gh-pages compaction replaces that branch's history. GitHub's\nsidebar is cached, and its removal of existing attribution still needs\nverification after that refresh. The contributors API for main currently\ndoes not list github-actions[bot], so the sidebar and default-branch\ncontributors data differ.\n\n## Validation\n\nBoth workflow files parse as YAML and git diff --check passes. No\nbenchmark publication or history compaction was run.",
+          "timestamp": "2026-10-30T15:47:05-07:00",
+          "tree_id": "80ab731b26bdd71a35f5a9e3cf127875fcf1b344",
+          "url": "https://github.com/paradedb/paradedb/commit/42704c3c907735cd47b21da98060457a93a6b73b"
+        },
+        "date": 1793404765018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.946,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.605,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 324.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.124,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 104.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 187.396,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.041,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 146.522,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 208.22,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.407,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.927,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 193.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.128,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 80.067,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 181.198,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13021925101-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -44929,6 +45029,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13017258671-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42704c3c907735cd47b21da98060457a93a6b73b",
+          "message": "ci: Use an unlinked author for benchmark commits (#7131)\n\n## What\n\nUse `ParadeDB Benchmarks <benchmarks@paradedb.invalid>` for benchmark\npublication and the monthly gh-pages squash. The reserved `.invalid`\ndomain keeps generated commits from linking to a GitHub account.\n\n## Why\n\nThe gh-pages publisher currently authors every benchmark result as\ngithub-actions[bot]. Using an unlinked automation identity stops new\nbenchmark commits from adding to that account's contribution\nattribution.\n\nThis changes future commits. Existing commits are unchanged until the\nscheduled gh-pages compaction replaces that branch's history. GitHub's\nsidebar is cached, and its removal of existing attribution still needs\nverification after that refresh. The contributors API for main currently\ndoes not list github-actions[bot], so the sidebar and default-branch\ncontributors data differ.\n\n## Validation\n\nBoth workflow files parse as YAML and git diff --check passes. No\nbenchmark publication or history compaction was run.",
+          "timestamp": "2026-10-30T15:47:05-07:00",
+          "tree_id": "80ab731b26bdd71a35f5a9e3cf127875fcf1b344",
+          "url": "https://github.com/paradedb/paradedb/commit/42704c3c907735cd47b21da98060457a93a6b73b"
+        },
+        "date": 1793404766681,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.019667641047157,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.889217691522326,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.920955921093007,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.107545076277766,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.87996975649324,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13021925101-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

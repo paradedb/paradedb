@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793350592499,
+  "lastUpdate": 1793350621271,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -479262,6 +479262,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12882461345-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350617445,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.57669651949611,
+            "unit": "median tps",
+            "extra": "avg tps: 57.64685744658276, max tps: 533.2899391488767, count: 58752"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.163929531659623,
+            "unit": "median tps",
+            "extra": "avg tps: 31.6306564014077, max tps: 351.83448440700215, count: 58752"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.98437877170319,
+            "unit": "median tps",
+            "extra": "avg tps: 133.91014959088938, max tps: 1187.9765206254417, count: 58752"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.346762712784347,
+            "unit": "median tps",
+            "extra": "avg tps: 30.748200710034638, max tps: 259.18664456460414, count: 58752"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.473305179783566,
+            "unit": "median tps",
+            "extra": "avg tps: 59.461528347939804, max tps: 544.2116375365463, count: 58752"
+          }
+        ],
+        "publication_id": "12962518901-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -491588,6 +491641,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12882461345-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350621178,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 26.5859375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 25.873397926879086, max partition_index_size:MB: 34.4296875, count: 58752"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.099100275943943, max cpu: 33.0546, count: 58752"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.79077786713644, max mem: 57.17578125, count: 58752"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.830057341544748, max cpu: 33.48281, count: 58752"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.351183855975115, max mem: 64.09765625, count: 58752"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.504951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.896177935211004, max cpu: 23.83317, count: 58752"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 41.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.64623398458776, max mem: 43.6875, count: 58752"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.820422018313693, max cpu: 33.48281, count: 58752"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.937951380910434, max mem: 63.86328125, count: 58752"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.083249652629, max cpu: 33.07087, count: 58752"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.38198679672607, max mem: 62.9296875, count: 58752"
+          }
+        ],
+        "publication_id": "12962518901-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

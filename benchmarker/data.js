@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793321304962,
+  "lastUpdate": 1793323620368,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20304,6 +20304,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12943130667-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6610b0666e8afdf35ece62e4dfd8e726a3675c33",
+          "message": "fix: enforce permissions on standalone index reads (#7023)\n\n## What\n\nRequire backing-table permission checks for SQL functions that read\nParadeDB indexes directly, including `paradedb.aggregate()`,\ndiagnostics, and index inventory statistics.\n\n## Why\n\nThese functions read index storage outside PostgreSQL's normal scan\npermission and row-policy checks. MVCC visibility alone does not\nauthorize access. This originated from an emailed report that a role\nwithout table SELECT could read indexed data through standalone\nfunctions.\n\nMonitoring needs a separate, explicit policy: the Cloud exporter uses a\nrole inheriting `pg_monitor` without table SELECT or BYPASSRLS.\n\n## How\n\nA shared guard resolves the backing table, locks it before the requested\nindex, rechecks their association, and retains both relation handles\nwhile producing the result. Rust arguments use `IndexOid` to avoid pgrx\nlocking the index during argument decoding; SQL signatures remain\n`regclass`.\n\n- Content reads and strict diagnostics require schema USAGE, table-level\nSELECT, and no effective RLS. Column grants do not authorize a\nwhole-index read. Effective RLS produces an error naming the table.\n- The metadata APIs listed in the breaking changelog also accept\ninherited `pg_stat_scan_tables` privileges, which `pg_monitor` includes:\nschema/field metadata, layer sizes, creation details, merge/vacuum/FSM\nstatus, segment counts, and `pdb.indexes()` statistics. These trusted\nroles can see whole-index counts under RLS. This exception does not\nauthorize document reads, verification, vector diagnostics, or\nmaintenance.\n- Inventory omits entries denied by its policy. Bulk verification\nfilters inaccessible entries and rechecks access when verifying.\n- `merge_lock_garbage_collect()` requires table MAINTAIN on PostgreSQL\n17+, including privileges inherited from `pg_maintain`. PostgreSQL 15\nand 16 require table ownership.\n- Checks use the effective caller, preserving SET ROLE and SECURITY\nDEFINER. FORCE RLS constrains an owner's ordinary bypass; superusers and\nexplicit BYPASSRLS roles still bypass RLS. Numeric OIDs follow the same\npolicy as relation names.\n\nFor filtered results under RLS, use an ordinary SQL scan that applies\nthe policy or an explicit filter. A SECURITY DEFINER wrapper around\n`paradedb.aggregate()` itself does not add row filtering. The breaking\nchangelog and SQL-function reference document the policies.\n\nNormal SQL search planning and helper volatility are outside this PR.\nThe pre-existing partitioned-parent verification lock-order problem is\ntracked in #7068 and fixed separately by #7069. This PR covers\nacquisition of the requested table/index pair, not every leaf traversal.\n\n## Tests\n\n- Four Rust `index_permissions` tests cover standalone ACL/RLS\npermutations and numeric-OID schema checks, partitioned grants and\ndocument counts, non-superuser definer/invoker wrappers, and maintenance\nprivileges. The existing integration jobs run them on PostgreSQL 15\u201318.\n- `permission_access` and `permission_monitoring` SQL regressions cover\nthe wider API matrix, RLS, monitoring inheritance and revocation,\ninventory filtering, trusted monitoring without schema USAGE, and\nfunction EXECUTE. Local native runs passed on PostgreSQL 15\u201318; the\nexisting PR workflow runs SQL regressions on pgrx PG18.\n- Three `index_access_locks` cases cover the requested table/index lock\norder, including FSM argument decoding and concurrent DROP. Local\nPG17/18 runs passed; a deliberately reversed-order control failed all\nthree cases.\n- Recorded Cloud configuration probes passed on PG17/18 (42 queries per\nversion), alongside four native pgstattuple comparison checks per\nversion. This validates the pinned SQL and privilege policy, not a live\ndeployed HTTP scrape.\n\nAdditional validation includes vector regressions, formatting, workspace\nClippy, Rustdoc, dependency/TOML checks, and changelog lint.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-10-30T05:44:37+05:30",
+          "tree_id": "f1ad6e75a8b5a1625f51858a2b38b1409d6bd459",
+          "url": "https://github.com/paradedb/paradedb/commit/6610b0666e8afdf35ece62e4dfd8e726a3675c33"
+        },
+        "date": 1793323619655,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 98.049,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 335.123,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.826,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 184.896,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.428,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 150.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.12,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.967,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.842,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 192.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.344,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 83.201,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 186.861,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12946543542-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -42529,6 +42629,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12943130667-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6610b0666e8afdf35ece62e4dfd8e726a3675c33",
+          "message": "fix: enforce permissions on standalone index reads (#7023)\n\n## What\n\nRequire backing-table permission checks for SQL functions that read\nParadeDB indexes directly, including `paradedb.aggregate()`,\ndiagnostics, and index inventory statistics.\n\n## Why\n\nThese functions read index storage outside PostgreSQL's normal scan\npermission and row-policy checks. MVCC visibility alone does not\nauthorize access. This originated from an emailed report that a role\nwithout table SELECT could read indexed data through standalone\nfunctions.\n\nMonitoring needs a separate, explicit policy: the Cloud exporter uses a\nrole inheriting `pg_monitor` without table SELECT or BYPASSRLS.\n\n## How\n\nA shared guard resolves the backing table, locks it before the requested\nindex, rechecks their association, and retains both relation handles\nwhile producing the result. Rust arguments use `IndexOid` to avoid pgrx\nlocking the index during argument decoding; SQL signatures remain\n`regclass`.\n\n- Content reads and strict diagnostics require schema USAGE, table-level\nSELECT, and no effective RLS. Column grants do not authorize a\nwhole-index read. Effective RLS produces an error naming the table.\n- The metadata APIs listed in the breaking changelog also accept\ninherited `pg_stat_scan_tables` privileges, which `pg_monitor` includes:\nschema/field metadata, layer sizes, creation details, merge/vacuum/FSM\nstatus, segment counts, and `pdb.indexes()` statistics. These trusted\nroles can see whole-index counts under RLS. This exception does not\nauthorize document reads, verification, vector diagnostics, or\nmaintenance.\n- Inventory omits entries denied by its policy. Bulk verification\nfilters inaccessible entries and rechecks access when verifying.\n- `merge_lock_garbage_collect()` requires table MAINTAIN on PostgreSQL\n17+, including privileges inherited from `pg_maintain`. PostgreSQL 15\nand 16 require table ownership.\n- Checks use the effective caller, preserving SET ROLE and SECURITY\nDEFINER. FORCE RLS constrains an owner's ordinary bypass; superusers and\nexplicit BYPASSRLS roles still bypass RLS. Numeric OIDs follow the same\npolicy as relation names.\n\nFor filtered results under RLS, use an ordinary SQL scan that applies\nthe policy or an explicit filter. A SECURITY DEFINER wrapper around\n`paradedb.aggregate()` itself does not add row filtering. The breaking\nchangelog and SQL-function reference document the policies.\n\nNormal SQL search planning and helper volatility are outside this PR.\nThe pre-existing partitioned-parent verification lock-order problem is\ntracked in #7068 and fixed separately by #7069. This PR covers\nacquisition of the requested table/index pair, not every leaf traversal.\n\n## Tests\n\n- Four Rust `index_permissions` tests cover standalone ACL/RLS\npermutations and numeric-OID schema checks, partitioned grants and\ndocument counts, non-superuser definer/invoker wrappers, and maintenance\nprivileges. The existing integration jobs run them on PostgreSQL 15\u201318.\n- `permission_access` and `permission_monitoring` SQL regressions cover\nthe wider API matrix, RLS, monitoring inheritance and revocation,\ninventory filtering, trusted monitoring without schema USAGE, and\nfunction EXECUTE. Local native runs passed on PostgreSQL 15\u201318; the\nexisting PR workflow runs SQL regressions on pgrx PG18.\n- Three `index_access_locks` cases cover the requested table/index lock\norder, including FSM argument decoding and concurrent DROP. Local\nPG17/18 runs passed; a deliberately reversed-order control failed all\nthree cases.\n- Recorded Cloud configuration probes passed on PG17/18 (42 queries per\nversion), alongside four native pgstattuple comparison checks per\nversion. This validates the pinned SQL and privilege policy, not a live\ndeployed HTTP scrape.\n\nAdditional validation includes vector regressions, formatting, workspace\nClippy, Rustdoc, dependency/TOML checks, and changelog lint.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-10-30T05:44:37+05:30",
+          "tree_id": "f1ad6e75a8b5a1625f51858a2b38b1409d6bd459",
+          "url": "https://github.com/paradedb/paradedb/commit/6610b0666e8afdf35ece62e4dfd8e726a3675c33"
+        },
+        "date": 1793323620361,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.660150357550464,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.991055934306026,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.470521656586214,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.60662387202353,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.17376656655284,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12946543542-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

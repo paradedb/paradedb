@@ -37,7 +37,7 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::build::{
-    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey, GroupedKey,
 };
 use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
@@ -932,13 +932,22 @@ fn set_missing_on_terms(
 ) {
     use crate::schema::SearchFieldType;
 
-    for Aggregation {
-        agg,
-        sub_aggregation,
-    } in aggs.values_mut()
+    for (
+        name,
+        Aggregation {
+            agg,
+            sub_aggregation,
+        },
+    ) in aggs.iter_mut()
     {
+        // A GROUP BY on an array field is an `unnest()`, which yields no row
+        // for an empty or NULL array, so it has no NULL group.
         if let AggregationVariants::Terms(terms) = agg
             && terms.missing.is_none()
+            && !(name == GroupedKey::NAME
+                && schema.categorized_fields().iter().any(|(field, data)| {
+                    data.is_array && field.field_name().as_ref() == terms.field
+                }))
         {
             // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
             let use_min = use_min_sentinel_fields.contains(&terms.field);

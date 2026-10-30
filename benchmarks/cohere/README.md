@@ -21,6 +21,11 @@ the workflow enables the setting again in its vacuum session before that
 rebuild. `index-vacuum.log` records the setting used; a setting from the
 initial build session alone does not establish the router used by searches.
 
+Router code and sidecar columns are file-backed: open reads only headers and
+list topology, and scoring fetches the row ranges for the lists actually probed.
+This avoids decoding the entire router during query preparation. Payload
+validation occurs when each batch is read; the persisted format is unchanged.
+
 Plan verification enables `paradedb.vector_stats` and requires the unfiltered
 query to exercise `quantized_stacked` routing with nonzero approximate and exact
 scores. Per-segment `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` reports:

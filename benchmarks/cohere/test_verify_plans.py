@@ -1,5 +1,6 @@
 """Ensure router verification detects a benchmark silently rebuilding without quantization."""
 
+import json
 import unittest
 
 from verify_plans import routing_metrics, routing_summary, verify
@@ -37,6 +38,8 @@ class VerifyRouterTest(unittest.TestCase):
         summary = routing_summary({"unfiltered@r95": totals})
         self.assertIn("| 2 | 16 | 48 | 36 | 12 | 6 |", summary)
         self.assertIn("not workload averages", summary)
+        encoded_scan = {**scan, "Segment Info": json.dumps(scan["Segment Info"])}
+        self.assertEqual(routing_metrics([encoded_scan], True), totals)
 
     def test_full_precision_router_or_missing_stats_cannot_pass(self):
         with self.assertRaisesRegex(ValueError, "found stacked"):

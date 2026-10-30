@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793384232761,
+  "lastUpdate": 1793393678496,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -49532,6 +49532,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12990138552-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90764dd826e00c5ea5df69bee850d97f8c3ed1b",
+          "message": "perf: pin Tantivy tip for five-list router patience (#7116)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nUpdate Tantivy from `17c53e6357bc7bf91d82e37cee720d1a704d5ee6` to the\nlatest `main`, `7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf`.\n\n## Why\n\nPick up\n[paradedb/tantivy#353](https://github.com/paradedb/tantivy/pull/353).\nRouter patience stops after five lists that leave the top-k heap\nunchanged. The previous `5 \u00d7 k` row window was smaller than one list, so\nthe walk stopped after a single miss. This is the only Tantivy commit\nsince the previous pin. The index format is unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. Nix is\nnot available locally, so `cargoHash` in `nix/pg_search.nix` is\nunchanged; Nix CI can fill in the new hash.\n\n## Tests\n\n- [x] `cargo metadata --locked --format-version 1` resolves all ten\nTantivy Git packages to `7f43bdd2`\n- [x] `python3 .github/scripts/release.py lint-fragments\n--changelog-only`\n- [x] `git diff --check`\n- [ ] SQL regression tests (CI)\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-30T13:20:09-07:00",
+          "tree_id": "d0fe57ecc96badf7d8551530034490f6ceebd00e",
+          "url": "https://github.com/paradedb/paradedb/commit/e90764dd826e00c5ea5df69bee850d97f8c3ed1b"
+        },
+        "date": 1793393676687,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.013,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.674,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 10.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.073,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.807,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.097,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.062,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.749,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.037,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 8.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.393,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.699,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 8.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.515,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.752,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 8.989,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.553,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.815,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.514,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.796,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.176,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.857,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.098,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 9.304,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 10.037,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 10.35,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13010667526-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -51815,6 +51975,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12990138552-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90764dd826e00c5ea5df69bee850d97f8c3ed1b",
+          "message": "perf: pin Tantivy tip for five-list router patience (#7116)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nUpdate Tantivy from `17c53e6357bc7bf91d82e37cee720d1a704d5ee6` to the\nlatest `main`, `7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf`.\n\n## Why\n\nPick up\n[paradedb/tantivy#353](https://github.com/paradedb/tantivy/pull/353).\nRouter patience stops after five lists that leave the top-k heap\nunchanged. The previous `5 \u00d7 k` row window was smaller than one list, so\nthe walk stopped after a single miss. This is the only Tantivy commit\nsince the previous pin. The index format is unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. Nix is\nnot available locally, so `cargoHash` in `nix/pg_search.nix` is\nunchanged; Nix CI can fill in the new hash.\n\n## Tests\n\n- [x] `cargo metadata --locked --format-version 1` resolves all ten\nTantivy Git packages to `7f43bdd2`\n- [x] `python3 .github/scripts/release.py lint-fragments\n--changelog-only`\n- [x] `git diff --check`\n- [ ] SQL regression tests (CI)\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-30T13:20:09-07:00",
+          "tree_id": "d0fe57ecc96badf7d8551530034490f6ceebd00e",
+          "url": "https://github.com/paradedb/paradedb/commit/e90764dd826e00c5ea5df69bee850d97f8c3ed1b"
+        },
+        "date": 1793393677501,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 98.96750379402899,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 98.22961673487434,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 98.39696304587197,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 111.64760683927665,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 110.84169204359438,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 110.23407478854028,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 144.11315486704214,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 137.77843682648324,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 106.3371125534179,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13010667526-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -60677,6 +60907,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12990138552-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90764dd826e00c5ea5df69bee850d97f8c3ed1b",
+          "message": "perf: pin Tantivy tip for five-list router patience (#7116)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nUpdate Tantivy from `17c53e6357bc7bf91d82e37cee720d1a704d5ee6` to the\nlatest `main`, `7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf`.\n\n## Why\n\nPick up\n[paradedb/tantivy#353](https://github.com/paradedb/tantivy/pull/353).\nRouter patience stops after five lists that leave the top-k heap\nunchanged. The previous `5 \u00d7 k` row window was smaller than one list, so\nthe walk stopped after a single miss. This is the only Tantivy commit\nsince the previous pin. The index format is unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. Nix is\nnot available locally, so `cargoHash` in `nix/pg_search.nix` is\nunchanged; Nix CI can fill in the new hash.\n\n## Tests\n\n- [x] `cargo metadata --locked --format-version 1` resolves all ten\nTantivy Git packages to `7f43bdd2`\n- [x] `python3 .github/scripts/release.py lint-fragments\n--changelog-only`\n- [x] `git diff --check`\n- [ ] SQL regression tests (CI)\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-30T13:20:09-07:00",
+          "tree_id": "d0fe57ecc96badf7d8551530034490f6ceebd00e",
+          "url": "https://github.com/paradedb/paradedb/commit/e90764dd826e00c5ea5df69bee850d97f8c3ed1b"
+        },
+        "date": 1793393678489,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.38971740166666663,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.59375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13010667526-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -60891,6 +61156,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12990138552-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90764dd826e00c5ea5df69bee850d97f8c3ed1b",
+          "message": "perf: pin Tantivy tip for five-list router patience (#7116)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nUpdate Tantivy from `17c53e6357bc7bf91d82e37cee720d1a704d5ee6` to the\nlatest `main`, `7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf`.\n\n## Why\n\nPick up\n[paradedb/tantivy#353](https://github.com/paradedb/tantivy/pull/353).\nRouter patience stops after five lists that leave the top-k heap\nunchanged. The previous `5 \u00d7 k` row window was smaller than one list, so\nthe walk stopped after a single miss. This is the only Tantivy commit\nsince the previous pin. The index format is unchanged.\n\n## How\n\nKeep all four manifest pins synchronized, refresh the ten Tantivy Git\nsources in `Cargo.lock`, and add a performance changelog entry. Nix is\nnot available locally, so `cargoHash` in `nix/pg_search.nix` is\nunchanged; Nix CI can fill in the new hash.\n\n## Tests\n\n- [x] `cargo metadata --locked --format-version 1` resolves all ten\nTantivy Git packages to `7f43bdd2`\n- [x] `python3 .github/scripts/release.py lint-fragments\n--changelog-only`\n- [x] `git diff --check`\n- [ ] SQL regression tests (CI)\n\n\nMade with [Cursor](https://cursor.com)\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-30T13:20:09-07:00",
+          "tree_id": "d0fe57ecc96badf7d8551530034490f6ceebd00e",
+          "url": "https://github.com/paradedb/paradedb/commit/e90764dd826e00c5ea5df69bee850d97f8c3ed1b"
+        },
+        "date": 1793393677973,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 15869.41,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 15869.41,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 15869.41,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 11821.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 11821.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 11821.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 3163.58,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 4005.82,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 8715.92,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13010667526-buffers"
       }
     ]
   }

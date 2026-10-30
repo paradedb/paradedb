@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793375889842,
+  "lastUpdate": 1793375909939,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -48772,6 +48772,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12948254774-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854dd56304131c1fa714fe228c1c0dae177869eb",
+          "message": "ci: baseline Cohere shared buffer hits per query (#7121)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nBaseline Cohere shared hits/query and show current/previous values,\nratios, and the same 1.15x regression marker as latency.\n\n## Why\n\nShared hits/query currently appears only in the recall diagnostics\ntable, without comparisons across commits.\n\n## How\n\nExport the existing EXPLAIN means in the Cohere workflow and pass them\nthrough the shared publisher. Each corpus size gets a `benchmarker\ncohere-<size> (buffers)` history using smaller-is-better comparisons and\nmain-only baseline updates. Omit unreached targets and missing\nmeasurements; preserve zero values. The first main run seeds the\nbaseline.\n\n## Tests\n\n- Local exporter and publisher smoke checks cover missing/zero\nmeasurements, empty inputs, both corpus sizes, baseline persistence,\nretry recovery, and comparison ratios.\n- Changed-file pre-commit checks pass with `actionlint` skipped.\nSeparate actionlint validation passes when ignoring its rejection of the\npre-existing `concurrency.queue: max`.\n- `git diff --check` passes. Full Cohere workloads were not run locally.",
+          "timestamp": "2026-10-30T08:24:04-07:00",
+          "tree_id": "fbdae44c544e47dd8c706fd5c414a6104c2a69a9",
+          "url": "https://github.com/paradedb/paradedb/commit/854dd56304131c1fa714fe228c1c0dae177869eb"
+        },
+        "date": 1793375907797,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.092,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.728,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.195,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.849,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.11,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.228,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.86,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.148,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.035,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.856,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.03,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.66,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.855,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 8.951,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.771,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.541,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.792,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.281,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.924,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.224,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 9.276,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 10.136,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 10.546,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12990138552-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -50985,6 +51145,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12948254774-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854dd56304131c1fa714fe228c1c0dae177869eb",
+          "message": "ci: baseline Cohere shared buffer hits per query (#7121)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nBaseline Cohere shared hits/query and show current/previous values,\nratios, and the same 1.15x regression marker as latency.\n\n## Why\n\nShared hits/query currently appears only in the recall diagnostics\ntable, without comparisons across commits.\n\n## How\n\nExport the existing EXPLAIN means in the Cohere workflow and pass them\nthrough the shared publisher. Each corpus size gets a `benchmarker\ncohere-<size> (buffers)` history using smaller-is-better comparisons and\nmain-only baseline updates. Omit unreached targets and missing\nmeasurements; preserve zero values. The first main run seeds the\nbaseline.\n\n## Tests\n\n- Local exporter and publisher smoke checks cover missing/zero\nmeasurements, empty inputs, both corpus sizes, baseline persistence,\nretry recovery, and comparison ratios.\n- Changed-file pre-commit checks pass with `actionlint` skipped.\nSeparate actionlint validation passes when ignoring its rejection of the\npre-existing `concurrency.queue: max`.\n- `git diff --check` passes. Full Cohere workloads were not run locally.",
+          "timestamp": "2026-10-30T08:24:04-07:00",
+          "tree_id": "fbdae44c544e47dd8c706fd5c414a6104c2a69a9",
+          "url": "https://github.com/paradedb/paradedb/commit/854dd56304131c1fa714fe228c1c0dae177869eb"
+        },
+        "date": 1793375908741,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 98.35838678798233,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 97.35874885643926,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 97.08978160469402,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 109.48144814654913,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 109.66372953681055,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 110.58369754670267,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 143.3405604509745,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 135.75805431875906,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 106.2842167151706,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12990138552-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -59547,6 +59777,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12948254774-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854dd56304131c1fa714fe228c1c0dae177869eb",
+          "message": "ci: baseline Cohere shared buffer hits per query (#7121)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nBaseline Cohere shared hits/query and show current/previous values,\nratios, and the same 1.15x regression marker as latency.\n\n## Why\n\nShared hits/query currently appears only in the recall diagnostics\ntable, without comparisons across commits.\n\n## How\n\nExport the existing EXPLAIN means in the Cohere workflow and pass them\nthrough the shared publisher. Each corpus size gets a `benchmarker\ncohere-<size> (buffers)` history using smaller-is-better comparisons and\nmain-only baseline updates. Omit unreached targets and missing\nmeasurements; preserve zero values. The first main run seeds the\nbaseline.\n\n## Tests\n\n- Local exporter and publisher smoke checks cover missing/zero\nmeasurements, empty inputs, both corpus sizes, baseline persistence,\nretry recovery, and comparison ratios.\n- Changed-file pre-commit checks pass with `actionlint` skipped.\nSeparate actionlint validation passes when ignoring its rejection of the\npre-existing `concurrency.queue: max`.\n- `git diff --check` passes. Full Cohere workloads were not run locally.",
+          "timestamp": "2026-10-30T08:24:04-07:00",
+          "tree_id": "fbdae44c544e47dd8c706fd5c414a6104c2a69a9",
+          "url": "https://github.com/paradedb/paradedb/commit/854dd56304131c1fa714fe228c1c0dae177869eb"
+        },
+        "date": 1793375909927,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.38334090439999996,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.6171875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "12990138552-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -59619,6 +59884,78 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12991412516-buffers"
+      }
+    ],
+    "benchmarker cohere-1m (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854dd56304131c1fa714fe228c1c0dae177869eb",
+          "message": "ci: baseline Cohere shared buffer hits per query (#7121)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nBaseline Cohere shared hits/query and show current/previous values,\nratios, and the same 1.15x regression marker as latency.\n\n## Why\n\nShared hits/query currently appears only in the recall diagnostics\ntable, without comparisons across commits.\n\n## How\n\nExport the existing EXPLAIN means in the Cohere workflow and pass them\nthrough the shared publisher. Each corpus size gets a `benchmarker\ncohere-<size> (buffers)` history using smaller-is-better comparisons and\nmain-only baseline updates. Omit unreached targets and missing\nmeasurements; preserve zero values. The first main run seeds the\nbaseline.\n\n## Tests\n\n- Local exporter and publisher smoke checks cover missing/zero\nmeasurements, empty inputs, both corpus sizes, baseline persistence,\nretry recovery, and comparison ratios.\n- Changed-file pre-commit checks pass with `actionlint` skipped.\nSeparate actionlint validation passes when ignoring its rejection of the\npre-existing `concurrency.queue: max`.\n- `git diff --check` passes. Full Cohere workloads were not run locally.",
+          "timestamp": "2026-10-30T08:24:04-07:00",
+          "tree_id": "fbdae44c544e47dd8c706fd5c414a6104c2a69a9",
+          "url": "https://github.com/paradedb/paradedb/commit/854dd56304131c1fa714fe228c1c0dae177869eb"
+        },
+        "date": 1793375909335,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 15955.55,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 15955.55,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 15955.55,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 11712.59,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 11712.59,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 11712.59,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 3128.22,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 4102.66,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 8904.51,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "12990138552-buffers"
       }
     ]
   }

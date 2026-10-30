@@ -81,11 +81,11 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       # Cache notes:
       # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
@@ -106,7 +106,7 @@ jobs:
           cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v14
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: >-
             --no-install-recommends
@@ -135,7 +135,7 @@ jobs:
       - name: Cache pgrx-compiled Postgres
         if: matrix.pg_impl == 'pgrx'
         id: cache-pgrx-pg
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install
           key: pgrx-install-v1-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
@@ -307,7 +307,7 @@ jobs:
 
       - name: Upload Coverage Artifact
         if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           overwrite: true
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
@@ -343,7 +343,7 @@ jobs:
 
       - name: Upload Postgres Log Artifact
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           overwrite: true
           name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
@@ -358,17 +358,17 @@ jobs:
     if: success()
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Download All Coverage Artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: coverage-*
           path: coverage-reports
           merge-multiple: true
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           directory: ./coverage-reports
           files: "*.lcov"

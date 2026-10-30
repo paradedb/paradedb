@@ -96,7 +96,7 @@ runs:
 
     - name: Prepare Metric and Comments
       if: steps.existing.outputs.published != 'true'
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1
       with:
         name: ${{ inputs.name }}
         ref: ${{ inputs.ref }}

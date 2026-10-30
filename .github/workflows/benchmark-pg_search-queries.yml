@@ -125,13 +125,13 @@ jobs:
       # Keep workflow actions separate from the source commit being benchmarked
       # so we can benchmark older commits with newer actions.
       - name: Checkout Workflow Actions
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
       - name: Checkout Source to Benchmark
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           path: source
@@ -145,10 +145,10 @@ jobs:
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
@@ -164,7 +164,7 @@ jobs:
 
       - name: Resolve Git Ref to PR
         id: pr_label
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           # ← Set this to whatever ref you’re resolving:
           # • a SHA:            ${{ github.sha }}
@@ -330,7 +330,7 @@ jobs:
       checks: read
     steps:
       - name: Notify Slack on Failure (Push only)
-        uses: paradedb/actions/slack-alert@v14
+        uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
           job_results: ${{ toJSON(needs) }}

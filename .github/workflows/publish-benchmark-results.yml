@@ -22,7 +22,7 @@ jobs:
       count: ${{ steps.results.outputs.count }}
     steps:
       - name: Find Pending Benchmark Results
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         id: results
         with:
           script: |
@@ -60,13 +60,13 @@ jobs:
       queue: max
     steps:
       - name: Checkout Workflow Actions
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           fetch-depth: 1
 
       - name: Download Benchmark Results
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           artifact-ids: ${{ matrix.artifact }}
           merge-multiple: true
@@ -77,7 +77,7 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -101,7 +101,7 @@ jobs:
           exit 1
 
       - name: Checkout Published Metrics
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: gh-pages
           path: benchmark-data-repository
@@ -160,7 +160,7 @@ jobs:
           git -c http.extraheader="$auth" push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
 
       - name: Record Successful Publication
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: published-gh-pages-${{ matrix.artifact }}
           path: _benchmark_publish/metadata.json

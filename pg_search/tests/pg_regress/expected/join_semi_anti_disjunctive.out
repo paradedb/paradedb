@@ -1222,7 +1222,7 @@ LIMIT 5;
      :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > id@0, projection=[ctid_0@0, id@1]
-     :         ProjectionExec: expr=[id@0 as id, id@0 * 2 as join_proj_push_down_1]
+     :         ProjectionExec: expr=[id@0 as id, pdb_eval_expr_opexpr_b2e4dd8d(id@0) as join_proj_push_down_1]
      :           CooperativeExec
      :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
      :         CooperativeExec

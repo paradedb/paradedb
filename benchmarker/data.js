@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793378202448,
+  "lastUpdate": 1793378236007,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20704,6 +20704,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12950309678-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854dd56304131c1fa714fe228c1c0dae177869eb",
+          "message": "ci: baseline Cohere shared buffer hits per query (#7121)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nBaseline Cohere shared hits/query and show current/previous values,\nratios, and the same 1.15x regression marker as latency.\n\n## Why\n\nShared hits/query currently appears only in the recall diagnostics\ntable, without comparisons across commits.\n\n## How\n\nExport the existing EXPLAIN means in the Cohere workflow and pass them\nthrough the shared publisher. Each corpus size gets a `benchmarker\ncohere-<size> (buffers)` history using smaller-is-better comparisons and\nmain-only baseline updates. Omit unreached targets and missing\nmeasurements; preserve zero values. The first main run seeds the\nbaseline.\n\n## Tests\n\n- Local exporter and publisher smoke checks cover missing/zero\nmeasurements, empty inputs, both corpus sizes, baseline persistence,\nretry recovery, and comparison ratios.\n- Changed-file pre-commit checks pass with `actionlint` skipped.\nSeparate actionlint validation passes when ignoring its rejection of the\npre-existing `concurrency.queue: max`.\n- `git diff --check` passes. Full Cohere workloads were not run locally.",
+          "timestamp": "2026-10-30T08:24:04-07:00",
+          "tree_id": "fbdae44c544e47dd8c706fd5c414a6104c2a69a9",
+          "url": "https://github.com/paradedb/paradedb/commit/854dd56304131c1fa714fe228c1c0dae177869eb"
+        },
+        "date": 1793378233709,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.039,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 94.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 328.105,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.262,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.952,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 186.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.801,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.098,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.033,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.597,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.366,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 192.721,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 80.4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 182.707,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12993777692-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -43879,6 +43979,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12950309678-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854dd56304131c1fa714fe228c1c0dae177869eb",
+          "message": "ci: baseline Cohere shared buffer hits per query (#7121)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nBaseline Cohere shared hits/query and show current/previous values,\nratios, and the same 1.15x regression marker as latency.\n\n## Why\n\nShared hits/query currently appears only in the recall diagnostics\ntable, without comparisons across commits.\n\n## How\n\nExport the existing EXPLAIN means in the Cohere workflow and pass them\nthrough the shared publisher. Each corpus size gets a `benchmarker\ncohere-<size> (buffers)` history using smaller-is-better comparisons and\nmain-only baseline updates. Omit unreached targets and missing\nmeasurements; preserve zero values. The first main run seeds the\nbaseline.\n\n## Tests\n\n- Local exporter and publisher smoke checks cover missing/zero\nmeasurements, empty inputs, both corpus sizes, baseline persistence,\nretry recovery, and comparison ratios.\n- Changed-file pre-commit checks pass with `actionlint` skipped.\nSeparate actionlint validation passes when ignoring its rejection of the\npre-existing `concurrency.queue: max`.\n- `git diff --check` passes. Full Cohere workloads were not run locally.",
+          "timestamp": "2026-10-30T08:24:04-07:00",
+          "tree_id": "fbdae44c544e47dd8c706fd5c414a6104c2a69a9",
+          "url": "https://github.com/paradedb/paradedb/commit/854dd56304131c1fa714fe228c1c0dae177869eb"
+        },
+        "date": 1793378235997,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.117572246826928,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.674244818498558,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.679974305028388,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.87169423502172,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.60246309893067,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12993777692-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793350485544,
+  "lastUpdate": 1793350567425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -180352,6 +180352,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881975087-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350564495,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 146.1223604610886,
+            "unit": "median tps",
+            "extra": "avg tps: 144.18421908170347, max tps: 152.21652731294176, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 535.7223287598795,
+            "unit": "median tps",
+            "extra": "avg tps: 555.8617069784068, max tps: 5092.829743553379, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3360.673688824987,
+            "unit": "median tps",
+            "extra": "avg tps: 3374.2521079496855, max tps: 3634.4373669532865, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 177.62612426432526,
+            "unit": "median tps",
+            "extra": "avg tps: 175.7541536918335, max tps: 188.87340193615023, count: 59304"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 275.52822655312707,
+            "unit": "median tps",
+            "extra": "avg tps: 380.9847705935859, max tps: 3066.0985622185026, count: 118608"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.57389229106714,
+            "unit": "median tps",
+            "extra": "avg tps: 29.01145189545203, max tps: 49.11331797985529, count: 59304"
+          }
+        ],
+        "publication_id": "12962715513-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -228452,6 +228511,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12881975087-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "yogesh",
+            "username": "ygxio",
+            "email": "114429499+ygxio@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70",
+          "message": "perf: skip NULL members in hash-join InList pushdown (#7092)\n\n# Ticket(s) Closed\n\n- Closes #7091\n\n## What\n\nSkip NULL members when converting a hash-join `InList` dynamic filter\ninto a `TermSetQuery`.\n\n## Why\n\nOne NULL build-side key made the whole conversion fail, so the probe\nside did a full scan + `PreFilter` instead. NULLs never match a\nnon-negated `IN`, so skipping them is safe.\n\nStackoverflow `join_aggregate_topk_count` (100k):\n\n| term | before | after |\n|---|---|---|\n| postgres | 115 ms | 43 ms |\n| regex | 133 ms | 54 ms |\n\n## How\n\nFilter out NULL scalars before term conversion in\n`try_convert_in_list_to_query`.\n\n## Tests\n\nNew `issue_7091` regress test (fails without the fix).",
+          "timestamp": "2026-10-30T01:59:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aaf8b3dd927b9e5dab6eb8b66f3f7a5d079e1f70"
+        },
+        "date": 1793350567332,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.691343386791976, max cpu: 28.857718, count: 59304"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.53731712342338, max mem: 47.62109375, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.43256699356374, max cpu: 38.114143, count: 59304"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.67444260979445, max mem: 33.6796875, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.015229546470478, max cpu: 14.180207, count: 59304"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 51.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.41809534875388, max mem: 51.48828125, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 17764,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17871.41395184136, max block_count: 34448.0, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.7823250727665054, max cpu: 4.7197638, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 30.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.11523358458114, max mem: 30.1640625, count: 59304"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.549490759476594, max segment_count: 36.0, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.421001,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.812633313775908, max cpu: 28.628231, count: 59304"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 53.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.087835229811645, max mem: 53.09375, count: 59304"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.1692622393084635, max cpu: 42.857143, count: 118608"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.89685745270133, max mem: 57.9296875, count: 118608"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7619047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.547206916789104, max cpu: 18.953604, count: 59304"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 48.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.28318191542729, max mem: 48.66015625, count: 59304"
+          }
+        ],
+        "publication_id": "12962715513-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

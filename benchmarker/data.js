@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793384200615,
+  "lastUpdate": 1793384232761,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -33479,6 +33479,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12990949145-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae198feb747d05e916629201fc8d762ed233a42b",
+          "message": "fix: reclaim merge entry segment ID pages (#7122)\n\nMerge entries write their segment IDs into a `LinkedBytesList` without\nfinalizing its block directory. When the entry is removed, its data\npages are missing from reclamation and are not returned to the\nfree-space map. Repeated merges can therefore grow the index allocation.\n\nFinalize the writer before publishing the merge entry. Add a Postgres\nregression test that checks segment-ID round trips and reclamation of\nthe header and data pages for both single-page and multi-page lists.\n\n\nStressgres: [all eight suites\npassed](https://github.com/paradedb/paradedb/actions/runs/41080288598),\neach completing 600 seconds without workload errors, against [the exact\nmain-base nightly\ncontrol](https://github.com/paradedb/paradedb/actions/runs/41020573646).\nSuite/action configuration and c8gd.metal-24xl runners match. Reviewed\nall 260 paired metrics.\n\nMedian allocated index space (MiB):\n\n| Workload | Main | Fix | Change |\n| --- | ---: | ---: | ---: |\n| background-merge | 138.78 | 19.77 | -85.8% |\n| bulk-update-merge-pressure | 115.61 | 112.78 | -2.4% |\n| logical-replication-fsm-merge-race | 17.79 | 17.41 | -2.1% |\n| logical-replication-mixed-workload | 7.01 | 4.59 | -34.6% |\n| partitioned-table | 26.59 | 21.42 | -19.4% |\n| single-node-planner-paths | 12.48 | 5.62 | -54.9% |\n| wide-table | 352.43 | 352.37 | -0.0% |\n\nFSM-race peak allocation fell 21.0%; bulk-update-pressure peak fell\n14.8%. Partitioned TopK throughput changed -0.36%; wide bulk-update\nthroughput changed -0.33%. All median TPS changes were between -8.3% and\n+9.2%. Some individual bulk writer RSS medians increased and others\ndecreased; the sum of per-writer means changed +3.6% and sum of\nper-writer peaks -3.0%. These sums are diagnostic, not simultaneous\nphysical-memory totals, because RSS counts shared pages. This is one\npaired run, not a confidence interval. Allocation measures whole index\nfiles and should not be read as a separate FSM-file size.",
+          "timestamp": "2026-10-30T10:04:20-07:00",
+          "tree_id": "359cd52cf82874a747a9dcec07a1301e5ccd37c1",
+          "url": "https://github.com/paradedb/paradedb/commit/ae198feb747d05e916629201fc8d762ed233a42b"
+        },
+        "date": 1793384230196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.688,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.235,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.567,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.055,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.478,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.909,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.428,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.498,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.196,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.138,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.161,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.99,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12999382100-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -38804,6 +38904,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12990949145-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae198feb747d05e916629201fc8d762ed233a42b",
+          "message": "fix: reclaim merge entry segment ID pages (#7122)\n\nMerge entries write their segment IDs into a `LinkedBytesList` without\nfinalizing its block directory. When the entry is removed, its data\npages are missing from reclamation and are not returned to the\nfree-space map. Repeated merges can therefore grow the index allocation.\n\nFinalize the writer before publishing the merge entry. Add a Postgres\nregression test that checks segment-ID round trips and reclamation of\nthe header and data pages for both single-page and multi-page lists.\n\n\nStressgres: [all eight suites\npassed](https://github.com/paradedb/paradedb/actions/runs/41080288598),\neach completing 600 seconds without workload errors, against [the exact\nmain-base nightly\ncontrol](https://github.com/paradedb/paradedb/actions/runs/41020573646).\nSuite/action configuration and c8gd.metal-24xl runners match. Reviewed\nall 260 paired metrics.\n\nMedian allocated index space (MiB):\n\n| Workload | Main | Fix | Change |\n| --- | ---: | ---: | ---: |\n| background-merge | 138.78 | 19.77 | -85.8% |\n| bulk-update-merge-pressure | 115.61 | 112.78 | -2.4% |\n| logical-replication-fsm-merge-race | 17.79 | 17.41 | -2.1% |\n| logical-replication-mixed-workload | 7.01 | 4.59 | -34.6% |\n| partitioned-table | 26.59 | 21.42 | -19.4% |\n| single-node-planner-paths | 12.48 | 5.62 | -54.9% |\n| wide-table | 352.43 | 352.37 | -0.0% |\n\nFSM-race peak allocation fell 21.0%; bulk-update-pressure peak fell\n14.8%. Partitioned TopK throughput changed -0.36%; wide bulk-update\nthroughput changed -0.33%. All median TPS changes were between -8.3% and\n+9.2%. Some individual bulk writer RSS medians increased and others\ndecreased; the sum of per-writer means changed +3.6% and sum of\nper-writer peaks -3.0%. These sums are diagnostic, not simultaneous\nphysical-memory totals, because RSS counts shared pages. This is one\npaired run, not a confidence interval. Allocation measures whole index\nfiles and should not be read as a separate FSM-file size.",
+          "timestamp": "2026-10-30T10:04:20-07:00",
+          "tree_id": "359cd52cf82874a747a9dcec07a1301e5ccd37c1",
+          "url": "https://github.com/paradedb/paradedb/commit/ae198feb747d05e916629201fc8d762ed233a42b"
+        },
+        "date": 1793384232749,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 538.0215272307944,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 499.51326621804213,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 141.42285259895317,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 254.1883627331555,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 373.38976367278275,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12999382100-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

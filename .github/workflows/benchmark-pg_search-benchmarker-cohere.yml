@@ -250,6 +250,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 benchmarks/cohere/prepare_k6.py --runs benchmark-artifacts/search --output benchmark-artifacts
+          jq '[.[] | select(.reached and .buffers.shared_hit_mean != null)
+            | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
+          ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json
           psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
             -c 'SELECT json_agg(emb::text ORDER BY id) FROM pdbench_queries' \
             > benchmark-artifacts/query_vectors.json
@@ -297,6 +300,7 @@ jobs:
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
              "context_file":"benchmark-artifacts/operating_points.md",
+             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
              "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
 
       - name: Upload index, recall, and buffer diagnostics

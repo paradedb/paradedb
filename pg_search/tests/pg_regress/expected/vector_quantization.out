@@ -64,12 +64,12 @@ SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_parent_low',
     'vec'
 );
-ERROR:  vector_estimator_info requires a ParadeDB index
+ERROR:  "q_cal_parent_low" is not an index
 SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_parent_low_idx',
     'vec'
 );
-ERROR:  vector_estimator_info requires a ParadeDB index
+ERROR:  "q_cal_parent_low_idx" is not a ParadeDB index
 DROP TABLE q_cal_parent;
 CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized

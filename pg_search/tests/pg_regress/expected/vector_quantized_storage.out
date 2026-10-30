@@ -107,10 +107,10 @@ FROM paradedb.vector_config('config_parent_idx', 'vec') ORDER BY index_oid::regc
 (2 rows)
 
 SELECT * FROM paradedb.vector_config('config_parent', 'vec');
-ERROR:  Expected to receive an index argument.
+ERROR:  "config_parent" is not an index
 CREATE INDEX config_btree_idx ON config_low(id);
 SELECT * FROM paradedb.vector_config('config_btree_idx', 'vec');
-ERROR:  relation is not a ParadeDB index
+ERROR:  "config_btree_idx" is not a ParadeDB index
 SELECT * FROM paradedb.vector_config('config_parent_idx', 'id');
 ERROR:  `id` is not a vector field of the index
 SELECT * FROM paradedb.vector_config('config_parent_idx', 'missing');

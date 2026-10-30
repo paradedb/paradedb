@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793396002610,
+  "lastUpdate": 1793396630609,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -49992,6 +49992,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13010667526-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c13589ac7c12f28081e0a9cb222ce6d544cca76",
+          "message": "fix: omit graph dependencies from Stressgres runtime image (#7129)\n\nThe Stressgres runtime image installs Fontconfig and its font/XML\ndependencies for graph generation, although Antithesis only needs the\nworkload runner. Make graph generation a default-enabled Cargo feature\nand disable it in the Docker build. Normal source builds retain the\ngraph command; the image retains UI, headless, auto, and CSV commands.\n\nRemove the graphics development packages from the builder and\nlibfontconfig1 from the runtime. Debian's package resolver confirms this\navoids eight runtime packages: libfontconfig1, libexpat1, libfreetype6,\nlibpng16-16t64, libbrotli1, fontconfig-config, fonts-dejavu-core, and\nfonts-dejavu-mono. Keep the libraries needed by PostgreSQL TLS and the\ncopied psql client, plus Bash and flock for Antithesis scripts.\n\nDocument that the image disables graph generation. A temporary\nruntime-dependency smoke step passed in GitHub Actions and was then\nremoved; the existing Docker test remains unchanged.\n\nValidation: built the full ARM64 DST Docker image with Rust 1.99.0 and\nran the temporary runtime smoke step successfully, both locally and in\nGitHub Actions. Stressgres/headless/CSV help, psql, and flock run; ldd\nreports no missing libraries; Fontconfig and Expat are absent. The\nnormal default-feature source build passes cargo check --locked -p\nstressgres (Rust 1.99.1), retaining graph support. Rust formatting,\nPrettier, actionlint, shell syntax, and git diff --check pass.\n\nNo image has been published and Docker Scout has not rescanned a\nreplacement digest; this does not claim all remaining image CVEs are\nfixed. Local Docker credentials could not access the private published\nimage, so the package comparison uses Debian's resolver rather than that\nimage's inventory.",
+          "timestamp": "2026-10-30T14:09:31-07:00",
+          "tree_id": "079231639b10698c1921ac5cbe988ae6d705ab27",
+          "url": "https://github.com/paradedb/paradedb/commit/3c13589ac7c12f28081e0a9cb222ce6d544cca76"
+        },
+        "date": 1793396627965,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.047,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.778,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.089,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.842,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.167,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.162,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 8.981,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.666,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 8.955,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.655,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.85,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 8.957,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.629,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.812,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.937,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.653,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 7.902,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 9.029,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.762,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 10.044,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13013057648-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -52345,6 +52505,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13010667526-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c13589ac7c12f28081e0a9cb222ce6d544cca76",
+          "message": "fix: omit graph dependencies from Stressgres runtime image (#7129)\n\nThe Stressgres runtime image installs Fontconfig and its font/XML\ndependencies for graph generation, although Antithesis only needs the\nworkload runner. Make graph generation a default-enabled Cargo feature\nand disable it in the Docker build. Normal source builds retain the\ngraph command; the image retains UI, headless, auto, and CSV commands.\n\nRemove the graphics development packages from the builder and\nlibfontconfig1 from the runtime. Debian's package resolver confirms this\navoids eight runtime packages: libfontconfig1, libexpat1, libfreetype6,\nlibpng16-16t64, libbrotli1, fontconfig-config, fonts-dejavu-core, and\nfonts-dejavu-mono. Keep the libraries needed by PostgreSQL TLS and the\ncopied psql client, plus Bash and flock for Antithesis scripts.\n\nDocument that the image disables graph generation. A temporary\nruntime-dependency smoke step passed in GitHub Actions and was then\nremoved; the existing Docker test remains unchanged.\n\nValidation: built the full ARM64 DST Docker image with Rust 1.99.0 and\nran the temporary runtime smoke step successfully, both locally and in\nGitHub Actions. Stressgres/headless/CSV help, psql, and flock run; ldd\nreports no missing libraries; Fontconfig and Expat are absent. The\nnormal default-feature source build passes cargo check --locked -p\nstressgres (Rust 1.99.1), retaining graph support. Rust formatting,\nPrettier, actionlint, shell syntax, and git diff --check pass.\n\nNo image has been published and Docker Scout has not rescanned a\nreplacement digest; this does not claim all remaining image CVEs are\nfixed. Local Docker credentials could not access the private published\nimage, so the package comparison uses Debian's resolver rather than that\nimage's inventory.",
+          "timestamp": "2026-10-30T14:09:31-07:00",
+          "tree_id": "079231639b10698c1921ac5cbe988ae6d705ab27",
+          "url": "https://github.com/paradedb/paradedb/commit/3c13589ac7c12f28081e0a9cb222ce6d544cca76"
+        },
+        "date": 1793396629071,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 98.609176022616,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 98.15015634293823,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 97.48861333373945,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 110.18457154390974,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 110.52728074675123,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 110.52334350023258,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 143.40987982397817,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 141.91545526547335,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 109.49909871417913,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13013057648-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -61507,6 +61737,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13010667526-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c13589ac7c12f28081e0a9cb222ce6d544cca76",
+          "message": "fix: omit graph dependencies from Stressgres runtime image (#7129)\n\nThe Stressgres runtime image installs Fontconfig and its font/XML\ndependencies for graph generation, although Antithesis only needs the\nworkload runner. Make graph generation a default-enabled Cargo feature\nand disable it in the Docker build. Normal source builds retain the\ngraph command; the image retains UI, headless, auto, and CSV commands.\n\nRemove the graphics development packages from the builder and\nlibfontconfig1 from the runtime. Debian's package resolver confirms this\navoids eight runtime packages: libfontconfig1, libexpat1, libfreetype6,\nlibpng16-16t64, libbrotli1, fontconfig-config, fonts-dejavu-core, and\nfonts-dejavu-mono. Keep the libraries needed by PostgreSQL TLS and the\ncopied psql client, plus Bash and flock for Antithesis scripts.\n\nDocument that the image disables graph generation. A temporary\nruntime-dependency smoke step passed in GitHub Actions and was then\nremoved; the existing Docker test remains unchanged.\n\nValidation: built the full ARM64 DST Docker image with Rust 1.99.0 and\nran the temporary runtime smoke step successfully, both locally and in\nGitHub Actions. Stressgres/headless/CSV help, psql, and flock run; ldd\nreports no missing libraries; Fontconfig and Expat are absent. The\nnormal default-feature source build passes cargo check --locked -p\nstressgres (Rust 1.99.1), retaining graph support. Rust formatting,\nPrettier, actionlint, shell syntax, and git diff --check pass.\n\nNo image has been published and Docker Scout has not rescanned a\nreplacement digest; this does not claim all remaining image CVEs are\nfixed. Local Docker credentials could not access the private published\nimage, so the package comparison uses Debian's resolver rather than that\nimage's inventory.",
+          "timestamp": "2026-10-30T14:09:31-07:00",
+          "tree_id": "079231639b10698c1921ac5cbe988ae6d705ab27",
+          "url": "https://github.com/paradedb/paradedb/commit/3c13589ac7c12f28081e0a9cb222ce6d544cca76"
+        },
+        "date": 1793396630595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.3892727377833333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.6015625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13013057648-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -61861,6 +62126,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13010667526-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c13589ac7c12f28081e0a9cb222ce6d544cca76",
+          "message": "fix: omit graph dependencies from Stressgres runtime image (#7129)\n\nThe Stressgres runtime image installs Fontconfig and its font/XML\ndependencies for graph generation, although Antithesis only needs the\nworkload runner. Make graph generation a default-enabled Cargo feature\nand disable it in the Docker build. Normal source builds retain the\ngraph command; the image retains UI, headless, auto, and CSV commands.\n\nRemove the graphics development packages from the builder and\nlibfontconfig1 from the runtime. Debian's package resolver confirms this\navoids eight runtime packages: libfontconfig1, libexpat1, libfreetype6,\nlibpng16-16t64, libbrotli1, fontconfig-config, fonts-dejavu-core, and\nfonts-dejavu-mono. Keep the libraries needed by PostgreSQL TLS and the\ncopied psql client, plus Bash and flock for Antithesis scripts.\n\nDocument that the image disables graph generation. A temporary\nruntime-dependency smoke step passed in GitHub Actions and was then\nremoved; the existing Docker test remains unchanged.\n\nValidation: built the full ARM64 DST Docker image with Rust 1.99.0 and\nran the temporary runtime smoke step successfully, both locally and in\nGitHub Actions. Stressgres/headless/CSV help, psql, and flock run; ldd\nreports no missing libraries; Fontconfig and Expat are absent. The\nnormal default-feature source build passes cargo check --locked -p\nstressgres (Rust 1.99.1), retaining graph support. Rust formatting,\nPrettier, actionlint, shell syntax, and git diff --check pass.\n\nNo image has been published and Docker Scout has not rescanned a\nreplacement digest; this does not claim all remaining image CVEs are\nfixed. Local Docker credentials could not access the private published\nimage, so the package comparison uses Debian's resolver rather than that\nimage's inventory.",
+          "timestamp": "2026-10-30T14:09:31-07:00",
+          "tree_id": "079231639b10698c1921ac5cbe988ae6d705ab27",
+          "url": "https://github.com/paradedb/paradedb/commit/3c13589ac7c12f28081e0a9cb222ce6d544cca76"
+        },
+        "date": 1793396629826,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 16045.05,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 16045.05,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 16045.05,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 11775,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 11775,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 11775,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 3173.74,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3255.61,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 7746.24,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13013057648-buffers"
       }
     ]
   }

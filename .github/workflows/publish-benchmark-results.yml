@@ -153,7 +153,8 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git -c user.name='github-actions[bot]' -c user.email='github-actions[bot]@users.noreply.github.com' \
+          # Keep generated benchmark commits separate from GitHub account contributions.
+          git -c user.name='ParadeDB Benchmarks' -c user.email='benchmarks@paradedb.invalid' \
             commit -m "Publish benchmark results ${BENCHMARK_PUBLICATION_ID}"
           auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           git -c http.extraheader="$auth" push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages

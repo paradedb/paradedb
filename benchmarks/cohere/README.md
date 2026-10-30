@@ -47,6 +47,13 @@ workers. Both tools use the same database and index throughout a run.
    measurements and nonadaptive controls are retained. These measurements
    select and evaluate the knob on the same query set; they do not establish
    calibration on unseen queries or datasets.
+   CI also downloads the latest successful main push preceding this run with
+   diagnostics for the corpus size. Its sweep reports compare the nonadaptive
+   controls in `fixed-budget/` with recorded mainline sweeps at matched recall;
+   adaptive results appear in the operating-point table and k6 comparisons.
+   Missing baselines and incompatible configuration fingerprints are reported
+   as skipped comparisons. Reports and commit provenance are retained under
+   `comparison/` in the diagnostics artifact and published as Sweep reports.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The

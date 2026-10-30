@@ -119,6 +119,7 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           pr_number: ${{ fromJSON(steps.metadata.outputs.json).pr_number }}
           context_file: ${{ fromJSON(steps.metadata.outputs.json).context_file || '' }}
+          sweep_reports_dir: ${{ fromJSON(steps.metadata.outputs.json).sweep_reports_dir || '' }}
           buffer_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).buffer_metrics_file || '' }}
           index_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).index_metrics_file || '' }}
           publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}

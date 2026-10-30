@@ -9,3 +9,6 @@
 .prettierignore export-ignore
 .prettierrc export-ignore
 META.json.in export-ignore
+pg_search/tests/pg_regress/expected/rank_join_single_sided.out whitespace=-blank-at-eol
+pg_search/tests/pg_regress/expected/join_duplicate_filter.out whitespace=-blank-at-eol
+pg_search/tests/pg_regress/expected/join_duplicate_dynamic_filter.out whitespace=-blank-at-eol

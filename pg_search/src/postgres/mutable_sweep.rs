@@ -39,6 +39,9 @@ use std::time::{Duration, Instant};
 
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
 
+// Check for missing workers and new databases independently of the sweep interval.
+const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+
 pub(crate) fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.mutable_sweep_interval",
@@ -174,7 +177,7 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
                 worker_context.reset();
             }
         }
-        if !BackgroundWorker::wait_latch(Some(Duration::from_secs(1))) {
+        if !BackgroundWorker::wait_latch(Some(WORKER_CHECK_INTERVAL)) {
             return;
         }
     }

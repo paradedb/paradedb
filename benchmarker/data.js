@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793326959324,
+  "lastUpdate": 1793327050204,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -20504,6 +20504,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12949063423-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9c322104f2b41650691488e4bb708363cb9ac8f",
+          "message": "fix: leave NULL comparison values to PostgreSQL in pushdown (#7102)\n\n# Ticket(s) Closed\n\n- Closes #7029\n\n## What\n\n`NULL::text = ANY(array_column)` and `NULL::text <> ALL(array_column)`\non an indexed array column no longer raise `pushdown expression should\nnot evaluate to NULL`. They now return the same rows as PostgreSQL.\n\n## Why\n\n`try_build_pushdown_qual` turned the comparison into a\n`paradedb.term_with_operator(field, op, NULL)` call. That function is\nstrict, so it evaluated to NULL and the `expect` in `Qual::PushdownExpr`\nfailed.\n\nThe value can't be pushed down even with a NULL-aware query. `NULL =\nANY(arr)` is never true, but `NULL <> ALL(arr)` is true when `arr` is\nempty, and the index stores an empty array and a NULL array the same way\n(no terms).\n\n## How\n\n`try_build_pushdown_qual` declines when the value it would push is a\nNULL `Const`. The qual then takes the existing non-pushdown path. With\nthe default settings that is a heap filter on top of the Custom Scan, as\nthe EXPLAIN in the new test shows. The check sits after the array-field\nswap, so it covers the value on either side.\n\n## Tests\n\nNew regression test `issue_7029`, using the issue's repro on PG18. It\ncovers `NULL = ANY`, `NULL <> ALL` and `NOT (NULL = ANY)` with the\nCustom Scan on and off, plus a non-NULL control that is still pushed\ndown. Without the fix, the three NULL queries and the EXPLAIN fail with\nthe error from the issue.",
+          "timestamp": "2026-10-29T18:11:28-07:00",
+          "tree_id": "8fc3b92875f2832e082a0520e2f368490e5cc9a2",
+          "url": "https://github.com/paradedb/paradedb/commit/e9c322104f2b41650691488e4bb708363cb9ac8f"
+        },
+        "date": 1793327049207,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 334.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.763,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 103.561,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 185.282,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.119,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 149.069,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 211.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 23.485,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 123.372,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 199.152,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.333,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 82.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 185.58,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "12948958010-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -43129,6 +43229,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12949063423-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9c322104f2b41650691488e4bb708363cb9ac8f",
+          "message": "fix: leave NULL comparison values to PostgreSQL in pushdown (#7102)\n\n# Ticket(s) Closed\n\n- Closes #7029\n\n## What\n\n`NULL::text = ANY(array_column)` and `NULL::text <> ALL(array_column)`\non an indexed array column no longer raise `pushdown expression should\nnot evaluate to NULL`. They now return the same rows as PostgreSQL.\n\n## Why\n\n`try_build_pushdown_qual` turned the comparison into a\n`paradedb.term_with_operator(field, op, NULL)` call. That function is\nstrict, so it evaluated to NULL and the `expect` in `Qual::PushdownExpr`\nfailed.\n\nThe value can't be pushed down even with a NULL-aware query. `NULL =\nANY(arr)` is never true, but `NULL <> ALL(arr)` is true when `arr` is\nempty, and the index stores an empty array and a NULL array the same way\n(no terms).\n\n## How\n\n`try_build_pushdown_qual` declines when the value it would push is a\nNULL `Const`. The qual then takes the existing non-pushdown path. With\nthe default settings that is a heap filter on top of the Custom Scan, as\nthe EXPLAIN in the new test shows. The check sits after the array-field\nswap, so it covers the value on either side.\n\n## Tests\n\nNew regression test `issue_7029`, using the issue's repro on PG18. It\ncovers `NULL = ANY`, `NULL <> ALL` and `NOT (NULL = ANY)` with the\nCustom Scan on and off, plus a non-NULL control that is still pushed\ndown. Without the fix, the three NULL queries and the EXPLAIN fail with\nthe error from the issue.",
+          "timestamp": "2026-10-29T18:11:28-07:00",
+          "tree_id": "8fc3b92875f2832e082a0520e2f368490e5cc9a2",
+          "url": "https://github.com/paradedb/paradedb/commit/e9c322104f2b41650691488e4bb708363cb9ac8f"
+        },
+        "date": 1793327050194,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.851712018067573,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 32.112513128204334,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.56479612049002,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.39338942233032,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.31231078826618,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "12948958010-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

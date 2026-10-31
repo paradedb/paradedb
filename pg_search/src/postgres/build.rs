@@ -526,7 +526,8 @@ mod tests {
              SET LOCAL paradedb.vector_centroid_quantization = on;
              CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body);
              SET LOCAL paradedb.vector_centroid_quantization = off;
-             CREATE INDEX centroid_full_precision_idx ON centroid_settings USING paradedb (id, body);",
+             CREATE TABLE centroid_full_precision_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
+             CREATE INDEX centroid_full_precision_idx ON centroid_full_precision_settings USING paradedb (id, body);",
         ).unwrap();
         let relation = |name: &str| {
             let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))

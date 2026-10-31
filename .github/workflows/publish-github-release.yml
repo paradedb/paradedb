@@ -43,13 +43,13 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 2 # Keep the parent for release-artifact diffs even when no commit is created.
@@ -110,7 +110,7 @@ jobs:
           echo "Input validation passed!"
 
       - name: Configure Release Tag Signing
-        uses: paradedb/actions/setup-git-signing@v14
+        uses: paradedb/actions/setup-git-signing@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
@@ -119,14 +119,14 @@ jobs:
 
       - name: Install Rust
         if: github.repository == 'paradedb/paradedb'
-        uses: actions-rust-lang/setup-rust-toolchain@v2
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
         with:
           cache: false
           rustflags: ""
 
       - name: Install Determinate Nix
         if: github.repository == 'paradedb/paradedb'
-        uses: DeterminateSystems/determinate-nix-action@main
+        uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
@@ -183,7 +183,7 @@ jobs:
 
       - name: Manual Approval Before Release
         if: github.event.inputs.beta != 'true'
-        uses: trstringer/manual-approval@v1
+        uses: trstringer/manual-approval@fa642940caf8412403569b28b2db4a1df08a83a3 # v1
         with:
           secret: ${{ steps.app-token.outputs.token }}
           approvers: pg_search-maintainers
@@ -247,7 +247,7 @@ jobs:
       # and no suffix and marked as a full release for prod releases. The tag has already been
       # created in the step above, so this step just attaches the release to it.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: v${{ github.event.inputs.version }}
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
@@ -373,7 +373,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v14
+        uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

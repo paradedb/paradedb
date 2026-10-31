@@ -941,7 +941,8 @@ fn set_missing_on_terms(
     ) in aggs.iter_mut()
     {
         // A GROUP BY on an array field is an `unnest()`, which yields no row
-        // for an empty or NULL array, so it has no NULL group.
+        // for an empty or NULL array. Only `pdb.agg()` gets here with one, since
+        // plain aggregates over `unnest()` are left to PostgreSQL.
         if let AggregationVariants::Terms(terms) = agg
             && terms.missing.is_none()
             && !(name == GroupedKey::NAME

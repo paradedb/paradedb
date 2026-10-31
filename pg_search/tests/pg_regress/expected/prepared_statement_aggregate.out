@@ -245,19 +245,27 @@ WHERE id @@@ pdb.all()
 GROUP BY tag
 ORDER BY tag;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_unnest;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
- Sort
-   Output: (pdb.agg_fn('UNNEST'::text)), (pdb.agg_fn('COUNT(*)'::text))
-   Sort Key: (pdb.agg_fn('UNNEST'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
-         Output: pdb.agg_fn('UNNEST'::text), pdb.agg_fn('COUNT(*)'::text)
-         Index: prepared_agg_sales_idx
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: tags
-           Aggregate Definition: {"grouped":{"terms":{"field":"tags","segment_size":65000,"size":65000}}}
-(10 rows)
+WARNING:  Aggregate Scan not used: GROUP BY unnest() needs the NULL elements of the array, which the index does not store. To disable this warning: SET paradedb.planner_warnings = 'off' (table: prepared_agg_sales)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: (unnest(tags)), count(*)
+   Group Key: (unnest(prepared_agg_sales.tags))
+   ->  Sort
+         Output: (unnest(tags))
+         Sort Key: (unnest(prepared_agg_sales.tags))
+         ->  ProjectSet
+               Output: unnest(tags)
+               ->  Custom Scan (ParadeDB Base Scan) on public.prepared_agg_sales
+                     Output: tags
+                     Table: prepared_agg_sales
+                     Index: prepared_agg_sales_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(17 rows)
 
 EXECUTE prepared_agg_unnest;
  tag  | count 

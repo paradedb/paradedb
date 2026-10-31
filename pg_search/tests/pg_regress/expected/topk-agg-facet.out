@@ -2458,7 +2458,7 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY p.id DESC, score_plus_count
 LIMIT 3;
-WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, r)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must be fast-field columns, indexed expressions, pdb.score() / sums of pdb.score(), or vector distance expressions (<->, <=>, <#>) (tables: p, r)
                                                                                                                QUERY PLAN                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -2485,7 +2485,7 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY p.id DESC, score_plus_count
 LIMIT 3;
-WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, r)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must be fast-field columns, indexed expressions, pdb.score() / sums of pdb.score(), or vector distance expressions (<->, <=>, <#>) (tables: p, r)
  id | score_plus_count 
 ----+------------------
   5 |               69

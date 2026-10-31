@@ -299,7 +299,6 @@ impl TopKScanExecState {
             Some(state_partition),
             build_arrow_schema(&which_fast_fields),
             state.search_query_input().clone(),
-            None,
             Vec::new(),
             None,
             index_rel.oid().to_u32(),

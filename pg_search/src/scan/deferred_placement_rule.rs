@@ -435,7 +435,10 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
             summary.out_of_order = true;
             let other = if on_left { join.right() } else { join.left() };
             let other_keys = join.on().iter().map(|(l, r)| if on_left { r } else { l });
-            let expansion = equi_join_expansion(other, other_keys, ctx);
+            let expansion = match join.join_type {
+                JoinType::LeftSemi | JoinType::RightSemi => Expansion::No,
+                _ => equi_join_expansion(other, other_keys, ctx),
+            };
             summary.expansion = summary.expansion.worst(expansion);
         } else if let Some(join) = node.downcast_ref::<NestedLoopJoinExec>() {
             if *child_idx == 0 {
@@ -578,7 +581,7 @@ fn is_unique(plan: &Arc<dyn ExecutionPlan>, col: usize, ctx: &mut Context) -> bo
     if let Some(join) = plan.downcast_ref::<RankJoinExec>() {
         return join_keeps_uniqueness(
             join.projection(),
-            JoinType::Inner,
+            join.join_type,
             join.left(),
             join.right(),
             join.on(),
@@ -956,7 +959,6 @@ mod tests {
                 Field::new("title", DataType::Utf8View, true),
             ])),
             SearchQueryInput::All,
-            None,
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
@@ -1120,7 +1122,6 @@ mod tests {
             None,
             Arc::new(Schema::new(schema)),
             SearchQueryInput::All,
-            None,
             columns
                 .iter()
                 .enumerate()
@@ -1244,7 +1245,6 @@ mod tests {
                 deferred_field("title"),
             ])),
             SearchQueryInput::All,
-            None,
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,

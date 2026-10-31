@@ -32,7 +32,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
-use datafusion::physical_expr::{LexOrdering, PhysicalExpr};
+use datafusion::physical_expr::{DynamicFilterTracking, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, Count, ExecutionPlanMetricsSet, MetricBuilder, RecordOutput,
 };
@@ -66,8 +66,8 @@ pub enum LazyParallelMode {
     /// Claims segments from the shared `ParallelScanState` worker pool (when present)
     /// and shares the cross-worker Top-K threshold on the initial window pull.
     WorkerPool,
-    /// Ignores `ParallelScanState` so a single-task scan searches all segments in the
-    /// index without cross-worker threshold sharing.
+    /// Ignores `ParallelScanState` so a single-task `RankJoinExec` or `HashJoinExec` probe
+    /// leaf scan searches all segments in the index without cross-worker threshold sharing.
     Unpartitioned,
 }
 
@@ -671,11 +671,17 @@ impl LazySortStreamState {
         let window_cursor = TopKWindowCursor::new(lazy_sort.initial_window);
 
         // `RankJoinRule` sets `LazyParallelMode::Unpartitioned`, and `RankJoinExec` pushes its
-        // lookup `DynamicFilterPhysicalExpr` to every child that can be `RA`-probed (the scored
-        // child of a root single-sided `NRJN` join has no lookup filter and simply ends its
-        // stream with `None` via `TerminateStream`).
+        // incomplete (`Watching`) lookup `DynamicFilterPhysicalExpr` to every child that can be
+        // `RA`-probed (whereas a `HashJoinExec` build-side filter is already `Static` or
+        // `AllComplete` before the probe stream is polled, and the scored child of a root
+        // single-sided `NRJN` join has no lookup filter).
         let is_rank_join_leaf = matches!(lazy_sort.parallel_mode, LazyParallelMode::Unpartitioned)
-            && !dynamic_filters.is_empty();
+            && dynamic_filters.first().is_some_and(|df| {
+                matches!(
+                    DynamicFilterTracking::classify(df),
+                    DynamicFilterTracking::Watching(_)
+                )
+            });
         let exhaustion_behavior = if !is_rank_join_leaf {
             ExhaustionBehavior::TerminateStream
         } else if is_disjunctive_sa || lazy_sort.initial_window <= 0.0 {

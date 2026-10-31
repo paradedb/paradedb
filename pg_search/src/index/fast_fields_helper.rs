@@ -185,6 +185,7 @@ impl FFHelper {
                 WhichFastField::Ctid
                 | WhichFastField::TableOid
                 | WhichFastField::Score(_)
+                | WhichFastField::VectorScore(_)
                 | WhichFastField::Junk(_)
                 | WhichFastField::DeferredCtid(_)
                 | WhichFastField::MatchTag(_) => FFType::Junk,
@@ -680,6 +681,7 @@ pub enum WhichFastField {
     Ctid,
     TableOid,
     Score(Option<String>),
+    VectorScore(Option<String>),
     Named {
         name: String,
         field_type: SearchFieldType,
@@ -700,6 +702,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
             CTID_FIELD_NAME => WhichFastField::Ctid,
             "tableoid" => WhichFastField::TableOid,
             "pdb.score()" => WhichFastField::Score(None),
+            "pdb.vector_score()" => WhichFastField::VectorScore(None),
             other => {
                 if other.starts_with("junk(") && other.ends_with(")") {
                     WhichFastField::Junk(String::from(
@@ -726,12 +729,23 @@ impl WhichFastField {
         matches!(self, Self::Score(_))
     }
 
+    pub fn vector_score() -> Self {
+        Self::VectorScore(None)
+    }
+
+    pub fn is_vector_score(&self) -> bool {
+        matches!(self, Self::VectorScore(_))
+    }
+
     pub fn name(&self) -> String {
         match self {
             WhichFastField::Junk(s) => format!("junk({s})"),
             WhichFastField::Ctid => CTID_FIELD_NAME.into(),
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score(alias) => alias.as_deref().unwrap_or("pdb.score()").into(),
+            WhichFastField::VectorScore(alias) => {
+                alias.as_deref().unwrap_or("pdb.vector_score()").into()
+            }
             WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
@@ -753,7 +767,7 @@ impl WhichFastField {
         match self {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
-            WhichFastField::Score(_) => DataType::Float32,
+            WhichFastField::Score(_) | WhichFastField::VectorScore(_) => DataType::Float32,
             WhichFastField::Named {
                 delivery: FieldDelivery::Eager,
                 field_type,

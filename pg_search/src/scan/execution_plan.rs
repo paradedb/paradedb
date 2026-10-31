@@ -32,16 +32,15 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::{DataType, SchemaRef, SortOptions};
+use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{
     DynamicFilterTracker, DynamicFilterTracking, EquivalenceProperties, LexOrdering, PhysicalExpr,
-    PhysicalSortExpr,
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
-use datafusion::physical_plan::expressions::{Column, DynamicFilterPhysicalExpr};
+use datafusion::physical_plan::expressions::DynamicFilterPhysicalExpr;
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
@@ -74,7 +73,6 @@ use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::mpp::interrupt::{cancel_pending, interrupted};
 use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
@@ -206,9 +204,6 @@ pub struct PgSearchScanPlan {
     pub table_alias: String,
     /// The JoinScan source identity when visibility is deferred.
     deferred_ctid_plan_position: Option<usize>,
-    /// Sort order preserved across `with_filter_pushdown` rebuilds so the
-    /// rebuilt plan keeps its equivalence properties.
-    sort_order: Option<SortByField>,
     range_split_points: Option<RangeSplitPoints>,
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
@@ -242,7 +237,6 @@ impl Clone for PgSearchScanPlan {
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
-            sort_order: self.sort_order.clone(),
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
@@ -270,7 +264,6 @@ impl PgSearchScanPlan {
     /// * `schema` - Arrow schema for the output
     /// * `resolved_query` - The filter-combined, param-solved query the readers were opened
     ///   with. Used for EXPLAIN and shipped on dispatch.
-    /// * `sort_order` - Optional sort order declaration for equivalence properties
     /// * `partition_count` - Planner-selected number of global partitions. Non-range scans cap
     ///   this at their segment count; range scans may expose more partitions than segments.
     #[allow(clippy::too_many_arguments)]
@@ -278,7 +271,6 @@ impl PgSearchScanPlan {
         state: Option<ScanState>,
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
-        sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
         ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
@@ -304,7 +296,7 @@ impl PgSearchScanPlan {
             .map(|s| s.build(partition_count));
         let partitioning =
             declared_partitioning(&schema, partition_count, range_split_points.as_ref());
-        let eq_properties = build_equivalence_properties(schema, sort_order, None);
+        let eq_properties = build_equivalence_properties(schema, None);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
@@ -372,7 +364,6 @@ impl PgSearchScanPlan {
             indexrelid,
             table_alias: String::new(),
             deferred_ctid_plan_position,
-            sort_order: sort_order.cloned(),
             range_split_points,
             assigned_partition: None,
             partition_segments: None,
@@ -385,6 +376,30 @@ impl PgSearchScanPlan {
     pub fn with_table_alias(mut self, table_alias: impl Into<String>) -> Self {
         self.table_alias = table_alias.into();
         self
+    }
+
+    /// Seeds `lazy_sort` with a vector distance `ORDER BY` pushed down to this scan.
+    /// `RankJoinRule` later populates `ordering`, secondary tie-breakers, and `initial_window`.
+    pub fn with_vector_order_by(mut self, vector_order_by: Option<OrderByInfo>) -> Self {
+        if let Some(order_by) = vector_order_by {
+            self.lazy_sort = Some(LazySortConfig {
+                orderby_info: Some(vec![order_by]),
+                ordering: None,
+                initial_window: 0.0,
+                parallel_mode: LazyParallelMode::Unpartitioned,
+                telemetry: None,
+            });
+        }
+        self
+    }
+
+    pub fn vector_order_by(&self) -> Option<&OrderByInfo> {
+        self.lazy_sort
+            .as_ref()?
+            .orderby_info
+            .as_deref()?
+            .first()
+            .filter(|ob| ob.is_vector_distance())
     }
 
     /// Configures this scan to execute iterative, expanding-window Top-K pulls via
@@ -535,7 +550,6 @@ impl PgSearchScanPlan {
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
-            sort_order: self.sort_order.clone(),
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
@@ -824,7 +838,7 @@ impl PgSearchScanPlan {
             )
         };
         self.properties = Arc::new(PlanProperties::new(
-            build_equivalence_properties(schema, self.sort_order.as_ref(), self.lazy_sort.as_ref()),
+            build_equivalence_properties(schema, self.lazy_sort.as_ref()),
             partitioning,
             EmissionType::Incremental,
             Boundedness::Bounded,
@@ -835,10 +849,14 @@ impl PgSearchScanPlan {
         &self.deferred_fields
     }
 
-    /// Returns `true` if `col_idx` refers to a scalar, non-deferred fast-field column backed by
-    /// a static fast-value type (`U64`, `I64`, `F64`, `Bool`, or `Date`) that can be sorted via
-    /// Tantivy's specialized `SortByStaticFastValue` Top-K collector in `LazySortMode`.
-    pub fn is_sortable_fast_field(&self, col_idx: usize) -> bool {
+    fn check_scalar_search_field(
+        &self,
+        col_idx: usize,
+        pred: impl FnOnce(
+            crate::index::fast_fields_helper::FieldDelivery,
+            &crate::schema::SearchField,
+        ) -> bool,
+    ) -> bool {
         let state_guard = self
             .state
             .lock()
@@ -849,7 +867,7 @@ impl PgSearchScanPlan {
                 let Some(WhichFastField::Named {
                     name,
                     cardinality: crate::index::fast_fields_helper::FieldCardinality::Scalar,
-                    delivery: crate::index::fast_fields_helper::FieldDelivery::Eager,
+                    delivery,
                     ..
                 }) = scan_state.0.scanner_config.which_fast_fields.get(col_idx)
                 else {
@@ -860,10 +878,29 @@ impl PgSearchScanPlan {
                     .reader
                     .schema()
                     .search_field(name)
-                    .is_some_and(|sf| sf.is_numeric_fast() && sf.is_raw_sortable())
+                    .is_some_and(|sf| pred(*delivery, &sf))
             }
             ExecutionState::Uninitialized | ExecutionState::Consumed => false,
         }
+    }
+
+    /// Returns `true` if `col_idx` refers to a scalar, non-deferred fast-field column backed by
+    /// a static fast-value type (`U64`, `I64`, `F64`, `Bool`, or `Date`) that can be sorted via
+    /// Tantivy's specialized `SortByStaticFastValue` Top-K collector in `LazySortMode`.
+    pub fn is_sortable_fast_field(&self, col_idx: usize) -> bool {
+        self.check_scalar_search_field(col_idx, |delivery, sf| {
+            delivery == crate::index::fast_fields_helper::FieldDelivery::Eager
+                && sf.is_numeric_fast()
+                && sf.is_raw_sortable()
+        })
+    }
+
+    /// Returns `true` if `col_idx` refers to a scalar fast-field column that can be used as a
+    /// secondary tie-breaker at `position` (`> 0`) in `LazySortConfig`'s `orderby_info`.
+    pub fn is_sortable_tiebreaker_field(&self, col_idx: usize, position: usize) -> bool {
+        self.check_scalar_search_field(col_idx, |_, sf| {
+            crate::postgres::customscan::orderby::sortable_at_position(sf, position)
+        })
     }
 
     /// Returns `true` if `col_idx` refers to a scalar, eager index column whose name, Arrow
@@ -1053,7 +1090,6 @@ impl PgSearchScanPlan {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             dynamic_filters,
             score_needed: scanner_config.score_needed,
-            sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
             deferred_fields: self.deferred_fields.clone(),
@@ -1258,7 +1294,6 @@ impl PgSearchScanPlan {
             Some(state),
             schema,
             query,
-            descriptor.sort_order.as_ref(),
             deferred,
             ffhelper_arg,
             descriptor.indexrelid,
@@ -1310,9 +1345,7 @@ struct ScanDispatchDescriptor {
     /// with the operator that updates it.
     dynamic_filters: Vec<Vec<u8>>,
     score_needed: bool,
-    sort_order: Option<SortByField>,
     indexrelid: u32,
-    #[serde(default)]
     table_alias: String,
     deferred_fields: Vec<DeferredField>,
     eager_fields: Vec<String>,
@@ -1334,10 +1367,8 @@ struct ScanDispatchDescriptor {
     assigned_partition: Option<usize>,
     /// The leader's segment classification for `assigned_partition`, so a reconstructed task
     /// neither reopens statistics nor classifies again. Absent for unassigned plans.
-    #[serde(default)]
     partition_segments: Option<PartitionSegments>,
     scan_mode: crate::scan::ScanMode,
-    #[serde(default)]
     lazy_sort: Option<LazySortConfigDescriptor>,
 }
 
@@ -1372,42 +1403,17 @@ fn declared_partitioning(
 /// Build `EquivalenceProperties` with the specified sort ordering.
 ///
 /// When `lazy_sort` is `Some`, the stream ordering is governed by `lazy_sort.ordering`
-/// (the cross-segment Top-K collector ordering). Otherwise, if `sort_order` is `Some`,
-/// the returned properties declare that the data is sorted by the specified field.
+/// (the cross-segment Top-K collector ordering).
 fn build_equivalence_properties(
     schema: SchemaRef,
-    sort_order: Option<&SortByField>,
     lazy_sort: Option<&LazySortConfig>,
 ) -> EquivalenceProperties {
-    let mut eq_properties = EquivalenceProperties::new(schema.clone());
+    let mut eq_properties = EquivalenceProperties::new(schema);
 
-    if let Some(lazy_sort) = lazy_sort {
-        if let Some(ref ordering) = lazy_sort.ordering {
-            eq_properties.add_ordering(ordering.iter().cloned());
-        }
-        return eq_properties;
-    }
-
-    if let Some(sort_field) = sort_order {
-        // Find the column index for the sort field
-        let field_name = sort_field.field_name.as_ref();
-        if let Some((col_idx, _)) = schema.column_with_name(field_name) {
-            let sort_options = SortOptions {
-                descending: matches!(sort_field.direction, SortByDirection::Desc),
-                // Tantivy's sort behavior:
-                // - ASC: nulls sort first
-                // - DESC: nulls sort last
-                nulls_first: matches!(sort_field.direction, SortByDirection::Asc),
-            };
-
-            let sort_expr = PhysicalSortExpr {
-                expr: Arc::new(Column::new(field_name, col_idx)),
-                options: sort_options,
-            };
-
-            // Add the ordering to the equivalence properties
-            eq_properties.add_ordering(std::iter::once(sort_expr));
-        }
+    if let Some(lazy_sort) = lazy_sort
+        && let Some(ref ordering) = lazy_sort.ordering
+    {
+        eq_properties.add_ordering(ordering.iter().cloned());
     }
 
     eq_properties
@@ -1696,6 +1702,17 @@ impl ExecutionPlan for PgSearchScanPlan {
         {
             return Err(DataFusionError::Internal(
                 "ScanMode::Disjunctive cannot execute without lazy_sort (RankJoinExec)".to_string(),
+            ));
+        }
+        if lazy_sort.as_ref().is_none_or(|ls| ls.initial_window <= 0.0)
+            && (self.vector_order_by().is_some()
+                || scanner_config
+                    .which_fast_fields
+                    .iter()
+                    .any(|wff| wff.is_vector_score()))
+        {
+            return Err(DataFusionError::Internal(
+                "vector distance ORDER BY cannot execute without lazy_sort".to_string(),
             ));
         }
 
@@ -2419,7 +2436,6 @@ mod tests {
                 None,
                 empty_schema(),
                 SearchQueryInput::All,
-                None,
                 Vec::new(),
                 None,
                 0,
@@ -2453,7 +2469,6 @@ mod tests {
             None,
             empty_schema(),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             0,
@@ -2470,7 +2485,6 @@ mod tests {
             None,
             empty_schema(),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             0,
@@ -2490,7 +2504,6 @@ mod tests {
                 None,
                 empty_schema(),
                 SearchQueryInput::All,
-                None,
                 Vec::new(),
                 None,
                 0,
@@ -2552,7 +2565,6 @@ mod tests {
             None,
             schema,
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             0,

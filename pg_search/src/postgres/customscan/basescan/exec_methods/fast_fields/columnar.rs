@@ -368,7 +368,6 @@ impl ColumnarExecState {
             build_arrow_schema(&self.scanner_fast_fields),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
-            None,
             Vec::new(),
             None,
             index_rel.oid().to_u32(),

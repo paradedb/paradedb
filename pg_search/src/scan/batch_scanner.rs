@@ -109,6 +109,7 @@ fn ensure_column_fetched(
             });
         }
         WhichFastField::Score(_)
+        | WhichFastField::VectorScore(_)
         | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)
@@ -197,13 +198,13 @@ struct ActiveTagScorer {
 
 impl ActiveTagScorer {
     /// Evaluates this tag scorer against a batch of `ids` (within `start_doc..=end_doc`),
-    /// accumulating BM25 scores into `scores` and populating `memoized_columns` if this
-    /// `MatchTag` column is requested.
+    /// accumulating BM25 scores into `scores` (when `Some`) and populating `memoized_columns`
+    /// if this `MatchTag` column is requested.
     fn evaluate_batch(
         &mut self,
         ids: &[DocId],
         end_doc: DocId,
-        scores: &mut [Score],
+        mut scores: Option<&mut [Score]>,
         which_fast_fields: &[WhichFastField],
         memoized_columns: &mut [Option<ArrayRef>],
     ) {
@@ -241,7 +242,9 @@ impl ActiveTagScorer {
                 if let Some(b) = builder.as_mut() {
                     b.set_bit(id_idx, true);
                 }
-                scores[id_idx] += tag_scorer.score();
+                if let Some(scores) = scores.as_mut() {
+                    scores[id_idx] += tag_scorer.score();
+                }
                 tag_scorer.advance();
                 id_idx += 1;
             } else {
@@ -457,33 +460,42 @@ impl Scanner {
         }
     }
 
-    /// Populates `memoized_columns` for requested `MatchTag` and `Score` fields.
+    /// Populates `memoized_columns` for requested `MatchTag`, `Score`, and `VectorScore` fields.
     ///
-    /// For tagged scans, evaluating each match tag mutates `scores` by accumulating
-    /// the matched tag's BM25 score onto the base query score in-place for each row.
+    /// For tagged scans with a BM25 `Score` column, evaluating each match tag mutates `scores`
+    /// by accumulating the matched tag's BM25 score onto the base query score in-place for each row.
     fn populate_scores_for_batch(
         &mut self,
         ids: &[DocId],
         mut scores: Vec<Score>,
         memoized_columns: &mut [Option<ArrayRef>],
     ) {
+        let has_bm25_score = self.which_fast_fields.iter().any(|ff| ff.is_score());
+        let has_vector_score = self.which_fast_fields.iter().any(|ff| ff.is_vector_score());
+        // `SearchIndexScore` only carries a single `f32` score per document (either BM25 or
+        // vector similarity; see <https://github.com/paradedb/paradedb/issues/7141>), so a single
+        // leaf scan must never request both `Score` and `VectorScore`.
+        assert!(
+            !(has_bm25_score && has_vector_score),
+            "Scanner cannot populate both BM25 Score and VectorScore on the same table scan"
+        );
         if !self.active_tag_scorers.is_empty() && !ids.is_empty() {
             let end_doc = *ids.last().unwrap();
             for active_tag in &mut self.active_tag_scorers {
                 active_tag.evaluate_batch(
                     ids,
                     end_doc,
-                    &mut scores,
+                    has_bm25_score.then_some(scores.as_mut_slice()),
                     &self.which_fast_fields,
                     memoized_columns,
                 );
             }
         }
 
-        if self.which_fast_fields.iter().any(|ff| ff.is_score()) {
+        if has_bm25_score || has_vector_score {
             let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
             for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if ff.is_score() {
+                if ff.is_score() || ff.is_vector_score() {
                     memoized_columns[idx] = Some(scores_array.clone());
                 }
             }
@@ -714,7 +726,9 @@ impl Scanner {
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
                 WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
-                WhichFastField::Score(_) => Some(memoized_columns[ff_index].clone().unwrap()),
+                WhichFastField::Score(_) | WhichFastField::VectorScore(_) => {
+                    Some(memoized_columns[ff_index].clone().unwrap())
+                }
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {

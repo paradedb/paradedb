@@ -70,6 +70,7 @@ use crate::postgres::customscan::datafusion::topk_agg::{
 };
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
+    VectorScoreColumn,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
@@ -81,7 +82,8 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
     apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, make_source_unnested_col, translate_pg_node_string,
+    make_source_score_col, make_source_unnested_col, make_source_vector_score_col,
+    translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::heap::VisibilityChecker;
@@ -1675,9 +1677,17 @@ fn resolve_orderby_feature(
         OrderByFeature::NullTest { .. } => {
             unreachable!("NullTest is handled by apply_sort directly")
         }
-        OrderByFeature::VectorDistance { .. } => {
-            unimplemented!("Vector distance ORDER BY is not supported in JoinScan")
-        }
+        OrderByFeature::VectorDistance { rti, .. } => join_clause
+            .plan
+            .output_sources()
+            .iter()
+            .find(|s| s.scan_info.heap_rti == *rti)
+            .map(|source| make_source_vector_score_col(source))
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!(
+                    "JoinScan: could not find source for vector ORDER BY RTI {rti}"
+                ))
+            }),
     }
 }
 
@@ -1928,7 +1938,14 @@ fn build_sort_exprs(
             other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
-        sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
+        if info.is_vector_distance() {
+            // Vector similarity scores produced by `SearchIndexReader::search_top_k_in_segments`
+            // are higher for closer vectors (smaller distance), so ascending vector distance
+            // corresponds to descending similarity score (`DESC NULLS LAST`).
+            sort_exprs.push(expr.sort(false, false));
+        } else {
+            sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
+        }
     }
 
     Ok(sort_exprs)
@@ -2234,6 +2251,7 @@ fn build_source_df<'a>(
             RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
 
         provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
+        provider.set_vector_score_alias(&VectorScoreColumn::new(&display_alias).to_string());
         provider.configure_deferred_outputs(
             &required_early,
             VisibilityMode::Deferred { plan_position },

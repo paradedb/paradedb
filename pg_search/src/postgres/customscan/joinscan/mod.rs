@@ -57,7 +57,9 @@
 //!    respective ParadeDB indexes. This allows the join to be executed entirely within the index:
 //!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
-//!    - ORDER BY columns must be fast fields for efficient sorting
+//!    - ORDER BY expressions must be fast-field columns, indexed expressions, `pdb.score()` /
+//!      sums of `pdb.score()`, or ascending vector distance expressions (`<->`, `<=>`, `<#>`)
+//!      with a `LIMIT` on the preserved side of `INNER` / `SEMI` equi-joins
 //!    - If any required column is not a fast field, we would need to access the heap
 //!      during the join, breaking the late materialization strategy.
 //!
@@ -145,11 +147,11 @@ pub mod scan_state;
 pub mod visibility_filter;
 pub mod window_func;
 
-pub use self::build::{CtidColumn, ScoreColumn};
+pub use self::build::{CtidColumn, ScoreColumn, VectorScoreColumn};
 use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
-    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    get_score_func_rti, pathkey_uses_scores_from_source, validate_order_by,
 };
 use self::privdat::PrivateData;
 use self::window_func::{
@@ -783,8 +785,6 @@ impl JoinScan {
             }
         }
 
-        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
-
         for jk in join_keys {
             let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
             let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
@@ -838,6 +838,8 @@ impl JoinScan {
             .with_distinct(has_distinct)
             .with_window_aggs(window_aggs)
             .with_pg_projected_resnos(pg_projected_resnos);
+
+        validate_order_by(root, &join_clause)?;
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist = source.contains_score((*root).processed_tlist.cast());
@@ -1065,6 +1067,7 @@ impl JoinScan {
             return;
         }
 
+        let estate = state.csstate.ss.ps.state;
         let planstate = state.planstate();
         // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
@@ -1080,6 +1083,14 @@ impl JoinScan {
         custom_state
             .join_clause
             .solve_postgres_expressions(expr_context);
+        for ob in &mut custom_state.join_clause.order_by {
+            unsafe { ob.resolve_query_vector(estate, planstate) };
+        }
+        for source in custom_state.join_clause.plan.sources_mut() {
+            if let Some(ref mut vec_ob) = source.scan_info.vector_order_by {
+                unsafe { vec_ob.resolve_query_vector(estate, planstate) };
+            }
+        }
 
         let bytes = unsafe { Self::rebake_for_mpp(state) };
         // Keep the leader's own execution in sync with what's dispatched to workers:
@@ -1309,6 +1320,36 @@ impl CustomScan for JoinScan {
 
             let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
             build_output_projection(&mut private_data, &updated_entries, root);
+
+            // Replace any remaining non-projected `Pruned` entries (such as resjunk
+            // `ORDER BY` expressions evaluated inside DataFusion) with `NULL` placeholders
+            // in both `scan.plan.targetlist` and `custom_scan_tlist`. This prevents
+            // PostgreSQL's `set_customscan_references` (`search_indexed_tlist_for_non_var`)
+            // from rewriting matching subexpressions in `pg_projected_resnos` to an
+            // `INDEX_VAR` pointing at a `NULL` resjunk slot, while also avoiding unresolved
+            // `Var` references in the absorbed resjunk entry itself.
+            for tlist in [tlist_ptr, node.custom_scan_tlist] {
+                let entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
+                for (idx, col_info) in private_data.output_columns.iter().enumerate() {
+                    if matches!(col_info, privdat::OutputColumnInfo::Pruned)
+                        && let Some(te) = entries.get_ptr(idx)
+                        && !private_data
+                            .join_clause
+                            .pg_projected_resnos
+                            .contains(&(*te).resno)
+                    {
+                        let expr = (*te).expr.cast::<pg_sys::Node>();
+                        if (*expr).type_ != pg_sys::NodeTag::T_Const {
+                            (*te).expr = pg_sys::makeNullConst(
+                                pg_sys::exprType(expr),
+                                pg_sys::exprTypmod(expr),
+                                pg_sys::exprCollation(expr),
+                            )
+                            .cast();
+                        }
+                    }
+                }
+            }
             // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
             // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
             // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,

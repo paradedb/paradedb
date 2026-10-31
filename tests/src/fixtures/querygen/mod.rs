@@ -54,6 +54,7 @@ pub enum IndexExpression {
     UnicodeWordsColumnar,
     Upper,
     LiteralNormalized,
+    VectorCosine,
 }
 
 impl IndexExpression {
@@ -66,6 +67,7 @@ impl IndexExpression {
             }
             Self::Upper => format!("(upper({column_name})::pdb.literal)"),
             Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
+            Self::VectorCosine => format!("{column_name} vector_cosine_ops"),
         }
     }
 }
@@ -413,7 +415,9 @@ ANALYZE {tname};
 "#,
             b_tree_indexes = columns_def
                 .iter()
-                .filter(|c| c.is_indexed)
+                .filter(|c| {
+                    c.is_indexed && c.index_expression != Some(IndexExpression::VectorCosine)
+                })
                 .map(|c| format!(
                     "CREATE INDEX idx{tname}_{name} ON {tname} ({name});",
                     name = c.name

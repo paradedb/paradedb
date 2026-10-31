@@ -136,6 +136,11 @@ fn connection_fixture_lifetime(#[case] exit: Exit, #[values(false, true)] citus:
             assert!(registered(&mut admin, &name));
             if citus {
                 "CREATE EXTENSION citus".execute(&mut conn);
+                // Installing Citus alone does not start its per-database daemon.
+                // Use a distributed table, as the compatibility tests do.
+                "CREATE TABLE fixture_lifetime_citus (id int)".execute(&mut conn);
+                "SELECT create_distributed_table('fixture_lifetime_citus', 'id')"
+                    .execute(&mut conn);
                 // Positive control: a daemon really occupied a worker slot.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                 while citus_workers(&mut admin, &name) == 0 {

@@ -21,19 +21,17 @@ use crate::api::{FieldName, fieldname_typoid};
 use crate::nodecast;
 use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::collation_semantics::collation_supports;
-use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{VarContext, find_json_path};
+use crate::postgres::var::VarContext;
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
 use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
 use std::ffi::CStr;
-use std::sync::OnceLock;
 
 /// Returns `true` when `opno` is the ltree descendant operator `<@` applied to
 /// ltree operands on both sides, e.g. `path <@ 'Top.Science'::ltree`.
@@ -241,8 +239,6 @@ impl PushdownField {
     }
 }
 
-static JSONB_EXISTS_OPOID: OnceLock<pg_sys::Oid> = OnceLock::new();
-
 /// Take a Postgres [`pg_sys::OpExpr`] pointer that is **not** of our `@@@` operator and try  to
 /// convert it into one that is.
 ///
@@ -275,11 +271,6 @@ pub unsafe fn try_build_pushdown_qual(
 
     if let Some(qual) = try_build_const_bool_qual(opexpr_node) {
         return Some(qual);
-    }
-
-    // JSONB ? operator: construct field path from LHS + RHS key.
-    if opexpr.opno() == *JSONB_EXISTS_OPOID.get_or_init(|| operator_oid("?(jsonb,text)")) {
-        return try_pushdown_jsonb_exists(context, rti, lhs, rhs, indexrel);
     }
 
     // ltree descendant operator: `path <@ 'Top.Science'::ltree` lowers to a
@@ -367,52 +358,6 @@ pub unsafe fn try_build_pushdown_qual(
         }
         None => None,
     }
-}
-
-/// Pushdown JSONB `?` (exists) operator to ParadeDB index.
-///
-/// Converts `data ? 'key'` to equivalent of `id @@@ paradedb.exists('data.key')`.
-/// For nested paths like `data->'nested' ? 'key'`, produces `data.nested.key`.
-///
-/// Returns `None` if pushdown not possible (field not indexed, not JSON, or not fast).
-unsafe fn try_pushdown_jsonb_exists(
-    context: &PlannerContext,
-    rti: pg_sys::Index,
-    lhs: *mut pg_sys::Node,
-    rhs: *mut pg_sys::Node,
-    indexrel: &PgSearchRelation,
-) -> Option<Qual> {
-    // Extract the key from RHS (must be a non-null text constant)
-    let rhs_const = nodecast!(Const, T_Const, rhs).filter(|c| !(**c).constisnull)?;
-    let key = String::from_datum((*rhs_const).constvalue, false)?;
-
-    // Build field path: extract JSON path from LHS and append the key
-    let mut path = find_json_path(&context.var_context(), lhs);
-    if path.is_empty() {
-        return None;
-    }
-    path.push(key);
-
-    // Verify the root field is an indexed JSON field with fast=true (required for exists)
-    let field_name = FieldName::from(path.join("."));
-    let search_field = indexrel.schema().ok()?.search_field(field_name.root())?;
-    if !search_field.is_json() || !search_field.is_fast() {
-        return None;
-    }
-
-    // Check if field belongs to this relation or is from a join
-    let varno = (**lhs.collect_nodes::<pg_sys::Var>().first()?).varno as pg_sys::Index;
-    if varno != rti {
-        return Some(Qual::ExternalVar);
-    }
-
-    Some(Qual::PushdownIsNotNull {
-        field: PushdownField {
-            field_name,
-            varno,
-            search_field: Some(search_field),
-        },
-    })
 }
 
 /// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`

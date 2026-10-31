@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Test JSON ? operator pushsown 
 -- =====================================================================
--- The JSONB ? operator should be equivalent to paradedb.exists()
+-- The index cannot answer ? exactly, so it runs as a heap filter in the custom scan
 DROP TABLE IF EXISTS jsonb_exists_test;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE jsonb_exists_test (
@@ -17,20 +17,20 @@ INSERT INTO jsonb_exists_test (description, data) VALUES ('CTO', '{"first_name":
 INSERT INTO jsonb_exists_test (description, data) VALUES ('Intern', '{"address": {"city": "New York", "zip": "10001"}}');
 CREATE INDEX idx_jsonb_exists_test ON jsonb_exists_test USING paradedb (id, description, (data::pdb.literal));
 -- Test 1: Basic JSONB ? operator - should return rows where data has 'first_name' key
--- This should be equivalent to: id @@@ paradedb.exists('data.first_name')
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() ORDER BY id;
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.07..10.08 rows=3 width=68)
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=10.02..10.03 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.04 rows=3 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"exists":{"field":"data.first_name"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-(9 rows)
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(data ? 'first_name'::text)"}]}}]}}
+(10 rows)
 
 SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() ORDER BY id;
  id |    description    |                     data                      
@@ -42,18 +42,19 @@ SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() O
 
 -- Test 2: JSONB ? operator with OR condition
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'last_name' OR description ||| 'CEO' ORDER BY id;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.04..10.04 rows=1 width=68)
+                                                                                                                                                               QUERY PLAN                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=10.02..10.03 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.03 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"should":[{"exists":{"field":"data.last_name"}},{"with_index":{"query":{"match":{"field":"description","value":"CEO","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(9 rows)
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(data ? 'last_name'::text)"}]}},{"with_index":{"query":{"match":{"field":"description","value":"CEO","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(10 rows)
 
 SELECT * FROM jsonb_exists_test WHERE data ? 'last_name' OR description ||| 'CEO' ORDER BY id;
  id |    description    |                     data                      
@@ -66,18 +67,19 @@ SELECT * FROM jsonb_exists_test WHERE data ? 'last_name' OR description ||| 'CEO
 
 -- Test 3: JSONB ? operator with AND condition
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND data ? 'last_name'  AND id @@@ pdb.all() ORDER BY id;
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.04..10.04 rows=2 width=68)
+                                                                                                                                                        QUERY PLAN                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=10.02..10.03 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.03 rows=2 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"exists":{"field":"data.first_name"}},{"exists":{"field":"data.last_name"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-(9 rows)
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(data ? 'first_name'::text)"}]}},"always_filters":[{"heap_filter":"(data ? 'last_name'::text)"}]}}]}}
+(10 rows)
 
 SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND data ? 'last_name'  AND id @@@ pdb.all() ORDER BY id;
  id |    description    |                     data                      
@@ -89,18 +91,19 @@ SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND data ? 'last_name'
 -- Test 5: JSONB ? with nested path using -> operator
 -- data->'address' ? 'city' checks if 'city' key exists in data.address
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.all() ORDER BY id;
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.03..10.03 rows=1 width=68)
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=10.02..10.03 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.02 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"exists":{"field":"data.address.city"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-(9 rows)
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"((data -> 'address'::text) ? 'city'::text)"}]}}]}}
+(10 rows)
 
 SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.all() ORDER BY id;
  id | description |                       data                        
@@ -110,17 +113,17 @@ SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.al
 
 -- Test 7: NOT EXISTS using JSONB ? operator
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.all() ORDER BY id;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.17..10.18 rows=6 width=68)
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=10.02..10.03 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.09 rows=6 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"data.first_name"}}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(data ? 'first_name'::text)"}]}}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
 (9 rows)
 
 SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.all() ORDER BY id;
@@ -131,5 +134,55 @@ SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.a
   6 | Intern      | {"address": {"zip": "10001", "city": "New York"}}
 (3 rows)
 
+-- Test 8: ? matches PostgreSQL for arrays, string scalars, dotted keys,
+-- null values and arrays of objects (#7027)
+CREATE TABLE jsonb_exists_shapes (id int PRIMARY KEY, body text, data jsonb);
+INSERT INTO jsonb_exists_shapes VALUES
+  (1, 'array foo', '["foo","bar"]'),
+  (2, 'array bar', '["bar"]'),
+  (3, 'object foo', '{"foo":1,"nested":{"foo":true}}'),
+  (4, 'object other', '{"other":1}'),
+  (5, 'scalar foo', '"foo"'),
+  (6, 'sql null', NULL),
+  (7, 'literal dot', '{"a.b":1}'),
+  (8, 'nested dot', '{"a":{"b":1}}'),
+  (9, 'null value', '{"foo":null}'),
+  (10, 'array of objects', '[{"foo":1}]');
+CREATE INDEX jsonb_exists_shapes_idx ON jsonb_exists_shapes USING paradedb (id, body, data)
+  WITH (json_fields = '{"data": {"fast": true}}');
+SET paradedb.planner_warnings = 'off';
+EXPLAIN (COSTS OFF) SELECT id FROM jsonb_exists_shapes WHERE data ? 'foo' AND id @@@ pdb.all();
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on jsonb_exists_shapes
+   Table: jsonb_exists_shapes
+   Index: jsonb_exists_shapes_idx
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Full Index Scan: true
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(data ? 'foo'::text)"}]}}]}}
+(8 rows)
+
+SELECT array_agg(id ORDER BY id) FROM jsonb_exists_shapes WHERE data ? 'foo' AND id @@@ pdb.all();
+ array_agg 
+-----------
+ {1,3,5,9}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM jsonb_exists_shapes WHERE data ? 'bar' AND id @@@ pdb.all();
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM jsonb_exists_shapes WHERE data ? 'a.b' AND id @@@ pdb.all();
+ array_agg 
+-----------
+ {7}
+(1 row)
+
+RESET paradedb.planner_warnings;
+DROP TABLE jsonb_exists_shapes;
 -- Clean up
 DROP TABLE IF EXISTS jsonb_exists_test;

@@ -303,6 +303,8 @@ pub(crate) fn build_mpp_session_context(
         // https://github.com/paradedb/datafusion-distributed/issues/107
         .with_distributed_remote_dynamic_filters(false)
         .expect("with_distributed_remote_dynamic_filters")
+        .with_distributed_dynamic_filter_collection(false)
+        .expect("with_distributed_dynamic_filter_collection")
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }
@@ -487,12 +489,8 @@ impl WorkerSessionBuilder for MppWorkerSessionBuilder {
     }
 }
 
-/// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
-/// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
-/// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
-/// current GUC settings (`apply_paradedb_session_config`) once per query.
-fn worker_base_session_state() -> SessionState {
-    static BASE_STATE: std::sync::LazyLock<SessionState> = std::sync::LazyLock::new(|| {
+static WORKER_BASE_SESSION_STATE: std::sync::LazyLock<SessionState> =
+    std::sync::LazyLock::new(|| {
         let mut builder = SessionStateBuilder::new()
             .with_default_features()
             .with_analyzer_rules(vec![])
@@ -508,9 +506,22 @@ fn worker_base_session_state() -> SessionState {
             .extend(all_pg_search_udafs());
         builder.build()
     });
-    let mut cfg = BASE_STATE.config().clone();
+
+/// Pre-initializes [`WORKER_BASE_SESSION_STATE`] in `postmaster` during `_PG_init` so forked
+/// parallel background workers inherit the built function registries via copy-on-write without
+/// paying `SessionStateBuilder::with_default_features` startup cost on each query.
+pub fn init_worker_base_session_state() {
+    std::sync::LazyLock::force(&WORKER_BASE_SESSION_STATE);
+}
+
+/// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
+/// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
+/// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
+/// current GUC settings (`apply_paradedb_session_config`) once per query.
+fn worker_base_session_state() -> SessionState {
+    let mut cfg = WORKER_BASE_SESSION_STATE.config().clone();
     crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(&mut cfg);
-    SessionStateBuilder::new_from_existing(BASE_STATE.clone())
+    SessionStateBuilder::new_from_existing(WORKER_BASE_SESSION_STATE.clone())
         .with_config(cfg)
         .build()
 }

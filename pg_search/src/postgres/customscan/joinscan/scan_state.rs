@@ -487,6 +487,84 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
     state.optimizer().optimize(planted, &state, |_, _| {})
 }
 
+static BASE_SESSION_STATE: std::sync::LazyLock<datafusion::execution::SessionState> =
+    std::sync::LazyLock::new(|| {
+        use super::visibility_filter::VisibilityFilterOptimizerRule;
+        use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
+        use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
+        let mut builder = SessionStateBuilder::new().with_default_features();
+
+        builder
+            .aggregate_functions()
+            .get_or_insert_with(Vec::new)
+            .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
+        builder
+            .scalar_functions()
+            .get_or_insert_with(Vec::new)
+            .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
+
+        let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+        let propagate_empty_pos = optimizer_rules
+            .iter()
+            .position(|r| r.name() == "propagate_empty_relation")
+            .expect("propagate_empty_relation optimizer rule not found");
+        optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
+
+        let pos = optimizer_rules
+            .iter()
+            .position(|r| r.name() == "optimize_projections")
+            .expect("optimize_projections optimizer rule not found");
+        // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
+        // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
+        // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+        // DataFusion dropping `projection_beneficial` across extension nodes).
+        // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+        // above `VisibilityFilterNode`.
+        optimizer_rules.insert(
+            pos,
+            Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
+        );
+        optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
+        optimizer_rules.push(Arc::new(
+            super::range_partitioning_rule::RangePartitioningRule::new(),
+        ));
+        builder = builder.with_optimizer_rules(optimizer_rules);
+
+        builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
+
+        let mut physical_rules =
+            datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+        let co_partitioned_rule =
+            Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+        let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
+        let pos = physical_rules
+            .iter()
+            .position(|r| r.name() == "EnsureRequirements")
+            .expect("EnsureRequirements physical optimizer rule not found");
+        physical_rules.insert(pos, co_partitioned_rule);
+        physical_rules.insert(pos + 1, rank_join_rule);
+        builder = builder.with_physical_optimizer_rules(physical_rules);
+
+        // Placement reads the final join sides and modes, so it follows the co-partitioning
+        // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
+        builder
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::deferred_placement_rule::DeferredPlacementRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+            .build()
+    });
+
+/// Pre-initializes [`BASE_SESSION_STATE`] in `postmaster` during `_PG_init` so forked backends
+/// inherit the built function registries and optimizer rule lists via copy-on-write.
+pub fn init_base_session_state() {
+    std::sync::LazyLock::force(&BASE_SESSION_STATE);
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - `PgSearchQueryPlanner`
@@ -504,74 +582,12 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .optimizer
         .enable_round_robin_repartition = false;
 
-    use super::visibility_filter::VisibilityFilterOptimizerRule;
-    use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-
-    let mut builder = SessionStateBuilder::new()
-        .with_config(config)
-        .with_default_features();
-
+    let mut builder =
+        SessionStateBuilder::new_from_existing(BASE_SESSION_STATE.clone()).with_config(config);
+    // Reset `catalog_list` so `builder.build()` creates a fresh per-session catalog rather than
+    // sharing `BASE_SESSION_STATE`'s catalog across queries that call `register_source_table`.
+    *builder.catalog_list() = None;
     builder
-        .aggregate_functions()
-        .get_or_insert_with(Vec::new)
-        .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
-    builder
-        .scalar_functions()
-        .get_or_insert_with(Vec::new)
-        .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
-
-    let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
-    let propagate_empty_pos = optimizer_rules
-        .iter()
-        .position(|r| r.name() == "propagate_empty_relation")
-        .expect("propagate_empty_relation optimizer rule not found");
-    optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
-
-    let pos = optimizer_rules
-        .iter()
-        .position(|r| r.name() == "optimize_projections")
-        .expect("optimize_projections optimizer rule not found");
-    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
-    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
-    // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
-    // DataFusion dropping `projection_beneficial` across extension nodes).
-    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
-    // above `VisibilityFilterNode`.
-    optimizer_rules.insert(
-        pos,
-        Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
-    );
-    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
-    optimizer_rules.push(Arc::new(
-        super::range_partitioning_rule::RangePartitioningRule::new(),
-    ));
-    builder = builder.with_optimizer_rules(optimizer_rules);
-
-    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
-
-    let mut physical_rules =
-        datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
-    let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
-    let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
-    let pos = physical_rules
-        .iter()
-        .position(|r| r.name() == "EnsureRequirements")
-        .expect("EnsureRequirements physical optimizer rule not found");
-    physical_rules.insert(pos, co_partitioned_rule);
-    physical_rules.insert(pos + 1, rank_join_rule);
-    builder = builder.with_physical_optimizer_rules(physical_rules);
-
-    // Placement reads the final join sides and modes, so it follows the co-partitioning
-    // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
-    builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_placement_rule::DeferredPlacementRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
 /// Applies ParadeDB's optimizer GUC settings (`hash_join_inlist_pushdown_max_size`,

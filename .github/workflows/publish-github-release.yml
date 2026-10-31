@@ -248,6 +248,7 @@ jobs:
           INPUT_SECRET: ${{ steps.app-token.outputs.token }}
           INPUT_APPROVERS: pg_search-maintainers
           INPUT_MINIMUM-APPROVALS: "1"
+          INPUT_EXCLUDE-WORKFLOW-INITIATOR-AS-APPROVER: "false"
           INPUT_ISSUE-TITLE: "Release v${{ github.event.inputs.version }}?"
           INPUT_ISSUE-BODY: ${{ steps.approval_details.outputs.issue_body }}
 

@@ -96,6 +96,7 @@ pub fn index_settings(
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
+        vector_centroid_quantization: crate::gucs::vector_centroid_quantization(),
         vector_quantization,
         ..IndexSettings::default()
     })

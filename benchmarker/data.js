@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793405351660,
+  "lastUpdate": 1793405591397,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -59173,6 +59173,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022131125-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b16358a4e0be69719b17097b21bfc2a5368969a",
+          "message": "fix: raise on float division by zero in Join Scan (#7104)\n\n# Ticket(s) Closed\n\n- Closes #6930\n\n## What\n\nFloat division by zero inside an expression absorbed by the Join Scan\nnow raises PostgreSQL's `division by zero` instead of evaluating to\n`Infinity`.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps `/` to DataFusion's\n`Operator::Divide`. For floats, Arrow follows IEEE-754 and returns\n`inf`, `-inf` or `NaN` for a zero divisor without an error, while\n`float8div` and `float4div` raise one.\n\n## How\n\n`translate_op_expr` declines `/` when the operator's result type is\n`float4` or `float8`. `translate` then wraps the subtree with the\nexisting `try_wrap_as_udf` fallback, so PostgreSQL evaluates the\ndivision. The expression is still absorbed by the Join Scan, as the\nEXPLAIN in the new test shows.\n\nInteger division is unchanged, since Arrow's integer kernel\n(`div_checked`) already errors on a zero divisor.\n\nThe trade-off is that float division now runs through the UDF rather\nthan a native Arrow kernel. Two existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `topk-agg-facet`).\n\nThis touches the same spot in `translate_op_expr`, and the same two\nexpected files, as #7103 (integer overflow, #6931). Whichever merges\nsecond needs a small rebase.\n\n## Tests\n\n- New regression test `issue_6930` with the issue's repro, plus `float4`\ndivision in both directions and a non-zero control. Without the fix, the\nzero-divisor queries return `Infinity` or keep the row.\n- Full `cargo pgrx regress` on PG18 passes, after the two plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass.",
+          "timestamp": "2026-10-30T16:39:02-07:00",
+          "tree_id": "7ce8dd9f1baea88c770db8b29daf69971d952f3b",
+          "url": "https://github.com/paradedb/paradedb/commit/5b16358a4e0be69719b17097b21bfc2a5368969a"
+        },
+        "date": 1793405587100,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.397,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 12.584,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 11.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.199,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 12.502,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 19.149,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 20.121,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 20.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 16.674,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 17.719,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.093,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.697,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.116,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 16.664,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 17.719,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.167,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.326,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.332,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 9.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.507,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 10.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 18.961,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 19.885,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 20.456,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13021992112-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -61601,6 +61761,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022131125-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b16358a4e0be69719b17097b21bfc2a5368969a",
+          "message": "fix: raise on float division by zero in Join Scan (#7104)\n\n# Ticket(s) Closed\n\n- Closes #6930\n\n## What\n\nFloat division by zero inside an expression absorbed by the Join Scan\nnow raises PostgreSQL's `division by zero` instead of evaluating to\n`Infinity`.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps `/` to DataFusion's\n`Operator::Divide`. For floats, Arrow follows IEEE-754 and returns\n`inf`, `-inf` or `NaN` for a zero divisor without an error, while\n`float8div` and `float4div` raise one.\n\n## How\n\n`translate_op_expr` declines `/` when the operator's result type is\n`float4` or `float8`. `translate` then wraps the subtree with the\nexisting `try_wrap_as_udf` fallback, so PostgreSQL evaluates the\ndivision. The expression is still absorbed by the Join Scan, as the\nEXPLAIN in the new test shows.\n\nInteger division is unchanged, since Arrow's integer kernel\n(`div_checked`) already errors on a zero divisor.\n\nThe trade-off is that float division now runs through the UDF rather\nthan a native Arrow kernel. Two existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `topk-agg-facet`).\n\nThis touches the same spot in `translate_op_expr`, and the same two\nexpected files, as #7103 (integer overflow, #6931). Whichever merges\nsecond needs a small rebase.\n\n## Tests\n\n- New regression test `issue_6930` with the issue's repro, plus `float4`\ndivision in both directions and a non-zero control. Without the fix, the\nzero-divisor queries return `Infinity` or keep the row.\n- Full `cargo pgrx regress` on PG18 passes, after the two plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass.",
+          "timestamp": "2026-10-30T16:39:02-07:00",
+          "tree_id": "7ce8dd9f1baea88c770db8b29daf69971d952f3b",
+          "url": "https://github.com/paradedb/paradedb/commit/5b16358a4e0be69719b17097b21bfc2a5368969a"
+        },
+        "date": 1793405588827,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 87.28961249718954,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 87.1099481912571,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 52.25340806979664,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 61.10877959533396,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 61.028342292997365,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 61.14324035107775,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 118.96446034839288,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 101.948617336184,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 52.46908189451396,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13021992112-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -62649,6 +62879,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022131125-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b16358a4e0be69719b17097b21bfc2a5368969a",
+          "message": "fix: raise on float division by zero in Join Scan (#7104)\n\n# Ticket(s) Closed\n\n- Closes #6930\n\n## What\n\nFloat division by zero inside an expression absorbed by the Join Scan\nnow raises PostgreSQL's `division by zero` instead of evaluating to\n`Infinity`.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps `/` to DataFusion's\n`Operator::Divide`. For floats, Arrow follows IEEE-754 and returns\n`inf`, `-inf` or `NaN` for a zero divisor without an error, while\n`float8div` and `float4div` raise one.\n\n## How\n\n`translate_op_expr` declines `/` when the operator's result type is\n`float4` or `float8`. `translate` then wraps the subtree with the\nexisting `try_wrap_as_udf` fallback, so PostgreSQL evaluates the\ndivision. The expression is still absorbed by the Join Scan, as the\nEXPLAIN in the new test shows.\n\nInteger division is unchanged, since Arrow's integer kernel\n(`div_checked`) already errors on a zero divisor.\n\nThe trade-off is that float division now runs through the UDF rather\nthan a native Arrow kernel. Two existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `topk-agg-facet`).\n\nThis touches the same spot in `translate_op_expr`, and the same two\nexpected files, as #7103 (integer overflow, #6931). Whichever merges\nsecond needs a small rebase.\n\n## Tests\n\n- New regression test `issue_6930` with the issue's repro, plus `float4`\ndivision in both directions and a non-zero control. Without the fix, the\nzero-divisor queries return `Infinity` or keep the row.\n- Full `cargo pgrx regress` on PG18 passes, after the two plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass.",
+          "timestamp": "2026-10-30T16:39:02-07:00",
+          "tree_id": "7ce8dd9f1baea88c770db8b29daf69971d952f3b",
+          "url": "https://github.com/paradedb/paradedb/commit/5b16358a4e0be69719b17097b21bfc2a5368969a"
+        },
+        "date": 1793405591390,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.65611209835,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.6171875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13021992112-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -64119,6 +64384,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022131125-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b16358a4e0be69719b17097b21bfc2a5368969a",
+          "message": "fix: raise on float division by zero in Join Scan (#7104)\n\n# Ticket(s) Closed\n\n- Closes #6930\n\n## What\n\nFloat division by zero inside an expression absorbed by the Join Scan\nnow raises PostgreSQL's `division by zero` instead of evaluating to\n`Infinity`.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps `/` to DataFusion's\n`Operator::Divide`. For floats, Arrow follows IEEE-754 and returns\n`inf`, `-inf` or `NaN` for a zero divisor without an error, while\n`float8div` and `float4div` raise one.\n\n## How\n\n`translate_op_expr` declines `/` when the operator's result type is\n`float4` or `float8`. `translate` then wraps the subtree with the\nexisting `try_wrap_as_udf` fallback, so PostgreSQL evaluates the\ndivision. The expression is still absorbed by the Join Scan, as the\nEXPLAIN in the new test shows.\n\nInteger division is unchanged, since Arrow's integer kernel\n(`div_checked`) already errors on a zero divisor.\n\nThe trade-off is that float division now runs through the UDF rather\nthan a native Arrow kernel. Two existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `topk-agg-facet`).\n\nThis touches the same spot in `translate_op_expr`, and the same two\nexpected files, as #7103 (integer overflow, #6931). Whichever merges\nsecond needs a small rebase.\n\n## Tests\n\n- New regression test `issue_6930` with the issue's repro, plus `float4`\ndivision in both directions and a non-zero control. Without the fix, the\nzero-divisor queries return `Infinity` or keep the row.\n- Full `cargo pgrx regress` on PG18 passes, after the two plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass.",
+          "timestamp": "2026-10-30T16:39:02-07:00",
+          "tree_id": "7ce8dd9f1baea88c770db8b29daf69971d952f3b",
+          "url": "https://github.com/paradedb/paradedb/commit/5b16358a4e0be69719b17097b21bfc2a5368969a"
+        },
+        "date": 1793405590074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 17919.25,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 17919.25,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 48900.19,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 39799.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 39799.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 39799.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 6368.86,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 10165.14,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 33276.32,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13021992112-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

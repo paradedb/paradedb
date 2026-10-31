@@ -39,13 +39,13 @@ jobs:
 
     steps:
       - name: Checkout Workflow
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       # Keep image assembly from the workflow ref even when building an older SHA.
       - name: Prepare Image Context
@@ -54,27 +54,27 @@ jobs:
           cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
 
       - name: Checkout Source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
 
       - name: Set Up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Resolve Image Tag
         id: image
         run: echo "tag=$GITHUB_REPOSITORY:18-$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Build and Publish Cloud Test Image
         id: published-image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: ${{ runner.temp }}/source-image/Dockerfile
@@ -87,7 +87,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2; Upstream does not publish a moving @v4 tag
 
       - name: Sign Cloud Test Image
         env:

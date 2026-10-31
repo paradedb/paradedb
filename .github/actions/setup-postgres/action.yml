@@ -47,7 +47,7 @@ runs:
 
     - name: Install PostgreSQL Packages
       if: inputs.pg_impl == 'system'
-      uses: paradedb/actions/apt-install@v14
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
       with:
         packages: >-
           postgresql-${{ inputs.pg_version }}

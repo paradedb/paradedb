@@ -81,7 +81,7 @@ jobs:
         run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$BENCHMARK_LABEL" || true
 
       - name: Checkout extension to benchmark
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.BENCHMARK_REF }}
           persist-credentials: false
@@ -94,7 +94,7 @@ jobs:
 
       - name: Checkout benchmark workflow for backfills
         if: inputs.commit != ''
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           path: benchmark-workflow
@@ -111,7 +111,7 @@ jobs:
         run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 
       - name: Configure RunsOn caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Set up benchmark cluster
         uses: ./.github/actions/setup-benchmark-cluster
@@ -120,7 +120,7 @@ jobs:
 
       - name: Create pdbench checkout token
         id: pdbench_token
-        uses: actions/create-github-app-token@v3.2.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -129,7 +129,7 @@ jobs:
           permission-contents: read
 
       - name: Checkout pdbench
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: paradedb/pdbench
           ref: ${{ env.PDBENCH_REF }}
@@ -141,7 +141,7 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal
 
       - name: Cache pdbench build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: pdbench -> target
 
@@ -157,7 +157,7 @@ jobs:
           ref: ${{ env.BENCHMARKER_REF }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
@@ -207,7 +207,7 @@ jobs:
             | tee benchmark-artifacts/index-vacuum.log
 
       - name: Install fixture reader
-        uses: paradedb/actions/apt-install@v14
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: python3-venv
 
@@ -252,7 +252,7 @@ jobs:
 
       - name: Find mainline pdbench baseline
         id: pdbench_baseline
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const name = `cohere-${process.env.COHERE_SIZE}-diagnostics`;
@@ -283,7 +283,7 @@ jobs:
 
       - name: Download mainline pdbench baseline
         if: steps.pdbench_baseline.outputs.run_id != ''
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: cohere-${{ matrix.size }}-diagnostics
           path: benchmark-baseline
@@ -333,7 +333,7 @@ jobs:
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cohere-${{ matrix.size }}-diagnostics
           path: benchmark-artifacts/

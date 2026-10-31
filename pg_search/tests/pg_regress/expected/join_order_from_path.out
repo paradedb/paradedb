@@ -223,8 +223,8 @@ JOIN jo_reviews r ON r.book_id = b.id
 JOIN jo_authors a ON a.id > b.author_id + r.rating
 WHERE a.bio @@@ 'orchid'
 ORDER BY b.id, r.id LIMIT 5;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (b INNER r) INNER a
    Join Cond: r.book_id = b.id
@@ -239,7 +239,7 @@ ORDER BY b.id, r.id LIMIT 5;
      :         NestedLoopJoinExec: join_type=Inner, filter=id@0 > join_proj_push_down_1@1, projection=[id@0, ctid_2@1, ctid_0@2, author_id@3, id@4, ctid_1@5, rating@6, book_id@7, id@8]
      :           CooperativeExec
      :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"orchid","lenient":null,"conjunction_mode":null}}}}
-     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, author_id@1 as author_id, id@2 as id, ctid_1@3 as ctid_1, rating@4 as rating, book_id@5 as book_id, id@6 as id, author_id@1 + rating@4 as join_proj_push_down_1]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, author_id@1 as author_id, id@2 as id, ctid_1@3 as ctid_1, rating@4 as rating, book_id@5 as book_id, id@6 as id, CAST(pdb_eval_expr_opexpr_6edbbeb8(author_id@1, rating@4) AS Int64) as join_proj_push_down_1]
      :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, book_id@2)]
      :               CooperativeExec
      :                 PgSearchScan: table=b, segments=1, query="all"

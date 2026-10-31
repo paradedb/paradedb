@@ -49,7 +49,7 @@ To run Stressgres from within Docker, use:
 docker run --rm paradedb/stressgres:latest /symbols/stressgres headless stressgres/suites/single-node-planner-paths.toml
 ```
 
-The source, including all suites, is included in the Docker image. The image prebuilds Stressgres at `/symbols/stressgres` and can run in air-gapped environments like Antithesis.
+The image includes the suites and a prebuilt Stressgres binary at `/symbols/stressgres`, and can run in air-gapped environments like Antithesis. It disables the `graph` feature to omit native font dependencies.
 
 For an interactive shell:
 

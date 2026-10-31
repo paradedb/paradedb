@@ -1345,6 +1345,346 @@ ORDER BY category;
 DROP TABLE IF EXISTS dist_inh_child CASCADE;
 DROP TABLE IF EXISTS dist_inh_parent CASCADE;
 -- =============================================================================
+-- TEST 22: array keys must use the original heap values (#6631)
+-- The index loses empty arrays, NULL elements, dimensions, and lower bounds.
+-- It must not supply whole-array DISTINCT or GROUP BY keys.
+-- =============================================================================
+SET datestyle TO 'ISO, MDY';
+CREATE DOMAIN dist_int_array AS INT[];
+CREATE TABLE dist_arrays (id INT PRIMARY KEY, ia INT[], ta TEXT[], da dist_int_array, dates DATE[]);
+INSERT INTO dist_arrays (id, ia, ta) VALUES
+    (1, ARRAY[3, 1, 1], ARRAY['c', 'a', 'a']),
+    (2, '{}', '{}'),
+    (3, NULL, NULL),
+    (4, ARRAY[NULL, 7], ARRAY[NULL, 'g']),
+    (5, ARRAY[NULL]::int[], ARRAY[NULL]::text[]),
+    (6, ARRAY[7], ARRAY['g']),
+    (7, '[0:0]={7}', '[0:0]={g}'),
+    (8, '{{3,1,1}}', '{{c,a,a}}');
+UPDATE dist_arrays SET da = ia, dates = CASE id
+    WHEN 1 THEN ARRAY[DATE '2026-01-03', DATE '2026-01-01', DATE '2026-01-01']
+    WHEN 2 THEN '{}'::date[]
+    WHEN 3 THEN NULL
+    ELSE ARRAY[NULL, DATE '2026-01-07'] END;
+CREATE INDEX dist_arrays_idx ON dist_arrays
+USING paradedb (id, ia, (ta::pdb.literal), da, dates);
+\pset null '<NULL>'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: id, ia
+         ->  Custom Scan (ParadeDB Base Scan) on dist_arrays
+               Table: dist_arrays
+               Index: dist_arrays_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
+ id |    ia     
+----+-----------
+  1 | {3,1,1}
+  2 | {}
+  3 | <NULL>
+  4 | {NULL,7}
+  5 | {NULL}
+  6 | {7}
+  7 | [0:0]={7}
+  8 | {{3,1,1}}
+(8 rows)
+
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
+    ia     
+-----------
+ {}
+ {3,1,1}
+ {{3,1,1}}
+ [0:0]={7}
+ {7}
+ {NULL}
+ {NULL,7}
+ <NULL>
+(8 rows)
+
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ta is an array, which is not read from the index (table: dist_arrays)
+    ta     
+-----------
+ {}
+ {c,a,a}
+ {{c,a,a}}
+ [0:0]={g}
+ {g}
+ {NULL}
+ {NULL,g}
+ <NULL>
+(8 rows)
+
+-- Exceed the bucket cap, and also check a functionally dependent array output.
+SET paradedb.max_term_agg_buckets TO 2;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ GroupAggregate
+   Group Key: ia
+   ->  Sort
+         Sort Key: ia
+         ->  Custom Scan (ParadeDB Base Scan) on dist_arrays
+               Table: dist_arrays
+               Index: dist_arrays_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
+    ia     | count 
+-----------+-------
+ {}        |     1
+ {3,1,1}   |     1
+ {{3,1,1}} |     1
+ [0:0]={7} |     1
+ {7}       |     1
+ {NULL}    |     1
+ {NULL,7}  |     1
+ <NULL>    |     1
+(8 rows)
+
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ta is an array, which is not read from the index (table: dist_arrays)
+    ta     | count 
+-----------+-------
+ {}        |     1
+ {c,a,a}   |     1
+ {{c,a,a}} |     1
+ [0:0]={g} |     1
+ {g}       |     1
+ {NULL}    |     1
+ {NULL,g}  |     1
+ <NULL>    |     1
+(8 rows)
+
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column ia is an array, which is not read from the index (table: dist_arrays)
+ id |    ia     | count 
+----+-----------+-------
+  1 | {3,1,1}   |     1
+  2 | {}        |     1
+  3 | <NULL>    |     1
+  4 | {NULL,7}  |     1
+  5 | {NULL}    |     1
+  6 | {7}       |     1
+  7 | [0:0]={7} |     1
+  8 | {{3,1,1}} |     1
+(8 rows)
+
+-- Array expressions must also fall back, including scalar subscripts and
+-- binary-compatible domain casts. Date slices must not reach Arrow projection.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ GroupAggregate
+   Group Key: (ia[1:2])
+   ->  Sort
+         Sort Key: (ia[1:2])
+         ->  Custom Scan (ParadeDB Base Scan) on dist_arrays
+               Table: dist_arrays
+               Index: dist_arrays_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
+    ia     | count 
+-----------+-------
+ {}        |     2
+ {3,1}     |     1
+ {{3,1,1}} |     1
+ {7}       |     1
+ {NULL}    |     1
+ {NULL,7}  |     1
+ <NULL>    |     1
+(7 rows)
+
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
+   ia   | count 
+--------+-------
+      3 |     1
+      7 |     1
+ <NULL> |     6
+(3 rows)
+
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column da is an array, which is not read from the index (table: dist_arrays)
+    da     | count 
+-----------+-------
+ {}        |     1
+ {3,1,1}   |     1
+ {{3,1,1}} |     1
+ [0:0]={7} |     1
+ {7}       |     1
+ {NULL}    |     1
+ {NULL,7}  |     1
+ <NULL>    |     1
+(8 rows)
+
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dates is an array, which is not read from the index (table: dist_arrays)
+          dates          | count 
+-------------------------+-------
+ {}                      |     1
+ {2026-01-03,2026-01-01} |     1
+ {NULL,2026-01-07}       |     5
+ <NULL>                  |     1
+(4 rows)
+
+-- Compare with PostgreSQL aggregation.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+ id |    ia     
+----+-----------
+  1 | {3,1,1}
+  2 | {}
+  3 | <NULL>
+  4 | {NULL,7}
+  5 | {NULL}
+  6 | {7}
+  7 | [0:0]={7}
+  8 | {{3,1,1}}
+(8 rows)
+
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
+    ia     
+-----------
+ {}
+ {3,1,1}
+ {{3,1,1}}
+ [0:0]={7}
+ {7}
+ {NULL}
+ {NULL,7}
+ <NULL>
+(8 rows)
+
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+    ta     
+-----------
+ {}
+ {c,a,a}
+ {{c,a,a}}
+ [0:0]={g}
+ {g}
+ {NULL}
+ {NULL,g}
+ <NULL>
+(8 rows)
+
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+    ia     | count 
+-----------+-------
+ {}        |     1
+ {3,1,1}   |     1
+ {{3,1,1}} |     1
+ [0:0]={7} |     1
+ {7}       |     1
+ {NULL}    |     1
+ {NULL,7}  |     1
+ <NULL>    |     1
+(8 rows)
+
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
+    ta     | count 
+-----------+-------
+ {}        |     1
+ {c,a,a}   |     1
+ {{c,a,a}} |     1
+ [0:0]={g} |     1
+ {g}       |     1
+ {NULL}    |     1
+ {NULL,g}  |     1
+ <NULL>    |     1
+(8 rows)
+
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+ id |    ia     | count 
+----+-----------+-------
+  1 | {3,1,1}   |     1
+  2 | {}        |     1
+  3 | <NULL>    |     1
+  4 | {NULL,7}  |     1
+  5 | {NULL}    |     1
+  6 | {7}       |     1
+  7 | [0:0]={7} |     1
+  8 | {{3,1,1}} |     1
+(8 rows)
+
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+    ia     | count 
+-----------+-------
+ {}        |     2
+ {3,1}     |     1
+ {{3,1,1}} |     1
+ {7}       |     1
+ {NULL}    |     1
+ {NULL,7}  |     1
+ <NULL>    |     1
+(7 rows)
+
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
+   ia   | count 
+--------+-------
+      3 |     1
+      7 |     1
+ <NULL> |     6
+(3 rows)
+
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
+    da     | count 
+-----------+-------
+ {}        |     1
+ {3,1,1}   |     1
+ {{3,1,1}} |     1
+ [0:0]={7} |     1
+ {7}       |     1
+ {NULL}    |     1
+ {NULL,7}  |     1
+ <NULL>    |     1
+(8 rows)
+
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+          dates          | count 
+-------------------------+-------
+ {}                      |     1
+ {2026-01-03,2026-01-01} |     1
+ {NULL,2026-01-07}       |     5
+ <NULL>                  |     1
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+RESET paradedb.max_term_agg_buckets;
+\pset null ''
+DROP TABLE dist_arrays;
+DROP DOMAIN dist_int_array;
+RESET datestyle;
+-- =============================================================================
 -- Cleanup
 -- =============================================================================
 DROP TABLE IF EXISTS dist_products CASCADE;

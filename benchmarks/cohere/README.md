@@ -6,7 +6,7 @@ used by the existing CI. `paradedb/pdbench` selects recall operating points;
 
 The workflow runs the 1M and 10M snapshots independently. Each uses the existing
 100 held-out vectors, exact ground-truth fixtures, and unfiltered, approximately
-10% (`year`), and approximately 1% (`battle`) full-text filters. The index retains
+10% (`year`), and approximately 1% (`battle`) full-text filters. The pg_search index retains
 eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
@@ -48,9 +48,10 @@ workers. Both tools use the same database and index throughout a run.
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 
-The workflow runs on main and via `benchmarks`, `benchmark-cohere-pg_search`, or
-`benchmark-benchmarker-cohere`. Manual runs can select a size, pg_search commit,
-and tool refs. Competitor vector CI implementations and labels are retired.
+The workflow runs pg_search on main and via `benchmarks`,
+`benchmark-cohere-pg_search`, or `benchmark-benchmarker-cohere`.
+`benchmark-cohere-pgvectorsearch` runs pg_vectorsearch's PRISM index on both sizes.
+Manual runs can select an engine, size, pg_search commit, and tool refs.
 The pdbench checkout uses the ParadeDB GitHub App's read access to the private
 repository. Both tool revisions are pinned and recorded in diagnostics. The
 fixture import only populates pdbench's ground-truth table; the corpus is restored
@@ -61,6 +62,24 @@ The old server-time samples are not comparable to k6's client-observed latency
 and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
+
+PRISM uses a pinned release-mode source build with native CPU instructions and
+OpenBLAS. Its profiles retain the same heap, fixtures, memory settings, and k6
+measurement procedure, and sweep integer `prism.nprobe` values. The full-text
+predicates use PostgreSQL's English `to_tsvector`/`websearch_to_tsquery`, as the
+previous pgvector competitor queries did. They run after ANN retrieval, with
+sequential, bitmap, and sort alternatives disabled; plan checks require the
+PRISM index and explicitly allow PostgreSQL filtering. No text-filter pushdown
+or ParadeDB vector-stage telemetry is claimed for PRISM.
+
+PRISM index construction and the subsequent vacuum use no parallel maintenance
+workers because the pinned version's parallel sampling accumulated excessive
+memory with TOASTed vectors. Search retains the normal cluster settings.
+Results use separate `benchmarker cohere-<size>-pgvectorsearch` histories and
+diagnostics artifacts. The same publisher produces the recall, p50/p95/p99, QPS,
+buffer, and index-build tables. PRISM sweep comparisons look for a preceding
+successful manual run on main with matching configuration; until one exists,
+the missing baseline is reported and the current results still publish.
 
 Artifacts retain index-build logs, pdbench build and search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,

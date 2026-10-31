@@ -6,7 +6,10 @@ from pathlib import Path
 
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 TARGETS = (0.9, 0.95, 0.99)
-PROBE = "paradedb.vector_cluster_max_probe"
+PROBES = {
+    "pg_search": "paradedb.vector_cluster_max_probe",
+    "pg_vectorsearch": "prism.nprobe",
+}
 QVEC = "current_setting('cohere.qvec')"
 
 
@@ -23,8 +26,14 @@ def operating_points(reports):
                 "Recall sweeps must use the same dataset, index, and session settings"
             )
         config = current
-        if report["kind"] != "search" or report["data"]["sweep_param"] != PROBE:
-            raise ValueError("Expected a pdbench max_probe search report")
+        engine = current.get("engine", "pg_search")
+        probe_param = PROBES.get(engine)
+        if (
+            probe_param is None
+            or report["kind"] != "search"
+            or report["data"]["sweep_param"] != probe_param
+        ):
+            raise ValueError("Expected a pdbench search report for the selected engine")
         if (
             report["data"]["query_vectors"] != 100
             or not 0 < current["search"]["sweep"]["tolerance"] < 0.001
@@ -42,16 +51,29 @@ def operating_points(reports):
             for target in TARGETS:
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
+                sweep = current["search"]["sweep"]
                 if selected and (
-                    not 0 < float(selected["value"]) <= 1
+                    not sweep["min"] <= float(selected["value"]) <= sweep["max"]
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
                     raise ValueError(f"{query}: invalid selected point for {target}")
+                if (
+                    selected
+                    and engine == "pg_vectorsearch"
+                    and not float(selected["value"]).is_integer()
+                ):
+                    raise ValueError(f"{query}: PRISM requires an integer probe")
                 points.append(
                     {
                         "name": f"{query}@r{round(target * 100)}",
                         "query": query,
+                        "engine": engine,
+                        "backend": "paradedb" if engine == "pg_search" else engine,
+                        "probe_param": probe_param,
+                        "index_name": f"{current['dataset']['table']}_prism_idx"
+                        if engine == "pg_vectorsearch"
+                        else None,
                         "target": target,
                         "reached": selected is not None,
                         "probe": selected["value"] if selected else None,
@@ -72,9 +94,11 @@ def operating_points(reports):
 
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
+    probe_param = points[0]["probe_param"]
     lines = [
+        f"Engine: `{points[0]['engine']}`.\n",
         (
-            "| Filter / recall target | max_probe | Achieved recall@10 "
+            f"| Filter / recall target | {probe_param} | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|",
@@ -96,11 +120,17 @@ def summary(points):
             f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects max_probe separately for each filter and recall target on this index. "
+        f"\npdbench selects `{probe_param}` separately for each filter and recall target "
+        "on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"
     )
+    if points[0]["engine"] == "pg_vectorsearch":
+        lines.append(
+            "PostgreSQL applies full-text filters after PRISM retrieval; "
+            "these predicates are not pushed into the vector index.\n"
+        )
     return "\n".join(lines)
 
 

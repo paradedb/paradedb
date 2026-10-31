@@ -1,4 +1,4 @@
-name: Benchmark pg_search (Benchmarker Cohere)
+name: Benchmark vectors (Benchmarker Cohere)
 
 on:
   push:
@@ -28,12 +28,17 @@ on:
         type: choice
         options: [all, 1m, 10m]
         default: all
+      engine:
+        description: "Vector index to benchmark"
+        type: choice
+        options: [pg_search, pg_vectorsearch]
+        default: pg_search
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
         default: ""
       pdbench_ref:
-        description: "pdbench ref"
-        default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
+        description: "Override the pinned pdbench revision for the selected engine"
+        default: ""
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -49,10 +54,10 @@ permissions:
 
 jobs:
   cohere:
-    name: Cohere ${{ matrix.size }} (ParadeDB)
+    name: Cohere ${{ matrix.size }} (${{ inputs.engine || (github.event.label.name == 'benchmark-cohere-pgvectorsearch' && 'pg_vectorsearch') || 'pg_search' }})
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmarks", "benchmark-cohere-pg_search", "benchmark-benchmarker-cohere"]'), github.event.label.name)
+      contains(fromJSON('["benchmarks", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorsearch", "benchmark-benchmarker-cohere"]'), github.event.label.name)
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -66,8 +71,10 @@ jobs:
       - extras=s3-cache
     env:
       COHERE_SIZE: ${{ matrix.size }}
+      COHERE_ENGINE: ${{ inputs.engine || (github.event.label.name == 'benchmark-cohere-pgvectorsearch' && 'pg_vectorsearch') || 'pg_search' }}
+      PG_VECTORSEARCH_REF: "5f71e47deb62057e7f8e3bc5c5f964bc343522b0"
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || ((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-cohere-pgvectorsearch') && 'ac64c0a34a1558ca72e07a342b51b52076befa50') || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
 
@@ -91,6 +98,13 @@ jobs:
         run: |
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
+          if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then
+            echo "COHERE_CONFIG=benchmarks/cohere/pg_vectorsearch/${COHERE_SIZE}.toml" >> "$GITHUB_ENV"
+            echo "RESULT_DATASET=cohere-${COHERE_SIZE}-pgvectorsearch" >> "$GITHUB_ENV"
+          else
+            echo "COHERE_CONFIG=benchmarks/cohere/${COHERE_SIZE}.toml" >> "$GITHUB_ENV"
+            echo "RESULT_DATASET=cohere-${COHERE_SIZE}" >> "$GITHUB_ENV"
+          fi
 
       - name: Checkout benchmark workflow for backfills
         if: inputs.commit != ''
@@ -117,6 +131,31 @@ jobs:
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}
+
+      - name: Checkout pg_vectorsearch
+        if: env.COHERE_ENGINE == 'pg_vectorsearch'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: timescale/pg_vectorsearch
+          ref: ${{ env.PG_VECTORSEARCH_REF }}
+          path: pg-vectorsearch
+          persist-credentials: false
+
+      - name: Install pg_vectorsearch build tools
+        if: env.COHERE_ENGINE == 'pg_vectorsearch'
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: meson ninja-build
+
+      - name: Build and install pg_vectorsearch
+        if: env.COHERE_ENGINE == 'pg_vectorsearch'
+        run: |
+          pg_config="/usr/lib/postgresql/${pg_version}/bin/pg_config"
+          CC="$("$pg_config" --cc)" meson setup pg-vectorsearch/build pg-vectorsearch --buildtype=release \
+            -Dnative=true -Dblas=enabled -Dpostgresql=enabled -Dtools=disabled \
+            -Dpg_config="$pg_config"
+          meson compile -C pg-vectorsearch/build -j 8
+          sudo meson install -C pg-vectorsearch/build
 
       - name: Create pdbench checkout token
         id: pdbench_token
@@ -176,20 +215,29 @@ jobs:
             --repo-s3-key-type shared)
           (cd pg_search && cargo pgrx start pg18)
 
-      - name: Refresh pg_search and build index
+      - name: Refresh extension and build index
         run: |
           set -euo pipefail
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
-            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+          build_url="$PARADEDB_URL"
+          if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then
+            build_url="${PARADEDB_URL}?options=-c%20max_parallel_maintenance_workers%3D0"
+            psql "$build_url" -XAt -v ON_ERROR_STOP=1 \
+              -c 'CREATE EXTENSION pg_vectorsearch;' \
+              -c 'SELECT pg_vectorsearch_version(), pg_vectorsearch_git_commit();' \
+              | tee benchmark-artifacts/pg-vectorsearch-version.log
+          else
+            psql "$build_url" -X -v ON_ERROR_STOP=1 --single-transaction \
+              -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+            cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
+          fi
+          psql "$build_url" -X -v ON_ERROR_STOP=1 \
             -c "SELECT name, setting, unit FROM pg_settings
                 WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
                                'max_worker_processes', 'max_parallel_maintenance_workers',
                                'parallel_leader_participation', 'paradedb.global_target_segment_count')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
-          cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
-          pdbench build --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
+          pdbench build --url "$build_url" --config "$COHERE_CONFIG" \
             --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
             --force-rebuild \
             | tee benchmark-artifacts/index-build.log
@@ -197,7 +245,7 @@ jobs:
             {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
             {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
           ]' benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+          psql "$build_url" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log
@@ -237,11 +285,11 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep max_probe with pdbench
+      - name: Sweep recall with pdbench
         run: |
           set -euo pipefail
           for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-            pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
+            pdbench search --url "$PARADEDB_URL" --config "$COHERE_CONFIG" \
               --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
               --query "$query" --no-compare --html
           done
@@ -251,11 +299,12 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const name = `cohere-${process.env.COHERE_SIZE}-diagnostics`;
+            const name = `${process.env.RESULT_DATASET}-diagnostics`;
             const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
               workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
-              branch: 'main', event: 'push', status: 'success', per_page: 100,
+              branch: 'main', status: 'success', per_page: 100,
+              event: process.env.COHERE_ENGINE === 'pg_search' ? 'push' : 'workflow_dispatch',
             });
             for await (const { data: runs } of pages) {
               for (const run of runs) {
@@ -281,7 +330,7 @@ jobs:
         if: steps.pdbench_baseline.outputs.run_id != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: cohere-${{ matrix.size }}-diagnostics
+          name: ${{ env.RESULT_DATASET }}-diagnostics
           path: benchmark-baseline
           run-id: ${{ steps.pdbench_baseline.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -316,15 +365,16 @@ jobs:
           {
             git -C pdbench rev-parse HEAD
             git -C benchmarker rev-parse HEAD
+            if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then git -C pg-vectorsearch rev-parse HEAD; fi
           } > benchmark-artifacts/tool-commits.txt
 
-      - name: Verify k6 query plans and filter pushdown
+      - name: Verify k6 index and filter plans
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ env.COHERE_ENGINE }}","pg_vectorsearch":"${{ env.COHERE_ENGINE == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -352,7 +402,7 @@ jobs:
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"cohere-${{ matrix.size }}",
+            {"dataset":"${{ env.RESULT_DATASET }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
              "context_file":"benchmark-artifacts/operating_points.md",
@@ -364,7 +414,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: cohere-${{ matrix.size }}-diagnostics
+          name: ${{ env.RESULT_DATASET }}-diagnostics
           path: benchmark-artifacts/
           retention-days: 30
           if-no-files-found: warn

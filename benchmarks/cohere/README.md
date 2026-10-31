@@ -52,13 +52,16 @@ Router composition can be selected at query time without rebuilding:
 | Setting                                    | Default | Effect                                                  |
 | ------------------------------------------ | ------: | ------------------------------------------------------- |
 | `paradedb.vector_router_rerank_factor`     |       2 | Approximate members retained per requested centroid     |
-| `paradedb.vector_router_min_beam_fraction` |    0.25 | Minimum list fraction at each quantized router level    |
+| `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level    |
 | `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists             |
 | `paradedb.vector_router_flat`              |     off | Score all quantized posting-centroid codes as one batch |
 
 The flat path uses the same scoring, retention, and exact-rerank primitives;
 `routing_mode` distinguishes it from hierarchical traversal in EXPLAIN. The
 beam and flat settings leave full-precision routing unchanged.
+Quantized routing defaults to a half-width beam with 2× member retention.
+Wider selection compensates for errors in quantized centroid ordering;
+retaining more members cannot recover members in unopened lists.
 `router_tuning.py` runs controlled unfiltered sweeps on the existing index:
 quarter/half/full beams, APS off at the full beam, flat scoring, and 2×/4×
 retention. It validates that only these query settings differ and that every

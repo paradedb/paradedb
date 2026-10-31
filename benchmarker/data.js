@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793409135120,
+  "lastUpdate": 1793410047959,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -21604,6 +21604,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13024780888-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b296f78e0b11c27c430cc0da77f10d4f6ed72958",
+          "message": "fix: pin workflow actions and enforce immutable references (#7125)\n\nPDB-012 identifies mutable third-party code running beside release\ncredentials. Pin every remote action reference in this repository's\nworkflows and local composite actions to its resolved full commit SHA,\nretaining the version in a comment. This includes GitHub-owned and\nParadeDB shared actions. Determinate Nix now uses the SHA of v3.24.1,\nwhich currently matches main.\n\nAdd a read-only CI job that parses workflow and composite-action YAML\nand rejects mutable action, reusable-workflow, and container references.\nLocal actions remain tied to the checkout. Existing GitHub Actions\nDependabot configuration already covers these files.\n\nValidation: all references pass the new policy; three policy regression\ntests pass; Prettier and git diff --check pass. actionlint passes after\nignoring its pre-existing rejection of the newer concurrency.queue key\nin three unrelated workflows. No release was run.\n\nCredential isolation is addressed in a separate follow-up PR. Charts and\nthe shared actions repository are outside this PR's repository scope;\npinning a composite action also does not audit its runtime downloads or\ntransitive dependencies.",
+          "timestamp": "2026-10-30T17:15:05-07:00",
+          "tree_id": "6841af8e75e403e5cccb1fdca8760e0f4812f29d",
+          "url": "https://github.com/paradedb/paradedb/commit/b296f78e0b11c27c430cc0da77f10d4f6ed72958"
+        },
+        "date": 1793410046077,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.033,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 94.581,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 323.696,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 16.999,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 104.135,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 187.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.288,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 146.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 208.346,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.742,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 122.487,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 196.058,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.225,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 76.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 157.074,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13025062200-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -46429,6 +46529,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13024780888-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b296f78e0b11c27c430cc0da77f10d4f6ed72958",
+          "message": "fix: pin workflow actions and enforce immutable references (#7125)\n\nPDB-012 identifies mutable third-party code running beside release\ncredentials. Pin every remote action reference in this repository's\nworkflows and local composite actions to its resolved full commit SHA,\nretaining the version in a comment. This includes GitHub-owned and\nParadeDB shared actions. Determinate Nix now uses the SHA of v3.24.1,\nwhich currently matches main.\n\nAdd a read-only CI job that parses workflow and composite-action YAML\nand rejects mutable action, reusable-workflow, and container references.\nLocal actions remain tied to the checkout. Existing GitHub Actions\nDependabot configuration already covers these files.\n\nValidation: all references pass the new policy; three policy regression\ntests pass; Prettier and git diff --check pass. actionlint passes after\nignoring its pre-existing rejection of the newer concurrency.queue key\nin three unrelated workflows. No release was run.\n\nCredential isolation is addressed in a separate follow-up PR. Charts and\nthe shared actions repository are outside this PR's repository scope;\npinning a composite action also does not audit its runtime downloads or\ntransitive dependencies.",
+          "timestamp": "2026-10-30T17:15:05-07:00",
+          "tree_id": "6841af8e75e403e5cccb1fdca8760e0f4812f29d",
+          "url": "https://github.com/paradedb/paradedb/commit/b296f78e0b11c27c430cc0da77f10d4f6ed72958"
+        },
+        "date": 1793410047946,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.24175113508932,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 31.946869954957073,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.857400071351847,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.860751926086795,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.232367733259274,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13025062200-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

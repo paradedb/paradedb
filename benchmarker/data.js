@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793408911923,
+  "lastUpdate": 1793408940736,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -34679,6 +34679,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022630763-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ujjawalpathak6@gmail.com",
+            "name": "Kumar Ujjawal",
+            "username": "kumarUjjawal"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "929a6fc5de696d818548a411e27508cefec0e508",
+          "message": "fix: preserve array values in DISTINCT and GROUP BY (#7051)\n\n# Ticket(s) Closed\n\n- Closes #6631\n\n## What\n\nUse PostgreSQL aggregation when DISTINCT or GROUP BY reads an array\ncolumn or an expression over one, including slices, scalar subscripts,\nand domain casts.\n\n## Why\n\nThe index does not preserve empty arrays, NULL elements, dimensions, or\nlower bounds. Reading those values through Aggregate Scan changes\nresults: `{}` becomes NULL and `{NULL,7}` becomes `{7}`. Grouping on an\narray slice can also use the full indexed array instead of the slice.\n\n## How\n\nApply the existing array safeguard after resolving either a plain column\nor a grouping expression. Check the underlying column type so scalar\nexpressions such as `ia[1]` also fall back to PostgreSQL. Extend the\nexisting `select_distinct` regression suite with array and expression\ncases, checked against PostgreSQL aggregation.\n\nThe separate `COUNT(array)` bug is outside this change.\n\n## Tests\n\nValidated locally on PostgreSQL 17.11:\n\n- `select_distinct`, `join_distinct`, `join_lateral_unnest`, and\n`json_groupby_aggregate` pg_regress suites passed.\n- The new expression regressions fail against the earlier build and pass\nwith this fix.\n- 364 comparisons against unindexed PostgreSQL tables passed across\nseven array types, joins, expressions, and both bucket-cap settings;\n`COUNT(array)` cases were excluded.\n- 40 generic/custom prepared-plan comparisons passed.\n- `cargo clippy -p pg_search --all-targets --no-default-features\n--features pg17 -- -D warnings` and `cargo fmt --all -- --check` passed.\n\nThree additional suites (`aggregate_dependent_column`,\n`join_distinct_expr`, and `aggregate_limit_under_distinct`) had\nPostgreSQL-version-sensitive plan-output differences during the initial\nfix validation; their output was identical on unmodified main and that\nfix.",
+          "timestamp": "2026-10-30T16:56:15-07:00",
+          "tree_id": "fc526736ed9da5c2dc2a3ffdb7e2b4813b0392ac",
+          "url": "https://github.com/paradedb/paradedb/commit/929a6fc5de696d818548a411e27508cefec0e508"
+        },
+        "date": 1793408939649,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.296,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.667,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.47,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.055,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.36,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.796,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.35,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.976,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.501,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.093,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.193,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.012,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13023650429-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -40304,6 +40404,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022630763-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ujjawalpathak6@gmail.com",
+            "name": "Kumar Ujjawal",
+            "username": "kumarUjjawal"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "929a6fc5de696d818548a411e27508cefec0e508",
+          "message": "fix: preserve array values in DISTINCT and GROUP BY (#7051)\n\n# Ticket(s) Closed\n\n- Closes #6631\n\n## What\n\nUse PostgreSQL aggregation when DISTINCT or GROUP BY reads an array\ncolumn or an expression over one, including slices, scalar subscripts,\nand domain casts.\n\n## Why\n\nThe index does not preserve empty arrays, NULL elements, dimensions, or\nlower bounds. Reading those values through Aggregate Scan changes\nresults: `{}` becomes NULL and `{NULL,7}` becomes `{7}`. Grouping on an\narray slice can also use the full indexed array instead of the slice.\n\n## How\n\nApply the existing array safeguard after resolving either a plain column\nor a grouping expression. Check the underlying column type so scalar\nexpressions such as `ia[1]` also fall back to PostgreSQL. Extend the\nexisting `select_distinct` regression suite with array and expression\ncases, checked against PostgreSQL aggregation.\n\nThe separate `COUNT(array)` bug is outside this change.\n\n## Tests\n\nValidated locally on PostgreSQL 17.11:\n\n- `select_distinct`, `join_distinct`, `join_lateral_unnest`, and\n`json_groupby_aggregate` pg_regress suites passed.\n- The new expression regressions fail against the earlier build and pass\nwith this fix.\n- 364 comparisons against unindexed PostgreSQL tables passed across\nseven array types, joins, expressions, and both bucket-cap settings;\n`COUNT(array)` cases were excluded.\n- 40 generic/custom prepared-plan comparisons passed.\n- `cargo clippy -p pg_search --all-targets --no-default-features\n--features pg17 -- -D warnings` and `cargo fmt --all -- --check` passed.\n\nThree additional suites (`aggregate_dependent_column`,\n`join_distinct_expr`, and `aggregate_limit_under_distinct`) had\nPostgreSQL-version-sensitive plan-output differences during the initial\nfix validation; their output was identical on unmodified main and that\nfix.",
+          "timestamp": "2026-10-30T16:56:15-07:00",
+          "tree_id": "fc526736ed9da5c2dc2a3ffdb7e2b4813b0392ac",
+          "url": "https://github.com/paradedb/paradedb/commit/929a6fc5de696d818548a411e27508cefec0e508"
+        },
+        "date": 1793408940723,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 537.8655641824638,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 501.73850076432757,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 143.381090903479,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 256.4753431720776,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 372.69447989562525,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13023650429-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

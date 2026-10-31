@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- A `GROUP BY` on a float column now returns the aggregates of a `NaN` group instead of NULL, for queries without `FILTER` aggregates.

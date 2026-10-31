@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793350734838,
+  "lastUpdate": 1793434378421,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -499945,6 +499945,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12963166522-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6e3efd5ad21750cf6857d7019ecbdf70c6cadda0",
+          "message": "chore: Fix clash between #6869 and #7051 (#7140)\n\nFix a commit clash between #6869 and #7051.",
+          "timestamp": "2026-10-31T03:30:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6e3efd5ad21750cf6857d7019ecbdf70c6cadda0"
+        },
+        "date": 1793434375355,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3918.6384795377903,
+            "unit": "median tps",
+            "extra": "avg tps: 3877.244778750069, max tps: 4737.354487551153, count: 59331"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4639.39785780515,
+            "unit": "median tps",
+            "extra": "avg tps: 4645.532433006321, max tps: 6263.115701115277, count: 59331"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 78.34818822823618,
+            "unit": "median tps",
+            "extra": "avg tps: 169.147010458578, max tps: 3170.181389133137, count: 59331"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.855786521364585,
+            "unit": "median tps",
+            "extra": "avg tps: 40.08630562147862, max tps: 554.9563010518577, count: 59331"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.015507330330973,
+            "unit": "median tps",
+            "extra": "avg tps: 40.741064297057584, max tps: 595.2323647401738, count: 59331"
+          }
+        ],
+        "publication_id": "13035464293-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -514130,6 +514183,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12963166522-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6e3efd5ad21750cf6857d7019ecbdf70c6cadda0",
+          "message": "chore: Fix clash between #6869 and #7051 (#7140)\n\nFix a commit clash between #6869 and #7051.",
+          "timestamp": "2026-10-31T03:30:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6e3efd5ad21750cf6857d7019ecbdf70c6cadda0"
+        },
+        "date": 1793434378310,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.225814635679828, max cpu: 4.733728, count: 59331"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.10091833843185, max mem: 20.10546875, count: 59331"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.687425824465994, max cpu: 4.7690015, count: 59331"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 19.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.728473455592354, max mem: 19.73046875, count: 59331"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.43489,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.13240291044689, max cpu: 33.217995, count: 59331"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.74392576182771, max mem: 22.26171875, count: 59331"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.927980313832, max document_count: 10002.0, count: 59331"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.92538470614, max document_count: 10002.0, count: 59331"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59331"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.667963,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.458833693596937, max cpu: 33.005894, count: 59331"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 51.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.94014834414134, max mem: 65.50390625, count: 59331"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.41308573216738, max cpu: 32.98969, count: 59331"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 53.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.64728368443562, max mem: 67.1484375, count: 59331"
+          }
+        ],
+        "publication_id": "13035464293-other"
       }
     ]
   }

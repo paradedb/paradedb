@@ -96,8 +96,11 @@ fn check_teardown(
     }
     match exit {
         Exit::Return => assert_eq!(result.unwrap(), Ok(())),
-        Exit::Error => assert!(result.unwrap().is_err()),
-        Exit::Panic => assert!(result.is_err()),
+        Exit::Error => assert_eq!(result.unwrap(), Err("test body returned an error")),
+        Exit::Panic => assert_eq!(
+            result.unwrap_err().downcast_ref::<&str>(),
+            Some(&"test body panicked")
+        ),
     }
     assert!(
         !exists,
@@ -143,6 +146,10 @@ fn connection_fixture_lifetime(#[case] exit: Exit, #[values(false, true)] citus:
                     thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
+            eprintln!(
+                "before {exit:?}, citus={citus}: database_exists=true, registered=true, citus_workers={}",
+                citus_workers(&mut admin, &name)
+            );
             // Longer than PostgreSQL's five-second DROP DATABASE wait. The test's
             // connection must still work, and no cleanup may hold its database lock.
             assert_eq!(

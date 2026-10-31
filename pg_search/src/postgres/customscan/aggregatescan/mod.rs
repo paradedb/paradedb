@@ -694,6 +694,14 @@ impl CustomScan for AggregateScan {
                             // backend: Tantivy aggregations compute in f64 and cannot
                             // read the decimal-bytes storage.
                             || builder.args().has_numeric_aggregate()
+                            // Tantivy sums int8 in f64, which rounds past 2^53. Only
+                            // take queries the Tantivy backend would have taken.
+                            || (builder.args().has_int8_sum_aggregate()
+                                && (gucs::enable_custom_scan_without_operator()
+                                    || search_operator_relations::applies_to(
+                                        builder.args().root,
+                                        input_rel.relid,
+                                    )))
                             || pdb_route.as_ref().is_some_and(PdbAggRoute::references_numeric)
                             // Route DATE grouping to DataFusion for exact integer day conversion
                             // and explicit handling of PostgreSQL infinities. Tantivy histograms

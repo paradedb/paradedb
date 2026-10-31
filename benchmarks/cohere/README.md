@@ -49,12 +49,12 @@ These diagnostic counts are separate from pdbench's averages over all vectors.
 
 Router composition can be selected at query time without rebuilding:
 
-| Setting | Default | Effect |
-|---|---:|---|
-| `paradedb.vector_router_rerank_factor` | 2 | Approximate members retained per requested centroid |
-| `paradedb.vector_router_min_beam_fraction` | 0.25 | Minimum list fraction at each quantized router level |
-| `paradedb.vector_router_aps` | on | Stop hierarchical routing after quiet lists |
-| `paradedb.vector_router_flat` | off | Score all quantized posting-centroid codes as one batch |
+| Setting                                    | Default | Effect                                                  |
+| ------------------------------------------ | ------: | ------------------------------------------------------- |
+| `paradedb.vector_router_rerank_factor`     |       2 | Approximate members retained per requested centroid     |
+| `paradedb.vector_router_min_beam_fraction` |    0.25 | Minimum list fraction at each quantized router level    |
+| `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists             |
+| `paradedb.vector_router_flat`              |     off | Score all quantized posting-centroid codes as one batch |
 
 The flat path uses the same scoring, retention, and exact-rerank primitives;
 `routing_mode` distinguishes it from hierarchical traversal in EXPLAIN. The

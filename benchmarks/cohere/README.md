@@ -18,8 +18,9 @@ workers. Both tools use the same database and index throughout a run.
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `admission_experiment.py` first sweeps `paradedb.vector_cluster_max_probe` with
-   adaptive stopping disabled to establish nonadaptive controls. It measures
-   the recall-target knob with one exponent, 1.25, across all three filters.
+   adaptive stopping disabled to establish nonadaptive controls. Adaptive runs
+   fix the recall target at 0.90, 0.95, or 0.99 and calibrate only the exponent
+   separately for each filter and target.
    Every measurement uses all 100 vectors, three timed repetitions and a separate
    EXPLAIN pass. All
    adaptive runs use `max_probe=0` (automatic headroom); no per-case budget is
@@ -27,7 +28,9 @@ workers. Both tools use the same database and index throughout a run.
    the existing filter-aware cluster-cost estimate; probing stops early on admission evidence
    and does not re-query the router. The stopping fraction `(1 - target)^exponent`
    also scales the window, so stricter stopping requests more routing headroom.
-   The base fraction is `b = min(1, 0.002 / fraction^0.625)`. With the existing
+   Global quantized scans with early refinement use the base fraction
+   `b = min(1, 0.0015 / sqrt(fraction))`. Segment-local scans retain
+   `b = min(1, 0.002 / fraction^0.625)`. With the existing
    cluster cost `c`, the window fraction is
    `b + min(0.4, 0.05 * (1/sqrt(c) - 1)) * b^0.125 * (1-b) * min(1, (1-b)/0.9)^2`.
    The final taper reduces the filter allowance once the base window exceeds
@@ -37,11 +40,11 @@ workers. Both tools use the same database and index throughout a run.
    only sets the ranked window; admission evidence can stop probing earlier.
    These coefficients are shared across segments and filters. Bypass selection
    retains its existing estimate based on the target and segment size.
-3. For each recall goal (90%, 95%, 99%), bisect the knob over [0.01, 1.0] on a
-   0.001 grid. Every candidate is measured across all three filters; it passes
-   only when all three reach that goal. Reuse previously measured candidates.
-   Export the lowest measured passing value shared across filters at each goal,
-   keeping configured values separate from achieved recall. This empirical
+3. For each filter and recall goal (90%, 95%, 99%), use pdbench's recall search
+   to calibrate the exponent over [0.05, 8.0], starting at 1.25. Export the
+   measured exponent selected by pdbench, preserving the nominal recall target
+   and automatic max_probe setting. Keep configured settings separate from
+   achieved recall. This empirical
    calibration is not a recall guarantee or proof of an optimal setting.
    Unreached targets remain visible and do not run in k6. The complete set of
    measurements and nonadaptive controls are retained. These measurements
@@ -57,7 +60,7 @@ workers. Both tools use the same database and index throughout a run.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
-   shared recall exponent, selected knob, and fixed search settings
+   selected exponent, nominal recall target, and fixed search settings
    apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
@@ -93,5 +96,9 @@ python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 For global search, admission evidence follows the global cluster order across
 segments. The opening window, decayed recent window, and scored-row count are
 shared by all routed segments in a collector batch. Located scans still score
-all their filter matches. Refinement runs after probing stops, as on the base
-branch. Filtered parallel participants each maintain their own admission state.
+all their filter matches. At geometric eligible-row checkpoints, global adaptive
+scans exact-score up to k promising live candidates and reevaluate admission
+evidence against the tighter threshold. Those rows are removed from the pending
+shortlist to avoid scoring them twice. Remaining refinement runs after probing
+stops. Filtered parallel participants each maintain their own admission state
+and retain refinement after probing.

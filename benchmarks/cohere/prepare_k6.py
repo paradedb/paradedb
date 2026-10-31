@@ -101,7 +101,7 @@ def summary(points):
     parameter = "recall exponent" if points[0]["param"] == EXPONENT else "max_probe"
     lines = [
         (
-            f"| Filter / recall target | {parameter} | Fixed probe budget | Achieved recall@10 "
+            f"| Filter / recall target | {parameter} | max_probe setting | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|---:|",
@@ -125,8 +125,8 @@ def summary(points):
         )
     lines.append(
         f"\npdbench selects {parameter} separately for each filter and recall target "
-        "on this index. Adaptive calibration retains the probe budget selected "
-        "with early stopping disabled. "
+        "on this index. Adaptive points retain their configured recall target "
+        "and max_probe setting. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

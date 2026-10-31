@@ -37,9 +37,9 @@ plan_cache_mode = "force_custom_plan"
 
 [search.sweep]
 param = "paradedb.vector_adaptive_recall_exponent"
-min = 0.5
-max = 10.0
-start = 1.5
+min = 0.05
+max = 8.0
+start = 1.25
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001
 max_probes = 20

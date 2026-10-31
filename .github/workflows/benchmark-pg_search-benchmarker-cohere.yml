@@ -228,7 +228,7 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Measure admission calibration across filters and targets
+      - name: Calibrate adaptive exponent at nominal recall targets
         run: python3 benchmarks/cohere/admission_experiment.py
 
       - name: Find mainline pdbench baseline

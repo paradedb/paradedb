@@ -6,6 +6,11 @@
 # Beta releases require an -rc.N version and create a prerelease without advancing the branch.
 # The new version tag triggers the other publishing workflows.
 #
+# Release files are prepared without secrets and passed as a patch to separate
+# approval and publishing jobs. Both validate the patch before using credentials.
+# Only the publishing job gets the signing key. Slack notifications run separately.
+# Backport this workflow and its validation scripts together to stable branches.
+#
 # Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
 # version bumps, and release commits only run on the community repository.
 # See RELEASE.md for the community and enterprise release procedures.

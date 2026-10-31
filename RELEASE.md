@@ -84,27 +84,6 @@ To publish a patch release from a stable branch:
    - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.
    - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, and push the sync commit to `main`.
 
-## Release Credential Isolation
-
-The GitHub release workflow prepares release files on a read-only runner without
-App credentials, signing keys, or Slack secrets. It passes a Git patch to fresh
-approval and publishing jobs checked out at the original workflow-dispatch commit.
-Both jobs validate that the patch contains only release metadata, generated SQL,
-changelogs, and consumed fragments; scripts, workflows, symlinks, and executable
-files are rejected. The patch artifact is linked in the approval issue for review.
-
-Approval uses an App token limited to issues and organization-member lookup. The
-publishing job separately obtains a repository-scoped contents-write App token,
-imports the validated changes, and signs the release tag. Rust/Nix installers and
-the third-party manual-approval action do not run on the signing runner. Slack
-failure notifications run in a separate job. Beta releases retain their existing
-approval bypass and do not advance the source branch. These jobs isolate
-credentials, but maintainers must still review the prepared release contents.
-
-The workflow and its validation scripts must be backported together to any stable
-release branch that should use this boundary. Older branch workflows keep their
-existing behavior until updated.
-
 ## Enterprise Release
 
 **Releases are always performed first on `paradedb/paradedb`: see above.**

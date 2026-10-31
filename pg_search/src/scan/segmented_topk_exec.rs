@@ -1655,9 +1655,8 @@ mod tests {
             let task_ctx = Arc::new(TaskContext::default());
             let mut stream = topk_exec.execute(0, task_ctx).unwrap();
 
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
+            let runtime =
+                crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
             let mut result_ids = vec![];
 

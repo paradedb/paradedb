@@ -976,9 +976,9 @@ impl PgSearchScanPlan {
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
     ///
     /// Installed dynamic filters travel as proto expression nodes stamped with their
-    /// `expression_id`; decoding the fragment with a deduplicating proto converter re-shares
+    /// `expression_id`; decoding the stage plan with a deduplicating proto converter re-shares
     /// each filter's inner state with the operator that updates it (see
-    /// `deserialize_physical_plan_with_runtime`).
+    /// [`crate::scan::physical_codec::PgSearchPhysicalExtensionCodec::new_worker`]).
     pub(crate) fn encode_for_dispatch(
         &self,
         proto_converter: &dyn PhysicalProtoConverterExtension,
@@ -1623,6 +1623,126 @@ impl ExecutionPlan for PgSearchScanPlan {
     fn execute(
         &self,
         partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        if is_parallel_worker() {
+            return match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.execute_inner(partition, context)
+            })) {
+                Ok(res) => res,
+                Err(payload) => {
+                    crate::postgres::customscan::mpp::HeldInterrupts::reassert();
+                    let msg =
+                        crate::postgres::customscan::mpp::panic_payload_message(payload.as_ref());
+                    Err(DataFusionError::Execution(msg))
+                }
+            };
+        }
+        self.execute_inner(partition, context)
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        // Only handle dynamic filters in the Post phase (Top K pushdown happens here).
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
+        }
+
+        // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
+        // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
+        // join-key bounds from HashJoinExec). We accept and apply all of them.
+        //
+        // The pushdown pass can potentially run more than once. Producers assume
+        // pushed-down filters remain installed between passes and may not re-push
+        // already-pushed filters on subsequent passes. To handle this, we merge and
+        // dedupe the filter list on each pass.
+        //
+        // Dedupe by `expression_id`, not pointer identity: remapping a filter's
+        // columns on its way down the tree (`DynamicFilterPhysicalExpr::
+        // with_new_children`) mints a fresh wrapper per pass, but wrappers of the
+        // same logical filter share an id. On a match, keep the incoming wrapper —
+        // its column remap reflects the current tree shape.
+        let mut dynamic_filters = self.dynamic_filters.clone();
+        let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+        let mut saw_dynamic = false;
+        let mut changed = false;
+
+        for filter_result in &child_pushdown_result.parent_filters {
+            if filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
+                saw_dynamic = true;
+                let incoming = &filter_result.filter;
+                let id = incoming.expression_id();
+                match dynamic_filters.iter_mut().find(|f| f.expression_id() == id) {
+                    Some(slot) if !Arc::ptr_eq(incoming, slot) => {
+                        *slot = Arc::clone(incoming);
+                        changed = true;
+                    }
+                    Some(_) => {}
+                    None => {
+                        dynamic_filters.push(Arc::clone(incoming));
+                        changed = true;
+                    }
+                };
+                filters.push(PushedDown::Yes);
+            } else {
+                filters.push(filter_result.any());
+            }
+        }
+
+        if changed {
+            // Transfer state from the old plan to the new one.
+            let state = std::mem::take(&mut *self.state.lock().map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
+                ))
+            })?);
+
+            let new_plan = self.with_overrides(
+                state,
+                self.properties.clone(),
+                dynamic_filters,
+                self.global_partition_count,
+            );
+            Ok(
+                FilterPushdownPropagation::with_parent_pushdown_result(filters)
+                    .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
+            )
+        } else if saw_dynamic {
+            // Every delivered dynamic filter was already installed by an earlier
+            // pass; acknowledge them without rebuilding the node.
+            Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                filters,
+            ))
+        } else {
+            Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        }
+    }
+}
+
+#[inline]
+fn is_parallel_worker() -> bool {
+    #[cfg(not(test))]
+    unsafe {
+        pg_sys::ParallelWorkerNumber >= 0
+    }
+    #[cfg(test)]
+    {
+        false
+    }
+}
+
+impl PgSearchScanPlan {
+    fn execute_inner(
+        &self,
+        partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         #[cfg(debug_assertions)]
@@ -1752,91 +1872,6 @@ impl ExecutionPlan for PgSearchScanPlan {
             UnsafeSendStream::new(stream, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(send_stream))
-    }
-
-    fn metrics(&self) -> Option<MetricsSet> {
-        Some(self.metrics.clone_inner())
-    }
-
-    fn handle_child_pushdown_result(
-        &self,
-        phase: FilterPushdownPhase,
-        child_pushdown_result: ChildPushdownResult,
-        _config: &datafusion::common::config::ConfigOptions,
-    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
-        // Only handle dynamic filters in the Post phase (Top K pushdown happens here).
-        if !matches!(phase, FilterPushdownPhase::Post) {
-            return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
-        }
-
-        // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
-        // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
-        // join-key bounds from HashJoinExec). We accept and apply all of them.
-        //
-        // The pushdown pass can potentially run more than once. Producers assume
-        // pushed-down filters remain installed between passes and may not re-push
-        // already-pushed filters on subsequent passes. To handle this, we merge and
-        // dedupe the filter list on each pass.
-        //
-        // Dedupe by `expression_id`, not pointer identity: remapping a filter's
-        // columns on its way down the tree (`DynamicFilterPhysicalExpr::
-        // with_new_children`) mints a fresh wrapper per pass, but wrappers of the
-        // same logical filter share an id. On a match, keep the incoming wrapper —
-        // its column remap reflects the current tree shape.
-        let mut dynamic_filters = self.dynamic_filters.clone();
-        let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
-        let mut saw_dynamic = false;
-        let mut changed = false;
-
-        for filter_result in &child_pushdown_result.parent_filters {
-            if filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
-                saw_dynamic = true;
-                let incoming = &filter_result.filter;
-                let id = incoming.expression_id();
-                match dynamic_filters.iter_mut().find(|f| f.expression_id() == id) {
-                    Some(slot) if !Arc::ptr_eq(incoming, slot) => {
-                        *slot = Arc::clone(incoming);
-                        changed = true;
-                    }
-                    Some(_) => {}
-                    None => {
-                        dynamic_filters.push(Arc::clone(incoming));
-                        changed = true;
-                    }
-                };
-                filters.push(PushedDown::Yes);
-            } else {
-                filters.push(filter_result.any());
-            }
-        }
-
-        if changed {
-            // Transfer state from the old plan to the new one.
-            let state = std::mem::take(&mut *self.state.lock().map_err(|e| {
-                DataFusionError::Internal(format!(
-                    "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
-                ))
-            })?);
-
-            let new_plan = self.with_overrides(
-                state,
-                self.properties.clone(),
-                dynamic_filters,
-                self.global_partition_count,
-            );
-            Ok(
-                FilterPushdownPropagation::with_parent_pushdown_result(filters)
-                    .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
-            )
-        } else if saw_dynamic {
-            // Every delivered dynamic filter was already installed by an earlier
-            // pass; acknowledge them without rebuilding the node.
-            Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                filters,
-            ))
-        } else {
-            Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
-        }
     }
 }
 
@@ -2207,21 +2242,45 @@ pub(super) fn build_filters(
 pub(crate) struct UnsafeSendStream<T> {
     stream: T,
     schema: SchemaRef,
+    failed: bool,
 }
 
 impl<T> UnsafeSendStream<T> {
     pub(crate) unsafe fn new(stream: T, schema: SchemaRef) -> Self {
-        Self { stream, schema }
+        Self {
+            stream,
+            schema,
+            failed: false,
+        }
     }
 }
 
 unsafe impl<T> Send for UnsafeSendStream<T> {}
 
-impl<T: Stream> Stream for UnsafeSendStream<T> {
-    type Item = T::Item;
+impl<T: Stream<Item = Result<RecordBatch>>> Stream for UnsafeSendStream<T> {
+    type Item = Result<RecordBatch>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().stream).poll_next(cx) }
+        let this = unsafe { self.get_unchecked_mut() };
+        if this.failed {
+            return Poll::Ready(None);
+        }
+        if is_parallel_worker() {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+                Pin::new_unchecked(&mut this.stream).poll_next(cx)
+            })) {
+                Ok(poll) => poll,
+                Err(payload) => {
+                    this.failed = true;
+                    crate::postgres::customscan::mpp::HeldInterrupts::reassert();
+                    let msg =
+                        crate::postgres::customscan::mpp::panic_payload_message(payload.as_ref());
+                    Poll::Ready(Some(Err(DataFusionError::Execution(msg))))
+                }
+            }
+        } else {
+            unsafe { Pin::new_unchecked(&mut this.stream).poll_next(cx) }
+        }
     }
 }
 

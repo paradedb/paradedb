@@ -64,10 +64,22 @@ impl MemoryPool for WorkMemMemoryPool {
     }
 
     fn grow(&self, reservation: &MemoryReservation, additional: usize) {
+        if matches!(
+            reservation.consumer().name(),
+            "NetworkBoundary" | "WorkerConnection"
+        ) {
+            return;
+        }
         self.pool.grow(reservation, additional);
     }
 
     fn shrink(&self, reservation: &MemoryReservation, returned: usize) {
+        if matches!(
+            reservation.consumer().name(),
+            "NetworkBoundary" | "WorkerConnection"
+        ) {
+            return;
+        }
         self.pool.shrink(reservation, returned);
     }
 

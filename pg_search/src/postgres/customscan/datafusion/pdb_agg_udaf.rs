@@ -1248,9 +1248,7 @@ mod tests {
             SessionConfig::new().with_target_partitions(num_partitions),
         );
         let table = MemTable::try_new(schema(), partitions).unwrap();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         let batches = runtime.block_on(async {
             let df = ctx
                 .read_table(Arc::new(table))

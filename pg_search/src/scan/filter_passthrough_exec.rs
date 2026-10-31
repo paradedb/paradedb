@@ -133,3 +133,36 @@ impl ExecutionPlan for FilterPassthroughExec {
         Ok(FilterPushdownPropagation::if_any(child_pushdown_result))
     }
 }
+
+/// Physical optimizer rule that strips [`FilterPassthroughExec`] wrappers once post-optimization
+/// `FilterPushdown` has run, so downstream rules (such as `DistributedPhysicalOptimizerRule`) and
+/// physical plan protobuf serialization see the underlying [`ExecutionPlan`] nodes directly.
+#[derive(Debug)]
+pub struct UnwrapFilterPassthroughRule;
+
+impl datafusion::physical_optimizer::PhysicalOptimizerRule for UnwrapFilterPassthroughRule {
+    fn name(&self) -> &str {
+        "UnwrapFilterPassthrough"
+    }
+
+    fn schema_check(&self) -> bool {
+        true
+    }
+
+    fn optimize(
+        &self,
+        plan: Arc<dyn ExecutionPlan>,
+        _config: &ConfigOptions,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        use datafusion::common::tree_node::{Transformed, TreeNode};
+        Ok(plan
+            .transform_down(|node| {
+                if let Some(fp) = node.downcast_ref::<FilterPassthroughExec>() {
+                    Ok(Transformed::yes(Arc::clone(fp.inner())))
+                } else {
+                    Ok(Transformed::no(node))
+                }
+            })?
+            .data)
+    }
+}

@@ -210,7 +210,6 @@ use crate::scan::codec::{
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::DistributedExt;
 use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
@@ -1807,11 +1806,9 @@ impl CustomScan for JoinScan {
                 let (ctx, plan) = if mpp_pending {
                     match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
-                            let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
                                 &leader.session.resolver,
-                            )))
-                            .with_distributed_dispatch_plan_source(source);
+                            )));
                             launch_us.prepare_us = leader.timing.prepare_us;
                             launch_us.payload_us = leader.timing.payload_us;
                             launch_us.attach_us = leader.timing.attach_us;

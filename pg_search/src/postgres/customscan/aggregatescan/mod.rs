@@ -52,7 +52,7 @@ use crate::postgres::customscan::datafusion::explain::{
 };
 use datafusion::physical_plan::ExecutionPlan;
 
-use datafusion_distributed::{DistributedExt, DistributedTaskContext};
+use datafusion_distributed::DistributedTaskContext;
 
 use crate::postgres::customscan::mpp::glue::{
     finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
@@ -2323,12 +2323,9 @@ impl AggregateScan {
             let (ctx, physical_plan) = if is_mpp {
                 match leader {
                     Some(leader) => {
-                        let source =
-                            crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                         let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
                             &leader.session.resolver,
-                        )))
-                        .with_distributed_dispatch_plan_source(source);
+                        )));
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);

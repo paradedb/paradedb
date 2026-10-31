@@ -637,7 +637,10 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::segmented_topk_rule::SegmentedTopKRule,
         ))
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::filter_passthrough_exec::UnwrapFilterPassthroughRule,
+        ));
 
     SessionContext::new_with_state(builder.build())
 }

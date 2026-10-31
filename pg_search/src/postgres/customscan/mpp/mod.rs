@@ -95,14 +95,6 @@
 //!   to a `WorkMemMemoryPool` sized for the decoded stage plan's memory-intensive operators, and
 //!   wraps the stage root in `CatchUnwindExec` so any PostgreSQL `ereport(ERROR)` (`CaughtError`
 //!   panic) inside `poll_next` is converted into a `DataFusionError::Execution` over gRPC.
-//!
-//! ## Follow-up TODO
-//!
-//! - Delegate `try_encode_udf` / `try_decode_udf` / `try_encode_udaf` / `try_decode_udaf` in
-//!   `datafusion-distributed`'s `DistributedCodec` to the inner user `PhysicalExtensionCodec`, and
-//!   strip `FilterPassthroughExec` before `DistributedPhysicalOptimizerRule`, allowing
-//!   `DispatchPlanSource` in `datafusion-distributed` and [`glue::StagePlanDispatchSource`] to be
-//!   removed.
 
 pub mod dsm_stream;
 pub mod glue;

@@ -33,14 +33,6 @@ use crate::postgres::customscan::datafusion::timestamp_to_date::{
 };
 use crate::postgres::customscan::pg_expr_udf::{PG_EXPR_UDF_PREFIX, PgExprUdf};
 
-/// Whether `name` identifies a scalar UDF that `pg_search` owns the encoding for.
-///
-/// This is the single definition of that predicate; the decode/encode helpers
-/// below and the composed physical codec all agree by construction.
-pub(crate) fn is_pg_search_udf(name: &str) -> bool {
-    name.starts_with(PG_EXPR_UDF_PREFIX) || name == TIMESTAMP_TO_DATE_UDF_NAME
-}
-
 /// Decode a `pg_search` scalar UDF.
 ///
 /// Returns `Ok(None)` when `name` does not belong to `pg_search`, leaving the

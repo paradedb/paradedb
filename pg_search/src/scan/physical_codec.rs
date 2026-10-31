@@ -19,24 +19,18 @@
 //!
 //! The leader builds the distributed physical plan once and ships each stage's subplan to the
 //! workers; the workers run their fragments without re-planning. DataFusion's `Network*Exec`
-//! boundaries are serialized by the fork's [`DistributedCodec`]; this codec handles the
-//! `pg_search` custom execs that sit inside a stage. It mirrors the LOGICAL
+//! boundaries are serialized by [`datafusion_distributed::DistributedCodec`]; this codec handles
+//! the `pg_search` custom execs that sit inside a stage. It mirrors the LOGICAL
 //! [`crate::scan::codec`] (same UDF/UDAF handling, same per-source segment-ID injection) but
 //! travels post-optimization physical nodes instead of a logical plan.
 
 use std::sync::Arc;
 
-use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::DistributedCodec;
-use datafusion_proto::physical_plan::{
-    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanNodeExt,
-    PhysicalProtoConverterExtension,
-};
-use datafusion_proto::protobuf::PhysicalPlanNode;
+use datafusion_proto::physical_plan::{PhysicalExtensionCodec, PhysicalProtoConverterExtension};
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
@@ -46,14 +40,11 @@ use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::CtidResolver;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::rank_join_exec::RankJoinExec;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
-use crate::scan::udf_codec::{
-    is_pg_search_udf, try_decode_pg_search_udf, try_encode_pg_search_udf,
-};
+use crate::scan::udf_codec::{try_decode_pg_search_udf, try_encode_pg_search_udf};
 
 /// Byte tags identifying each custom exec in the extension payload. The composed codec already
 /// records which codec decoded a node; the tag picks the exec within this codec.
@@ -342,107 +333,4 @@ fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32
     for child in plan.children() {
         collect_lookup_ffhelpers(child, out);
     }
-}
-
-/// [`DistributedCodec`] with the pg_search UDF names carved out of its UDF/UDAF handling.
-///
-/// The composed codec takes the first `Ok` per call, and the trait's default `try_encode_udf`
-/// returns `Ok` writing nothing, so a bare `DistributedCodec` at position 0 would shadow the
-/// pg_search UDF serialization: no `fun_definition` would ever travel, and a dispatched stage
-/// retaining a `pg_expr_*` expression would fail decode on the worker
-/// (their registry has no such functions). Position 0 still matters for everything else:
-/// `prost` skips default values, so only position 0 with an empty blob encodes to zero bytes,
-/// which is what keeps registry-resolved built-ins travelling by name. So this wrapper accepts
-/// (encodes nothing for) every name except ours, and declines ours so composition falls through
-/// to [`PgSearchPhysicalExtensionCodec`], which ships the real definition.
-#[derive(Debug)]
-struct DistributedCodecHostingPgSearchUdfs(DistributedCodec);
-
-impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
-    fn try_decode(
-        &self,
-        buf: &[u8],
-        inputs: &[Arc<dyn ExecutionPlan>],
-        ctx: &TaskContext,
-        proto_converter: &dyn PhysicalProtoConverterExtension,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        self.0.try_decode(buf, inputs, ctx, proto_converter)
-    }
-
-    fn try_encode(
-        &self,
-        node: Arc<dyn ExecutionPlan>,
-        buf: &mut Vec<u8>,
-        proto_converter: &dyn PhysicalProtoConverterExtension,
-    ) -> Result<()> {
-        self.0.try_encode(node, buf, proto_converter)
-    }
-
-    fn try_encode_udf(&self, node: &ScalarUDF, _buf: &mut Vec<u8>) -> Result<()> {
-        if is_pg_search_udf(node.name()) {
-            return Err(DataFusionError::NotImplemented(format!(
-                "UDF '{}' is encoded by the pg_search codec",
-                node.name()
-            )));
-        }
-        Ok(())
-    }
-
-    fn try_encode_udaf(
-        &self,
-        node: &datafusion::logical_expr::AggregateUDF,
-        _buf: &mut Vec<u8>,
-    ) -> Result<()> {
-        // Same shadowing hazard as `try_encode_udf`: accepting the encode here
-        // would record this codec's index, and its decode has no resolver for
-        // the pg_search UDAFs. Decline ours so composition falls
-        // through to `PgSearchPhysicalExtensionCodec`.
-        if udaf_by_name(node.name()).is_some() {
-            return Err(DataFusionError::NotImplemented(format!(
-                "UDAF '{}' is encoded by the pg_search codec",
-                node.name()
-            )));
-        }
-        Ok(())
-    }
-
-    fn try_decode_udf(&self, name: &str, _buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        Err(DataFusionError::NotImplemented(format!(
-            "UDF '{name}' is not registered on the decoding session and carries no definition"
-        )))
-    }
-}
-
-/// Compose the fork's [`DistributedCodec`] (handles `Network*Exec` / `StageExec`) with the
-/// `pg_search` codec. Encode and decode MUST build the same list in the same order: the composed
-/// codec records each node's codec index on the wire.
-fn combined_codec(user: PgSearchPhysicalExtensionCodec) -> ComposedPhysicalExtensionCodec {
-    ComposedPhysicalExtensionCodec::new(vec![
-        Arc::new(DistributedCodecHostingPgSearchUdfs(DistributedCodec {})),
-        Arc::new(user),
-    ])
-}
-
-/// Serialize one stage's physical subplan for dispatch. The recipe travels plus the scans'
-/// installed dynamic filters (identity-stamped proto exprs); the receiving worker injects its
-/// own runtime state on decode and re-shares the filters with the operators that update them.
-pub fn serialize_physical_plan(
-    plan: Arc<dyn ExecutionPlan>,
-    proto_converter: &dyn PhysicalProtoConverterExtension,
-) -> Result<Vec<u8>> {
-    // FilterPassthroughExec only matters during filter-pushdown optimization; once the plan is
-    // finalized it delegates to its inner node, so strip it and ship the inner directly.
-    let plan = plan
-        .transform_down(|node| {
-            if let Some(fp) = node.downcast_ref::<FilterPassthroughExec>() {
-                Ok(Transformed::yes(Arc::clone(fp.inner())))
-            } else {
-                Ok(Transformed::no(node))
-            }
-        })?
-        .data;
-    let codec = combined_codec(PgSearchPhysicalExtensionCodec::default());
-    let proto =
-        PhysicalPlanNode::try_from_physical_plan_with_converter(plan, &codec, proto_converter)?;
-    Ok(prost::Message::encode_to_vec(&proto))
 }

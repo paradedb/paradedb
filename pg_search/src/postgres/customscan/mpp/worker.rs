@@ -479,6 +479,25 @@ impl WorkerSessionBuilder for MppWorkerSessionBuilder {
             .with_distributed_channel_resolver(peer_resolver)
             .with_distributed_worker_plan_rewrite_handler(rewrite_handler);
 
+        if let Some(cfg) = builder.config().as_mut() {
+            cfg.set_extension(stage_pool);
+        }
+
+        Ok(builder.build())
+    }
+}
+
+/// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
+/// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
+/// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
+/// current GUC settings (`apply_paradedb_session_config`) once per query.
+fn worker_base_session_state() -> SessionState {
+    static BASE_STATE: std::sync::LazyLock<SessionState> = std::sync::LazyLock::new(|| {
+        let mut builder = SessionStateBuilder::new()
+            .with_default_features()
+            .with_analyzer_rules(vec![])
+            .with_optimizer_rules(vec![])
+            .with_physical_optimizer_rules(vec![]);
         builder
             .scalar_functions()
             .get_or_insert_with(Vec::new)
@@ -487,14 +506,13 @@ impl WorkerSessionBuilder for MppWorkerSessionBuilder {
             .aggregate_functions()
             .get_or_insert_with(Vec::new)
             .extend(all_pg_search_udafs());
-
-        if let Some(cfg) = builder.config().as_mut() {
-            crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(cfg);
-            cfg.set_extension(stage_pool);
-        }
-
-        Ok(builder.build())
-    }
+        builder.build()
+    });
+    let mut cfg = BASE_STATE.config().clone();
+    crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(&mut cfg);
+    SessionStateBuilder::new_from_existing(BASE_STATE.clone())
+        .with_config(cfg)
+        .build()
 }
 
 /// Inputs passed to [`run_mpp_worker`] by `launch::run_launched_worker`.
@@ -582,7 +600,8 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
         hash_mem_multiplier,
     };
 
-    let worker = Worker::from_session_builder(session_builder);
+    let worker = Worker::from_session_builder(session_builder)
+        .with_base_session_state(worker_base_session_state());
     let incoming = tokio_stream::StreamExt::chain(
         tokio_stream::iter(
             streams

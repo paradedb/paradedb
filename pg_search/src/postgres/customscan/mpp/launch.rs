@@ -35,8 +35,7 @@
 //! to learn the largest producer-stage task count, size the mesh and spawn exactly
 //! `clamp(max_tasks, 2, cap)` producers, and stamp the shared scan state into the plan
 //! ([`crate::scan::execution_plan::stamp_parallel_state`]). A plan with no producer stages spawns
-//! nothing at all. One plan serves both on-demand stage serialization
-//! ([`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`]) and the leader's own
+//! nothing at all. One plan serves both on-demand stage serialization and the leader's own
 //! execution; the go flag holds spawned workers off the mesh until the DSM SPSC rings are
 //! initialized. If PostgreSQL attaches fewer workers, the plan does not change: the leader just
 //! initializes a narrower mesh inside the region it already reserved, and the plan's tasks
@@ -568,14 +567,13 @@ mod tests {
         use arrow_array::Int64Array;
         use datafusion::physical_plan::collect;
         use datafusion::prelude::SessionContext;
-        use datafusion_distributed::DistributedExt;
         use pgrx::Spi;
 
         use crate::index::fast_fields_helper::WhichFastField;
         use crate::index::mvcc::MvccSatisfies;
         use crate::index::reader::index::SearchIndexManifest;
         use crate::postgres::customscan::mpp::glue::{
-            StagePlanDispatchSource, finish_leader_execution, merge_worker_metrics,
+            finish_leader_execution, merge_worker_metrics,
         };
         use crate::postgres::customscan::mpp::worker::build_mpp_session_context;
         use crate::postgres::rel::PgSearchRelation;
@@ -668,8 +666,7 @@ mod tests {
         let exec_ctx = build_mpp_session_context(
             SessionContext::new(),
             Some(Arc::clone(&leader.session.resolver)),
-        )
-        .with_distributed_dispatch_plan_source(StagePlanDispatchSource::default());
+        );
 
         let batches = runtime.block_on(async {
             collect(Arc::clone(&physical_plan), exec_ctx.task_ctx())

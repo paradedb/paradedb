@@ -23,8 +23,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{DistributedExec, NetworkBoundaryExt, TaskKey};
-use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
+use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
 use pgrx::pg_sys;
 
 use crate::parallel_worker::builder::ParallelProcessFinish;
@@ -217,42 +216,6 @@ pub unsafe fn worker_setup(
         dsm_base: coordinate as *mut u8,
         worker_proc: ServerProc(proc_idx),
     })
-}
-
-/// Serializes each stage subplan the coordinator dispatches, with the pg codec
-/// (`serialize_physical_plan`).
-///
-/// TODO: Delegate `try_encode_udf` / `try_decode_udf` / `try_encode_udaf` / `try_decode_udaf` in
-/// `datafusion-distributed`'s `DistributedCodec` to the inner user `PhysicalExtensionCodec`, and
-/// strip `FilterPassthroughExec` before `DistributedPhysicalOptimizerRule`, so `DispatchPlanSource`
-/// and `StagePlanDispatchSource` can be removed.
-#[derive(Default)]
-pub struct StagePlanDispatchSource {
-    cache: std::sync::Mutex<std::collections::HashMap<(usize, usize), Vec<u8>>>,
-}
-
-impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
-    fn dispatch_plan_proto(
-        &self,
-        task: &TaskKey,
-        specialized: &Arc<dyn ExecutionPlan>,
-    ) -> Option<datafusion::common::Result<Vec<u8>>> {
-        let stage_id = task.stage_id;
-        let task_number = task.task_number;
-        let key = (stage_id, task_number);
-        if let Some(bytes) = self.cache.lock().unwrap().get(&key) {
-            return Some(Ok(bytes.clone()));
-        }
-        let bytes = match crate::scan::physical_codec::serialize_physical_plan(
-            Arc::clone(specialized),
-            &DefaultPhysicalProtoConverter {},
-        ) {
-            Ok(bytes) => bytes,
-            Err(e) => return Some(Err(e)),
-        };
-        self.cache.lock().unwrap().insert(key, bytes.clone());
-        Some(Ok(bytes))
-    }
 }
 
 /// One producer stage discovered in a distributed physical plan.

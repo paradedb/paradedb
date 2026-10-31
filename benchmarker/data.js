@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793407764362,
+  "lastUpdate": 1793407782482,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -51852,6 +51852,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022571724-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b296f78e0b11c27c430cc0da77f10d4f6ed72958",
+          "message": "fix: pin workflow actions and enforce immutable references (#7125)\n\nPDB-012 identifies mutable third-party code running beside release\ncredentials. Pin every remote action reference in this repository's\nworkflows and local composite actions to its resolved full commit SHA,\nretaining the version in a comment. This includes GitHub-owned and\nParadeDB shared actions. Determinate Nix now uses the SHA of v3.24.1,\nwhich currently matches main.\n\nAdd a read-only CI job that parses workflow and composite-action YAML\nand rejects mutable action, reusable-workflow, and container references.\nLocal actions remain tied to the checkout. Existing GitHub Actions\nDependabot configuration already covers these files.\n\nValidation: all references pass the new policy; three policy regression\ntests pass; Prettier and git diff --check pass. actionlint passes after\nignoring its pre-existing rejection of the newer concurrency.queue key\nin three unrelated workflows. No release was run.\n\nCredential isolation is addressed in a separate follow-up PR. Charts and\nthe shared actions repository are outside this PR's repository scope;\npinning a composite action also does not audit its runtime downloads or\ntransitive dependencies.",
+          "timestamp": "2026-10-30T17:15:05-07:00",
+          "tree_id": "6841af8e75e403e5cccb1fdca8760e0f4812f29d",
+          "url": "https://github.com/paradedb/paradedb/commit/b296f78e0b11c27c430cc0da77f10d4f6ed72958"
+        },
+        "date": 1793407780418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.139,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.89,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.181,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.168,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.908,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.155,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 10.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.194,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 8.893,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.573,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.763,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 8.882,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.532,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.719,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 8.909,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.529,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.747,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.834,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.938,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.68,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 7.953,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.124,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 8.867,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.165,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13022549375-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -54625,6 +54785,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022571724-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b296f78e0b11c27c430cc0da77f10d4f6ed72958",
+          "message": "fix: pin workflow actions and enforce immutable references (#7125)\n\nPDB-012 identifies mutable third-party code running beside release\ncredentials. Pin every remote action reference in this repository's\nworkflows and local composite actions to its resolved full commit SHA,\nretaining the version in a comment. This includes GitHub-owned and\nParadeDB shared actions. Determinate Nix now uses the SHA of v3.24.1,\nwhich currently matches main.\n\nAdd a read-only CI job that parses workflow and composite-action YAML\nand rejects mutable action, reusable-workflow, and container references.\nLocal actions remain tied to the checkout. Existing GitHub Actions\nDependabot configuration already covers these files.\n\nValidation: all references pass the new policy; three policy regression\ntests pass; Prettier and git diff --check pass. actionlint passes after\nignoring its pre-existing rejection of the newer concurrency.queue key\nin three unrelated workflows. No release was run.\n\nCredential isolation is addressed in a separate follow-up PR. Charts and\nthe shared actions repository are outside this PR's repository scope;\npinning a composite action also does not audit its runtime downloads or\ntransitive dependencies.",
+          "timestamp": "2026-10-30T17:15:05-07:00",
+          "tree_id": "6841af8e75e403e5cccb1fdca8760e0f4812f29d",
+          "url": "https://github.com/paradedb/paradedb/commit/b296f78e0b11c27c430cc0da77f10d4f6ed72958"
+        },
+        "date": 1793407781238,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 97.63275843348512,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 97.3482947984135,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 97.4502268397732,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 111.30480472716083,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 111.46694726401716,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 111.1360461946452,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 143.85118547335682,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 141.50026933474038,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 121.43404455386846,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13022549375-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -65852,6 +66082,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022571724-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b296f78e0b11c27c430cc0da77f10d4f6ed72958",
+          "message": "fix: pin workflow actions and enforce immutable references (#7125)\n\nPDB-012 identifies mutable third-party code running beside release\ncredentials. Pin every remote action reference in this repository's\nworkflows and local composite actions to its resolved full commit SHA,\nretaining the version in a comment. This includes GitHub-owned and\nParadeDB shared actions. Determinate Nix now uses the SHA of v3.24.1,\nwhich currently matches main.\n\nAdd a read-only CI job that parses workflow and composite-action YAML\nand rejects mutable action, reusable-workflow, and container references.\nLocal actions remain tied to the checkout. Existing GitHub Actions\nDependabot configuration already covers these files.\n\nValidation: all references pass the new policy; three policy regression\ntests pass; Prettier and git diff --check pass. actionlint passes after\nignoring its pre-existing rejection of the newer concurrency.queue key\nin three unrelated workflows. No release was run.\n\nCredential isolation is addressed in a separate follow-up PR. Charts and\nthe shared actions repository are outside this PR's repository scope;\npinning a composite action also does not audit its runtime downloads or\ntransitive dependencies.",
+          "timestamp": "2026-10-30T17:15:05-07:00",
+          "tree_id": "6841af8e75e403e5cccb1fdca8760e0f4812f29d",
+          "url": "https://github.com/paradedb/paradedb/commit/b296f78e0b11c27c430cc0da77f10d4f6ed72958"
+        },
+        "date": 1793407782469,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.3892695165833333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.6171875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13022549375-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -67116,6 +67381,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13022571724-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b296f78e0b11c27c430cc0da77f10d4f6ed72958",
+          "message": "fix: pin workflow actions and enforce immutable references (#7125)\n\nPDB-012 identifies mutable third-party code running beside release\ncredentials. Pin every remote action reference in this repository's\nworkflows and local composite actions to its resolved full commit SHA,\nretaining the version in a comment. This includes GitHub-owned and\nParadeDB shared actions. Determinate Nix now uses the SHA of v3.24.1,\nwhich currently matches main.\n\nAdd a read-only CI job that parses workflow and composite-action YAML\nand rejects mutable action, reusable-workflow, and container references.\nLocal actions remain tied to the checkout. Existing GitHub Actions\nDependabot configuration already covers these files.\n\nValidation: all references pass the new policy; three policy regression\ntests pass; Prettier and git diff --check pass. actionlint passes after\nignoring its pre-existing rejection of the newer concurrency.queue key\nin three unrelated workflows. No release was run.\n\nCredential isolation is addressed in a separate follow-up PR. Charts and\nthe shared actions repository are outside this PR's repository scope;\npinning a composite action also does not audit its runtime downloads or\ntransitive dependencies.",
+          "timestamp": "2026-10-30T17:15:05-07:00",
+          "tree_id": "6841af8e75e403e5cccb1fdca8760e0f4812f29d",
+          "url": "https://github.com/paradedb/paradedb/commit/b296f78e0b11c27c430cc0da77f10d4f6ed72958"
+        },
+        "date": 1793407781850,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 15938.08,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 15938.08,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 15938.08,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 11763.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 11763.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 11763.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 3167.46,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3416.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 6384.2,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13022549375-buffers"
       }
     ]
   }

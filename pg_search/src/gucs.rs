@@ -333,7 +333,7 @@ pub fn vector_cluster_max_probe() -> f32 {
 }
 
 static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
-static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.25);
+static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
 static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
 static VECTOR_ROUTER_FLAT: GucSetting<bool> = GucSetting::<bool>::new(false);
 

@@ -493,6 +493,33 @@ impl CreateUpperPathsHookArgs {
         false
     }
 
+    /// True when the query sums a direct `int8` column reference. PostgreSQL sums
+    /// `bigint` into an exact NUMERIC, but the Tantivy aggregation engine sums in
+    /// f64, which rounds values past 2^53, so these queries must route to the
+    /// DataFusion backend. Wrapped arguments stay on Tantivy, as in
+    /// [`Self::has_numeric_aggregate`].
+    pub unsafe fn has_int8_sum_aggregate(&self) -> bool {
+        let parse = self.root().parse;
+        if parse.is_null() {
+            return false;
+        }
+
+        let is_int8_sum = |node: *mut pg_sys::Node| {
+            crate::nodecast!(Aggref, T_Aggref, node).is_some_and(|aggref| {
+                (*aggref).aggfnoid.to_u32() == pg_sys::F_SUM_INT8
+                    && PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
+                        .iter_ptr()
+                        .any(|arg| {
+                            aggregatescan::join_targetlist::unwrap_to_var((*arg).expr.cast())
+                                .is_some()
+                        })
+            })
+        };
+
+        (!(*parse).targetList.is_null() && (*parse).targetList.any(is_int8_sum))
+            || (!(*parse).havingQual.is_null() && (*parse).havingQual.any(is_int8_sum))
+    }
+
     /// Returns true when a `GROUP BY` expression is `date(timestamp)` or
     /// `date(timestamptz)`.
     ///

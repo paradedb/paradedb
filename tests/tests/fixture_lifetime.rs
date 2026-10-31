@@ -54,11 +54,11 @@ fn registered(conn: &mut PgConnection, name: &str) -> bool {
     .unwrap()
 }
 
-fn citus_workers(conn: &mut PgConnection, name: &str) -> i64 {
+fn citus_workers(conn: &mut PgConnection, oid: i64) -> i64 {
     block_on(sqlx::query_scalar(
-        "SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND backend_type LIKE 'Citus%'",
+        "SELECT count(*) FROM pg_stat_activity WHERE datid::bigint = $1 AND backend_type LIKE 'Citus%'",
     )
-    .bind(name)
+    .bind(oid)
     .fetch_one(conn))
     .unwrap()
 }
@@ -74,17 +74,25 @@ fn finish(exit: Exit) -> Result<(), &'static str> {
 // The parent observes real catalogs after joining the test thread, including its
 // TLS destructors. Never clean up another test's databases, even on the old code.
 fn check_teardown(
-    body: impl FnOnce(mpsc::Sender<String>) -> Result<(), &'static str> + Send + 'static,
+    body: impl FnOnce(mpsc::Sender<(String, i64)>) -> Result<(), &'static str> + Send + 'static,
     exit: Exit,
     citus: bool,
 ) {
     let mut admin = observer();
     let (send, recv) = mpsc::channel();
     let result = thread::spawn(move || body(send)).join();
-    let name = recv.recv().expect("test published its database name");
+    let (name, oid) = recv.recv().expect("test published its database identity");
     let exists = database_exists(&mut admin, &name);
     let tracked = registered(&mut admin, &name);
-    let workers = citus_workers(&mut admin, &name);
+    // datname becomes NULL in pg_stat_activity once pg_database loses the row.
+    // Keep using the original OID so a surviving daemon cannot disappear from
+    // this check just because DROP DATABASE succeeded.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut workers = citus_workers(&mut admin, oid);
+    while !exists && workers > 0 && std::time::Instant::now() < deadline {
+        thread::sleep(std::time::Duration::from_millis(50));
+        workers = citus_workers(&mut admin, oid);
+    }
     eprintln!(
         "after {exit:?}, citus={citus}: database_exists={exists}, registered={tracked}, citus_workers={workers}"
     );
@@ -127,10 +135,10 @@ fn connection_fixture_lifetime(#[case] exit: Exit, #[values(false, true)] citus:
     check_teardown(
         move |send| {
             let mut conn = conn::default();
-            let name = "SELECT current_database()"
-                .fetch_one::<(String,)>(&mut conn)
-                .0;
-            send.send(name.clone()).unwrap();
+            let (name, oid) =
+                "SELECT datname, oid::bigint FROM pg_database WHERE datname = current_database()"
+                    .fetch_one::<(String, i64)>(&mut conn);
+            send.send((name.clone(), oid)).unwrap();
             let mut admin = observer();
             assert!(database_exists(&mut admin, &name));
             assert!(registered(&mut admin, &name));
@@ -143,7 +151,7 @@ fn connection_fixture_lifetime(#[case] exit: Exit, #[values(false, true)] citus:
                     .execute(&mut conn);
                 // Positive control: a daemon really occupied a worker slot.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                while citus_workers(&mut admin, &name) == 0 {
+                while citus_workers(&mut admin, oid) == 0 {
                     assert!(
                         std::time::Instant::now() < deadline,
                         "Citus daemon did not start"
@@ -153,7 +161,7 @@ fn connection_fixture_lifetime(#[case] exit: Exit, #[values(false, true)] citus:
             }
             eprintln!(
                 "before {exit:?}, citus={citus}: database_exists=true, registered=true, citus_workers={}",
-                citus_workers(&mut admin, &name)
+                citus_workers(&mut admin, oid)
             );
             // Longer than PostgreSQL's five-second DROP DATABASE wait. The test's
             // connection must still work, and no cleanup may hold its database lock.
@@ -188,11 +196,13 @@ fn database_fixture_lifetime(#[case] exit: Exit) {
                 let db = database::default();
                 let mut first = db.connection().await;
                 let mut second = db.connection().await;
-                let name: String = sqlx::query_scalar("SELECT current_database()")
-                    .fetch_one(&mut first)
-                    .await
-                    .unwrap();
-                send.send(name.clone()).unwrap();
+                let (name, oid): (String, i64) = sqlx::query_as(
+                    "SELECT datname, oid::bigint FROM pg_database WHERE datname = current_database()",
+                )
+                .fetch_one(&mut first)
+                .await
+                .unwrap();
+                send.send((name.clone(), oid)).unwrap();
                 assert!(database_exists(&mut observer(), &name));
                 drop(db);
                 sqlx::query("SELECT pg_sleep(6)")

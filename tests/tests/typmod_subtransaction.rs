@@ -21,7 +21,6 @@ use rstest::*;
 use sqlx::{AssertSqlSafe, Connection, Executor, PgConnection};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::time::Duration;
 use tests::fixtures::*;
 
 async fn option_count(conn: &mut PgConnection, option: &str) -> Result<i64> {
@@ -68,9 +67,9 @@ async fn assert_index_works(conn: &mut PgConnection) -> Result<()> {
 /// prepared the transaction, so the prepare itself must forget the entries.
 const ROLLBACK_PREPARED: &str = "PREPARE TRANSACTION '{gid}'; ROLLBACK PREPARED '{gid}'; BEGIN";
 
-/// Keep the fixture alive until failure cleanup finishes: `Db::drop` must not try to drop
-/// the database while it still has prepared transactions. Register identifiers before
-/// PREPARE, since the server can prepare successfully even if the client loses its response.
+/// Finish failure cleanup before the test thread exits and drops its databases.
+/// Register identifiers before PREPARE, since the server can prepare successfully
+/// even if the client loses its response.
 struct PreparedTransactionCleanup {
     database: Arc<Db>,
     gids: Vec<String>,
@@ -96,8 +95,9 @@ impl Drop for PreparedTransactionCleanup {
         }
         let database = Arc::clone(&self.database);
         let gids = std::mem::take(&mut self.gids);
-        // Like Db::drop, use the async-std executor so cleanup outlives the test's Tokio runtime.
-        async_std::task::spawn(async move {
+        // Use async-std, but join the task before the thread-local database guard
+        // can run. Holding an Arc<Db> alone does not delay thread-exit cleanup.
+        async_std::task::block_on(async_std::task::spawn(async move {
             let mut conn = database.connection().await;
             for gid in gids {
                 let rollback = format!("ROLLBACK PREPARED '{}'", gid.replace('\'', "''"));
@@ -109,10 +109,9 @@ impl Drop for PreparedTransactionCleanup {
                     }
                 }
             }
-            // Close the cleanup connection before releasing the last fixture reference.
+            // Release the backend before thread-exit database cleanup.
             conn.close().await.ok();
-            drop(database);
-        });
+        }));
     }
 }
 
@@ -156,20 +155,13 @@ async fn prepared_transactions_cleaned_up_on_failure(
     .catch_unwind()
     .await;
 
-    let cleaned = tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let count: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM pg_prepared_xacts WHERE gid = ANY($1)")
-                    .bind(&gids)
-                    .fetch_one(&mut observer)
-                    .await?;
-            if count == 0 {
-                return Ok::<(), sqlx::Error>(());
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await;
+    // The guard must finish before control returns to the test, without an
+    // observer polling while a detached task races database teardown.
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pg_prepared_xacts WHERE gid = ANY($1)")
+            .bind(&gids)
+            .fetch_one(&mut observer)
+            .await?;
     // Even a regression in the guard must not leave this test's prepared transactions behind.
     for gid in &gids {
         observer
@@ -177,7 +169,10 @@ async fn prepared_transactions_cleaned_up_on_failure(
             .await
             .ok();
     }
-    cleaned.expect("failure cleanup left prepared transactions behind")?;
+    assert_eq!(
+        remaining, 0,
+        "failure cleanup left prepared transactions behind"
+    );
     if panic {
         let panic = result.expect_err("the simulated panic should have unwound");
         assert_eq!(

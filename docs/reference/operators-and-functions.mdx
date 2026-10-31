@@ -52,14 +52,14 @@ See [Querying Vectors](/reference/vector/querying) for examples and [Tuning Reca
 
 ## Operator Inputs
 
-| Operator    | Right-hand side inputs                                         | Notes                                                                             |
-| ----------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `@@@`       | `text`, `pdb.query`, `pdb.proximityclause`, `searchqueryinput` | `text` is parsed with ParadeDB's query parser. Query builders return `pdb.query`. |
-| `\|\|\|`    | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost`        | `text` is tokenized with the indexed field's tokenizer.                           |
-| `&&&`       | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost`        | Same tokenization as match disjunction, but all query tokens must match.          |
-| `===`       | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost`        | `text` is treated as a finalized token; `text[]` becomes a term set.              |
-| `###`       | `text`, `text[]`, `pdb.query`, `pdb.slop`, `pdb.boost`         | Matches ordered adjacent tokens unless slop is supplied.                          |
-| `##`, `##>` | proximity clauses, text, or text arrays                        | Text and `text[]` are implicitly converted into proximity clauses.                |
+| Operator    | Right-hand side inputs                                  | Notes                                                                             |
+| ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `@@@`       | `text`, `pdb.query`, `pdb.proximityclause`              | `text` is parsed with ParadeDB's query parser. Query builders return `pdb.query`. |
+| `\|\|\|`    | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost` | `text` is tokenized with the indexed field's tokenizer.                           |
+| `&&&`       | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost` | Same tokenization as match disjunction, but all query tokens must match.          |
+| `===`       | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost` | `text` is treated as a finalized token; `text[]` becomes a term set.              |
+| `###`       | `text`, `text[]`, `pdb.query`, `pdb.slop`, `pdb.boost`  | Matches ordered adjacent tokens unless slop is supplied.                          |
+| `##`, `##>` | proximity clauses, text, or text arrays                 | Text and `text[]` are implicitly converted into proximity clauses.                |
 
 ## Function Modifiers
 

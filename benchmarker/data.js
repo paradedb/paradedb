@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793406632576,
+  "lastUpdate": 1793406762389,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -51392,6 +51392,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13021664936-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "74999164+BilalAtique@users.noreply.github.com",
+            "name": "Bilal Atique",
+            "username": "BilalAtique"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "230928a06ad57b23686c03aff99dc9f7ed294113",
+          "message": "fix: give heap filters the fetched tuple's ctid and tableoid (#7067)\n\n# Ticket(s) Closed\n\n- Closes #7037\n\n## What\n\nA filter on `ctid` or `tableoid` that ParadeDB evaluates against the\nheap now returns the same rows as PostgreSQL. The issue's Join Scan\nquery returns 2 rows, not 3.\n\nThis is not specific to Join Scan. Base Scan uses the same heap filter,\nand `val ||| 'val' AND ctid > '(0,2)'` returned all 4 rows, where\nPostgreSQL returns 2.\n\n## Why\n\n`ctid > '(0,2)'` cannot be pushed into the index, so `try_pushdown`\nturns it into a heap filter. The plan shows it on source `b` as\n`\"always_filters\":[{\"heap_filter\":\"(ctid > '(0,2)'::tid)\"}]`.\n`HeapFieldFilter::evaluate` fetches each candidate and evaluates the\nexpression against `HeapFetchState::fetch_eval_slot`. That method copies\nthe tuple's column values into a virtual slot, but not the tuple's\nidentity.\n\nPostgreSQL's `slot_getsysattr` reads `ctid` from `slot->tts_tid` and\n`tableoid` from `slot->tts_tableOid`, not from the heap tuple.\n`ExecClearTuple` sets the virtual slot's `tts_tid` to an invalid item\npointer, (4294967295,0), and its `tts_tableOid` is never set. So every\nrow compared as (4294967295,0) with table OID 0. `ctid > '(0,2)'` kept\nevery row, and `ctid < '(0,3)'` and `tableoid =\n'heap_filter_b'::regclass` kept none.\n\n## How\n\n`fetch_eval_slot` now also copies `tts_tid` and `tts_tableOid` from the\nbuffer-heap slot that `table_index_fetch_tuple` filled.\n\n## Tests\n\n`tests/tests/heap_filter_system_columns.rs` runs each query with the\nParadeDB custom scan on and then off. It checks both plans and compares\nthe rows byte for byte, and each case checks PostgreSQL's row count:\n\n| Case | PostgreSQL | Before the fix |\n| --- | --- | --- |\n| Join Scan, `b.ctid > '(0,2)'` (the issue's query) | 2 rows | 3 rows |\n| Join Scan, `b.ctid < '(0,3)'` | 1 row | 0 rows |\n| Join Scan, `b.tableoid = 'heap_filter_b'::regclass` | 3 rows | 0 rows\n|\n| Base Scan, `ctid > '(0,2)'` | 2 rows | 4 rows |\n\n`heap_filter_system_columns.sql` shows the Join Scan and Base Scan plans\nwith the heap filter, and the rows of both `ctid > '(0,2)'` queries.\nWithout the fix, its output has the extra rows `3 | 13 | (0,2)` for the\njoin, and `13 | (0,2)` and `14 | (0,1)` for the base scan.\n\nThese checks do not cover a `ctid` or `tableoid` filter under the\nAggregate Scan, on a partitioned table, or after a HOT update. They also\ndo not cover the other system columns (`xmin`, `cmin`, `xmax`, `cmax`),\nwhich `slot_getsysattr` does not read from the slot.\n\n## Verification\n\n[Fork verification on PostgreSQL 15 and\n18](https://github.com/BilalAtique/paradedb/actions/runs/40653599882)\nran on this branch (base `main` at `22ae578`), on assertion-enabled\nPostgreSQL builds:\n\n| Check | PG15 | PG18 |\n| --- | --- | --- |\n| Integration test without the fix: 0 of 4 pass | Pass | Pass |\n| Integration test with the fix: 4 of 4 pass | Pass | Pass |\n| `heap_filter_system_columns` pg_regress fails without the fix | Pass |\nPass |\n| `heap_filter_system_columns` pg_regress passes with the fix | Pass |\nPass |\n| Integration tests `heap` and `joinscan_system_columns` | Pass | Pass |\n| pg_regress `join_system_columns`, `heap_filter_indexed_conjuncts`,\n`heap_filter_vacuum`, `aggregate_heap_filter_bool`,\n`filter_pushdown_datafusion` | Pass | Pass |\n| `cargo fmt --all -- --check` | Pass | Pass |\n| `cargo clippy --package tests --test heap_filter_system_columns -- -D\nwarnings` | Pass | Pass |\n| `cargo clippy --package pg_search --no-default-features --features\npg18 --lib -- -D warnings --no-deps` | n/a | Pass |\n\npg_regress generated the expected output in [an earlier\nrun](https://github.com/BilalAtique/paradedb/actions/runs/40651261453).\nIt is byte-for-byte identical on both versions. The fork-only workflow\nthat ran these checks is not part of this PR.",
+          "timestamp": "2026-10-30T16:58:59-07:00",
+          "tree_id": "1baca59b3e09c35311c42e4a4604166b90d8fd94",
+          "url": "https://github.com/paradedb/paradedb/commit/230928a06ad57b23686c03aff99dc9f7ed294113"
+        },
+        "date": 1793406760527,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.136,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.899,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.125,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.138,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.88,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 11.158,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 11.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.255,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 10.015,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.079,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 10.054,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.102,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.886,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 10.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.952,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.636,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.912,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.944,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.657,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 7.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.803,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.632,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.935,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13022571724-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -54095,6 +54255,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13021664936-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "74999164+BilalAtique@users.noreply.github.com",
+            "name": "Bilal Atique",
+            "username": "BilalAtique"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "230928a06ad57b23686c03aff99dc9f7ed294113",
+          "message": "fix: give heap filters the fetched tuple's ctid and tableoid (#7067)\n\n# Ticket(s) Closed\n\n- Closes #7037\n\n## What\n\nA filter on `ctid` or `tableoid` that ParadeDB evaluates against the\nheap now returns the same rows as PostgreSQL. The issue's Join Scan\nquery returns 2 rows, not 3.\n\nThis is not specific to Join Scan. Base Scan uses the same heap filter,\nand `val ||| 'val' AND ctid > '(0,2)'` returned all 4 rows, where\nPostgreSQL returns 2.\n\n## Why\n\n`ctid > '(0,2)'` cannot be pushed into the index, so `try_pushdown`\nturns it into a heap filter. The plan shows it on source `b` as\n`\"always_filters\":[{\"heap_filter\":\"(ctid > '(0,2)'::tid)\"}]`.\n`HeapFieldFilter::evaluate` fetches each candidate and evaluates the\nexpression against `HeapFetchState::fetch_eval_slot`. That method copies\nthe tuple's column values into a virtual slot, but not the tuple's\nidentity.\n\nPostgreSQL's `slot_getsysattr` reads `ctid` from `slot->tts_tid` and\n`tableoid` from `slot->tts_tableOid`, not from the heap tuple.\n`ExecClearTuple` sets the virtual slot's `tts_tid` to an invalid item\npointer, (4294967295,0), and its `tts_tableOid` is never set. So every\nrow compared as (4294967295,0) with table OID 0. `ctid > '(0,2)'` kept\nevery row, and `ctid < '(0,3)'` and `tableoid =\n'heap_filter_b'::regclass` kept none.\n\n## How\n\n`fetch_eval_slot` now also copies `tts_tid` and `tts_tableOid` from the\nbuffer-heap slot that `table_index_fetch_tuple` filled.\n\n## Tests\n\n`tests/tests/heap_filter_system_columns.rs` runs each query with the\nParadeDB custom scan on and then off. It checks both plans and compares\nthe rows byte for byte, and each case checks PostgreSQL's row count:\n\n| Case | PostgreSQL | Before the fix |\n| --- | --- | --- |\n| Join Scan, `b.ctid > '(0,2)'` (the issue's query) | 2 rows | 3 rows |\n| Join Scan, `b.ctid < '(0,3)'` | 1 row | 0 rows |\n| Join Scan, `b.tableoid = 'heap_filter_b'::regclass` | 3 rows | 0 rows\n|\n| Base Scan, `ctid > '(0,2)'` | 2 rows | 4 rows |\n\n`heap_filter_system_columns.sql` shows the Join Scan and Base Scan plans\nwith the heap filter, and the rows of both `ctid > '(0,2)'` queries.\nWithout the fix, its output has the extra rows `3 | 13 | (0,2)` for the\njoin, and `13 | (0,2)` and `14 | (0,1)` for the base scan.\n\nThese checks do not cover a `ctid` or `tableoid` filter under the\nAggregate Scan, on a partitioned table, or after a HOT update. They also\ndo not cover the other system columns (`xmin`, `cmin`, `xmax`, `cmax`),\nwhich `slot_getsysattr` does not read from the slot.\n\n## Verification\n\n[Fork verification on PostgreSQL 15 and\n18](https://github.com/BilalAtique/paradedb/actions/runs/40653599882)\nran on this branch (base `main` at `22ae578`), on assertion-enabled\nPostgreSQL builds:\n\n| Check | PG15 | PG18 |\n| --- | --- | --- |\n| Integration test without the fix: 0 of 4 pass | Pass | Pass |\n| Integration test with the fix: 4 of 4 pass | Pass | Pass |\n| `heap_filter_system_columns` pg_regress fails without the fix | Pass |\nPass |\n| `heap_filter_system_columns` pg_regress passes with the fix | Pass |\nPass |\n| Integration tests `heap` and `joinscan_system_columns` | Pass | Pass |\n| pg_regress `join_system_columns`, `heap_filter_indexed_conjuncts`,\n`heap_filter_vacuum`, `aggregate_heap_filter_bool`,\n`filter_pushdown_datafusion` | Pass | Pass |\n| `cargo fmt --all -- --check` | Pass | Pass |\n| `cargo clippy --package tests --test heap_filter_system_columns -- -D\nwarnings` | Pass | Pass |\n| `cargo clippy --package pg_search --no-default-features --features\npg18 --lib -- -D warnings --no-deps` | n/a | Pass |\n\npg_regress generated the expected output in [an earlier\nrun](https://github.com/BilalAtique/paradedb/actions/runs/40651261453).\nIt is byte-for-byte identical on both versions. The fork-only workflow\nthat ran these checks is not part of this PR.",
+          "timestamp": "2026-10-30T16:58:59-07:00",
+          "tree_id": "1baca59b3e09c35311c42e4a4604166b90d8fd94",
+          "url": "https://github.com/paradedb/paradedb/commit/230928a06ad57b23686c03aff99dc9f7ed294113"
+        },
+        "date": 1793406761324,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 97.65891704897597,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 97.6513575621337,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 96.64757557783534,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 108.8532785460395,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 108.66431491081862,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 108.12027341190483,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 141.80413588285722,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 141.79508245997235,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 111.66557809881161,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13022571724-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -64757,6 +64987,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13021664936-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "74999164+BilalAtique@users.noreply.github.com",
+            "name": "Bilal Atique",
+            "username": "BilalAtique"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "230928a06ad57b23686c03aff99dc9f7ed294113",
+          "message": "fix: give heap filters the fetched tuple's ctid and tableoid (#7067)\n\n# Ticket(s) Closed\n\n- Closes #7037\n\n## What\n\nA filter on `ctid` or `tableoid` that ParadeDB evaluates against the\nheap now returns the same rows as PostgreSQL. The issue's Join Scan\nquery returns 2 rows, not 3.\n\nThis is not specific to Join Scan. Base Scan uses the same heap filter,\nand `val ||| 'val' AND ctid > '(0,2)'` returned all 4 rows, where\nPostgreSQL returns 2.\n\n## Why\n\n`ctid > '(0,2)'` cannot be pushed into the index, so `try_pushdown`\nturns it into a heap filter. The plan shows it on source `b` as\n`\"always_filters\":[{\"heap_filter\":\"(ctid > '(0,2)'::tid)\"}]`.\n`HeapFieldFilter::evaluate` fetches each candidate and evaluates the\nexpression against `HeapFetchState::fetch_eval_slot`. That method copies\nthe tuple's column values into a virtual slot, but not the tuple's\nidentity.\n\nPostgreSQL's `slot_getsysattr` reads `ctid` from `slot->tts_tid` and\n`tableoid` from `slot->tts_tableOid`, not from the heap tuple.\n`ExecClearTuple` sets the virtual slot's `tts_tid` to an invalid item\npointer, (4294967295,0), and its `tts_tableOid` is never set. So every\nrow compared as (4294967295,0) with table OID 0. `ctid > '(0,2)'` kept\nevery row, and `ctid < '(0,3)'` and `tableoid =\n'heap_filter_b'::regclass` kept none.\n\n## How\n\n`fetch_eval_slot` now also copies `tts_tid` and `tts_tableOid` from the\nbuffer-heap slot that `table_index_fetch_tuple` filled.\n\n## Tests\n\n`tests/tests/heap_filter_system_columns.rs` runs each query with the\nParadeDB custom scan on and then off. It checks both plans and compares\nthe rows byte for byte, and each case checks PostgreSQL's row count:\n\n| Case | PostgreSQL | Before the fix |\n| --- | --- | --- |\n| Join Scan, `b.ctid > '(0,2)'` (the issue's query) | 2 rows | 3 rows |\n| Join Scan, `b.ctid < '(0,3)'` | 1 row | 0 rows |\n| Join Scan, `b.tableoid = 'heap_filter_b'::regclass` | 3 rows | 0 rows\n|\n| Base Scan, `ctid > '(0,2)'` | 2 rows | 4 rows |\n\n`heap_filter_system_columns.sql` shows the Join Scan and Base Scan plans\nwith the heap filter, and the rows of both `ctid > '(0,2)'` queries.\nWithout the fix, its output has the extra rows `3 | 13 | (0,2)` for the\njoin, and `13 | (0,2)` and `14 | (0,1)` for the base scan.\n\nThese checks do not cover a `ctid` or `tableoid` filter under the\nAggregate Scan, on a partitioned table, or after a HOT update. They also\ndo not cover the other system columns (`xmin`, `cmin`, `xmax`, `cmax`),\nwhich `slot_getsysattr` does not read from the slot.\n\n## Verification\n\n[Fork verification on PostgreSQL 15 and\n18](https://github.com/BilalAtique/paradedb/actions/runs/40653599882)\nran on this branch (base `main` at `22ae578`), on assertion-enabled\nPostgreSQL builds:\n\n| Check | PG15 | PG18 |\n| --- | --- | --- |\n| Integration test without the fix: 0 of 4 pass | Pass | Pass |\n| Integration test with the fix: 4 of 4 pass | Pass | Pass |\n| `heap_filter_system_columns` pg_regress fails without the fix | Pass |\nPass |\n| `heap_filter_system_columns` pg_regress passes with the fix | Pass |\nPass |\n| Integration tests `heap` and `joinscan_system_columns` | Pass | Pass |\n| pg_regress `join_system_columns`, `heap_filter_indexed_conjuncts`,\n`heap_filter_vacuum`, `aggregate_heap_filter_bool`,\n`filter_pushdown_datafusion` | Pass | Pass |\n| `cargo fmt --all -- --check` | Pass | Pass |\n| `cargo clippy --package tests --test heap_filter_system_columns -- -D\nwarnings` | Pass | Pass |\n| `cargo clippy --package pg_search --no-default-features --features\npg18 --lib -- -D warnings --no-deps` | n/a | Pass |\n\npg_regress generated the expected output in [an earlier\nrun](https://github.com/BilalAtique/paradedb/actions/runs/40651261453).\nIt is byte-for-byte identical on both versions. The fork-only workflow\nthat ran these checks is not part of this PR.",
+          "timestamp": "2026-10-30T16:58:59-07:00",
+          "tree_id": "1baca59b3e09c35311c42e4a4604166b90d8fd94",
+          "url": "https://github.com/paradedb/paradedb/commit/230928a06ad57b23686c03aff99dc9f7ed294113"
+        },
+        "date": 1793406762379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.3944855755166667,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4338.546875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13022571724-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -65811,6 +66076,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13021664936-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "74999164+BilalAtique@users.noreply.github.com",
+            "name": "Bilal Atique",
+            "username": "BilalAtique"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "230928a06ad57b23686c03aff99dc9f7ed294113",
+          "message": "fix: give heap filters the fetched tuple's ctid and tableoid (#7067)\n\n# Ticket(s) Closed\n\n- Closes #7037\n\n## What\n\nA filter on `ctid` or `tableoid` that ParadeDB evaluates against the\nheap now returns the same rows as PostgreSQL. The issue's Join Scan\nquery returns 2 rows, not 3.\n\nThis is not specific to Join Scan. Base Scan uses the same heap filter,\nand `val ||| 'val' AND ctid > '(0,2)'` returned all 4 rows, where\nPostgreSQL returns 2.\n\n## Why\n\n`ctid > '(0,2)'` cannot be pushed into the index, so `try_pushdown`\nturns it into a heap filter. The plan shows it on source `b` as\n`\"always_filters\":[{\"heap_filter\":\"(ctid > '(0,2)'::tid)\"}]`.\n`HeapFieldFilter::evaluate` fetches each candidate and evaluates the\nexpression against `HeapFetchState::fetch_eval_slot`. That method copies\nthe tuple's column values into a virtual slot, but not the tuple's\nidentity.\n\nPostgreSQL's `slot_getsysattr` reads `ctid` from `slot->tts_tid` and\n`tableoid` from `slot->tts_tableOid`, not from the heap tuple.\n`ExecClearTuple` sets the virtual slot's `tts_tid` to an invalid item\npointer, (4294967295,0), and its `tts_tableOid` is never set. So every\nrow compared as (4294967295,0) with table OID 0. `ctid > '(0,2)'` kept\nevery row, and `ctid < '(0,3)'` and `tableoid =\n'heap_filter_b'::regclass` kept none.\n\n## How\n\n`fetch_eval_slot` now also copies `tts_tid` and `tts_tableOid` from the\nbuffer-heap slot that `table_index_fetch_tuple` filled.\n\n## Tests\n\n`tests/tests/heap_filter_system_columns.rs` runs each query with the\nParadeDB custom scan on and then off. It checks both plans and compares\nthe rows byte for byte, and each case checks PostgreSQL's row count:\n\n| Case | PostgreSQL | Before the fix |\n| --- | --- | --- |\n| Join Scan, `b.ctid > '(0,2)'` (the issue's query) | 2 rows | 3 rows |\n| Join Scan, `b.ctid < '(0,3)'` | 1 row | 0 rows |\n| Join Scan, `b.tableoid = 'heap_filter_b'::regclass` | 3 rows | 0 rows\n|\n| Base Scan, `ctid > '(0,2)'` | 2 rows | 4 rows |\n\n`heap_filter_system_columns.sql` shows the Join Scan and Base Scan plans\nwith the heap filter, and the rows of both `ctid > '(0,2)'` queries.\nWithout the fix, its output has the extra rows `3 | 13 | (0,2)` for the\njoin, and `13 | (0,2)` and `14 | (0,1)` for the base scan.\n\nThese checks do not cover a `ctid` or `tableoid` filter under the\nAggregate Scan, on a partitioned table, or after a HOT update. They also\ndo not cover the other system columns (`xmin`, `cmin`, `xmax`, `cmax`),\nwhich `slot_getsysattr` does not read from the slot.\n\n## Verification\n\n[Fork verification on PostgreSQL 15 and\n18](https://github.com/BilalAtique/paradedb/actions/runs/40653599882)\nran on this branch (base `main` at `22ae578`), on assertion-enabled\nPostgreSQL builds:\n\n| Check | PG15 | PG18 |\n| --- | --- | --- |\n| Integration test without the fix: 0 of 4 pass | Pass | Pass |\n| Integration test with the fix: 4 of 4 pass | Pass | Pass |\n| `heap_filter_system_columns` pg_regress fails without the fix | Pass |\nPass |\n| `heap_filter_system_columns` pg_regress passes with the fix | Pass |\nPass |\n| Integration tests `heap` and `joinscan_system_columns` | Pass | Pass |\n| pg_regress `join_system_columns`, `heap_filter_indexed_conjuncts`,\n`heap_filter_vacuum`, `aggregate_heap_filter_bool`,\n`filter_pushdown_datafusion` | Pass | Pass |\n| `cargo fmt --all -- --check` | Pass | Pass |\n| `cargo clippy --package tests --test heap_filter_system_columns -- -D\nwarnings` | Pass | Pass |\n| `cargo clippy --package pg_search --no-default-features --features\npg18 --lib -- -D warnings --no-deps` | n/a | Pass |\n\npg_regress generated the expected output in [an earlier\nrun](https://github.com/BilalAtique/paradedb/actions/runs/40651261453).\nIt is byte-for-byte identical on both versions. The fork-only workflow\nthat ran these checks is not part of this PR.",
+          "timestamp": "2026-10-30T16:58:59-07:00",
+          "tree_id": "1baca59b3e09c35311c42e4a4604166b90d8fd94",
+          "url": "https://github.com/paradedb/paradedb/commit/230928a06ad57b23686c03aff99dc9f7ed294113"
+        },
+        "date": 1793406761855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 15926.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 15926.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 15926.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 11800.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 11800.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 11800.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 3137.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3137.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 7738.62,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13022571724-buffers"
       }
     ]
   }

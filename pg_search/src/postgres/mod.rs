@@ -1458,6 +1458,10 @@ mod segment_info_tests {
             "routing_kind".to_string(),
             Value::String("quantized_stacked".to_string()),
         );
+        fields.insert(
+            "routing_mode".to_string(),
+            Value::String("hierarchical".to_string()),
+        );
         fields.insert("work_charged".to_string(), Value::from(f64::MAX));
         fields.insert(
             "termination".to_string(),

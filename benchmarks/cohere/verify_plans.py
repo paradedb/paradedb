@@ -36,7 +36,7 @@ def verify(plan, filtered):
     return scans
 
 
-def routing_metrics(scans, require_routing):
+def routing_metrics(scans, require_routing, expected_mode=None):
     """Verify the measured router and sum its flat per-segment counters."""
     totals = dict.fromkeys(ROUTING_COUNTERS, 0)
     routed_segments = 0
@@ -52,6 +52,8 @@ def routing_metrics(scans, require_routing):
                 continue  # Located and flat scans do not invoke a router.
             if kind != "quantized_stacked":
                 raise ValueError(f"Expected quantized_stacked router, found {kind}")
+            if expected_mode is not None and segment.get("routing_mode") != expected_mode:
+                raise ValueError(f"Expected {expected_mode} routing mode")
             counts = {key: segment.get(key) for key in ROUTING_COUNTERS}
             if any(type(value) is not int or value < 0 for value in counts.values()):
                 raise ValueError("Missing or invalid router counters")
@@ -113,6 +115,41 @@ def routing_summary(records):
     return "\n".join(lines)
 
 
+def verify_point(point, vector, output, expected_mode=None):
+    """Execute and save one diagnostic plan using the same session as its sweep."""
+    session = point["session"] | {
+        "paradedb.vector_cluster_max_probe": point["probe"],
+        "paradedb.vector_stats": "on",
+    }
+    settings = "\n".join(
+        f"SET {key} = '{value}';" for key, value in session.items()
+    )
+    sql = f"""{settings}
+PREPARE vector_ci(vector(1024)) AS {point["sql"].rstrip(";")};
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
+"""
+    result = subprocess.run(
+        [
+            "psql",
+            os.environ["PARADEDB_URL"],
+            "-XqAt",
+            "-v",
+            "ON_ERROR_STOP=1",
+        ],
+        input=sql,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    path = output / f"{point['name']}.json"
+    path.write_text(result.stdout)
+    filtered = point["query"] != "knn_top10_unfiltered"
+    scans = verify(json.loads(result.stdout), filtered)
+    counters = routing_metrics(scans, require_routing=not filtered, expected_mode=expected_mode)
+    print(f"Verified {point['name']}: {path}")
+    return counters
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
@@ -125,36 +162,7 @@ if __name__ == "__main__":
     for point in points:
         if not point["reached"]:
             continue
-        session = point["session"] | {
-            "paradedb.vector_cluster_max_probe": point["probe"],
-            "paradedb.vector_stats": "on",
-        }
-        settings = "\n".join(
-            f"SET {key} = '{value}';" for key, value in session.items()
-        )
-        sql = f"""{settings}
-PREPARE vector_ci(vector(1024)) AS {point["sql"].rstrip(";")};
-EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
-"""
-        result = subprocess.run(
-            [
-                "psql",
-                os.environ["PARADEDB_URL"],
-                "-XqAt",
-                "-v",
-                "ON_ERROR_STOP=1",
-            ],
-            input=sql,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        path = output / f"{point['name']}.json"
-        path.write_text(result.stdout)
-        filtered = point["query"] != "knn_top10_unfiltered"
-        scans = verify(json.loads(result.stdout), filtered)
-        records[point["name"]] = routing_metrics(scans, require_routing=not filtered)
-        print(f"Verified {point['name']}: {path}")
+        records[point["name"]] = verify_point(point, vector, output)
     (args.directory / "router-metrics.json").write_text(
         json.dumps(records, indent=2) + "\n"
     )

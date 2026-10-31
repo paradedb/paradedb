@@ -332,6 +332,27 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.25);
+static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
+static VECTOR_ROUTER_FLAT: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+pub fn vector_router_rerank_factor() -> usize {
+    VECTOR_ROUTER_RERANK_FACTOR.get().max(1) as usize
+}
+
+pub fn vector_router_min_beam_fraction() -> f32 {
+    VECTOR_ROUTER_MIN_BEAM_FRACTION.get() as f32
+}
+
+pub fn vector_router_aps() -> bool {
+    VECTOR_ROUTER_APS.get()
+}
+
+pub fn vector_router_flat() -> bool {
+    VECTOR_ROUTER_FLAT.get()
+}
+
 /// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
@@ -689,6 +710,43 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_router_rerank_factor",
+        c"Approximate candidates retained per requested centroid by quantized routing",
+        c"Query-time retention padding before exact reranking. Does not widen list selection or change document probing budgets.",
+        &VECTOR_ROUTER_RERANK_FACTOR,
+        1,
+        16,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_min_beam_fraction",
+        c"Minimum fraction of each quantized router level's lists to open",
+        c"Query-time shortlist breadth. Full-precision routing retains its existing beam. Ignored by flat quantized routing.",
+        &VECTOR_ROUTER_MIN_BEAM_FRACTION,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_router_aps",
+        c"Allow stacked routing to stop after quiet lists",
+        c"Applies to full-precision and quantized hierarchical routing. Flat routing has no list-level stopping.",
+        &VECTOR_ROUTER_APS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_router_flat",
+        c"Score all quantized posting-centroid codes as one batch before exact reranking",
+        c"Bypasses the quantized router hierarchy without rebuilding the index. Full-precision routing is unchanged.",
+        &VECTOR_ROUTER_FLAT,
         GucContext::Userset,
         GucFlags::default(),
     );

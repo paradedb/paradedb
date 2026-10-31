@@ -47,6 +47,26 @@ Flat and located scans do not invoke a router and omit these counters.
 at each selected operating point, with a table in the CI summary and PR results.
 These diagnostic counts are separate from pdbench's averages over all vectors.
 
+Router composition can be selected at query time without rebuilding:
+
+| Setting | Default | Effect |
+|---|---:|---|
+| `paradedb.vector_router_rerank_factor` | 2 | Approximate members retained per requested centroid |
+| `paradedb.vector_router_min_beam_fraction` | 0.25 | Minimum list fraction at each quantized router level |
+| `paradedb.vector_router_aps` | on | Stop hierarchical routing after quiet lists |
+| `paradedb.vector_router_flat` | off | Score all quantized posting-centroid codes as one batch |
+
+The flat path uses the same scoring, retention, and exact-rerank primitives;
+`routing_mode` distinguishes it from hierarchical traversal in EXPLAIN. The
+beam and flat settings leave full-precision routing unchanged.
+`router_tuning.py` runs controlled unfiltered sweeps on the existing index:
+quarter/half/full beams, APS off at the full beam, flat scoring, and 2×/4×
+retention. It validates that only these query settings differ and that every
+report references the same index build. Exact selected recall targets and p50
+appear in `router-tuning/summary.md`; HTML comparisons and verified router
+counters remain in the diagnostics artifact. k6 continues to measure the
+default configuration.
+
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
    pdbench records build time, index size, and segment diagnostics before vacuum.

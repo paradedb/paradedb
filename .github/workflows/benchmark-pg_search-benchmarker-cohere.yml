@@ -325,6 +325,12 @@ jobs:
       - name: Verify k6 query plans and filter pushdown
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
+      - name: Compare router compositions on the built index
+        run: |
+          python3 benchmarks/cohere/router_tuning.py \
+            --profile "benchmarks/cohere/${COHERE_SIZE}.toml" \
+            --directory benchmark-artifacts --assets benchmarks/cohere/assets
+
       - name: Upload index, recall, and buffer diagnostics
         if: always()
         uses: actions/upload-artifact@v7

@@ -242,13 +242,13 @@ jobs:
 
       - name: Manual Approval Before Release
         if: github.event.inputs.beta != 'true'
-        uses: trstringer/manual-approval@fa642940caf8412403569b28b2db4a1df08a83a3 # v1
-        with:
-          secret: ${{ steps.app-token.outputs.token }}
-          approvers: pg_search-maintainers
-          minimum-approvals: 1
-          issue-title: "Release v${{ github.event.inputs.version }}?"
-          issue-body: ${{ steps.approval_details.outputs.issue_body }}
+        uses: docker://ghcr.io/trstringer/manual-approval@sha256:7cac2dde511346ae728d44e6a4c6385e5cd4b1a612e2158712448cfc4414b15b # v1.13.0
+        env:
+          INPUT_SECRET: ${{ steps.app-token.outputs.token }}
+          INPUT_APPROVERS: pg_search-maintainers
+          INPUT_MINIMUM-APPROVALS: "1"
+          INPUT_ISSUE-TITLE: "Release v${{ github.event.inputs.version }}?"
+          INPUT_ISSUE-BODY: ${{ steps.approval_details.outputs.issue_body }}
 
   publish-github-release:
     name: Sign and Publish Reviewed Release

@@ -747,7 +747,7 @@ RESET max_parallel_workers;
 SET max_parallel_workers_per_gather = 0;
 RESET paradedb.mpp_min_rows;
 
--- Test 6.12: plain GROUP BY on array field over join runs on DataFusion
+-- Test 6.12: array grouping over a join preserves empty arrays and NULLs
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id

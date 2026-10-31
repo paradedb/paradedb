@@ -97,21 +97,29 @@ impl Drop for PreparedTransactionCleanup {
         let gids = std::mem::take(&mut self.gids);
         // Use async-std, but join the task before the thread-local database guard
         // can run. Holding an Arc<Db> alone does not delay thread-exit cleanup.
-        async_std::task::block_on(async_std::task::spawn(async move {
-            let mut conn = database.connection().await;
-            for gid in gids {
-                let rollback = format!("ROLLBACK PREPARED '{}'", gid.replace('\'', "''"));
-                if let Err(error) = conn.execute(AssertSqlSafe(rollback)).await {
-                    // Normally the test already rolled it back, or never reached PREPARE.
-                    if error.as_database_error().and_then(|e| e.code()).as_deref() != Some("42704")
-                    {
-                        eprintln!("Failed to clean up prepared transaction {gid}: {error}");
+        let cleanup = async_std::task::block_on(async_std::task::spawn(
+            AssertUnwindSafe(async move {
+                let mut conn = database.connection().await;
+                for gid in gids {
+                    let rollback = format!("ROLLBACK PREPARED '{}'", gid.replace('\'', "''"));
+                    if let Err(error) = conn.execute(AssertSqlSafe(rollback)).await {
+                        // Normally the test already rolled it back, or never reached PREPARE.
+                        if error.as_database_error().and_then(|e| e.code()).as_deref()
+                            != Some("42704")
+                        {
+                            eprintln!("Failed to clean up prepared transaction {gid}: {error}");
+                        }
                     }
                 }
-            }
-            // Release the backend before thread-exit database cleanup.
-            conn.close().await.ok();
-        }));
+                // Release the backend before thread-exit database cleanup.
+                conn.close().await.ok();
+            })
+            .catch_unwind(),
+        ));
+        // A failed reconnect must not cause a second panic during test unwinding.
+        if cleanup.is_err() {
+            eprintln!("Prepared transaction cleanup panicked");
+        }
     }
 }
 

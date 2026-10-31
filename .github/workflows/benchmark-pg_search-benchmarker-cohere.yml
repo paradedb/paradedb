@@ -248,7 +248,7 @@ jobs:
 
       - name: Find mainline pdbench baseline
         id: pdbench_baseline
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const name = `cohere-${process.env.COHERE_SIZE}-diagnostics`;
@@ -279,7 +279,7 @@ jobs:
 
       - name: Download mainline pdbench baseline
         if: steps.pdbench_baseline.outputs.run_id != ''
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: cohere-${{ matrix.size }}-diagnostics
           path: benchmark-baseline

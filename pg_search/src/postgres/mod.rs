@@ -1416,6 +1416,8 @@ mod segment_info_tests {
             "postings_row",
             "postings_skipped",
             "routing_visited_count",
+            "routing_members_scored",
+            "routing_lists_scanned",
             "bounds_skips",
             "bound_armed_count",
             "bound_armed_probe_sum",

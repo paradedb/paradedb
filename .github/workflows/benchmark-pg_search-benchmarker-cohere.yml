@@ -237,19 +237,15 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep max_probe with pdbench
-        run: |
-          set -euo pipefail
-          for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-            pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
-              --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
-              --query "$query" --no-compare --html
-          done
+      - name: Measure admission calibration across filters and targets
+        run: python3 benchmarks/cohere/admission_experiment.py
 
       - name: Prepare k6 operating points
         run: |
           set -euo pipefail
-          python3 benchmarks/cohere/prepare_k6.py --runs benchmark-artifacts/search --output benchmark-artifacts
+          jq '[.[] | select(.reached and .buffers.shared_hit_mean != null)
+            | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
+          ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json
           psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
             -c 'SELECT json_agg(emb::text ORDER BY id) FROM pdbench_queries' \
             > benchmark-artifacts/query_vectors.json

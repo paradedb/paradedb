@@ -17,22 +17,46 @@ workers. Both tools use the same database and index throughout a run.
    Snapshot generation continues to use `datasets/cohere/config.toml` and
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
-   `pdbench search` loads the query vectors and sweeps
-   `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
-   Its required positive tolerance is 0.000001, below one neighbor's contribution
-   to recall over 100 top-10 queries (0.001).
-3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
-   It rejects selections below their target and does not select probes or
-   calculate latency. Unreached targets remain visible and do not run in k6.
+   `admission_experiment.py` first sweeps `paradedb.vector_cluster_max_probe` with
+   adaptive stopping disabled to establish nonadaptive controls. It measures
+   the recall-target knob with one exponent, 1.25, across all three filters.
+   Every measurement uses all 100 vectors, three timed repetitions and a separate
+   EXPLAIN pass. All
+   adaptive runs use `max_probe=0` (automatic headroom); no per-case budget is
+   selected. One router window scales with target, exponent, segment size, and
+   the existing filter-aware cluster-cost estimate; probing stops early on admission evidence
+   and does not re-query the router. The stopping fraction `(1 - target)^exponent`
+   also scales the window, so stricter stopping requests more routing headroom.
+   The base fraction is `b = min(1, 0.002 / fraction^0.625)`. With the existing
+   cluster cost `c`, the window fraction is
+   `b + min(0.4, 0.05 * (1/sqrt(c) - 1)) * b^0.125 * (1-b) * min(1, (1-b)/0.9)^2`.
+   The final taper reduces the filter allowance once the base window exceeds
+   10% of the segment, preserving narrower windows below that point.
+   The requested window also covers the existing expected-work estimate under
+   the filter-aware cluster cost, subject to the explicit work ceiling. This
+   only sets the ranked window; admission evidence can stop probing earlier.
+   These coefficients are shared across segments and filters. Bypass selection
+   retains its existing estimate based on the target and segment size.
+3. For each recall goal (90%, 95%, 99%), bisect the knob over [0.01, 1.0] on a
+   0.001 grid. Every candidate is measured across all three filters; it passes
+   only when all three reach that goal. Reuse previously measured candidates.
+   Export the lowest measured passing value shared across filters at each goal,
+   keeping configured values separate from achieved recall. This empirical
+   calibration is not a recall guarantee or proof of an optimal setting.
+   Unreached targets remain visible and do not run in k6. The complete set of
+   measurements and nonadaptive controls are retained. These measurements
+   select and evaluate the knob on the same query set; they do not establish
+   calibration on unseen queries or datasets.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
-   selected max_probe and all fixed search settings apply to every connection.
+   shared recall exponent, selected knob, and fixed search settings
+   apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
    and index size with baseline comparisons and dashboard links. Recall,
-   max_probe, and mean whole-query shared buffer hits/reads appear above those
+   recall exponent, probe ceiling setting, and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 
@@ -58,3 +82,9 @@ on PRs; the small handoff tests can be run with:
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 ```
+
+For global search, admission evidence follows the global cluster order across
+segments. The opening window, decayed recent window, and scored-row count are
+shared by all routed segments in a collector batch. Located scans still score
+all their filter matches. Refinement runs after probing stops, as on the base
+branch. Filtered parallel participants each maintain their own admission state.

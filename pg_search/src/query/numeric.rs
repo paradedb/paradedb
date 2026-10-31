@@ -28,6 +28,7 @@ use std::ops::Bound;
 use std::str::FromStr;
 
 use crate::api::version::{Version, VersionInfo};
+use crate::postgres::datetime::PostgresDate;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::SearchFieldType;
@@ -532,6 +533,21 @@ pub fn convert_value_for_field(
             numeric_value_to_decimal_bytes(value, index_created_by_version)
         }
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
+        SearchFieldType::I64(oid)
+            if *oid == pgrx::pg_sys::DATEOID && index_created_by_version.stores_dates_as_days() =>
+        {
+            match value {
+                PdbOwnedValue::Str(s) => PostgresDate::try_from_query_str(&s)
+                    .map(PdbOwnedValue::Date)
+                    .map_err(|e| anyhow::anyhow!("{e:?}")),
+                // JSON string literals are promoted to timestamps before they reach the
+                // field. A DATE field stores days, so narrow the timestamp here.
+                PdbOwnedValue::Timestamp(timestamp) => PostgresDate::try_from(timestamp)
+                    .map(PdbOwnedValue::Date)
+                    .map_err(|e| anyhow::anyhow!("{e:?}")),
+                other => Ok(other),
+            }
+        }
         SearchFieldType::I64(oid) if is_datetime_type(*oid) => Ok(string_to_i64(value)),
         SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::Numeric64(..) => {
             match clamp_to_int_domain(&value, field_type) {
@@ -550,11 +566,17 @@ pub fn convert_value_for_field(
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::datetime::PostgresTimestamp;
+    #[cfg(test)]
     use Clamped::{Above, Below, Exact};
+    use pgrx::pg_test;
+    #[cfg(test)]
     use rstest::rstest;
+    #[cfg(test)]
     use std::ops::Bound::{Excluded, Included, Unbounded};
 
     #[test]
@@ -635,6 +657,7 @@ mod tests {
         SearchFieldType::Numeric64(pgrx::pg_sys::NUMERICOID, scale)
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case(2, "12.345", 1234, false)]
     #[case(2, "-12.345", -1235, false)]
@@ -668,6 +691,7 @@ mod tests {
         );
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case("12.34", 1234)]
     #[case("NaN", Decimal64NoScale::nan().value())]
@@ -719,10 +743,36 @@ mod tests {
     const INT8: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::INT8OID);
     const OID: SearchFieldType = SearchFieldType::U64(pgrx::pg_sys::OIDOID);
     const TIMESTAMP: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::TIMESTAMPOID);
+    const DATE_DAYS: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::DATEOID);
+    #[cfg(test)]
     const INT4RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT4RANGEOID);
+    #[cfg(test)]
     const INT8RANGE: SearchFieldType = SearchFieldType::Range(pgrx::pg_sys::INT8RANGEOID);
+    #[cfg(test)]
     const HUGE: &str = "100000000000000000000000000000000000000000";
 
+    #[pg_test]
+    fn date_days_field_converts_string_and_legacy_timestamp_values() {
+        let date = PostgresDate::try_from_raw(0).unwrap();
+        let date_version = Some(crate::api::version::DATE_DAYS_STORAGE_VERSION);
+        assert_eq!(
+            convert_value_for_field(text("2000-01-01T12:00:00Z"), &DATE_DAYS, date_version)
+                .unwrap(),
+            PdbOwnedValue::Date(date)
+        );
+        assert_eq!(
+            convert_value_for_field(
+                PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap()),
+                &DATE_DAYS,
+                date_version,
+            )
+            .unwrap(),
+            PdbOwnedValue::Date(date)
+        );
+        assert!(convert_value_for_field(text("not a date"), &DATE_DAYS, date_version).is_err());
+    }
+
+    #[cfg(test)]
     #[rstest]
     #[case::integer(INT8, int(5), Exact(int(5)))]
     #[case::u64_at_max(INT8, uint(i64::MAX as u64), Exact(int(i64::MAX)))]
@@ -828,6 +878,7 @@ mod tests {
         assert_eq!(clamp_to_int_domain(&value, &field_type), Some(expected));
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::word(INT8, text("abc"))]
     #[case::empty(INT8, text(""))]
@@ -851,6 +902,7 @@ mod tests {
         assert_eq!(clamp_to_int_domain(&value, &field_type), None);
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::included(INT8, Included(text("5")), Included(int(5)))]
     #[case::excluded(INT8, Excluded(uint(5)), Excluded(int(5)))]
@@ -873,6 +925,7 @@ mod tests {
         );
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::included(INT8, Included(int(5)), Included(int(5)))]
     #[case::excluded(INT8, Excluded(text("5")), Excluded(int(5)))]
@@ -895,6 +948,7 @@ mod tests {
         );
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::int8range(INT8RANGE, Excluded(int(i64::MAX)), int(i64::MAX))]
     #[case::int8range_above_max(INT8RANGE, Included(uint(1 << 63)), int(i64::MAX))]
@@ -928,6 +982,7 @@ mod tests {
         assert!(clamp_int_bounds(&OID, Unbounded, Excluded(text("1-2"))).is_err());
     }
 
+    #[cfg(test)]
     #[rstest]
     #[case::integer(INT8, int(5), false)]
     #[case::fraction(INT8, text("2.5"), true)]
@@ -945,35 +1000,33 @@ mod tests {
         assert_eq!(is_outside_int_domain(&value, &field_type), expected);
     }
 
-    #[rstest]
-    #[case::string(INT8, text(" 5 "), int(5))]
-    #[case::float(INT8, float(5.0), int(5))]
-    #[case::u64(OID, text("5.0"), uint(5))]
-    #[case::not_a_number(INT8, text("abc"), text("abc"))]
-    #[case::timestamp(TIMESTAMP, text("infinity"), int(i64::MAX))]
-    fn test_convert_value_for_int_field(
-        #[case] field_type: SearchFieldType,
-        #[case] value: PdbOwnedValue,
-        #[case] expected: PdbOwnedValue,
-    ) {
-        assert_eq!(
-            convert_value_for_field(value, &field_type, None).unwrap(),
-            expected
-        );
+    #[pg_test]
+    fn test_convert_value_for_int_field() {
+        for (field_type, value, expected) in [
+            (INT8, text(" 5 "), int(5)),
+            (INT8, float(5.0), int(5)),
+            (OID, text("5.0"), uint(5)),
+            (INT8, text("abc"), text("abc")),
+            (TIMESTAMP, text("infinity"), int(i64::MAX)),
+        ] {
+            assert_eq!(
+                convert_value_for_field(value, &field_type, None).unwrap(),
+                expected
+            );
+        }
     }
 
-    #[rstest]
-    #[case::fraction(text("2.5"))]
-    #[case::above_max(uint(1 << 63))]
-    fn convert_value_for_field_rejects_numbers_outside_int_domain(#[case] value: PdbOwnedValue) {
-        assert!(convert_value_for_field(value, &INT8, None).is_err());
+    #[pg_test]
+    fn convert_value_for_field_rejects_numbers_outside_int_domain() {
+        for value in [text("2.5"), uint(1 << 63)] {
+            assert!(convert_value_for_field(value, &INT8, None).is_err());
+        }
     }
 
-    #[rstest]
-    #[case::not_a_number(text("abc"))]
-    #[case::empty(text(""))]
-    #[case::off_grid(text("12.345"))]
-    fn convert_value_for_field_rejects_non_values_of_numeric64(#[case] value: PdbOwnedValue) {
-        assert!(convert_value_for_field(value, &numeric64(2), None).is_err());
+    #[pg_test]
+    fn convert_value_for_field_rejects_non_values_of_numeric64() {
+        for value in [text("abc"), text(""), text("12.345")] {
+            assert!(convert_value_for_field(value, &numeric64(2), None).is_err());
+        }
     }
 }

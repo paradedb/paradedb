@@ -699,7 +699,7 @@ fn build_pdb_aggregate_plan(
             } else {
                 let null_expr = Expr::Cast(Cast::new(
                     Box::new(lit(ScalarValue::Null)),
-                    pdb_plan.keys[k].field.field_type.arrow_data_type(),
+                    pdb_plan.keys[k].field.arrow_data_type(),
                 ))
                 .alias(format!("__pdb_k{k}"));
                 project_exprs.push(null_expr);
@@ -891,14 +891,14 @@ fn pdb_missing_literal(missing: &Key, field: &PdbAggFieldRef) -> ScalarValue {
 fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
     Expr::Cast(Cast::new(
         Box::new(lit(pdb_missing_literal(missing, field))),
-        field.field_type.arrow_data_type(),
+        field.arrow_data_type(),
     ))
 }
 
 /// [`pdb_missing_lit`] as a value, for a key written over the NULL elements of
 /// an array column once the `pdb_agg` accumulator has exploded it.
 pub(crate) fn pdb_missing_scalar(missing: &Key, field: &PdbAggFieldRef) -> Result<ScalarValue> {
-    pdb_missing_literal(missing, field).cast_to(&field.field_type.arrow_data_type())
+    pdb_missing_literal(missing, field).cast_to(&field.arrow_data_type())
 }
 
 pub(crate) fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
@@ -957,7 +957,7 @@ pub(crate) fn pdb_metric_call(
         };
         Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
     };
-    let raw_type = field.field_type.arrow_data_type();
+    let raw_type = field.arrow_data_type();
     let (udaf, args, arg0_type) = match stat {
         PdbStat::Count => (count_udaf(), vec![column], raw_type),
         // NUMERIC takes the decimal accumulator the SQL aggregates use; the

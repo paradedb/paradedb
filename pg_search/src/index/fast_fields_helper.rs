@@ -19,9 +19,10 @@ use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::api::CTID_FIELD_NAME;
+use crate::api::version::VersionInfo;
 use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::storage::metadata::CleanupAdmission;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
@@ -30,7 +31,8 @@ use crate::schema::{SearchFieldType, is_columnar_json_path};
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
-    BooleanBuilder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder, UInt64Builder,
+    BooleanBuilder, Date32Builder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder,
+    UInt64Builder,
 };
 use arrow_array::{Array, ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
@@ -105,12 +107,22 @@ impl FFHelper {
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
+        let date_days = reader.schema().created_by_version().stores_dates_as_days();
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),
             segment_view: reader.segment_view(),
             _cleanup_admission: reader.cleanup_admission(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
-            columns: fields.to_vec(),
+            columns: fields
+                .iter()
+                .cloned()
+                .map(|field| {
+                    let is_date = field
+                        .field_type()
+                        .is_some_and(|ty| ty.typeoid().value() == pgrx::pg_sys::DATEOID);
+                    field.with_date_days(date_days && is_date)
+                })
+                .collect(),
         }))
     }
 
@@ -197,6 +209,7 @@ impl FFHelper {
         Some(self.column(doc_address.segment_ord, field).value(
             doc_address.doc_id,
             self.inner().columns[field].field_type().copied(),
+            self.inner().columns[field].stores_date_days(),
         ))
     }
 
@@ -315,6 +328,17 @@ macro_rules! fetch_term_ords {
     }};
 }
 
+/// A new date fast field stores PostgreSQL's `DateADT` as an `i64`, but only the low 32 bits
+/// are meaningful (`DateADT` is an `i32`).
+fn pg_date_days(days: i64) -> PostgresDate {
+    let days = i32::try_from(days).expect("a DATE day count must fit in an i32");
+    PostgresDate::try_from_raw(days).expect("the index must only contain valid DATE day counts")
+}
+
+fn pg_date_days_to_date32(days: i64) -> i32 {
+    pg_date_days(days).to_date32()
+}
+
 /// Helper for working with different "fast field" types as if they're all one type.
 ///
 /// This enum is used *after* a column is open to provide a typed wrapper around the underlying
@@ -377,7 +401,12 @@ impl FFType {
 
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
-    pub fn value(&self, doc: DocId, search_field_type: Option<SearchFieldType>) -> TantivyValue {
+    pub fn value(
+        &self,
+        doc: DocId,
+        search_field_type: Option<SearchFieldType>,
+        date_days: bool,
+    ) -> TantivyValue {
         match self {
             FFType::Junk => TantivyValue(PdbOwnedValue::Null),
             FFType::Text(ff) => {
@@ -399,16 +428,23 @@ impl FFType {
                 TantivyValue(PdbOwnedValue::Bytes(bytes))
             }
             FFType::I64(ff) => {
-                // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
-                if let Some(sft) = search_field_type
-                    && is_pgoid_datetime_type(sft.typeoid())
-                {
-                    let value = ff.first(doc).map(|first| {
-                        let pgdt = PostgresDateTime::try_from_raw(first)
-                            .expect("This should always be a valid datetime value");
-                        PdbOwnedValue::Date(pgdt)
-                    });
-                    return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                if let Some(sft) = search_field_type {
+                    // versions >= DATE_DAYS_STORAGE_VERSION store DATE as DateADT days
+                    if date_days {
+                        let value = ff
+                            .first(doc)
+                            .map(|days| PdbOwnedValue::Date(pg_date_days(days)));
+                        return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                    }
+                    // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
+                    if is_pgoid_datetime_type(sft.typeoid()) {
+                        let value = ff.first(doc).map(|first| {
+                            let pgdt = PostgresTimestamp::try_from_raw(first)
+                                .expect("This should always be a valid datetime value");
+                            PdbOwnedValue::Timestamp(pgdt)
+                        });
+                        return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                    }
                 }
                 let value = ff.first(doc).map(|first| first.into());
                 TantivyValue(value.unwrap_or(PdbOwnedValue::Null))
@@ -465,6 +501,7 @@ impl FFType {
         &self,
         ids: &[u32],
         search_field_type: SearchFieldType,
+        date_days: bool,
     ) -> ArrayRef {
         match self {
             FFType::Text(col) => fetch_term_ords!(col.ords(), ids),
@@ -473,6 +510,9 @@ impl FFType {
                 &arrow_schema::DataType::Null,
                 ids.len(),
             )),
+            FFType::I64(_) if date_days => {
+                fetch_ff_column!(self, ids, I64 => pg_date_days_to_date32 => Date32Builder)
+            }
             FFType::I64(_) if is_pgoid_datetime_type(search_field_type.typeoid()) => {
                 fetch_ff_column!(self, ids, I64 => identity => TimestampMicrosecondBuilder)
             }
@@ -492,6 +532,7 @@ impl FFType {
         &self,
         ids: &[u32],
         search_field_type: SearchFieldType,
+        date_days: bool,
     ) -> ArrayRef {
         fn fetch_list_array<B, I, V>(
             ids: &[u32],
@@ -526,6 +567,12 @@ impl FFType {
                 arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
                 |doc| col.term_ords(doc),
                 |b, v| b.append_value(v),
+            ),
+            FFType::I64(col) if date_days => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(Date32Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(pg_date_days_to_date32(v)),
             ),
             FFType::I64(col) if matches!(search_field_type, SearchFieldType::I64(oid) if crate::postgres::types::is_datetime_type(oid)) => {
                 fetch_list_array(
@@ -683,6 +730,7 @@ pub enum WhichFastField {
     Named {
         name: String,
         field_type: SearchFieldType,
+        date_days: bool,
         cardinality: FieldCardinality,
         delivery: FieldDelivery,
     },
@@ -747,6 +795,26 @@ impl WhichFastField {
         }
     }
 
+    pub fn stores_date_days(&self) -> bool {
+        matches!(
+            self,
+            Self::Named {
+                date_days: true,
+                ..
+            }
+        )
+    }
+
+    pub fn with_date_days(mut self, date_days: bool) -> Self {
+        if let Self::Named {
+            date_days: stored, ..
+        } = &mut self
+        {
+            *stored = date_days;
+        }
+        self
+    }
+
     /// Returns the Arrow DataType for this fast field.
     pub fn arrow_data_type(&self) -> arrow_schema::DataType {
         use arrow_schema::DataType;
@@ -757,9 +825,10 @@ impl WhichFastField {
             WhichFastField::Named {
                 delivery: FieldDelivery::Eager,
                 field_type,
+                date_days,
                 cardinality,
                 ..
-            } => cardinality.wrap(field_type.arrow_data_type()),
+            } => cardinality.wrap(field_type.arrow_data_type_with_date_days(*date_days)),
             WhichFastField::Junk(_) => DataType::Null,
             // One packed word per row, a list as much as a scalar: see `deferred_encode`.
             WhichFastField::Named {
@@ -781,6 +850,7 @@ impl WhichFastField {
         WhichFastField::Named {
             name: name.into(),
             field_type,
+            date_days: false,
             cardinality,
             delivery,
         }
@@ -806,6 +876,7 @@ impl WhichFastField {
             WhichFastField::Named {
                 name,
                 field_type,
+                date_days,
                 cardinality,
                 ..
             } => Self::named(
@@ -813,7 +884,8 @@ impl WhichFastField {
                 *field_type,
                 *cardinality,
                 FieldDelivery::Eager,
-            ),
+            )
+            .with_date_days(*date_days),
             other => other.clone(),
         }
     }

@@ -1384,6 +1384,7 @@ pub unsafe fn lower_pdb_agg_call(
             attno: resolved.attno,
             field_name: resolved.field_name,
             field_type: resolved.field_type,
+            stores_date_days: resolved.stores_date_days,
             plan_position: 0,
             is_array: resolved.is_array,
         })

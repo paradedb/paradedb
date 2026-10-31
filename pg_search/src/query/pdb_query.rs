@@ -17,12 +17,12 @@
 
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_datetime_type;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
-    clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
+    clamp_int_bounds, convert_bound, convert_value_for_field, convert_value_for_range_field,
     is_outside_int_domain, map_bound, numeric_bound_to_bytes, string_to_f64, string_to_i64,
     string_to_json_numeric,
 };
@@ -1657,6 +1657,24 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     let typeoid = search_field.field_type().typeoid();
     let search_field_type = search_field.field_type();
 
+    // DATE strings may include a timestamp. Normalize them before check_range_bounds,
+    // which parses pure ISO dates and is also called by backend-free unit tests.
+    if matches!(
+        typeoid,
+        PgOid::BuiltIn(BuiltinOid::DATEOID | BuiltinOid::DATERANGEOID)
+    ) {
+        let parse_date = |value| match value {
+            PdbOwnedValue::Str(s) => PostgresDate::try_from_query_str(&s)
+                .map(PdbOwnedValue::Date)
+                .map_err(|e| anyhow::anyhow!("{e:?}")),
+            other => Ok(other),
+        };
+        let lower = convert_bound(lower_bound, parse_date)?;
+        let upper = convert_bound(upper_bound, parse_date)?;
+        return check_range_bounds(typeoid, lower, upper, index_created_by_version)
+            .map_err(Into::into);
+    }
+
     // Handle NUMERIC field types with special storage strategies
     // Also handle string-encoded numeric values for JSON and other numeric fields
     let bounds = match search_field_type {
@@ -2659,46 +2677,52 @@ fn numeric_value_to_phrase(value: PdbOwnedValue) -> String {
     }
 }
 
-/// Parse `phrase` as a postgres date string and return the corresponding
-/// PG-epoch microseconds formatted as a decimal i64 string. Returns `None`
-/// if the index does not store datetimes as i64, the OID is unsupported, or parsing fails.
-/// The caller leaves the phrase untouched in these cases.
+/// Convert date/time phrases to the units used by the index, leaving unsupported or invalid
+/// phrases unchanged for Tantivy to handle.
 fn phrase_to_pg_micros_string(
     phrase: &str,
     oid: PgOid,
     index_created_by_version: Option<Version>,
 ) -> Option<String> {
+    if matches!(oid, PgOid::BuiltIn(BuiltinOid::DATEOID))
+        && index_created_by_version.stores_dates_as_days()
+    {
+        return PostgresDate::try_from_query_str(phrase)
+            .ok()
+            .map(|date| date.into_inner().to_string());
+    }
+
     if !index_created_by_version.stores_datetimes_in_i64() {
         return None;
     }
 
     match oid {
         PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
-            let micros = PostgresDateTime::try_from_timestamp_str(phrase)
+            let micros = PostgresTimestamp::try_from_timestamp_str(phrase)
                 .ok()?
                 .into_inner();
             Some(micros.to_string())
         }
         PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
-            let micros = PostgresDateTime::try_from_timestamptz_str(phrase)
+            let micros = PostgresTimestamp::try_from_timestamptz_str(phrase)
                 .ok()?
                 .into_inner();
             Some(micros.to_string())
         }
         PgOid::BuiltIn(BuiltinOid::DATEOID) => {
-            let micros = PostgresDateTime::try_from_date_str(phrase)
+            let micros = PostgresTimestamp::try_from_date_str(phrase)
                 .ok()?
                 .into_inner();
             Some(micros.to_string())
         }
         PgOid::BuiltIn(BuiltinOid::TIMEOID) => {
-            let micros = PostgresDateTime::try_from_time_str(phrase)
+            let micros = PostgresTimestamp::try_from_time_str(phrase)
                 .ok()?
                 .into_inner();
             Some(micros.to_string())
         }
         PgOid::BuiltIn(BuiltinOid::TIMETZOID) => {
-            let micros = PostgresDateTime::try_from_timetz_str(phrase)
+            let micros = PostgresTimestamp::try_from_timetz_str(phrase)
                 .ok()?
                 .into_inner();
             Some(micros.to_string())
@@ -2706,7 +2730,7 @@ fn phrase_to_pg_micros_string(
         PgOid::BuiltIn(BuiltinOid::JSONOID) | PgOid::BuiltIn(BuiltinOid::JSONBOID) => {
             // Best-effort: if the phrase parses as a timestamp, rewrite to i64 micros.
             // Otherwise leave alone — could be any non-datetime JSON value.
-            PostgresDateTime::try_from(phrase)
+            PostgresTimestamp::try_from(phrase)
                 .ok()
                 .map(|dt| dt.into_inner().to_string())
         }
@@ -2718,10 +2742,26 @@ fn phrase_to_pg_micros_string(
 #[pgrx::pg_schema]
 mod tests {
     use super::pdb::FuzzyData;
-    use super::{PhraseRewrite, rewrite_phrase};
-    use crate::api::version::{NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version};
+    use super::{PhraseRewrite, phrase_to_pg_micros_string, rewrite_phrase};
+    use crate::api::version::{
+        DATE_DAYS_STORAGE_VERSION, NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version,
+    };
     use crate::schema::SearchFieldType;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn date_phrase_rewrite_uses_index_version() {
+        let oid = pgrx::PgOid::from(pg_sys::DATEOID);
+        assert_eq!(
+            phrase_to_pg_micros_string("2000-01-02", oid, Some(DATE_DAYS_STORAGE_VERSION)),
+            Some("1".into())
+        );
+        assert_eq!(
+            phrase_to_pg_micros_string("2000-01-02", oid, Some(Version::new(0, 26, 0))),
+            Some("86400000000".into())
+        );
+        assert_eq!(phrase_to_pg_micros_string("2000-01-02", oid, None), None);
+    }
 
     #[pg_test]
     fn numeric_phrase_rewrite_uses_physical_representation() {

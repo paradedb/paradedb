@@ -416,10 +416,12 @@ impl Builder<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::postgres::datetime::PostgresDateTime;
+    use crate::postgres::datetime::PostgresTimestamp;
+    use pgrx::pg_test;
 
     fn dims(names: &[&str]) -> Vec<FieldName> {
         names
@@ -435,6 +437,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(test)]
     fn contains(bounds: &[DimBounds], point: &[PdbOwnedValue]) -> bool {
         bounds.iter().zip(point).all(|((lo, hi), v)| {
             let above_lo = match lo {
@@ -457,6 +460,7 @@ mod tests {
 
     /// Every sample point routes to a leaf whose box contains it, and every partition id is
     /// reachable.
+    #[cfg(test)]
     fn check_invariants(tree: &KdTree, sample: &[Point]) {
         let mut seen = vec![0usize; tree.partition_count()];
         for point in sample {
@@ -470,7 +474,7 @@ mod tests {
         }
         assert!(
             seen.iter().all(|&n| n > 0),
-            "empty partitions: {seen:?}\n{tree}"
+            "empty partitions: {seen:?}\n{tree:?}"
         );
         assert!(tree.partition_bounds(tree.partition_count()).is_none());
     }
@@ -498,7 +502,7 @@ mod tests {
         let sample = i64s(0..3000);
         for target in [2, 3, 5, 6, 7, 11, 16, 30] {
             let tree = KdTree::from_sample(dims(&["id"]), sample.clone(), target);
-            assert_eq!(tree.partition_count(), target, "{tree}");
+            assert_eq!(tree.partition_count(), target, "{tree:?}");
             check_invariants(&tree, &sample);
 
             let mut counts = vec![0usize; target];
@@ -522,7 +526,7 @@ mod tests {
         sample.extend(i64s(1..101));
         let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8);
         assert!(tree.partition_count() <= 8);
-        assert!(tree.partition_count() >= 2, "{tree}");
+        assert!(tree.partition_count() >= 2, "{tree:?}");
         check_invariants(&tree, &sample);
         // The zeros cannot be split, so they all land in partition 0.
         assert_eq!(tree.route(&[PdbOwnedValue::I64(0)]), 0);
@@ -629,7 +633,7 @@ mod tests {
             let bounded = |b: &DimBounds| !matches!(b, (Bound::Unbounded, Bound::Unbounded));
             assert!(
                 bounds.iter().all(bounded),
-                "partition {p}: {bounds:?}\n{tree}"
+                "partition {p}: {bounds:?}\n{tree:?}"
             );
         }
         assert_eq!(
@@ -653,7 +657,7 @@ mod tests {
         check_invariants(&tree, &sample);
         for p in 0..8 {
             let bounds = tree.partition_bounds(p).unwrap();
-            assert_eq!(bounds[1], (Bound::Unbounded, Bound::Unbounded), "{tree}");
+            assert_eq!(bounds[1], (Bound::Unbounded, Bound::Unbounded), "{tree:?}");
         }
     }
 
@@ -687,8 +691,8 @@ mod tests {
                     PdbOwnedValue::Bool(i % 3 == 0),
                     PdbOwnedValue::I64(i),
                     // One day apart, starting at the Postgres epoch (2000-01-01).
-                    PdbOwnedValue::Date(
-                        PostgresDateTime::try_from_raw(i * 86_400_000_000).unwrap(),
+                    PdbOwnedValue::Timestamp(
+                        PostgresTimestamp::try_from_raw(i * 86_400_000_000).unwrap(),
                     ),
                 ]
             })
@@ -698,7 +702,7 @@ mod tests {
             sample.clone(),
             6,
         );
-        assert_eq!(tree.partition_count(), 6, "{tree}");
+        assert_eq!(tree.partition_count(), 6, "{tree:?}");
         check_invariants(&tree, &sample);
 
         // The tree carries an `I64` split (`id` is unique, so it is the widest dimension); the
@@ -744,7 +748,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn display_lists_every_split_and_leaf() {
         let tree = KdTree::from_sample(dims(&["id"]), i64s(0..100), 3);
         let text = tree.to_string();
@@ -758,7 +762,7 @@ mod tests {
         assert_eq!(text.matches("id <").count(), 2, "{text}");
     }
 
-    #[test]
+    #[pg_test]
     fn bounds_listing_shows_one_box_per_partition() {
         let mut sample = Vec::new();
         for x in 0..40 {
@@ -779,8 +783,8 @@ mod tests {
         let sample: Vec<Point> = (0..100)
             .map(|i| {
                 vec![
-                    PdbOwnedValue::Date(
-                        PostgresDateTime::try_from_raw(i * 86_400_000_000).unwrap(),
+                    PdbOwnedValue::Timestamp(
+                        PostgresTimestamp::try_from_raw(i * 86_400_000_000).unwrap(),
                     ),
                     PdbOwnedValue::Str(format!("k{:02}", i / 10)),
                 ]

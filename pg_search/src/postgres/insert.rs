@@ -375,7 +375,13 @@ unsafe fn validate_date_fields(
         let actual_datum = unwrap_alias_datum(datum, categorized.pg_type);
 
         if categorized.is_array {
-            if let Err(e) = TantivyValue::try_from_datum_array(actual_datum, categorized.base_oid) {
+            let result = TantivyValue::try_from_datum_array(actual_datum, categorized.base_oid)
+                .and_then(|values| {
+                    values.into_iter().try_for_each(|value| {
+                        value.into_tantivy_value(created_by_version).map(|_| ())
+                    })
+                });
+            if let Err(e) = result {
                 panic!("could not parse field `{}`: {e}", field.field_name());
             }
         } else {
@@ -384,7 +390,8 @@ unsafe fn validate_date_fields(
                 field.field_type(),
                 categorized.base_oid,
                 created_by_version,
-            );
+            )
+            .and_then(|value| value.into_tantivy_value(created_by_version).map(|_| ()));
             if let Err(e) = res {
                 panic!("could not parse field `{}`: {e}", field.field_name());
             }

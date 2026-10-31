@@ -92,7 +92,10 @@ pub unsafe fn resolve_fast_field(
                         && let Some(field_type) =
                             field_type_for_pullup(search_field.field_type(), data.is_array)
                     {
-                        return Some(WhichFastField::eager(att.name(), field_type));
+                        return Some(
+                            WhichFastField::eager(att.name(), field_type)
+                                .with_date_days(search_field.stores_date_days()),
+                        );
                     }
                 }
             }
@@ -147,12 +150,15 @@ pub fn resolve_fast_field_by_name(
         } else {
             FieldCardinality::Scalar
         };
-        Some(WhichFastField::named(
-            field_name,
-            search_field.field_type(),
-            cardinality,
-            FieldDelivery::Eager,
-        ))
+        Some(
+            WhichFastField::named(
+                field_name,
+                search_field.field_type(),
+                cardinality,
+                FieldDelivery::Eager,
+            )
+            .with_date_days(search_field.stores_date_days()),
+        )
     } else {
         None
     }

@@ -38,7 +38,7 @@ use crate::api::HashMap;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::customscan::explain::{ExplainFormat, format_for_explain};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
@@ -1114,7 +1114,7 @@ impl SearchQueryInput {
 
 /// Legacy wire format for [`TermInput`] kept around so that JSON inputs in the
 /// 3-element positional form `[field, value, is_datetime]` still deserialize.
-/// `is_datetime` no longer affects parsing — `PdbOwnedValue::Date` carries the
+/// `is_datetime` no longer affects parsing — `PdbOwnedValue::Timestamp` carries the
 /// datetime intent now — but the slot must exist for serde's positional
 /// (array) deserialization to accept the 3-element shape.
 #[derive(Deserialize)]
@@ -1193,12 +1193,20 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Date(date)),
         ) => shift_date_bound(date, Bound::Excluded, Bound::Included)?,
+        // A legacy/timestamp-shaped date bound needs the same treatment.
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Timestamp(date)),
+        ) => {
+            let date = PostgresDate::try_from(date).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            shift_date_bound(date, Bound::Excluded, Bound::Included)?
+        }
         // String date needs parsed
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::try_from_date_str(s.as_str())
+            let date = PostgresDate::try_from_date_str(s.as_str())
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Included(PdbOwnedValue::Date(date))
         }
@@ -1207,7 +1215,7 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::try_from_date_str(s.as_str())
+            let date = PostgresDate::try_from_date_str(s.as_str())
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             shift_date_bound(date, Bound::Excluded, Bound::Included)?
         }
@@ -1222,19 +1230,19 @@ fn check_range_bounds(
             let date = match typeoid {
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
                 | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => {
-                    PostgresDateTime::try_from_timestamp_str(s.as_str())
+                    PostgresTimestamp::try_from_timestamp_str(s.as_str())
                         .map_err(|e| anyhow::anyhow!("{e:?}"))?
                 }
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
                 | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => {
-                    PostgresDateTime::try_from_timestamptz_str(s.as_str())
+                    PostgresTimestamp::try_from_timestamptz_str(s.as_str())
                         .map_err(|e| anyhow::anyhow!("{e:?}"))?
                 }
                 _ => unreachable!(),
             };
             match lower_bound {
-                Bound::Included(_) => Bound::Included(PdbOwnedValue::Date(date)),
-                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Date(date)),
+                Bound::Included(_) => Bound::Included(PdbOwnedValue::Timestamp(date)),
+                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Timestamp(date)),
                 Bound::Unbounded => unreachable!(),
             }
         }
@@ -1255,12 +1263,20 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Date(date)),
         ) => shift_date_bound(date, Bound::Included, Bound::Excluded)?,
+        // A legacy/timestamp-shaped date bound needs the same treatment.
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Timestamp(date)),
+        ) => {
+            let date = PostgresDate::try_from(date).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            shift_date_bound(date, Bound::Included, Bound::Excluded)?
+        }
         // String date needs parsed and Included Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::try_from_date_str(s.as_str())
+            let date = PostgresDate::try_from_date_str(s.as_str())
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             shift_date_bound(date, Bound::Included, Bound::Excluded)?
         }
@@ -1269,7 +1285,7 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::try_from_date_str(s.as_str())
+            let date = PostgresDate::try_from_date_str(s.as_str())
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Excluded(PdbOwnedValue::Date(date))
         }
@@ -1284,19 +1300,19 @@ fn check_range_bounds(
             let date = match typeoid {
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
                 | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => {
-                    PostgresDateTime::try_from_timestamp_str(s.as_str())
+                    PostgresTimestamp::try_from_timestamp_str(s.as_str())
                         .map_err(|e| anyhow::anyhow!("{e:?}"))?
                 }
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
                 | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => {
-                    PostgresDateTime::try_from_timestamptz_str(s.as_str())
+                    PostgresTimestamp::try_from_timestamptz_str(s.as_str())
                         .map_err(|e| anyhow::anyhow!("{e:?}"))?
                 }
                 _ => unreachable!(),
             };
             match upper_bound {
-                Bound::Included(_) => Bound::Included(PdbOwnedValue::Date(date)),
-                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Date(date)),
+                Bound::Included(_) => Bound::Included(PdbOwnedValue::Timestamp(date)),
+                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Timestamp(date)),
                 Bound::Unbounded => unreachable!(),
             }
         }
@@ -1306,17 +1322,17 @@ fn check_range_bounds(
 }
 
 /// Canonicalizes an excluded lower or an included upper `date` bound into the opposite kind of
-/// bound one day later. `infinity` and `-infinity` have no next day, so their bound keeps its kind.
+/// bound one day later. Infinities and the last finite day have no next day, so their bound keeps
+/// its kind; for a lower bound that also leaves `> max` correctly matching nothing.
 fn shift_date_bound(
-    date: PostgresDateTime,
+    date: PostgresDate,
     unshifted: fn(PdbOwnedValue) -> Bound<PdbOwnedValue>,
     shifted: fn(PdbOwnedValue) -> Bound<PdbOwnedValue>,
 ) -> Result<Bound<PdbOwnedValue>, QueryError> {
-    if date.is_infinity() || date.is_neg_infinity() {
-        return Ok(unshifted(PdbOwnedValue::Date(date)));
+    match date.add_days(1) {
+        Ok(next_day) => Ok(shifted(PdbOwnedValue::Date(next_day))),
+        Err(_) => Ok(unshifted(PdbOwnedValue::Date(date))),
     }
-    let next_day = date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    Ok(shifted(PdbOwnedValue::Date(next_day)))
 }
 
 /// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
@@ -1878,7 +1894,7 @@ fn value_to_json_term(
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         PdbOwnedValue::Str(text) => {
-            if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
+            if let Ok(pgdt) = PostgresTimestamp::try_from(text.as_str()) {
                 if index_created_by_version.stores_datetimes_in_i64() {
                     term.append_type_and_fast_value(pgdt.into_inner());
                 } else {
@@ -1908,6 +1924,24 @@ fn value_to_json_term(
             term.append_type_and_fast_value(*value);
         }
         PdbOwnedValue::Date(value) => {
+            if index_created_by_version.stores_dates_as_days() {
+                // A range field serializes its DATE bounds as JSON numbers using the same
+                // day-count representation as a DATE fast field.
+                term.append_type_and_fast_value(i64::from(value.into_inner()));
+            } else {
+                // Legacy indexes stored DATE bounds as a midnight timestamp.
+                let timestamp = PostgresTimestamp::try_from(*value)?;
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    term.append_type_and_fast_value(timestamp.into_inner());
+                } else {
+                    let dt: tantivy::DateTime = timestamp.try_into()?;
+                    // https://github.com/quickwit-oss/tantivy/pull/2456
+                    // It's a footgun that date needs to truncated when creating the Term
+                    term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                }
+            }
+        }
+        PdbOwnedValue::Timestamp(value) => {
             if index_created_by_version.stores_datetimes_in_i64() {
                 term.append_type_and_fast_value(value.into_inner());
             } else {
@@ -1980,6 +2014,20 @@ pub fn value_to_term(
         PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
         PdbOwnedValue::Date(date) => {
+            if index_created_by_version.stores_dates_as_days() {
+                Term::from_field_i64(field, i64::from(date.into_inner()))
+            } else {
+                // Legacy date indexes store DATE as a midnight timestamp.
+                let timestamp = PostgresTimestamp::try_from(*date)?;
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    Term::from_field_i64(field, timestamp.into_inner())
+                } else {
+                    let tantivy_date = tantivy::DateTime::try_from(timestamp)?;
+                    Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
+                }
+            }
+        }
+        PdbOwnedValue::Timestamp(date) => {
             if index_created_by_version.stores_datetimes_in_i64() {
                 Term::from_field_i64(field, date.into_inner())
             } else {
@@ -2734,6 +2782,120 @@ mod tests {
         assert_eq!(read_only_order.len(), 10);
         assert_eq!(read_only_order, mutable_order);
         assert_eq!(query, mutable_query);
+    }
+
+    #[pg_test]
+    fn check_range_bounds_canonicalizes_date_bounds_at_the_date_extremes() {
+        use super::{PgBuiltInOids, PgOid, check_range_bounds};
+        use crate::postgres::datetime::{MAX_PG_DATE_DAYS, MIN_PG_DATE_DAYS, PostgresDate};
+        use std::ops::Bound::{Excluded, Included};
+
+        let date = PgOid::BuiltIn(PgBuiltInOids::DATEOID);
+        let max = PostgresDate::try_from_raw(MAX_PG_DATE_DAYS).unwrap();
+        let min = PostgresDate::try_from_raw(MIN_PG_DATE_DAYS).unwrap();
+        assert_eq!(
+            check_range_bounds(
+                date,
+                Excluded(PdbOwnedValue::Date(max)),
+                Included(PdbOwnedValue::Date(max)),
+                None,
+            )
+            .unwrap(),
+            (
+                Excluded(PdbOwnedValue::Date(max)),
+                Included(PdbOwnedValue::Date(max)),
+            )
+        );
+        assert_eq!(
+            check_range_bounds(
+                date,
+                Excluded(PdbOwnedValue::Date(min)),
+                Included(PdbOwnedValue::Date(max)),
+                None,
+            )
+            .unwrap(),
+            (
+                Included(PdbOwnedValue::Date(
+                    PostgresDate::try_from_raw(MIN_PG_DATE_DAYS + 1).unwrap(),
+                )),
+                Included(PdbOwnedValue::Date(max)),
+            )
+        );
+    }
+
+    #[pg_test]
+    fn check_range_bounds_converts_legacy_and_string_date_bounds() {
+        use super::{PgBuiltInOids, PgOid, check_range_bounds};
+        use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
+        use std::ops::Bound::{Excluded, Included};
+
+        let date = PgOid::BuiltIn(PgBuiltInOids::DATEOID);
+        let epoch = PostgresDate::try_from_raw(0).unwrap();
+        let next_day = PostgresDate::try_from_raw(1).unwrap();
+        let timestamp = PostgresTimestamp::try_from_raw(0).unwrap();
+        assert_eq!(
+            check_range_bounds(
+                date,
+                Excluded(PdbOwnedValue::Timestamp(timestamp)),
+                Included(PdbOwnedValue::Timestamp(timestamp)),
+                None,
+            )
+            .unwrap(),
+            (
+                Included(PdbOwnedValue::Date(next_day)),
+                Excluded(PdbOwnedValue::Date(next_day)),
+            )
+        );
+        assert_eq!(
+            check_range_bounds(
+                date,
+                Included(PdbOwnedValue::Str("2000-01-01".into())),
+                Excluded(PdbOwnedValue::Str("2000-01-01".into())),
+                None,
+            )
+            .unwrap(),
+            (
+                Included(PdbOwnedValue::Date(epoch)),
+                Excluded(PdbOwnedValue::Date(epoch)),
+            )
+        );
+        assert_eq!(
+            check_range_bounds(
+                date,
+                Excluded(PdbOwnedValue::Str("2000-01-01".into())),
+                Included(PdbOwnedValue::Str("2000-01-01".into())),
+                None,
+            )
+            .unwrap(),
+            (
+                Included(PdbOwnedValue::Date(next_day)),
+                Excluded(PdbOwnedValue::Date(next_day)),
+            )
+        );
+    }
+
+    #[pg_test]
+    fn check_range_bounds_parses_timestamp_strings() {
+        use super::{PgBuiltInOids, PgOid, check_range_bounds};
+        use crate::postgres::datetime::PostgresTimestamp;
+        use std::ops::Bound::{Excluded, Included};
+
+        let epoch = PdbOwnedValue::Timestamp(PostgresTimestamp::try_from_raw(0).unwrap());
+        for (typeoid, value) in [
+            (PgBuiltInOids::TIMESTAMPOID, "2000-01-01 00:00:00"),
+            (PgBuiltInOids::TIMESTAMPTZOID, "2000-01-01T00:00:00Z"),
+        ] {
+            assert_eq!(
+                check_range_bounds(
+                    PgOid::BuiltIn(typeoid),
+                    Included(PdbOwnedValue::Str(value.into())),
+                    Excluded(PdbOwnedValue::Str(value.into())),
+                    None,
+                )
+                .unwrap(),
+                (Included(epoch.clone()), Excluded(epoch.clone())),
+            );
+        }
     }
 
     #[pg_test]

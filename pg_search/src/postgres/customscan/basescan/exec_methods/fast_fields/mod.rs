@@ -134,10 +134,10 @@ pub(crate) fn find_matching_fast_field(
                 && let Some(field_type) =
                     field_type_for_pullup(search_field.field_type(), data.is_array)
             {
-                return Some(WhichFastField::eager(
-                    search_field.field_name().to_string(),
-                    field_type,
-                ));
+                return Some(
+                    WhichFastField::eager(search_field.field_name().to_string(), field_type)
+                        .with_date_days(search_field.stores_date_days()),
+                );
             }
             None
         };

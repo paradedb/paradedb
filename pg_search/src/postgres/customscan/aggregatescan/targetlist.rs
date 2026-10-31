@@ -38,6 +38,9 @@ pub enum TargetListEntry {
     // so we store the index of the grouping column in the GROUP BY list
     GroupingColumn(usize),
     Aggregate(AggregateType),
+    // a constant output column, such as `'label'` in `SELECT 'label', pdb.agg(...)`; its value
+    // is read from the plan's target list at execution time
+    Constant,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -60,14 +63,14 @@ impl TargetList {
     pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
         self.entries.iter().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-            TargetListEntry::GroupingColumn(_) => None,
+            TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => None,
         })
     }
 
     pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
         self.entries.iter_mut().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-            TargetListEntry::GroupingColumn(_) => None,
+            TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => None,
         })
     }
 
@@ -196,6 +199,10 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 entries.push(TargetListEntry::Aggregate(aggregate));
+            } else if unsafe { (*expr).type_ } == pg_sys::NodeTag::T_Const {
+                // A constant does not depend on the aggregation, so every output row
+                // carries the same value.
+                entries.push(TargetListEntry::Constant);
             } else {
                 return Err("Expression is neither a grouping column nor a single Aggref".into());
             }

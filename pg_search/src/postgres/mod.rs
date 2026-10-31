@@ -36,6 +36,7 @@ use tantivy::index::SegmentId;
 
 pub mod access;
 mod build;
+pub(crate) use build::planned_schema;
 pub mod build_logging;
 mod cost;
 mod delete;
@@ -70,6 +71,7 @@ mod parallel;
 pub mod pdb_owned_value;
 pub(crate) mod pgstat;
 pub mod planner_warnings;
+pub(crate) mod query_access;
 pub mod rel;
 pub(crate) mod search_operator_relations;
 pub(crate) mod sequentialscan;

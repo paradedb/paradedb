@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793434478816,
+  "lastUpdate": 1793434506915,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -180559,6 +180559,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12962715513-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6e3efd5ad21750cf6857d7019ecbdf70c6cadda0",
+          "message": "chore: Fix clash between #6869 and #7051 (#7140)\n\nFix a commit clash between #6869 and #7051.",
+          "timestamp": "2026-10-31T03:30:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6e3efd5ad21750cf6857d7019ecbdf70c6cadda0"
+        },
+        "date": 1793434502698,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 134.8180951063358,
+            "unit": "median tps",
+            "extra": "avg tps: 133.49235445820986, max tps: 143.0927247523743, count: 59302"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 257.70987816393335,
+            "unit": "median tps",
+            "extra": "avg tps: 301.70675593545315, max tps: 4908.394058045501, count: 59302"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3284.640940689586,
+            "unit": "median tps",
+            "extra": "avg tps: 3295.3974773789587, max tps: 3494.6287213941514, count: 59302"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 162.6329377207888,
+            "unit": "median tps",
+            "extra": "avg tps: 161.4125330360346, max tps: 182.69803199345031, count: 59302"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 267.43434204626703,
+            "unit": "median tps",
+            "extra": "avg tps: 269.69044521570214, max tps: 2980.9481580332513, count: 118604"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 26.177227955657006,
+            "unit": "median tps",
+            "extra": "avg tps: 25.45927619918696, max tps: 49.44352792624846, count: 59302"
+          }
+        ],
+        "publication_id": "13035497159-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -228778,6 +228837,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "12962715513-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6e3efd5ad21750cf6857d7019ecbdf70c6cadda0",
+          "message": "chore: Fix clash between #6869 and #7051 (#7140)\n\nFix a commit clash between #6869 and #7051.",
+          "timestamp": "2026-10-31T03:30:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6e3efd5ad21750cf6857d7019ecbdf70c6cadda0"
+        },
+        "date": 1793434506826,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.566517,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.134818554570336, max cpu: 28.670979, count: 59302"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.70157776877255, max mem: 48.703125, count: 59302"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.835584058802053, max cpu: 37.28155, count: 59302"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.869822450128154, max mem: 32.87109375, count: 59302"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.944836036579119, max cpu: 14.314116, count: 59302"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.7403456302064, max mem: 51.83203125, count: 59302"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2597,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2583.635560352096, max block_count: 2597.0, count: 59302"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2200997139363965, max cpu: 4.692082, count: 59302"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.5040260024957, max mem: 29.546875, count: 59302"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.628359920407405, max segment_count: 38.0, count: 59302"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.430255,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.065485222063925, max cpu: 28.656715, count: 59302"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 52.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.67783588137837, max mem: 52.6796875, count: 59302"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.736063,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.836132712107643, max cpu: 37.28155, count: 118604"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.965440635170395, max mem: 58.08984375, count: 118604"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.3339815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.16734048220155, max cpu: 19.038177, count: 59302"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 48.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.170016003886886, max mem: 50.3984375, count: 59302"
+          }
+        ],
+        "publication_id": "13035497159-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

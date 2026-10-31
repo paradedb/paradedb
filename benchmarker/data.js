@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793407872717,
+  "lastUpdate": 1793407899837,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -34479,6 +34479,106 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13021947895-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b16358a4e0be69719b17097b21bfc2a5368969a",
+          "message": "fix: raise on float division by zero in Join Scan (#7104)\n\n# Ticket(s) Closed\n\n- Closes #6930\n\n## What\n\nFloat division by zero inside an expression absorbed by the Join Scan\nnow raises PostgreSQL's `division by zero` instead of evaluating to\n`Infinity`.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps `/` to DataFusion's\n`Operator::Divide`. For floats, Arrow follows IEEE-754 and returns\n`inf`, `-inf` or `NaN` for a zero divisor without an error, while\n`float8div` and `float4div` raise one.\n\n## How\n\n`translate_op_expr` declines `/` when the operator's result type is\n`float4` or `float8`. `translate` then wraps the subtree with the\nexisting `try_wrap_as_udf` fallback, so PostgreSQL evaluates the\ndivision. The expression is still absorbed by the Join Scan, as the\nEXPLAIN in the new test shows.\n\nInteger division is unchanged, since Arrow's integer kernel\n(`div_checked`) already errors on a zero divisor.\n\nThe trade-off is that float division now runs through the UDF rather\nthan a native Arrow kernel. Two existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `topk-agg-facet`).\n\nThis touches the same spot in `translate_op_expr`, and the same two\nexpected files, as #7103 (integer overflow, #6931). Whichever merges\nsecond needs a small rebase.\n\n## Tests\n\n- New regression test `issue_6930` with the issue's repro, plus `float4`\ndivision in both directions and a non-zero control. Without the fix, the\nzero-divisor queries return `Infinity` or keep the row.\n- Full `cargo pgrx regress` on PG18 passes, after the two plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass.",
+          "timestamp": "2026-10-30T16:39:02-07:00",
+          "tree_id": "7ce8dd9f1baea88c770db8b29daf69971d952f3b",
+          "url": "https://github.com/paradedb/paradedb/commit/5b16358a4e0be69719b17097b21bfc2a5368969a"
+        },
+        "date": 1793407898905,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.735,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.49,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.575,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.081,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 6.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.876,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 7.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.087,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.499,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 7.175,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.128,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.18,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.013,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13022630763-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -40054,6 +40154,56 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13021947895-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b16358a4e0be69719b17097b21bfc2a5368969a",
+          "message": "fix: raise on float division by zero in Join Scan (#7104)\n\n# Ticket(s) Closed\n\n- Closes #6930\n\n## What\n\nFloat division by zero inside an expression absorbed by the Join Scan\nnow raises PostgreSQL's `division by zero` instead of evaluating to\n`Infinity`.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps `/` to DataFusion's\n`Operator::Divide`. For floats, Arrow follows IEEE-754 and returns\n`inf`, `-inf` or `NaN` for a zero divisor without an error, while\n`float8div` and `float4div` raise one.\n\n## How\n\n`translate_op_expr` declines `/` when the operator's result type is\n`float4` or `float8`. `translate` then wraps the subtree with the\nexisting `try_wrap_as_udf` fallback, so PostgreSQL evaluates the\ndivision. The expression is still absorbed by the Join Scan, as the\nEXPLAIN in the new test shows.\n\nInteger division is unchanged, since Arrow's integer kernel\n(`div_checked`) already errors on a zero divisor.\n\nThe trade-off is that float division now runs through the UDF rather\nthan a native Arrow kernel. Two existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `topk-agg-facet`).\n\nThis touches the same spot in `translate_op_expr`, and the same two\nexpected files, as #7103 (integer overflow, #6931). Whichever merges\nsecond needs a small rebase.\n\n## Tests\n\n- New regression test `issue_6930` with the issue's repro, plus `float4`\ndivision in both directions and a non-zero control. Without the fix, the\nzero-divisor queries return `Infinity` or keep the row.\n- Full `cargo pgrx regress` on PG18 passes, after the two plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass.",
+          "timestamp": "2026-10-30T16:39:02-07:00",
+          "tree_id": "7ce8dd9f1baea88c770db8b29daf69971d952f3b",
+          "url": "https://github.com/paradedb/paradedb/commit/5b16358a4e0be69719b17097b21bfc2a5368969a"
+        },
+        "date": 1793407899826,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 534.1327842139516,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 497.1252053809089,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 141.79507362158526,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 254.45410735341434,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 372.13181108559365,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13022630763-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

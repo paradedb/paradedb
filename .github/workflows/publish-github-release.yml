@@ -240,6 +240,7 @@ jobs:
           permission-issues: write
           permission-members: read
 
+      # Pin the image directly because the action loads a mutable container tag.
       - name: Manual Approval Before Release
         if: github.event.inputs.beta != 'true'
         uses: docker://ghcr.io/trstringer/manual-approval@sha256:7cac2dde511346ae728d44e6a4c6385e5cd4b1a612e2158712448cfc4414b15b # v1.13.0

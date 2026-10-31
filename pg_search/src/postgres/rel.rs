@@ -534,6 +534,10 @@ impl PgSearchRelation {
 
     /// This opens the MetaPage on every call, so use it carefully
     pub fn created_by_version(&self) -> Option<Version> {
+        if crate::postgres::index::is_partitioned_index(self.oid()) {
+            return crate::postgres::index::any_leaf_partition_index(self)
+                .and_then(|leaf| leaf.created_by_version());
+        }
         MetaPage::open(self).created_by_version()
     }
 

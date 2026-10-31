@@ -1,0 +1,614 @@
+\set ON_ERROR_STOP on
+\pset pager off
+-- Run as superuser against the exact locally built extension. Every fixture rolls back.
+BEGIN;
+SET LOCAL statement_timeout='30s';
+SET LOCAL client_min_messages=warning;
+CREATE ROLE permission_breadth_reader NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE permission_breadth_other NOSUPERUSER NOBYPASSRLS;
+CREATE SCHEMA permission_breadth;
+GRANT USAGE ON SCHEMA permission_breadth TO permission_breadth_reader,permission_breadth_other;
+CREATE TABLE permission_breadth.private_docs(id int, secret text);
+INSERT INTO permission_breadth.private_docs VALUES(1,'private');
+CREATE TABLE permission_breadth.docs(id int, label text, secret text, payload jsonb, org int);
+INSERT INTO permission_breadth.docs VALUES
+ (1,'alpha','first','{"private":"first"}',1),
+ (2,'beta','second','{"private":"second"}',2);
+CREATE INDEX docs_idx ON permission_breadth.docs USING paradedb
+ (id,(label::pdb.literal),(secret::pdb.literal),payload,org);
+CREATE TABLE permission_breadth.expr(id int, public_text text, private_text text);
+INSERT INTO permission_breadth.expr VALUES(1,'alpha','secret');
+CREATE INDEX expr_idx ON permission_breadth.expr USING paradedb
+ (id,(lower(public_text)::pdb.literal('alias=public_alias')),
+ (lower(private_text)::pdb.literal('alias=private_alias')));
+CREATE TYPE permission_breadth.composite AS (public_field pdb.literal,private_field pdb.literal);
+CREATE TABLE permission_breadth.comp AS TABLE permission_breadth.expr;
+CREATE INDEX comp_idx ON permission_breadth.comp USING paradedb
+ (id,(ROW(public_text,private_text)::permission_breadth.composite));
+CREATE VIEW permission_breadth.exposed AS SELECT id,label,secret FROM permission_breadth.docs;
+CREATE VIEW permission_breadth.hidden AS SELECT id,label FROM permission_breadth.docs;
+CREATE VIEW permission_breadth.nested AS SELECT id,label FROM permission_breadth.hidden;
+CREATE VIEW permission_breadth.invoker WITH(security_invoker=true) AS SELECT id,label,secret FROM permission_breadth.docs;
+CREATE VIEW permission_breadth.self_join AS SELECT a.id,b.secret AS public_secret
+ FROM permission_breadth.docs a CROSS JOIN permission_breadth.docs b WHERE b.id=2;
+CREATE TABLE permission_breadth.view_docs AS SELECT id,label,secret FROM permission_breadth.docs;
+CREATE INDEX view_docs_idx ON permission_breadth.view_docs USING paradedb(id,label,secret);
+CREATE VIEW permission_breadth.mixed_grants AS SELECT id,label FROM permission_breadth.view_docs;
+GRANT SELECT ON permission_breadth.self_join,permission_breadth.mixed_grants TO permission_breadth_reader;
+GRANT SELECT(secret) ON permission_breadth.view_docs TO permission_breadth_reader;
+CREATE TABLE permission_breadth.partitioned(id int,label text,secret text) PARTITION BY RANGE(id);
+CREATE INDEX partitioned_idx ON permission_breadth.partitioned USING paradedb(id,label,secret);
+GRANT SELECT(id,label) ON permission_breadth.partitioned TO permission_breadth_reader;
+GRANT SELECT(id,label) ON permission_breadth.docs TO permission_breadth_reader,permission_breadth_other;
+GRANT UPDATE(label) ON permission_breadth.docs TO permission_breadth_reader;
+GRANT SELECT(id,public_text) ON permission_breadth.expr,permission_breadth.comp TO permission_breadth_reader;
+GRANT SELECT(id,label) ON permission_breadth.exposed,permission_breadth.invoker TO permission_breadth_reader;
+GRANT SELECT ON permission_breadth.hidden,permission_breadth.nested TO permission_breadth_reader;
+CREATE FUNCTION permission_breadth.search_inline() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')
+$$;
+CREATE FUNCTION permission_breadth.scalar_allowed(value int) RETURNS bool LANGUAGE sql STABLE AS $$
+ SELECT value @@@ pdb.parse('label:alpha')
+$$;
+CREATE FUNCTION permission_breadth.scalar_hidden(value int) RETURNS bool LANGUAGE sql STABLE AS $$
+ SELECT value @@@ pdb.parse('secret:first')
+$$;
+CREATE FUNCTION permission_breadth.set_allowed(value int) RETURNS SETOF bool LANGUAGE sql STABLE AS $$
+ SELECT value @@@ pdb.parse('label:alpha')
+$$;
+CREATE FUNCTION permission_breadth.set_hidden(value int) RETURNS SETOF bool LANGUAGE sql STABLE AS $$
+ SELECT value @@@ pdb.parse('secret:first')
+$$;
+CREATE FUNCTION permission_breadth.query_search(q pdb.query) RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.docs WHERE id @@@ q
+$$;
+CREATE FUNCTION permission_breadth.public_inline() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha')
+$$;
+CREATE FUNCTION permission_breadth.agg() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.docs WHERE id=1
+$$;
+CREATE FUNCTION permission_breadth.native_inline() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.agg() id WHERE '@@@'='@@@'
+$$;
+CREATE FUNCTION permission_breadth.atomic_search() RETURNS SETOF int LANGUAGE sql STABLE
+BEGIN ATOMIC
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first');
+END;
+CREATE FUNCTION permission_breadth.atomic_window() RETURNS SETOF jsonb LANGUAGE sql STABLE
+BEGIN ATOMIC
+ SELECT pdb.agg('{"terms":{"field":"secret"}}') OVER() FROM permission_breadth.docs LIMIT 1;
+END;
+CREATE FUNCTION permission_breadth.aggregate_search() RETURNS SETOF jsonb LANGUAGE sql STABLE AS $$
+ SELECT pdb.agg('{"terms":{"field":"secret"}}') FROM permission_breadth.docs
+$$;
+CREATE FUNCTION permission_breadth.view_search() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.mixed_grants WHERE id @@@ pdb.parse('label:alpha')
+$$;
+CREATE FUNCTION permission_breadth.hidden_view_search() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.hidden WHERE id @@@ pdb.parse('secret:first')
+$$;
+CREATE FUNCTION permission_breadth.definer_inline() RETURNS SETOF int LANGUAGE sql STABLE SECURITY DEFINER AS $$
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')
+$$;
+CREATE FUNCTION permission_breadth.changing_inline() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.docs WHERE id=1
+$$;
+CREATE FUNCTION permission_breadth.unused_source() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ WITH unused AS (SELECT secret FROM permission_breadth.private_docs) SELECT 1
+$$;
+CREATE FUNCTION permission_breadth.dead_source() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT CASE WHEN false THEN (SELECT id FROM permission_breadth.private_docs LIMIT 1) ELSE 1 END
+$$;
+CREATE TABLE permission_breadth.write_target(id int PRIMARY KEY,label text);
+INSERT INTO permission_breadth.write_target VALUES(1,'initial');
+GRANT SELECT,INSERT,UPDATE ON permission_breadth.write_target TO permission_breadth_reader;
+CREATE TABLE permission_breadth.write_policy(id int);
+INSERT INTO permission_breadth.write_policy VALUES(1);
+GRANT SELECT,INSERT,UPDATE ON permission_breadth.write_policy TO permission_breadth_reader;
+ALTER TABLE permission_breadth.write_policy ENABLE ROW LEVEL SECURITY;
+CREATE POLICY visible ON permission_breadth.write_policy USING(true) WITH CHECK(EXISTS(
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')
+));
+CREATE TABLE permission_breadth.results(name text PRIMARY KEY, actor name, passed bool, expected_state text, actual_state text, actual jsonb, error text);
+GRANT INSERT ON permission_breadth.results TO permission_breadth_reader,permission_breadth_other;
+CREATE PROCEDURE permission_breadth.check_case(n text,q text,s text DEFAULT NULL,v jsonb DEFAULT 'true')
+LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE a jsonb; state text; msg text;
+BEGIN
+ BEGIN EXECUTE q INTO STRICT a;
+ EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS state=RETURNED_SQLSTATE,msg=MESSAGE_TEXT;
+ END;
+ INSERT INTO permission_breadth.results VALUES(n,CASE WHEN current_user=session_user THEN 'owner'::name ELSE current_user END,
+ state IS NOT DISTINCT FROM s AND (s IS NOT NULL OR a IS NOT DISTINCT FROM v),s,state,a,msg);
+END $$;
+SET LOCAL ROLE permission_breadth_reader;
+-- Native checks run after planning discards unused SELECT CTEs and dead branches.
+CALL permission_breadth.check_case('N01 unused native CTE allowed',$q$WITH unused AS(SELECT secret FROM permission_breadth.private_docs) SELECT to_jsonb(1)$q$,NULL,'1');
+CALL permission_breadth.check_case('N02 unreachable subquery allowed',$q$SELECT to_jsonb(CASE WHEN false THEN (SELECT id FROM permission_breadth.private_docs LIMIT 1) ELSE 1 END)$q$,NULL,'1');
+CALL permission_breadth.check_case('N03 unused search CTE allowed',$q$WITH unused AS(SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')) SELECT to_jsonb(1)$q$,NULL,'1');
+CALL permission_breadth.check_case('N04 used native CTE denied',$q$WITH used AS(SELECT secret FROM permission_breadth.private_docs) SELECT to_jsonb(secret) FROM used$q$,'42501');
+CALL permission_breadth.check_case('N05 folded search on live table denied',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE false AND id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('N06 unused missing search field allowed',$q$WITH unused AS(SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('absent:alpha')) SELECT to_jsonb(1)$q$,NULL,'1');
+CALL permission_breadth.check_case('N07 dead missing-field SubLink allowed',$q$SELECT to_jsonb(CASE WHEN false THEN (SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('absent:alpha') LIMIT 1) ELSE 1 END)$q$,NULL,'1');
+CALL permission_breadth.check_case('N08 unused missing aggregate field allowed',$q$WITH unused AS(SELECT pdb.agg('{"terms":{"field":"absent"}}') FROM permission_breadth.docs WHERE id @@@ pdb.all()) SELECT to_jsonb(1)$q$,NULL,'1');
+CALL permission_breadth.check_case('D01 allowed static field',$q$SELECT to_jsonb(array_agg(id ORDER BY id)=ARRAY[1]) FROM permission_breadth.docs WHERE label === 'alpha'$q$);
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: docs)
+CALL permission_breadth.check_case('D02 denied hidden term',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE label @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('E01 EXPLAIN hidden field denied',$q$EXPLAIN SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('D03 denied JSON path',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE id @@@ pdb.parse('payload.private:first')$q$,'42501');
+CALL permission_breadth.check_case('D04 nested boolean hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha OR secret:first')$q$,'42501');
+CALL permission_breadth.check_case('D05 fielded parse allowed',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs WHERE id @@@ 'label:alpha'$q$);
+CALL permission_breadth.check_case('L01 lenient missing field allowed',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha OR absent:alpha',lenient=>true)$q$);
+CALL permission_breadth.check_case('L02 lenient hidden field denied',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first OR absent:alpha',lenient=>true)$q$,'42501');
+CALL permission_breadth.check_case('D08 expression alias allowed',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.expr WHERE id @@@ pdb.parse('public_alias:alpha')$q$);
+CALL permission_breadth.check_case('D09 expression alias denied',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.expr WHERE id @@@ pdb.parse('private_alias:secret')$q$,'42501');
+-- The composite expression depends on both inputs. Conservatively require both.
+CALL permission_breadth.check_case('D10 composite denied',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.comp WHERE id @@@ pdb.parse('private_field:secret')$q$,'42501');
+CALL permission_breadth.check_case('D11 nested SQL agg hidden field',$q$SELECT pdb.agg('{"terms":{"field":"label"},"aggs":{"private_count":{"value_count":{"field":"secret"}}}}') FROM permission_breadth.docs WHERE id @@@ pdb.all()$q$,'42501');
+CALL permission_breadth.check_case('D12 window hidden field',$q$SELECT pdb.agg('{"terms":{"field":"secret"}}') OVER() FROM permission_breadth.docs WHERE id @@@ pdb.all() LIMIT 1$q$,'42501');
+CALL permission_breadth.check_case('D13 top hits hidden output',$q$SELECT pdb.agg('{"top_hits":{"size":1,"docvalue_fields":["secret"]}}') FROM permission_breadth.docs WHERE id @@@ pdb.all()$q$,'42501');
+CALL permission_breadth.check_case('D14 top hits hidden sort',$q$SELECT pdb.agg('{"top_hits":{"size":1,"docvalue_fields":["id"],"sort":[{"secret":"asc"}]}}') FROM permission_breadth.docs WHERE id @@@ pdb.all()$q$,'42501');
+CALL permission_breadth.check_case('D16 filter query hidden field',$q$SELECT pdb.agg('{"filter":"secret:first"}') FROM permission_breadth.docs WHERE id @@@ pdb.all()$q$,'42501');
+CALL permission_breadth.check_case('D27 filter on granted column',$q$SELECT to_jsonb((pdb.agg('{"filter":"id:1"}')->>'value')::numeric=1) FROM permission_breadth.docs WHERE id @@@ pdb.all()$q$);
+CALL permission_breadth.check_case('D22 filter is a valid nested aggregation name',$q$SELECT to_jsonb(pdb.agg('{"terms":{"field":"label"},"aggs":{"filter":{"value_count":{"field":"id"}}}}') IS NOT NULL)
+ FROM permission_breadth.docs WHERE id @@@ pdb.all()$q$);
+-- Current v2 entry points must all expose explicit field qualifiers to ACL checks.
+CALL permission_breadth.check_case('D24 native target permission retained',$q$SELECT to_jsonb(secret) FROM permission_breadth.docs WHERE label === 'alpha' LIMIT 1$q$,'42501');
+CALL permission_breadth.check_case('D25 v2 text parser hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE label @@@ 'secret:first'$q$,'42501');
+CALL permission_breadth.check_case('D26 v2 field parser hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE label @@@ pdb.parse_with_field('secret:first')$q$,'42501');
+-- Scalar-array elements share the scalar field classifier and permission identity.
+CALL permission_breadth.check_case('A01 ANY hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs
+ WHERE id @@@ ANY(ARRAY[pdb.parse('secret:first')])$q$,'42501');
+CALL permission_breadth.check_case('A02 ALL mixed hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs
+ WHERE id @@@ ALL(ARRAY[pdb.parse('label:alpha'),pdb.parse('secret:first')])$q$,'42501');
+CALL permission_breadth.check_case('A03 ANY hidden EXPLAIN',$q$EXPLAIN SELECT id FROM permission_breadth.docs
+ WHERE id @@@ ANY(ARRAY[pdb.parse('secret:first')])$q$,'42501');
+CALL permission_breadth.check_case('A04 ANY granted fields',$q$SELECT to_jsonb(count(*)=2) FROM permission_breadth.docs
+ WHERE id @@@ ANY(ARRAY[pdb.parse('label:alpha'),pdb.parse('label:beta')])$q$);
+CALL permission_breadth.check_case('A05 ALL granted fields',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs
+ WHERE id @@@ ALL(ARRAY[pdb.parse('label:alpha'),pdb.parse('id:1')])$q$);
+CALL permission_breadth.check_case('A06 empty ANY',$q$SELECT to_jsonb(count(*)=0) FROM permission_breadth.docs
+ WHERE id @@@ ANY(ARRAY[]::pdb.query[])$q$);
+CALL permission_breadth.check_case('A07 empty ALL',$q$SELECT to_jsonb(count(*)=2) FROM permission_breadth.docs
+ WHERE id @@@ ALL(ARRAY[]::pdb.query[])$q$);
+CALL permission_breadth.check_case('A10 multidimensional hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs
+ WHERE id @@@ ANY(ARRAY[ARRAY[pdb.parse('label:alpha')],ARRAY[pdb.parse('secret:first')]])$q$,'42501');
+CALL permission_breadth.check_case('A11 view hidden array field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.hidden
+ WHERE id @@@ ANY(ARRAY[pdb.parse('secret:first')])$q$,'42501');
+CALL permission_breadth.check_case('A12 view granted array field',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.mixed_grants
+ WHERE id @@@ ALL(ARRAY[pdb.parse('label:alpha')])$q$);
+SET LOCAL plan_cache_mode=force_generic_plan;
+PREPARE permission_partial_array(pdb.query) AS SELECT to_jsonb(count(*)) FROM permission_breadth.docs
+ WHERE id @@@ ANY(ARRAY[$1,pdb.parse('secret:first')]);
+CALL permission_breadth.check_case('A13 mixed runtime and hidden constant',$q$
+ EXECUTE permission_partial_array(pdb.parse('label:alpha'))$q$,'42501');
+DEALLOCATE permission_partial_array;
+RESET plan_cache_mode;
+-- SQL-function inlining must preserve column dependencies and native identities.
+CALL permission_breadth.check_case('F01 SQL invoker hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.search_inline()$q$,'42501');
+CALL permission_breadth.check_case('F02 SQL invoker granted field',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.public_inline()$q$);
+CALL permission_breadth.check_case('F03 stored SQL body hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.atomic_search()$q$,'42501');
+CALL permission_breadth.check_case('F04 SQL view granted identity',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.view_search()$q$);
+CALL permission_breadth.check_case('F05 SQL hidden view field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.hidden_view_search()$q$,'42501');
+CALL permission_breadth.check_case('F06 SQL definer identity',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.definer_inline()$q$);
+CALL permission_breadth.check_case('F07 ordinary SQL function',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.native_inline()$q$);
+CALL permission_breadth.check_case('F14 scalar wrapper granted field',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs
+ WHERE permission_breadth.scalar_allowed(id)$q$);
+CALL permission_breadth.check_case('F15 scalar wrapper hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs
+ WHERE permission_breadth.scalar_hidden(id)$q$,'42501');
+CALL permission_breadth.check_case('F16 SETOF wrapper granted field',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs d
+ CROSS JOIN LATERAL permission_breadth.set_allowed(d.id) v(matched) WHERE matched$q$);
+CALL permission_breadth.check_case('F17 SETOF wrapper hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.docs d
+ CROSS JOIN LATERAL permission_breadth.set_hidden(d.id) v(matched) WHERE matched$q$,'42501');
+CALL permission_breadth.check_case('F18 scalar wrapper view identity',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.mixed_grants
+ WHERE permission_breadth.scalar_allowed(id)$q$);
+CALL permission_breadth.check_case('F19 scalar wrapper hidden view field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.hidden
+ WHERE permission_breadth.scalar_hidden(id)$q$,'42501');
+CALL permission_breadth.check_case('F22 hidden SQL function EXPLAIN',$q$EXPLAIN SELECT * FROM permission_breadth.search_inline()$q$,'42501');
+CALL permission_breadth.check_case('F25 constant function query hidden field',$q$SELECT to_jsonb(count(*))
+ FROM permission_breadth.query_search(pdb.parse('secret:first'))$q$,'42501');
+CALL permission_breadth.check_case('F26 constant function query granted field',$q$SELECT to_jsonb(count(*)=1)
+ FROM permission_breadth.query_search(pdb.parse('label:alpha'))$q$);
+CALL permission_breadth.check_case('F23 unused source in SQL function',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.unused_source()$q$);
+CALL permission_breadth.check_case('F24 dead source in SQL function',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.dead_source()$q$);
+CALL permission_breadth.check_case('F10 stored SQL window hidden field',$q$SELECT * FROM permission_breadth.atomic_window()$q$,'42501');
+CALL permission_breadth.check_case('F11 SQL aggregate hidden field',$q$SELECT * FROM permission_breadth.aggregate_search()$q$,'42501');
+PREPARE permission_changing_function AS SELECT to_jsonb(count(*)=1) FROM permission_breadth.changing_inline();
+CALL permission_breadth.check_case('F08 cached ordinary SQL function','EXECUTE permission_changing_function');
+RESET ROLE;
+CREATE OR REPLACE FUNCTION permission_breadth.changing_inline() RETURNS SETOF int LANGUAGE sql STABLE AS $$
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')
+$$;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('F09 cached replacement hidden field','EXECUTE permission_changing_function','42501');
+DEALLOCATE permission_changing_function;
+-- PostgreSQL's query walker owns the expression locations, including RTEs and writes.
+CALL permission_breadth.check_case('X01 VALUES hidden field',$q$
+ SELECT to_jsonb(sum(n)) FROM (VALUES
+ ((SELECT count(*) FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first'))),(0)) v(n)
+$q$,'42501');
+CALL permission_breadth.check_case('X02 VALUES granted field',$q$
+ SELECT to_jsonb(sum(n)=1) FROM (VALUES
+ ((SELECT count(*) FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha'))),(0)) v(n)
+$q$);
+CALL permission_breadth.check_case('X03 VALUES EXPLAIN hidden field',$q$
+ EXPLAIN SELECT n FROM (VALUES
+ ((SELECT count(*) FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first'))),(0)) v(n)
+$q$,'42501');
+CALL permission_breadth.check_case('X04 FROM function hidden field',$q$
+ SELECT to_jsonb(array_agg(id)) FROM unnest(ARRAY(
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first'))) v(id)
+$q$,'42501');
+CALL permission_breadth.check_case('X05 FROM function granted field',$q$
+ SELECT to_jsonb(array_agg(id)=ARRAY[1]) FROM unnest(ARRAY(
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha'))) v(id)
+$q$);
+CALL permission_breadth.check_case('X06 lateral function hidden field',$q$
+ SELECT to_jsonb(array_agg(d.id)) FROM permission_breadth.docs d
+ CROSS JOIN LATERAL unnest(ARRAY[d.id @@@ pdb.parse('secret:first')]) v(matches) WHERE matches
+$q$,'42501');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 2 is not a plain relation (rtekind: 3), which is not supported (table: join)
+CALL permission_breadth.check_case('X07 window offset hidden field',$q$
+ SELECT to_jsonb(array_agg(n ORDER BY n)) FROM (SELECT sum(id) OVER (ORDER BY id ROWS BETWEEN
+ (SELECT count(*) FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first'))
+ PRECEDING AND CURRENT ROW) n FROM permission_breadth.docs) s
+$q$,'42501');
+CALL permission_breadth.check_case('X08 window offset granted field',$q$
+ SELECT to_jsonb(array_agg(n ORDER BY n)=ARRAY[1,3]::bigint[]) FROM (SELECT sum(id) OVER (ORDER BY id ROWS BETWEEN
+ (SELECT count(*) FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha'))
+ PRECEDING AND CURRENT ROW) n FROM permission_breadth.docs) s
+$q$);
+CALL permission_breadth.check_case('X09 window offset EXPLAIN hidden field',$q$
+ EXPLAIN SELECT sum(id) OVER (ORDER BY id ROWS BETWEEN
+ (SELECT count(*) FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first'))
+ PRECEDING AND CURRENT ROW) FROM permission_breadth.docs
+$q$,'42501');
+CALL permission_breadth.check_case('X10 conflict assignment hidden field',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_target VALUES(1,'x') ON CONFLICT(id)
+ DO UPDATE SET label=CASE WHEN EXISTS(SELECT id FROM permission_breadth.docs
+ WHERE id @@@ pdb.parse('secret:first')) THEN 'yes' ELSE 'no' END RETURNING label)
+ SELECT to_jsonb(label) FROM changed
+$q$,'42501');
+CALL permission_breadth.check_case('X11 conflict assignment granted field',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_target VALUES(1,'x') ON CONFLICT(id)
+ DO UPDATE SET label=CASE WHEN EXISTS(SELECT id FROM permission_breadth.docs
+ WHERE id @@@ pdb.parse('label:alpha')) THEN 'yes' ELSE 'no' END RETURNING label)
+ SELECT to_jsonb(label='yes') FROM changed
+$q$);
+CALL permission_breadth.check_case('X12 conflict condition hidden field',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_target VALUES(1,'x') ON CONFLICT(id)
+ DO UPDATE SET label='matched' WHERE EXISTS(SELECT id FROM permission_breadth.docs
+ WHERE id @@@ pdb.parse('secret:first')) RETURNING label) SELECT to_jsonb(label) FROM changed
+$q$,'42501');
+CALL permission_breadth.check_case('X13 conflict condition granted field',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_target VALUES(1,'x') ON CONFLICT(id)
+ DO UPDATE SET label='matched' WHERE EXISTS(SELECT id FROM permission_breadth.docs
+ WHERE id @@@ pdb.parse('label:alpha')) RETURNING label) SELECT to_jsonb(label='matched') FROM changed
+$q$);
+CALL permission_breadth.check_case('X14 MERGE action hidden field',$q$
+ EXPLAIN MERGE INTO permission_breadth.write_target t USING (SELECT 1 AS id) v ON t.id=v.id
+ WHEN MATCHED AND EXISTS(SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first'))
+ THEN UPDATE SET label='merged'
+$q$,'42501');
+DO $$ BEGIN
+ MERGE INTO permission_breadth.write_target t USING (SELECT 1 AS id) v ON t.id=v.id
+ WHEN MATCHED AND EXISTS(SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha'))
+ THEN UPDATE SET label='merged';
+END $$;
+CALL permission_breadth.check_case('X15 MERGE action granted field',$q$
+ SELECT to_jsonb(label='merged') FROM permission_breadth.write_target WHERE id=1
+$q$);
+CALL permission_breadth.check_case('X16 WITH CHECK insert hidden field',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_policy VALUES(2) RETURNING id)
+ SELECT to_jsonb(id) FROM changed
+$q$,'42501');
+CALL permission_breadth.check_case('X17 WITH CHECK update hidden field',$q$
+ WITH changed AS (UPDATE permission_breadth.write_policy SET id=2 WHERE id=1 RETURNING id)
+ SELECT to_jsonb(id) FROM changed
+$q$,'42501');
+RESET ROLE;
+ALTER POLICY visible ON permission_breadth.write_policy WITH CHECK(EXISTS(
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:alpha')
+));
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('X18 WITH CHECK insert granted field',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_policy VALUES(3) RETURNING id)
+ SELECT to_jsonb(id=3) FROM changed
+$q$);
+CALL permission_breadth.check_case('X19 WITH CHECK update granted field',$q$
+ WITH changed AS (UPDATE permission_breadth.write_policy SET id=4 WHERE id=3 RETURNING id)
+ SELECT to_jsonb(id=4) FROM changed
+$q$);
+RESET ROLE;
+ALTER POLICY visible ON permission_breadth.write_policy WITH CHECK(EXISTS(
+ SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:missing')
+));
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('X20 false WITH CHECK still rejects',$q$
+ WITH changed AS (INSERT INTO permission_breadth.write_policy VALUES(5) RETURNING id)
+ SELECT to_jsonb(id) FROM changed
+$q$,'42501');
+CALL permission_breadth.check_case('V01 view ungranted exposed column',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.exposed WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('V02 view hidden column owner not borrowed',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.hidden WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('V03 view granted exposed field',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.exposed WHERE id @@@ pdb.parse('label:alpha')$q$);
+CALL permission_breadth.check_case('V04 nested view granted field',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.nested WHERE id @@@ pdb.parse('label:alpha')$q$);
+CALL permission_breadth.check_case('V05 invoker hidden field',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.invoker WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('V06 CTE denied dependency',$q$WITH d AS MATERIALIZED(SELECT id,label FROM permission_breadth.docs) SELECT to_jsonb(count(*)) FROM d WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('V07 CTE allowed dependency',$q$WITH d AS MATERIALIZED(SELECT id,label FROM permission_breadth.docs) SELECT to_jsonb(count(*)=1) FROM d WHERE id @@@ pdb.parse('label:alpha')$q$);
+-- A nested query must find the outer CTE owner, while a local CTE shadows it.
+CALL permission_breadth.check_case('V10 outer CTE denied dependency',$q$WITH d AS MATERIALIZED(SELECT id,label FROM permission_breadth.docs)
+ SELECT to_jsonb(count(*)) FROM (SELECT * FROM d OFFSET 0) s WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('V11 outer CTE allowed dependency',$q$WITH d AS MATERIALIZED(SELECT id,label FROM permission_breadth.docs)
+ SELECT to_jsonb(count(*)=1) FROM (SELECT * FROM d OFFSET 0) s WHERE id @@@ pdb.parse('label:alpha')$q$);
+CALL permission_breadth.check_case('V12 local CTE shadows outer source',$q$WITH d AS MATERIALIZED(SELECT id,public_text AS label FROM permission_breadth.expr)
+ SELECT to_jsonb(count(*)=1) FROM (WITH d AS MATERIALIZED(SELECT id,label FROM permission_breadth.docs WHERE id=2)
+ SELECT * FROM d OFFSET 0) s WHERE id @@@ pdb.parse('label:beta')$q$);
+CALL permission_breadth.check_case('V13 self join hidden source denied',$q$SELECT to_jsonb(array_agg(id ORDER BY id)) FROM permission_breadth.self_join WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('V14 self join exposes only second',$q$SELECT to_jsonb(array_agg(public_secret ORDER BY id)=ARRAY['second','second']) FROM permission_breadth.self_join$q$);
+CALL permission_breadth.check_case('M01 view field with no base grant',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.mixed_grants WHERE id @@@ pdb.parse('label:alpha')$q$);
+CALL permission_breadth.check_case('M02 hidden field with base grant',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.mixed_grants WHERE id @@@ pdb.parse('secret:first')$q$);
+CALL permission_breadth.check_case('M03 combined view and base grants',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.mixed_grants WHERE id @@@ pdb.parse('label:alpha AND secret:first')$q$);
+CALL permission_breadth.check_case('G01 grouped hidden field denied',$q$SELECT to_jsonb(array_agg(id ORDER BY id)) FROM(SELECT id FROM permission_breadth.docs GROUP BY id HAVING id @@@ pdb.parse('secret:first')) d$q$,'42501');
+CALL permission_breadth.check_case('G02 grouped view field allowed',$q$SELECT to_jsonb(array_agg(id ORDER BY id)=ARRAY[1]) FROM(SELECT id FROM permission_breadth.mixed_grants GROUP BY id HAVING id @@@ pdb.parse('label:alpha')) d$q$);
+CALL permission_breadth.check_case('G03 grouped direct field allowed',$q$SELECT to_jsonb(array_agg(id ORDER BY id)=ARRAY[1]) FROM(SELECT id FROM permission_breadth.docs GROUP BY id HAVING id @@@ pdb.parse('label:alpha')) d$q$);
+CALL permission_breadth.check_case('C01 RETURNING hidden EXPLAIN denied',$q$EXPLAIN WITH d AS(UPDATE permission_breadth.docs SET label=label WHERE false RETURNING id) SELECT id FROM d WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('C02 RETURNING granted field allowed',$q$WITH d AS(UPDATE permission_breadth.docs SET label=label WHERE false RETURNING id) SELECT to_jsonb(count(*)=0) FROM d WHERE id @@@ pdb.parse('label:alpha')$q$);
+-- Modifying CTEs execute even when their output is unreferenced.
+CALL permission_breadth.check_case('C03 unreferenced modifying CTE denied',$q$WITH unused AS(UPDATE permission_breadth.docs SET label=label WHERE false RETURNING id @@@ pdb.parse('secret:first')) SELECT to_jsonb(1)$q$,'42501');
+DO $$ BEGIN
+ EXECUTE $q$EXPLAIN WITH d AS(UPDATE permission_breadth.docs SET label=label WHERE false RETURNING id) SELECT id FROM d WHERE id @@@ pdb.parse('label:alpha')$q$;
+END $$;
+PREPARE permission_empty_allowed AS SELECT to_jsonb(count(*)) FROM permission_breadth.partitioned WHERE id @@@ pdb.parse('label:alpha');
+PREPARE permission_empty_hidden AS SELECT to_jsonb(count(*)) FROM permission_breadth.partitioned WHERE id @@@ pdb.parse('secret:first');
+CALL permission_breadth.check_case('T01 empty parent allowed field','EXECUTE permission_empty_allowed',NULL,'0');
+CALL permission_breadth.check_case('T02 empty parent hidden field denied','EXECUTE permission_empty_hidden','42501');
+RESET ROLE;
+CREATE TABLE permission_breadth.leaf PARTITION OF permission_breadth.partitioned FOR VALUES FROM(0) TO(10);
+INSERT INTO permission_breadth.partitioned VALUES(1,'alpha','first');
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('T03 cached parent sees attached leaf','EXECUTE permission_empty_allowed',NULL,'1');
+CALL permission_breadth.check_case('T04 attached parent hidden field denied','EXECUTE permission_empty_hidden','42501');
+DEALLOCATE permission_empty_allowed;
+DEALLOCATE permission_empty_hidden;
+SET LOCAL plan_cache_mode=force_generic_plan;
+PREPARE permission_dynamic(pdb.query) AS SELECT to_jsonb(count(*)) FROM permission_breadth.docs WHERE id @@@ $1;
+CALL permission_breadth.check_case('P01 generic allowed field with column grants',$q$EXECUTE permission_dynamic(pdb.parse('label:alpha'))$q$,NULL,'1');
+RESET ROLE;
+GRANT SELECT ON permission_breadth.docs TO permission_breadth_reader;
+SET LOCAL ROLE permission_breadth_reader;
+-- Cached v2 searches must recheck privileges after revocation and role changes.
+PREPARE permission_constant AS SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs WHERE label @@@ pdb.parse('secret:first');
+CALL permission_breadth.check_case('P05 cached v2 search first execution','EXECUTE permission_constant');
+RESET ROLE;
+REVOKE SELECT ON permission_breadth.docs FROM permission_breadth_reader;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('P06 cached v2 search after revoke','EXECUTE permission_constant','42501');
+RESET ROLE;
+GRANT SELECT ON permission_breadth.docs TO permission_breadth_reader;
+SET LOCAL ROLE permission_breadth_other;
+CALL permission_breadth.check_case('P07 same plan after SET ROLE','EXECUTE permission_constant','42501');
+RESET ROLE;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('P08 same plan after grant restored','EXECUTE permission_constant');
+DEALLOCATE permission_constant;
+DEALLOCATE permission_dynamic;
+RESET plan_cache_mode;
+RESET ROLE;
+ALTER TABLE permission_breadth.docs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own ON permission_breadth.docs USING(org=1);
+SET LOCAL ROLE permission_breadth_reader;
+PREPARE permission_policy AS SELECT to_jsonb(array_agg(id ORDER BY id)) FROM permission_breadth.docs WHERE id @@@ pdb.all();
+CALL permission_breadth.check_case('R02 cached original policy','EXECUTE permission_policy',NULL,'[1]');
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: docs)
+RESET ROLE;
+ALTER POLICY own ON permission_breadth.docs USING(org=2);
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('R03 cached changed policy','EXECUTE permission_policy',NULL,'[2]');
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: docs)
+DEALLOCATE permission_policy;
+RESET ROLE;
+REVOKE SELECT ON permission_breadth.docs FROM permission_breadth_reader;
+-- Policy may use org without granting SELECT(org), following native PostgreSQL.
+GRANT SELECT(id,label) ON permission_breadth.docs TO permission_breadth_reader;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('R04 native hidden policy column allowed',$q$SELECT to_jsonb(array_agg(id ORDER BY id)=ARRAY[2]) FROM permission_breadth.docs WHERE id @@@ pdb.parse('label:beta')$q$);
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: docs)
+PREPARE permission_rls_function AS SELECT to_jsonb(count(*)) FROM permission_breadth.public_inline();
+CALL permission_breadth.check_case('F12 cached SQL body respects RLS','EXECUTE permission_rls_function',NULL,'0');
+RESET ROLE;
+CALL permission_breadth.check_case('F20 cached SQL owner bypass','EXECUTE permission_rls_function',NULL,'1');
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('F21 cached SQL reader after owner','EXECUTE permission_rls_function',NULL,'0');
+DEALLOCATE permission_rls_function;
+CALL permission_breadth.check_case('F13 SQL definer under RLS',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.definer_inline()$q$);
+RESET ROLE;
+ALTER TABLE permission_breadth.docs DISABLE ROW LEVEL SECURITY;
+GRANT SELECT ON permission_breadth.comp,permission_breadth.expr TO permission_breadth_reader;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('D20 granted composite succeeds',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.comp WHERE id @@@ pdb.parse('private_field:secret')$q$);
+CALL permission_breadth.check_case('D21 granted expression alias succeeds',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.expr WHERE id @@@ pdb.parse('private_alias:secret')$q$);
+RESET ROLE;
+-- View base grants and RLS identity: expressions over a view cannot inherit hidden reads.
+GRANT SELECT(secret) ON permission_breadth.docs TO permission_breadth_reader;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('V08 view hidden dependency with explicit column grant',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.hidden WHERE id @@@ pdb.parse('secret:first')$q$);
+CALL permission_breadth.check_case('V15 self join hidden field with grant',$q$SELECT to_jsonb(array_agg(id ORDER BY id)) FROM permission_breadth.self_join WHERE id @@@ pdb.parse('secret:first')$q$,NULL,'[1]');
+-- The same hidden field is allowed after its column grant, including EXPLAIN.
+DO $$ BEGIN
+ EXECUTE $q$EXPLAIN SELECT id FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')$q$;
+END $$;
+CALL permission_breadth.check_case('E02 granted explain search returns rows',$q$SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs WHERE id @@@ pdb.parse('secret:first')$q$);
+RESET ROLE;
+ALTER TABLE permission_breadth.docs ENABLE ROW LEVEL SECURITY;
+SET LOCAL ROLE permission_breadth_reader;
+CALL permission_breadth.check_case('V09 hidden dependency no RLS scan',$q$SELECT to_jsonb(count(*)) FROM permission_breadth.hidden WHERE id @@@ pdb.parse('secret:first')$q$,'42501');
+CALL permission_breadth.check_case('N09 unused RLS source allowed',$q$WITH unused AS(SELECT id FROM permission_breadth.hidden WHERE id @@@ pdb.parse('secret:first')) SELECT to_jsonb(1)$q$,NULL,'1');
+CALL permission_breadth.check_case('N10 dead RLS SubLink allowed',$q$SELECT to_jsonb(CASE WHEN false THEN(SELECT id FROM permission_breadth.hidden WHERE id @@@ pdb.parse('secret:first') LIMIT 1) ELSE 1 END)$q$,NULL,'1');
+RESET ROLE;
+-- Separate SQL wrapper identities, with a pinned search path.
+CREATE FUNCTION permission_breadth.definer_search() RETURNS jsonb LANGUAGE sql SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $$ SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs
+ WHERE id @@@ pdb.parse('secret:first') $$;
+CREATE FUNCTION permission_breadth.invoker_search() RETURNS jsonb LANGUAGE sql SECURITY INVOKER
+SET search_path=pg_catalog,pg_temp AS $$ SELECT to_jsonb(count(*)=1) FROM permission_breadth.docs
+ WHERE id @@@ pdb.parse('secret:first') $$;
+SET LOCAL ROLE permission_breadth_other;
+CALL permission_breadth.check_case('ID01 SECURITY DEFINER native SQL','SELECT permission_breadth.definer_search()');
+CALL permission_breadth.check_case('ID02 SECURITY INVOKER native SQL','SELECT permission_breadth.invoker_search()','42501');
+RESET ROLE;
+SELECT * FROM permission_breadth.results ORDER BY name;
+                         name                          |           actor           | passed | expected_state | actual_state | actual |                                error                                
+-------------------------------------------------------+---------------------------+--------+----------------+--------------+--------+---------------------------------------------------------------------
+ A01 ANY hidden field                                  | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ A02 ALL mixed hidden field                            | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ A03 ANY hidden EXPLAIN                                | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ A04 ANY granted fields                                | permission_breadth_reader | t      |                |              | true   | 
+ A05 ALL granted fields                                | permission_breadth_reader | t      |                |              | true   | 
+ A06 empty ANY                                         | permission_breadth_reader | t      |                |              | true   | 
+ A07 empty ALL                                         | permission_breadth_reader | t      |                |              | true   | 
+ A10 multidimensional hidden field                     | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ A11 view hidden array field                           | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ A12 view granted array field                          | permission_breadth_reader | t      |                |              | true   | 
+ A13 mixed runtime and hidden constant                 | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ C01 RETURNING hidden EXPLAIN denied                   | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ C02 RETURNING granted field allowed                   | permission_breadth_reader | t      |                |              | true   | 
+ C03 unreferenced modifying CTE denied                 | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D01 allowed static field                              | permission_breadth_reader | t      |                |              | true   | 
+ D02 denied hidden term                                | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D03 denied JSON path                                  | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D04 nested boolean hidden field                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D05 fielded parse allowed                             | permission_breadth_reader | t      |                |              | true   | 
+ D08 expression alias allowed                          | permission_breadth_reader | t      |                |              | true   | 
+ D09 expression alias denied                           | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table expr
+ D10 composite denied                                  | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table comp
+ D11 nested SQL agg hidden field                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D12 window hidden field                               | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D13 top hits hidden output                            | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D14 top hits hidden sort                              | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D16 filter query hidden field                         | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D20 granted composite succeeds                        | permission_breadth_reader | t      |                |              | true   | 
+ D21 granted expression alias succeeds                 | permission_breadth_reader | t      |                |              | true   | 
+ D22 filter is a valid nested aggregation name         | permission_breadth_reader | t      |                |              | true   | 
+ D24 native target permission retained                 | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D25 v2 text parser hidden field                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D26 v2 field parser hidden field                      | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ D27 filter on granted column                          | permission_breadth_reader | t      |                |              | true   | 
+ E01 EXPLAIN hidden field denied                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ E02 granted explain search returns rows               | permission_breadth_reader | t      |                |              | true   | 
+ F01 SQL invoker hidden field                          | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F02 SQL invoker granted field                         | permission_breadth_reader | t      |                |              | true   | 
+ F03 stored SQL body hidden field                      | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F04 SQL view granted identity                         | permission_breadth_reader | t      |                |              | true   | 
+ F05 SQL hidden view field                             | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F06 SQL definer identity                              | permission_breadth_reader | t      |                |              | true   | 
+ F07 ordinary SQL function                             | permission_breadth_reader | t      |                |              | true   | 
+ F08 cached ordinary SQL function                      | permission_breadth_reader | t      |                |              | true   | 
+ F09 cached replacement hidden field                   | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F10 stored SQL window hidden field                    | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F11 SQL aggregate hidden field                        | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F12 cached SQL body respects RLS                      | permission_breadth_reader | t      |                |              | 0      | 
+ F13 SQL definer under RLS                             | permission_breadth_reader | t      |                |              | true   | 
+ F14 scalar wrapper granted field                      | permission_breadth_reader | t      |                |              | true   | 
+ F15 scalar wrapper hidden field                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F16 SETOF wrapper granted field                       | permission_breadth_reader | t      |                |              | true   | 
+ F17 SETOF wrapper hidden field                        | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F18 scalar wrapper view identity                      | permission_breadth_reader | t      |                |              | true   | 
+ F19 scalar wrapper hidden view field                  | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F20 cached SQL owner bypass                           | owner                     | t      |                |              | 1      | 
+ F21 cached SQL reader after owner                     | permission_breadth_reader | t      |                |              | 0      | 
+ F22 hidden SQL function EXPLAIN                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F23 unused source in SQL function                     | permission_breadth_reader | t      |                |              | true   | 
+ F24 dead source in SQL function                       | permission_breadth_reader | t      |                |              | true   | 
+ F25 constant function query hidden field              | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ F26 constant function query granted field             | permission_breadth_reader | t      |                |              | true   | 
+ G01 grouped hidden field denied                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ G02 grouped view field allowed                        | permission_breadth_reader | t      |                |              | true   | 
+ G03 grouped direct field allowed                      | permission_breadth_reader | t      |                |              | true   | 
+ ID01 SECURITY DEFINER native SQL                      | permission_breadth_other  | t      |                |              | true   | 
+ ID02 SECURITY INVOKER native SQL                      | permission_breadth_other  | t      | 42501          | 42501        |        | permission denied for table docs
+ L01 lenient missing field allowed                     | permission_breadth_reader | t      |                |              | true   | 
+ L02 lenient hidden field denied                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ M01 view field with no base grant                     | permission_breadth_reader | t      |                |              | true   | 
+ M02 hidden field with base grant                      | permission_breadth_reader | t      |                |              | true   | 
+ M03 combined view and base grants                     | permission_breadth_reader | t      |                |              | true   | 
+ N01 unused native CTE allowed                         | permission_breadth_reader | t      |                |              | 1      | 
+ N02 unreachable subquery allowed                      | permission_breadth_reader | t      |                |              | 1      | 
+ N03 unused search CTE allowed                         | permission_breadth_reader | t      |                |              | 1      | 
+ N04 used native CTE denied                            | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table private_docs
+ N05 folded search on live table denied                | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ N06 unused missing search field allowed               | permission_breadth_reader | t      |                |              | 1      | 
+ N07 dead missing-field SubLink allowed                | permission_breadth_reader | t      |                |              | 1      | 
+ N08 unused missing aggregate field allowed            | permission_breadth_reader | t      |                |              | 1      | 
+ N09 unused RLS source allowed                         | permission_breadth_reader | t      |                |              | 1      | 
+ N10 dead RLS SubLink allowed                          | permission_breadth_reader | t      |                |              | 1      | 
+ P01 generic allowed field with column grants          | permission_breadth_reader | t      |                |              | 1      | 
+ P05 cached v2 search first execution                  | permission_breadth_reader | t      |                |              | true   | 
+ P06 cached v2 search after revoke                     | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ P07 same plan after SET ROLE                          | permission_breadth_other  | t      | 42501          | 42501        |        | permission denied for table docs
+ P08 same plan after grant restored                    | permission_breadth_reader | t      |                |              | true   | 
+ R02 cached original policy                            | permission_breadth_reader | t      |                |              | [1]    | 
+ R03 cached changed policy                             | permission_breadth_reader | t      |                |              | [2]    | 
+ R04 native hidden policy column allowed               | permission_breadth_reader | t      |                |              | true   | 
+ T01 empty parent allowed field                        | permission_breadth_reader | t      |                |              | 0      | 
+ T02 empty parent hidden field denied                  | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table partitioned
+ T03 cached parent sees attached leaf                  | permission_breadth_reader | t      |                |              | 1      | 
+ T04 attached parent hidden field denied               | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table partitioned
+ V01 view ungranted exposed column                     | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for view exposed
+ V02 view hidden column owner not borrowed             | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ V03 view granted exposed field                        | permission_breadth_reader | t      |                |              | true   | 
+ V04 nested view granted field                         | permission_breadth_reader | t      |                |              | true   | 
+ V05 invoker hidden field                              | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for view invoker
+ V06 CTE denied dependency                             | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ V07 CTE allowed dependency                            | permission_breadth_reader | t      |                |              | true   | 
+ V08 view hidden dependency with explicit column grant | permission_breadth_reader | t      |                |              | true   | 
+ V09 hidden dependency no RLS scan                     | permission_breadth_reader | t      | 42501          | 42501        |        | opaque search field is not exposed by its row-security source
+ V10 outer CTE denied dependency                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ V11 outer CTE allowed dependency                      | permission_breadth_reader | t      |                |              | true   | 
+ V12 local CTE shadows outer source                    | permission_breadth_reader | t      |                |              | true   | 
+ V13 self join hidden source denied                    | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ V14 self join exposes only second                     | permission_breadth_reader | t      |                |              | true   | 
+ V15 self join hidden field with grant                 | permission_breadth_reader | t      |                |              | [1]    | 
+ X01 VALUES hidden field                               | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X02 VALUES granted field                              | permission_breadth_reader | t      |                |              | true   | 
+ X03 VALUES EXPLAIN hidden field                       | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X04 FROM function hidden field                        | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X05 FROM function granted field                       | permission_breadth_reader | t      |                |              | true   | 
+ X06 lateral function hidden field                     | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X07 window offset hidden field                        | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X08 window offset granted field                       | permission_breadth_reader | t      |                |              | true   | 
+ X09 window offset EXPLAIN hidden field                | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X10 conflict assignment hidden field                  | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X11 conflict assignment granted field                 | permission_breadth_reader | t      |                |              | true   | 
+ X12 conflict condition hidden field                   | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X13 conflict condition granted field                  | permission_breadth_reader | t      |                |              | true   | 
+ X14 MERGE action hidden field                         | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X15 MERGE action granted field                        | permission_breadth_reader | t      |                |              | true   | 
+ X16 WITH CHECK insert hidden field                    | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X17 WITH CHECK update hidden field                    | permission_breadth_reader | t      | 42501          | 42501        |        | permission denied for table docs
+ X18 WITH CHECK insert granted field                   | permission_breadth_reader | t      |                |              | true   | 
+ X19 WITH CHECK update granted field                   | permission_breadth_reader | t      |                |              | true   | 
+ X20 false WITH CHECK still rejects                    | permission_breadth_reader | t      | 42501          | 42501        |        | new row violates row-level security policy for table "write_policy"
+(129 rows)
+
+-- Plan controls run as owner so the later tenant policy does not hide alpha.
+DO $$ DECLARE p jsonb; BEGIN
+ EXECUTE 'EXPLAIN (COSTS OFF, FORMAT JSON) SELECT * FROM permission_breadth.native_inline()' INTO p;
+ ASSERT NOT jsonb_path_exists(p, '$.** ? (@."Node Type" == "Function Scan")'),
+  'ordinary SQL functions must retain native inlining';
+ ASSERT jsonb_path_exists(p, '$.** ? (@."Relation Name" == "docs")'),
+  'the ordinary function body must actually be in the outer plan';
+ EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON) SELECT * FROM permission_breadth.public_inline()' INTO p;
+ ASSERT NOT jsonb_path_exists(p, '$.** ? (@."Node Type" == "Function Scan")'),
+  'permitted search SQL functions must retain native inlining';
+ ASSERT (p->0->'Plan'->>'Actual Rows')::numeric=1,
+  'the inlined search must execute and return the matching row';
+END $$;
+SELECT count(*) AS cases, bool_and(passed) AS all_passed FROM permission_breadth.results \gset
+ROLLBACK;
+\if :all_passed
+ \echo PASS: :cases breadth permission assertions.
+PASS: 129 breadth permission assertions.
+\else
+ DO $$ BEGIN RAISE EXCEPTION 'breadth permission assertions failed'; END $$;
+\endif

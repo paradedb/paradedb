@@ -311,7 +311,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
 
 /// The tantivy schema this index will carry, from its reloptions and heap attributes. The
 /// stored copy exists only after [`create_index`], so validation reads the schema from here.
-fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
+pub(crate) fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 

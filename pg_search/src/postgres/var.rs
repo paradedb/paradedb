@@ -238,6 +238,45 @@ pub(crate) unsafe fn resolve_rte_group_var(
     Some(group_var)
 }
 
+/// Look up a one-based range-table index in its owning query.
+pub(crate) unsafe fn query_rte(
+    query: *mut pg_sys::Query,
+    varno: pg_sys::Index,
+) -> Option<*mut pg_sys::RangeTblEntry> {
+    if query.is_null() || varno == 0 {
+        return None;
+    }
+    PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable).get_ptr(varno as usize - 1)
+}
+
+/// Return a subquery or CTE's defining query. For a CTE, `owner` is the
+/// query at `ctelevelsup`; callers resolve that scope in their own context.
+pub(crate) unsafe fn rte_source_query(
+    rte: *mut pg_sys::RangeTblEntry,
+    owner: *mut pg_sys::Query,
+) -> Option<*mut pg_sys::Query> {
+    match (*rte).rtekind {
+        pg_sys::RTEKind::RTE_SUBQUERY => (!(*rte).subquery.is_null()).then_some((*rte).subquery),
+        pg_sys::RTEKind::RTE_CTE => {
+            let name = CStr::from_ptr((*rte).ctename);
+            let cte = PgList::<pg_sys::CommonTableExpr>::from_pg((*owner).cteList)
+                .iter_ptr()
+                .find(|cte| CStr::from_ptr((**cte).ctename) == name)?;
+            is_a((*cte).ctequery, pg_sys::NodeTag::T_Query).then_some((*cte).ctequery.cast())
+        }
+        _ => None,
+    }
+}
+
+/// A modifying CTE exports RETURNING, rather than its assignment target list.
+pub(crate) unsafe fn query_output_list(query: *mut pg_sys::Query) -> *mut pg_sys::List {
+    if (*query).commandType != pg_sys::CmdType::CMD_SELECT && !(*query).returningList.is_null() {
+        (*query).returningList
+    } else {
+        (*query).targetList
+    }
+}
+
 impl VarContext {
     pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
         Self::Planner(root)
@@ -258,46 +297,22 @@ impl VarContext {
                 (heaprelid, varattno)
             }
             Self::Query(parse) => {
-                // Early return for null pointers
-                if var.is_null() || parse.is_null() {
-                    return (pg_sys::InvalidOid, unsafe { (*var).varattno });
-                }
-
-                let var = unsafe { &*var };
-                let query = unsafe { &**parse };
-                let varno = var.varno;
-                let rtable = query.rtable;
-
-                // Early return for invalid rtable or varno
-                if rtable.is_null() || varno <= 0 {
-                    return (pg_sys::InvalidOid, var.varattno);
-                }
-
-                let rtable_list = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(rtable) };
-                let rte_index = (varno - 1) as usize;
-
-                // Early return for out of bounds index
-                if rte_index >= rtable_list.len() {
-                    return (pg_sys::InvalidOid, var.varattno);
-                }
-
-                let varattno = var.varattno;
-                let rte = match rtable_list.get_ptr(rte_index) {
-                    Some(rte) => rte,
-                    None => return (pg_sys::InvalidOid, varattno),
+                let Some(var) = (unsafe { var.as_ref() }) else {
+                    return (pg_sys::InvalidOid, 0);
                 };
-
+                let varattno = var.varattno;
+                let Some(rte) = (unsafe { query_rte(*parse, var.varno as _) }) else {
+                    return (pg_sys::InvalidOid, varattno);
+                };
                 let rtekind = unsafe { (*rte).rtekind };
                 if rtekind == pg_sys::RTEKind::RTE_RELATION {
                     return (unsafe { (*rte).relid }, varattno);
-                } else if rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
-                    let subquery = unsafe { (*rte).subquery };
-                    if !subquery.is_null() {
-                        let subquery = unsafe { &*subquery };
-                        let targetlist =
-                            unsafe { PgList::<pg_sys::TargetEntry>::from_pg(subquery.targetList) };
-                        return find_targetlist_relation(&targetlist, varattno);
-                    }
+                } else if rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                    && let Some(subquery) = unsafe { rte_source_query(rte, *parse) }
+                {
+                    let targetlist =
+                        unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList) };
+                    return find_targetlist_relation(&targetlist, varattno);
                 }
 
                 #[cfg(feature = "pg18")]
@@ -353,84 +368,45 @@ pub unsafe fn find_var_relation(
     pg_sys::AttrNumber,
     Option<PgList<pg_sys::TargetEntry>>,
 ) {
-    let query = (*root).parse;
-    let varno = (*var).varno as pg_sys::Index;
-    let rtable = (*query).rtable;
-    let rtable_size = if !rtable.is_null() {
-        pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len()
-    } else {
-        0
-    };
-
-    // Bounds check: varno is 1-indexed, so it must be between 1 and rtable_size
-    if varno == 0 || varno as usize > rtable_size {
-        // This Var references an RTE that doesn't exist in the current context
-        // This can happen with OR EXISTS subqueries where the Var comes from a subquery context
-        // Return invalid values to signal this var cannot be processed
+    // Correlated Vars use their owning query's range table, not the local one.
+    // A local RTE at the same varno can be an unrelated table or derived row.
+    let mut root = root;
+    for _ in 0..(*var).varlevelsup {
+        if root.is_null() {
+            return (pg_sys::InvalidOid, 0, None);
+        }
+        root = (*root).parent_root;
+    }
+    if root.is_null() {
         return (pg_sys::InvalidOid, 0, None);
     }
-
-    let rte = pg_sys::rt_fetch(varno, rtable);
+    let query = (*root).parse;
+    let Some(rte) = query_rte(query, (*var).varno as _) else {
+        return (pg_sys::InvalidOid, 0, None);
+    };
 
     match (*rte).rtekind {
         // the Var comes from a relation
         pg_sys::RTEKind::RTE_RELATION => ((*rte).relid, (*var).varattno, None),
 
-        // the Var comes from a subquery, so dig into its target list and find the original
-        // table it comes from along with its original column AttributeNumber
-        pg_sys::RTEKind::RTE_SUBQUERY => {
-            if (*rte).subquery.is_null() {
+        pg_sys::RTEKind::RTE_SUBQUERY | pg_sys::RTEKind::RTE_CTE => {
+            let mut owner = root;
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_CTE {
+                for _ in 0..(*rte).ctelevelsup {
+                    owner = (*owner).parent_root;
+                    assert!(!owner.is_null(), "CTE owner query must exist");
+                }
+            }
+            let Some(source) = rte_source_query(rte, (*owner).parse) else {
+                assert_ne!(
+                    (*rte).rtekind,
+                    pg_sys::RTEKind::RTE_CTE,
+                    "CTE source query must exist"
+                );
                 return (pg_sys::InvalidOid, 0, None);
-            }
-            let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*rte).subquery).targetList);
-            let (relation, attribute) = find_targetlist_relation(&targetlist, (*var).varattno);
-            (relation, attribute, Some(targetlist))
-        }
-
-        // the Var comes from a CTE, so lookup that CTE and find it in the CTE's target list
-        pg_sys::RTEKind::RTE_CTE => {
-            let mut levelsup = (*rte).ctelevelsup;
-            let mut cteroot = root;
-            while levelsup > 0 {
-                cteroot = (*cteroot).parent_root;
-                if cteroot.is_null() {
-                    // shouldn't happen
-                    panic!(
-                        "bad levelsup for CTE \"{}\"",
-                        CStr::from_ptr((*rte).ctename).to_string_lossy()
-                    )
-                }
-                levelsup -= 1;
-            }
-
-            let rte_ctename = CStr::from_ptr((*rte).ctename);
-            let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*(*cteroot).parse).cteList);
-            let mut matching_cte = None;
-            for cte in ctelist.iter_ptr() {
-                let ctename = CStr::from_ptr((*cte).ctename);
-
-                if ctename == rte_ctename {
-                    matching_cte = Some(cte);
-                    break;
-                }
-            }
-
-            let cte = matching_cte.unwrap_or_else(|| {
-                panic!(
-                    "unable to find cte named \"{}\"",
-                    rte_ctename.to_string_lossy()
-                )
-            });
-
-            if !is_a((*cte).ctequery, pg_sys::NodeTag::T_Query) {
-                panic!("CTE is not a query")
-            }
-            let query = (*cte).ctequery.cast::<pg_sys::Query>();
-            let targetlist = if !(*query).returningList.is_null() {
-                PgList::<pg_sys::TargetEntry>::from_pg((*query).returningList)
-            } else {
-                PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList)
             };
+            let targets = query_output_list(source);
+            let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(targets);
             let (relation, attribute) = find_targetlist_relation(&targetlist, (*var).varattno);
             (relation, attribute, Some(targetlist))
         }

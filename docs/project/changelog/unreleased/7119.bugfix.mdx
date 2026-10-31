@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- `GROUP BY unnest(array_column)` no longer returns a NULL group for rows whose array is empty or NULL, and plain aggregates over `unnest()` now run in PostgreSQL so that NULL array elements form a NULL group.

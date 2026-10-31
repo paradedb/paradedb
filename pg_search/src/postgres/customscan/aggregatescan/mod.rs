@@ -143,6 +143,7 @@ enum GroupingPushdownDeclineReason {
     MissingPathKeys,
     NondeterministicCollation,
     NondeterministicAggregateKey,
+    UnnestNullElements,
 }
 
 impl GroupingPushdownDeclineReason {
@@ -153,6 +154,9 @@ impl GroupingPushdownDeclineReason {
             Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
             Self::NondeterministicAggregateKey => {
                 "an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation"
+            }
+            Self::UnnestNullElements => {
+                "GROUP BY unnest() needs the NULL elements of the array, which the index does not store"
             }
         }
     }
@@ -301,6 +305,23 @@ unsafe fn validate_grouping_pushdown(
     }
 
     Ok(())
+}
+
+/// Returns true if a GROUP BY expression calls `unnest()`.
+///
+/// `unnest(ARRAY[NULL])` yields one NULL row, but the index stores no NULL
+/// elements, so it cannot tell that array from an empty or NULL one.
+unsafe fn groups_by_unnest(args: &CreateUpperPathsHookArgs) -> bool {
+    let parse = args.root().parse;
+    if parse.is_null() {
+        return false;
+    }
+    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause)
+        .iter_ptr()
+        .any(|gc| {
+            let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+            !expr.is_null() && expr.cast::<pg_sys::Node>().contains_unnest()
+        })
 }
 
 /// Returns whether ordering a single grouping key can be delegated to ParadeDB.
@@ -605,7 +626,15 @@ impl CustomScan for AggregateScan {
             None
         };
 
-        if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
+        // `pdb.agg()` has no PostgreSQL fallback, so it keeps the index's view of
+        // the array, which has no NULL elements.
+        let decline = unsafe { validate_grouping_pushdown(builder.args()) }
+            .err()
+            .or_else(|| {
+                (required_pdb_func.is_none() && unsafe { groups_by_unnest(builder.args()) })
+                    .then_some(GroupingPushdownDeclineReason::UnnestNullElements)
+            });
+        if let Some(reason) = decline {
             if let Some(func) = required_pdb_func {
                 pgrx::error!("Cannot execute {}: {}", func.as_str(), reason.detail());
             } else if gucs::enable_aggregate_custom_scan()

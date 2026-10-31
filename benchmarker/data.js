@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793404796457,
+  "lastUpdate": 1793405329411,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -58783,6 +58783,166 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13019172900-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "822b944eb425c788dfb057885d9bbc9103a59e49",
+          "message": "fix: raise on integer overflow in Join Scan arithmetic (#7103)\n\n# Ticket(s) Closed\n\n- Closes #6931\n\n## What\n\nInteger `+`, `-` and `*` inside an expression absorbed by the Join Scan\nnow raise PostgreSQL's `integer out of range` / `bigint out of range` on\noverflow, instead of silently wrapping.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps these operators to\nDataFusion's `Operator::Plus`/`Minus`/`Multiply`. DataFusion's physical\n`BinaryExpr` evaluates them with Arrow's wrapping kernels unless\n`fail_on_overflow` is set. That flag only exists on the physical\nexpression, and the planner always builds it as `false`, so the logical\n`Expr` we produce has no way to ask for checked arithmetic.\n\n## How\n\n`translate_op_expr` declines `+`, `-` and `*` when the operator's result\ntype is `int2`, `int4` or `int8`. `translate` then wraps the subtree\nwith the existing `try_wrap_as_udf` fallback, so PostgreSQL evaluates it\nwith its own overflow checks. The expression is still absorbed by the\nJoin Scan.\n\nFloat and numeric arithmetic, and integer `/` and `%`, are unchanged.\nArrow already errors on integer division by zero.\n\nThe trade-off is that these expressions now run through the UDF rather\nthan a native Arrow kernel. Six existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `join_order_from_path`,\n`join_orderby_expression`, `join_predicates`,\n`join_semi_anti_disjunctive`, `topk-agg-facet`).\n\n## Tests\n\n- New regression test `issue_6931` with the issue's repro, plus `-` and\n`*` overflows and a non-overflowing control. Without the fix, all five\noverflow queries return wrapped values or drop the row.\n- Full `cargo pgrx regress` on PG18 passes, after the six plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass, including\n`joinscan_matches_native` and `expression_is_absorbed_by_joinscan`.",
+          "timestamp": "2026-10-30T16:34:45-07:00",
+          "tree_id": "ee64af21a74b0559e02468f85bf69080fb2db5f6",
+          "url": "https://github.com/paradedb/paradedb/commit/822b944eb425c788dfb057885d9bbc9103a59e49"
+        },
+        "date": 1793405324961,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.747,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.368,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 12.671,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 11.706,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.39,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 12.667,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 18.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 19.564,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 20.129,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 16.94,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 18.062,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 18.472,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.917,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 18.077,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.489,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 16.932,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 18.11,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 18.49,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 8.16,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 8.855,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 9.189,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.848,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.17,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 14.749,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 15.734,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 16.347,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13022131125-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -61141,6 +61301,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13019172900-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "822b944eb425c788dfb057885d9bbc9103a59e49",
+          "message": "fix: raise on integer overflow in Join Scan arithmetic (#7103)\n\n# Ticket(s) Closed\n\n- Closes #6931\n\n## What\n\nInteger `+`, `-` and `*` inside an expression absorbed by the Join Scan\nnow raise PostgreSQL's `integer out of range` / `bigint out of range` on\noverflow, instead of silently wrapping.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps these operators to\nDataFusion's `Operator::Plus`/`Minus`/`Multiply`. DataFusion's physical\n`BinaryExpr` evaluates them with Arrow's wrapping kernels unless\n`fail_on_overflow` is set. That flag only exists on the physical\nexpression, and the planner always builds it as `false`, so the logical\n`Expr` we produce has no way to ask for checked arithmetic.\n\n## How\n\n`translate_op_expr` declines `+`, `-` and `*` when the operator's result\ntype is `int2`, `int4` or `int8`. `translate` then wraps the subtree\nwith the existing `try_wrap_as_udf` fallback, so PostgreSQL evaluates it\nwith its own overflow checks. The expression is still absorbed by the\nJoin Scan.\n\nFloat and numeric arithmetic, and integer `/` and `%`, are unchanged.\nArrow already errors on integer division by zero.\n\nThe trade-off is that these expressions now run through the UDF rather\nthan a native Arrow kernel. Six existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `join_order_from_path`,\n`join_orderby_expression`, `join_predicates`,\n`join_semi_anti_disjunctive`, `topk-agg-facet`).\n\n## Tests\n\n- New regression test `issue_6931` with the issue's repro, plus `-` and\n`*` overflows and a non-overflowing control. Without the fix, all five\noverflow queries return wrapped values or drop the row.\n- Full `cargo pgrx regress` on PG18 passes, after the six plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass, including\n`joinscan_matches_native` and `expression_is_absorbed_by_joinscan`.",
+          "timestamp": "2026-10-30T16:34:45-07:00",
+          "tree_id": "ee64af21a74b0559e02468f85bf69080fb2db5f6",
+          "url": "https://github.com/paradedb/paradedb/commit/822b944eb425c788dfb057885d9bbc9103a59e49"
+        },
+        "date": 1793405326543,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 85.14559779395951,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 85.29925888093427,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 53.71175688530723,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 60.16934338561788,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 60.171186833999435,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 60.10152422551188,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 120.85190524659367,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 91.50719096561845,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 67.1523560477792,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13022131125-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -62154,6 +62384,41 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13019172900-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "822b944eb425c788dfb057885d9bbc9103a59e49",
+          "message": "fix: raise on integer overflow in Join Scan arithmetic (#7103)\n\n# Ticket(s) Closed\n\n- Closes #6931\n\n## What\n\nInteger `+`, `-` and `*` inside an expression absorbed by the Join Scan\nnow raise PostgreSQL's `integer out of range` / `bigint out of range` on\noverflow, instead of silently wrapping.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps these operators to\nDataFusion's `Operator::Plus`/`Minus`/`Multiply`. DataFusion's physical\n`BinaryExpr` evaluates them with Arrow's wrapping kernels unless\n`fail_on_overflow` is set. That flag only exists on the physical\nexpression, and the planner always builds it as `false`, so the logical\n`Expr` we produce has no way to ask for checked arithmetic.\n\n## How\n\n`translate_op_expr` declines `+`, `-` and `*` when the operator's result\ntype is `int2`, `int4` or `int8`. `translate` then wraps the subtree\nwith the existing `try_wrap_as_udf` fallback, so PostgreSQL evaluates it\nwith its own overflow checks. The expression is still absorbed by the\nJoin Scan.\n\nFloat and numeric arithmetic, and integer `/` and `%`, are unchanged.\nArrow already errors on integer division by zero.\n\nThe trade-off is that these expressions now run through the UDF rather\nthan a native Arrow kernel. Six existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `join_order_from_path`,\n`join_orderby_expression`, `join_predicates`,\n`join_semi_anti_disjunctive`, `topk-agg-facet`).\n\n## Tests\n\n- New regression test `issue_6931` with the issue's repro, plus `-` and\n`*` overflows and a non-overflowing control. Without the fix, all five\noverflow queries return wrapped values or drop the row.\n- Full `cargo pgrx regress` on PG18 passes, after the six plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass, including\n`joinscan_matches_native` and `expression_is_absorbed_by_joinscan`.",
+          "timestamp": "2026-10-30T16:34:45-07:00",
+          "tree_id": "ee64af21a74b0559e02468f85bf69080fb2db5f6",
+          "url": "https://github.com/paradedb/paradedb/commit/822b944eb425c788dfb057885d9bbc9103a59e49"
+        },
+        "date": 1793405329400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 3.7095032582666665,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43287.46875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13022131125-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -63519,6 +63784,76 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13019172900-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "822b944eb425c788dfb057885d9bbc9103a59e49",
+          "message": "fix: raise on integer overflow in Join Scan arithmetic (#7103)\n\n# Ticket(s) Closed\n\n- Closes #6931\n\n## What\n\nInteger `+`, `-` and `*` inside an expression absorbed by the Join Scan\nnow raise PostgreSQL's `integer out of range` / `bigint out of range` on\noverflow, instead of silently wrapping.\n\n## Why\n\n`PredicateTranslator::translate_op_expr` maps these operators to\nDataFusion's `Operator::Plus`/`Minus`/`Multiply`. DataFusion's physical\n`BinaryExpr` evaluates them with Arrow's wrapping kernels unless\n`fail_on_overflow` is set. That flag only exists on the physical\nexpression, and the planner always builds it as `false`, so the logical\n`Expr` we produce has no way to ask for checked arithmetic.\n\n## How\n\n`translate_op_expr` declines `+`, `-` and `*` when the operator's result\ntype is `int2`, `int4` or `int8`. `translate` then wraps the subtree\nwith the existing `try_wrap_as_udf` fallback, so PostgreSQL evaluates it\nwith its own overflow checks. The expression is still absorbed by the\nJoin Scan.\n\nFloat and numeric arithmetic, and integer `/` and `%`, are unchanged.\nArrow already errors on integer division by zero.\n\nThe trade-off is that these expressions now run through the UDF rather\nthan a native Arrow kernel. Six existing expected outputs change for\nthat reason, and only in their plan text. Their result rows are\nidentical (`join_distinct_expr`, `join_order_from_path`,\n`join_orderby_expression`, `join_predicates`,\n`join_semi_anti_disjunctive`, `topk-agg-facet`).\n\n## Tests\n\n- New regression test `issue_6931` with the issue's repro, plus `-` and\n`*` overflows and a non-overflowing control. Without the fix, all five\noverflow queries return wrapped values or drop the row.\n- Full `cargo pgrx regress` on PG18 passes, after the six plan-only\nexpected-output updates above.\n- `expr_translators` unit and `#[pg_test]` tests pass, including\n`joinscan_matches_native` and `expression_is_absorbed_by_joinscan`.",
+          "timestamp": "2026-10-30T16:34:45-07:00",
+          "tree_id": "ee64af21a74b0559e02468f85bf69080fb2db5f6",
+          "url": "https://github.com/paradedb/paradedb/commit/822b944eb425c788dfb057885d9bbc9103a59e49"
+        },
+        "date": 1793405328024,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 17943.96,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 17943.96,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 45683.66,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 39788.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 39788.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 39788.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 5739.77,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 10600.32,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 24147.28,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13022131125-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

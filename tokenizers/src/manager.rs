@@ -240,6 +240,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
+        if self.trim == Some(true) {
+            write!(buffer, "{}trim=true", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
 
         if is_empty {
             "".into()
@@ -979,6 +983,23 @@ impl SearchTokenizer {
             } => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }
     }
+
+    /// returns the name used before `trim=true` was included in tokenizer names.
+    /// old indexes persist this name, so readers must keep it registered when it
+    /// does not collide with another tokenizer in the same index.
+    pub fn legacy_name(&self) -> Option<String> {
+        if self.filters().trim != Some(true) {
+            return None;
+        }
+
+        let name = self.name();
+        if let Some(base) = name.strip_suffix("[trim=true]") {
+            Some(base.to_string())
+        } else {
+            name.strip_suffix(",trim=true]")
+                .map(|base| format!("{base}]"))
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for SearchTokenizer {
@@ -1052,6 +1073,34 @@ mod tests {
                     alpha_num_only: None,
                 }
             }
+        );
+    }
+
+    #[test]
+    fn trim_filter_names_are_distinct_and_retain_the_legacy_lookup_name() {
+        let trimmed =
+            SearchTokenizer::from_json_value(&serde_json::json!({ "type": "jieba", "trim": true }))
+                .unwrap();
+        let untrimmed = SearchTokenizer::from_json_value(
+            &serde_json::json!({ "type": "jieba", "trim": false }),
+        )
+        .unwrap();
+        let trimmed_with_filter = SearchTokenizer::from_json_value(
+            &serde_json::json!({ "type": "jieba", "trim": true, "lowercase": false }),
+        )
+        .unwrap();
+
+        assert_eq!(trimmed.name(), "jieba[trim=true]");
+        assert_eq!(trimmed.legacy_name().as_deref(), Some("jieba"));
+        assert_eq!(untrimmed.name(), "jieba");
+        assert_eq!(untrimmed.legacy_name(), None);
+        assert_eq!(
+            trimmed_with_filter.name(),
+            "jieba[lowercase=false,trim=true]"
+        );
+        assert_eq!(
+            trimmed_with_filter.legacy_name().as_deref(),
+            Some("jieba[lowercase=false]")
         );
     }
 

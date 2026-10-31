@@ -33,6 +33,18 @@ runs:
                 continue
               fi
               ;;
+            tokenizer_recent_options)
+              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" != '0.26.0' ]; then
+                echo "Skipping $(basename "$case_dir"): requires 0.26.0 or later"
+                continue
+              fi
+              ;;
+            regex_pattern_names)
+              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" != '0.26.0' ]; then
+                echo "Skipping $(basename "$case_dir"): requires 0.26.0 or later"
+                continue
+              fi
+              ;;
           esac
           cp -R "$case_dir" "$SQL_DIR/"
         done

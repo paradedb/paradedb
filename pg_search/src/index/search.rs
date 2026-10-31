@@ -18,10 +18,10 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::SearchFieldConfig;
 use anyhow::Result;
-use tantivy::Index;
+use tantivy::{Index, schema::FieldType};
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{
-    SearchTokenizer, create_normalizer_manager, create_tokenizer_manager,
+    SearchTokenizer, create_normalizer_manager, create_tokenizer_manager_with_legacy_names,
     register_normalizers_into, register_tokenizers_into,
 };
 
@@ -34,7 +34,11 @@ use tokenizers::{
 /// while constructing the index, before any reader exists.
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
     let tokenizers = collect_search_tokenizers(index_relation)?;
-    index.set_tokenizers(create_tokenizer_manager(tokenizers));
+    let preserve_legacy_trim_names = preserve_legacy_trim_names(index, index_relation)?;
+    index.set_tokenizers(create_tokenizer_manager_with_legacy_names(
+        tokenizers,
+        preserve_legacy_trim_names,
+    ));
     index.set_fast_field_tokenizers(create_normalizer_manager());
     Ok(())
 }
@@ -50,9 +54,35 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
 /// after that searcher exists would not update the managers it already holds.
 pub fn register_tokenizers(index_relation: &PgSearchRelation, index: &Index) -> Result<()> {
     let tokenizers = collect_search_tokenizers(index_relation)?;
-    register_tokenizers_into(index.tokenizers(), tokenizers);
+    let preserve_legacy_trim_names = preserve_legacy_trim_names(index, index_relation)?;
+    register_tokenizers_into(index.tokenizers(), tokenizers, preserve_legacy_trim_names);
     register_normalizers_into(index.fast_field_tokenizer());
     Ok(())
+}
+
+fn preserve_legacy_trim_names(index: &Index, index_relation: &PgSearchRelation) -> Result<bool> {
+    let has_current_trim_name = index.schema().fields().any(|(_, field_entry)| {
+        let indexing = match field_entry.field_type() {
+            FieldType::Str(options) => options.get_indexing_options(),
+            FieldType::JsonObject(options) => options.get_text_indexing_options(),
+            _ => None,
+        };
+        indexing.is_some_and(|indexing| indexing.tokenizer().contains("trim=true]"))
+    });
+
+    let has_legacy_trim_field =
+        index_relation
+            .schema()?
+            .categorized_fields()
+            .iter()
+            .any(|(field, _)| {
+                field
+                    .field_config()
+                    .tokenizer()
+                    .is_some_and(|tokenizer| tokenizer.legacy_name().is_some())
+            });
+
+    Ok(!has_current_trim_name && has_legacy_trim_field)
 }
 
 /// Every tokenizer this index's fields can reference at query time, including the

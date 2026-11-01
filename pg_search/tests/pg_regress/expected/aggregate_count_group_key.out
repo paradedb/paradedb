@@ -103,9 +103,9 @@ FROM count_key WHERE id @@@ pdb.all()
 GROUP BY flag ORDER BY flag NULLS LAST;
  flag | count | count 
 ------+-------+-------
-      |     0 |     5
  f    |     1 |     1
  t    |     2 |     2
+      |     0 |     5
 (3 rows)
 
 -- Real values equal to a NULL sentinel keep their count. The table has no NULLs, so

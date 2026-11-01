@@ -11,6 +11,13 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
 
+This branch sets `boundary_epsilon = 0.35` for both corpus sizes. A vector gets
+at most one extra posting in its second-nearest cluster when the relative
+distance gap is within epsilon. Search removes duplicate documents before
+scoring and updating adaptive admission evidence. Epsilon stays fixed while
+the existing effort sweep selects recall operating points; the index option
+defaults to zero outside these benchmark profiles.
+
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
    pdbench records build time, index size, and segment diagnostics before vacuum.

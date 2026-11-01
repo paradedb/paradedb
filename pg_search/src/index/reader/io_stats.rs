@@ -101,7 +101,7 @@ struct Data {
     components: BTreeMap<String, u64>,
     vector_hits: [u64; 3],
     current: SegmentIo,
-    per_segment: Vec<(SegmentId, SegmentIo)>,
+    per_segment: BTreeMap<SegmentId, SegmentIo>,
     scan_init: bool,
     preserve_next_reset: bool,
     depth: usize,
@@ -240,27 +240,20 @@ impl Trace {
     pub fn end_segment(&self, segment_id: SegmentId) {
         let mut data = self.0.lock();
         let current = std::mem::take(&mut data.current);
-        if let Some((_, accumulated)) = data
-            .per_segment
-            .iter_mut()
-            .find(|(id, _)| *id == segment_id)
-        {
-            for (target, source) in [
-                (&mut accumulated.components, current.components),
-                (&mut accumulated.stages, current.stages),
-                (
-                    &mut accumulated.scan_init_components,
-                    current.scan_init_components,
-                ),
-            ] {
-                for (key, counters) in source {
-                    let total = target.entry(key).or_default();
-                    total.blks_hit += counters.blks_hit;
-                    total.blks_read += counters.blks_read;
-                }
+        let accumulated = data.per_segment.entry(segment_id).or_default();
+        for (target, source) in [
+            (&mut accumulated.components, current.components),
+            (&mut accumulated.stages, current.stages),
+            (
+                &mut accumulated.scan_init_components,
+                current.scan_init_components,
+            ),
+        ] {
+            for (key, counters) in source {
+                let total = target.entry(key).or_default();
+                total.blks_hit += counters.blks_hit;
+                total.blks_read += counters.blks_read;
             }
-        } else {
-            data.per_segment.push((segment_id, current));
         }
     }
 

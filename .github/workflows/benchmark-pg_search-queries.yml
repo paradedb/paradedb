@@ -159,7 +159,7 @@ jobs:
           role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
           role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
           role-duration-seconds: 21600
-          allowed-account-ids: "858265286872"
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
           unset-current-credentials: true
           aws-region: us-east-1
 

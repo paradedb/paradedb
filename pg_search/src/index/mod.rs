@@ -61,6 +61,7 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansClusterer::new()
         .with_max_leaf_size(options.max_leaf_size())
         .with_training_sample_ratio(options.training_sample_ratio())
+        .with_boundary_epsilon(options.boundary_epsilon())
         .with_memory_limit(memory_limit.max(1));
     index.set_ivf_clusterer(Arc::new(clusterer));
 }

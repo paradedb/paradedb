@@ -71,8 +71,13 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn'))
     env:
+<<<<<<< HEAD
       DATASET: hn-ci
       DATASET_S3: s3://paradedb-benchmarker/datasets/hn-ci.tar.gz
+=======
+      DATASET: hackernews
+      DATASET_S3: s3://paradedb-benchmark/benchmarker/hn_cutdown/
+>>>>>>> a3c90d7 (ci: replace benchmark AWS access keys with scoped OIDC roles (#7151))
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -124,7 +129,11 @@ jobs:
           repository: paradedb/benchmarker
           ref: ${{ inputs.benchmarker_hn_ref || 'main' }}
 
+<<<<<<< HEAD
       - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
+=======
+      - name: Pull ${{ env.DATASET }} Dataset
+>>>>>>> a3c90d7 (ci: replace benchmark AWS access keys with scoped OIDC roles (#7151))
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
@@ -211,9 +220,16 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange'))
     env:
+<<<<<<< HEAD
       DATASET: stackexchange
       BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
       SNAPSHOT_PREFIX: snapshots/benchmarker
+=======
+      DATASET: ${{ matrix.dataset }}
+      DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset }}/
+      BACKREST_REPO_BUCKET: paradedb-benchmark
+      SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst
+>>>>>>> a3c90d7 (ci: replace benchmark AWS access keys with scoped OIDC roles (#7151))
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -265,6 +281,7 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
+<<<<<<< HEAD
           repository: ${{ inputs.benchmarker_stackexchange_repo || 'planetscale/paradedb-benchmarker' }}
           ref: ${{ inputs.benchmarker_stackexchange_ref || 'datasets' }}
           patch_file: .github/patches/benchmarker.patch
@@ -277,13 +294,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+=======
+          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
+
+      - name: Pull ${{ env.DATASET }} Benchmark Config
+        working-directory: benchmarker
+        run: |
+          set -euo pipefail
+          dataset_dir="datasets/_ci_config"
+          mkdir -p "$dataset_dir"
+          # Restore the heap below; do not download the corpus through download.yaml.
+          aws s3 sync "${DATASET_CONFIG_S3}" "$dataset_dir" --exclude download.yaml --no-sign-request
+          test -f "${dataset_dir}/docker-compose.yml"
+          test -f "${dataset_dir}/k6/search.js"
+
+>>>>>>> a3c90d7 (ci: replace benchmark AWS access keys with scoped OIDC roles (#7151))
       - name: Restore ${{ env.DATASET }} Heap Snapshot
         run: |
           set -euo pipefail
           mkdir -p "${VOLUME_ROOT}"
-          s3_src="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_PREFIX}/${DATASET}/heap.tar.zst"
+          s3_src="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_KEY}"
           echo "Downloading heap snapshot from ${s3_src}..."
-          aws s3 cp "${s3_src}" "${RUNNER_TEMP}/heap.tar.zst"
+          aws s3 cp "${s3_src}" "${RUNNER_TEMP}/heap.tar.zst" --no-sign-request
 
           target_dir="${VOLUME_ROOT}/bench-datasets-${DATASET}/paradedb"
           mkdir -p "${target_dir}"

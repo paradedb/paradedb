@@ -75,6 +75,12 @@ permissions:
 
 jobs:
   benchmark-pg_search-queries:
+    permissions:
+      actions: write
+      contents: write
+      deployments: write
+      pull-requests: write
+      id-token: write
     name: Run Benchmark Jobs
     # pgvectorscale sweeps query_search_list_size to its 10000 maximum on the filtered arms, and
     # post-filter streaming at 1% selectivity makes the top of that ladder enormously more expensive
@@ -170,8 +176,11 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Derive Short Commit

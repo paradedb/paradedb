@@ -379,17 +379,14 @@ pub fn vector_clustering_threshold() -> usize {
 }
 
 static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
-static VECTOR_ADAPTIVE_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(0.95);
-static VECTOR_ADAPTIVE_RECALL_EXPONENT: GucSetting<f64> = GucSetting::<f64>::new(1.25);
+static VECTOR_SEARCH_EFFORT: GucSetting<f64> = GucSetting::<f64>::new(4.4);
 static VECTOR_CLUSTER_MIN_PROBE: GucSetting<i32> = GucSetting::<i32>::new(16);
 
-pub fn vector_quantized_recall() -> Option<tantivy::vector::QuantizedRecallParams> {
-    let target = VECTOR_ADAPTIVE_RECALL_TARGET.get();
+pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
     VECTOR_ADAPTIVE_PROBING
         .get()
-        .then(|| tantivy::vector::QuantizedRecallParams {
-            target,
-            recall_exponent: VECTOR_ADAPTIVE_RECALL_EXPONENT.get(),
+        .then(|| tantivy::vector::AdaptiveProbeParams {
+            effort: VECTOR_SEARCH_EFFORT.get(),
         })
 }
 
@@ -401,16 +398,16 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
         c"Stop vector probing early using admission-rate decay",
-        c"Enabled by default. Uses one router window scaled by recall target, exponent, segment size, and filter selectivity, with admission-based early stopping.",
+        c"Enabled by default. Uses one router window scaled by search effort, segment size, and filter selectivity, with admission-based early stopping.",
         &VECTOR_ADAPTIVE_PROBING,
         GucContext::Userset,
         GucFlags::default(),
     );
     GucRegistry::define_float_guc(
-        c"paradedb.vector_adaptive_recall_exponent",
-        c"Calibrate admission-rate decay: rate fraction = (1 - target) ^ exponent",
-        c"Larger values request more clusters and require more admission-rate decay before stopping. Default 1.25.",
-        &VECTOR_ADAPTIVE_RECALL_EXPONENT,
+        c"paradedb.vector_search_effort",
+        c"Search effort for adaptive vector probing (default 4.4)",
+        c"Larger values widen the router window and require more admission-rate decay before stopping. Each increment of one divides the stopping fraction by ten. Calibrate against measured recall; this is not a recall probability.",
+        &VECTOR_SEARCH_EFFORT,
         0.000001,
         f64::MAX,
         GucContext::Userset,
@@ -423,16 +420,6 @@ pub fn init() {
         &VECTOR_CLUSTER_MIN_PROBE,
         1,
         i32::MAX,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_adaptive_recall_target",
-        c"Recall target for adaptive vector probing (default 0.95)",
-        c"Larger values request more clusters and require more admission-rate decay. This is an empirical recall control. A target of 1 disables adaptive stopping and window limits; explicit work ceilings still apply.",
-        &VECTOR_ADAPTIVE_RECALL_TARGET,
-        0.000001,
-        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );

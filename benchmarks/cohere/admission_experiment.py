@@ -1,4 +1,4 @@
-"""Calibrate the exponent at each nominal recall target with an automatic ceiling."""
+"""Calibrate one search-effort knob against measured recall."""
 
 import json
 import os
@@ -6,18 +6,16 @@ import subprocess
 from pathlib import Path
 
 from prepare_k6 import (
-    EXPONENT,
+    EFFORT,
     PROBE,
     QUERIES,
-    RECALL_TARGET,
-    TARGETS,
     operating_points,
     summary,
 )
 
 
 def main():
-    """Measure nonadaptive controls, then calibrate only the adaptive exponent."""
+    """Measure nonadaptive controls, then calibrate adaptive search effort."""
     root = Path("benchmark-artifacts")
     root.mkdir(exist_ok=True)
     common = [
@@ -64,35 +62,30 @@ def main():
         json.dumps(controls, indent=2) + "\n"
     )
     adaptive = root / "admission"
-    for target in TARGETS:
-        for query in QUERIES:
-            subprocess.run(
-                common
-                + [
-                    "--query",
-                    query,
-                    "--runs-dir",
-                    str(adaptive / f"r{round(target * 100)}"),
-                    "--set",
-                    "search.session.paradedb.vector_adaptive_probing=on",
-                    "--set",
-                    f"search.session.{RECALL_TARGET}={target}",
-                    "--set",
-                    f"search.session.{PROBE}=0",
-                    "--set",
-                    f"search.sweep.param={EXPONENT}",
-                    "--set",
-                    f"search.sweep.targets=[{target}]",
-                ],
-                check=True,
-            )
+    for query in QUERIES:
+        subprocess.run(
+            common
+            + [
+                "--query",
+                query,
+                "--runs-dir",
+                str(adaptive),
+                "--set",
+                "search.session.paradedb.vector_adaptive_probing=on",
+                "--set",
+                f"search.session.{PROBE}=0",
+                "--set",
+                f"search.sweep.param={EFFORT}",
+            ],
+            check=True,
+        )
     selected = operating_points(
         json.loads(p.read_text()) for p in sorted(adaptive.rglob("*_search.json"))
     )
     (root / "operating_points.json").write_text(json.dumps(selected, indent=2) + "\n")
     (root / "operating_points.md").write_text(
-        "Admission experiment: nominal recall targets **90%, 95%, 99%**; "
-        "only exponent is calibrated per filter/target; **max_probe=0**.\n\n"
+        "Adaptive search: measured recall goals **90%, 95%, 99%**; "
+        "only search effort is calibrated; **max_probe=0**.\n\n"
         "Nonadaptive controls are retained in fixed-budget/. "
         "Calibration and evaluation use the same 100 queries.\n\n" + summary(selected)
     )

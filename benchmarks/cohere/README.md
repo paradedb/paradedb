@@ -19,37 +19,29 @@ workers. Both tools use the same database and index throughout a run.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `admission_experiment.py` first sweeps `paradedb.vector_cluster_max_probe` with
    adaptive stopping disabled to establish nonadaptive controls. Adaptive runs
-   fix the recall target at 0.90, 0.95, or 0.99 and calibrate only the exponent
-   separately for each filter and target.
-   Every measurement uses all 100 vectors, three timed repetitions and a separate
-   EXPLAIN pass. All
-   adaptive runs use `max_probe=0` (automatic headroom); no per-case budget is
-   selected. One router window scales with target, exponent, segment size, and
-   the existing filter-aware cluster-cost estimate; probing stops early on admission evidence
-   and does not re-query the router. The stopping fraction `(1 - target)^exponent`
-   also scales the window, so stricter stopping requests more routing headroom.
-   Global quantized scans with early refinement use the base fraction
-   `b = min(1, 0.0015 / sqrt(fraction))`. Segment-local scans retain
-   `b = min(1, 0.002 / fraction^0.625)`. With the existing
-   cluster cost `c`, the window fraction is
+   sweep only `paradedb.vector_search_effort` and select measured recall goals
+   of 90%, 95%, and 99% for each filter. Every measurement uses all 100 vectors,
+   three timed repetitions, and a separate EXPLAIN pass.
+   All adaptive runs use `max_probe=0` (automatic headroom).
+   One router window scales with effort, cluster count, and the existing
+   filter-aware cluster cost; admission evidence can stop probing earlier.
+   There is no router re-query or per-segment 16-cluster floor in adaptive mode.
+   The stopping fraction is `10^(-effort)`. Global quantized scans use base window
+   fraction `b = min(1, 0.00075 * 10^(0.32 * effort))`; segment-local scans and
+   global full-precision scans use `b = min(1, 0.002 * 10^(0.625 * effort))`.
+   With cluster cost `c`, the adjusted window fraction is
    `b + min(0.4, 0.05 * (1/sqrt(c) - 1)) * b^0.125 * (1-b) * min(1, (1-b)/0.9)^2`.
-   The final taper reduces the filter allowance once the base window exceeds
-   10% of the segment, preserving narrower windows below that point.
-   The requested window also covers the existing expected-work estimate under
-   the filter-aware cluster cost, subject to the explicit work ceiling. This
-   only sets the ranked window; admission evidence can stop probing earlier.
-   These coefficients are shared across segments and filters. Bypass selection
-   retains its existing estimate based on the target and segment size.
-3. For each filter and recall goal (90%, 95%, 99%), use pdbench's recall search
-   to calibrate the exponent over [0.05, 8.0], starting at 1.25. Export the
-   measured exponent selected by pdbench, preserving the nominal recall target
-   and automatic max_probe setting. Keep configured settings separate from
-   achieved recall. This empirical
-   calibration is not a recall guarantee or proof of an optimal setting.
-   Unreached targets remain visible and do not run in k6. The complete set of
-   measurements and nonadaptive controls are retained. These measurements
-   select and evaluate the knob on the same query set; they do not establish
-   calibration on unseen queries or datasets.
+   The window also covers the expected-work estimate under that cluster cost,
+   subject to an explicit work ceiling. Expected work and bypass selection use
+   `0.005 * effort / 4.4` of cluster capacity, bounded to the available capacity.
+   All coefficients are shared across datasets and filters.
+3. pdbench sweeps effort over [0.05, 10], starting at 3, and exports each
+   selected operating point. Recall goals are evaluation criteria, not another
+   query setting. Higher effort generally trades latency for recall; it is not
+   a recall probability or guarantee. Unreached goals remain visible and do not
+   run in k6. The complete measurements and nonadaptive controls are retained.
+   Calibration and evaluation use the same query set, so these results do not
+   establish calibration on unseen queries or datasets.
    CI also downloads the latest successful main push preceding this run with
    diagnostics for the corpus size. Its sweep reports compare the nonadaptive
    controls in `fixed-budget/` with recorded mainline sweeps at matched recall;
@@ -60,13 +52,13 @@ workers. Both tools use the same database and index throughout a run.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
-   selected exponent, nominal recall target, and fixed search settings
+   selected effort and fixed search settings
    apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
    and index size with baseline comparisons and dashboard links. Recall,
-   recall exponent, probe ceiling setting, and mean whole-query shared buffer hits/reads appear above those
+   search effort, probe ceiling setting, and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 

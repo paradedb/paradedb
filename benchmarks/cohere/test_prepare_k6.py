@@ -4,10 +4,9 @@ import copy
 import unittest
 
 from prepare_k6 import (
-    EXPONENT,
+    EFFORT,
     PROBE,
     QUERIES,
-    RECALL_TARGET,
     TARGETS,
     operating_points,
     summary,
@@ -117,37 +116,35 @@ class OperatingPointsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "strict recall targets"):
                 operating_points(inputs)
 
-    def test_adaptive_targets_keep_independent_calibration_and_session(self):
-        """Each target must retain its own exponent and recall setting in k6."""
-        inputs = []
-        for target, exponent in zip(TARGETS, ["1.2", "2.0", "3.5"]):
-            for report in reports():
-                report["config"]["search"]["sweep"]["targets"] = [target]
-                report["config"]["search"]["session"][RECALL_TARGET] = str(target)
-                report["config"]["search"]["session"][PROBE] = str(target / 10)
-                report["data"]["sweep_param"] = EXPONENT
-                result = next(iter(report["data"]["variants"].values()))
-                result["targets"] = {str(target): {"value": exponent, "recall": target}}
-                result["points"][0]["value"] = exponent
-                result["points"][0]["metrics"]["recall"]["recall"] = target
-                inputs.append(report)
+    def test_adaptive_targets_keep_selected_effort_and_automatic_ceiling(self):
+        """Every measured target exports its own effort from the same sweep."""
+        inputs = reports()
+        values = dict(zip(TARGETS, ["2.1", "4.4", "6.7"]))
+        for report in inputs:
+            report["config"]["search"]["sweep"]["targets"] = list(TARGETS)
+            report["config"]["search"]["session"][PROBE] = "0"
+            report["data"]["sweep_param"] = EFFORT
+            result = next(iter(report["data"]["variants"].values()))
+            template = result["points"][0]
+            result["targets"] = {}
+            result["points"] = []
+            for target, effort in values.items():
+                result["targets"][str(target)] = {"value": effort, "recall": target}
+                point = copy.deepcopy(template)
+                point["value"] = effort
+                point["metrics"]["recall"]["recall"] = target
+                result["points"].append(point)
         original = copy.deepcopy(inputs)
         points = operating_points(inputs)
         self.assertEqual(len(points), 9)
         for point in points:
-            self.assertEqual(point["param"], EXPONENT)
-            self.assertEqual(float(point["session"][RECALL_TARGET]), point["target"])
-            self.assertEqual(float(point["session"][PROBE]), point["target"] / 10)
-            self.assertEqual(
-                point["probe"],
-                dict(zip(TARGETS, ["1.2", "2.0", "3.5"]))[point["target"]],
-            )
+            self.assertEqual(point["param"], EFFORT)
+            self.assertEqual(point["session"][PROBE], "0")
+            self.assertEqual(point["probe"], values[point["target"]])
         self.assertEqual(inputs, original)
-        self.assertIn("recall exponent", summary(points))
-        with self.assertRaisesRegex(ValueError, "Missing recall sweeps"):
-            operating_points(inputs[:-1])
-        inputs[0]["config"]["search"]["session"][RECALL_TARGET] = "0.99"
-        with self.assertRaisesRegex(ValueError, "one matching recall target"):
+        self.assertIn("search effort", summary(points))
+        inputs[0]["config"]["search"]["session"][PROBE] = "0.1"
+        with self.assertRaisesRegex(ValueError, "automatic max_probe"):
             operating_points(inputs)
 
     def test_plan_guard_requires_index_scan_and_filter_pushdown(self):

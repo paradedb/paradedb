@@ -1,5 +1,6 @@
-"""Check that CI calibrates exponents without changing nominal recall targets."""
+"""Check that CI calibrates only search effort against all recall goals."""
 
+import copy
 import json
 import tempfile
 import unittest
@@ -7,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from admission_experiment import main
-from prepare_k6 import EXPONENT, PROBE, QUERIES, RECALL_TARGET, TARGETS
+from prepare_k6 import EFFORT, PROBE, QUERIES, TARGETS
 from test_prepare_k6 import reports
 
 
@@ -39,34 +40,46 @@ class AdmissionExperimentTest(unittest.TestCase):
                 param = settings["search.sweep.param"]
                 report["data"]["sweep_param"] = param
                 variant = report["data"]["variants"][query]
-                if param == EXPONENT:
-                    target = float(search["session"][RECALL_TARGET])
+                template = variant["points"][0]
+                variant["points"] = []
+                variant["targets"] = {}
+                if param == EFFORT:
                     self.assertEqual(search["session"][PROBE], "0")
-                    self.assertEqual(
-                        json.loads(settings["search.sweep.targets"]), [target]
+                    self.assertNotIn("search.sweep.targets", settings)
+                    self.assertFalse(
+                        any(
+                            "recall_target" in key or "exponent" in key
+                            for key in settings
+                        )
                     )
-                    search["sweep"]["targets"] = [target]
-                    value = str(1 + TARGETS.index(target) + QUERIES.index(query) / 10)
-                    reached = not (miss and target == 0.99 and query == QUERIES[0])
-                    recall = target if reached else 0.98
-                    variant["targets"] = (
-                        {str(target): {"value": value, "recall": recall}}
-                        if reached
-                        else {}
-                    )
-                    calls.append((query, target))
+                    calls.append(query)
                 else:
                     self.assertEqual(param, PROBE)
                     self.assertEqual(
                         search["session"]["paradedb.vector_adaptive_probing"], "off"
                     )
-                    value, recall = "0.001", 1.0
-                    variant["targets"] = {
-                        str(target): {"value": value, "recall": recall}
-                        for target in TARGETS
-                    }
-                variant["points"][0]["value"] = value
-                variant["points"][0]["metrics"]["recall"]["recall"] = recall
+                for target in TARGETS:
+                    value = (
+                        str(1 + TARGETS.index(target) + QUERIES.index(query) / 10)
+                        if param == EFFORT
+                        else str(target / 10)
+                    )
+                    reached = not (
+                        param == EFFORT
+                        and miss
+                        and target == 0.99
+                        and query == QUERIES[0]
+                    )
+                    recall = target if reached else 0.98
+                    if reached:
+                        variant["targets"][str(target)] = {
+                            "value": value,
+                            "recall": recall,
+                        }
+                    point = copy.deepcopy(template)
+                    point["value"] = value
+                    point["metrics"]["recall"]["recall"] = recall
+                    variant["points"].append(point)
                 output = Path(command[command.index("--runs-dir") + 1])
                 output.mkdir(parents=True, exist_ok=True)
                 (output / f"{query}_search.json").write_text(json.dumps(report))
@@ -86,21 +99,20 @@ class AdmissionExperimentTest(unittest.TestCase):
             controls = json.loads(
                 (output / "fixed-budget/operating_points.json").read_text()
             )
-            self.assertEqual(set(calls), {(q, t) for q in QUERIES for t in TARGETS})
-            self.assertEqual(len(calls), 9)
+            self.assertEqual(set(calls), set(QUERIES))
+            self.assertEqual(len(calls), 3)
             self.assertEqual(len(controls), 9)
             self.assertTrue(all(p["param"] == PROBE and p["reached"] for p in controls))
             self.assertIn("max_probe=0", (output / "operating_points.md").read_text())
             return selected
 
-    def test_preserves_each_calibrated_exponent_and_nominal_target(self):
-        """k6 receives the selected exponent, fixed target, and automatic ceiling."""
+    def test_preserves_each_selected_effort(self):
+        """k6 receives the selected effort and automatic ceiling."""
         selected = self.run_experiment()
         self.assertEqual(len(selected), 9)
         for point in selected:
             self.assertTrue(point["reached"])
-            self.assertEqual(point["param"], EXPONENT)
-            self.assertEqual(float(point["session"][RECALL_TARGET]), point["target"])
+            self.assertEqual(point["param"], EFFORT)
             self.assertEqual(point["session"][PROBE], "0")
             self.assertEqual(
                 float(point["probe"]),

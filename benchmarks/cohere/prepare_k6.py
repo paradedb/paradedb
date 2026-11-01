@@ -7,26 +7,21 @@ from pathlib import Path
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
-EXPONENT = "paradedb.vector_adaptive_recall_exponent"
-RECALL_TARGET = "paradedb.vector_adaptive_recall_target"
+EFFORT = "paradedb.vector_search_effort"
 QVEC = "current_setting('cohere.qvec')"
 
 
 def sweep_settings(report):
-    """Normalize shared settings while keeping target-specific sessions intact."""
+    """Normalize query-specific settings while preserving one shared effort sweep."""
     current = json.loads(json.dumps(report["config"]))
     current["search"].pop("query", None)
     param = report["data"]["sweep_param"]
     session = dict(current["search"]["session"])
-    targets = TARGETS
-    if param == EXPONENT:
-        current["search"]["session"].pop(PROBE)
-        targets = current["search"]["sweep"].pop("targets")
-        target = float(current["search"]["session"].pop(RECALL_TARGET))
-        if targets != [target] or target not in TARGETS:
-            raise ValueError(
-                "Adaptive sweeps must calibrate one matching recall target"
-            )
+    targets = current["search"]["sweep"].get("targets", TARGETS)
+    if list(targets) != list(TARGETS):
+        raise ValueError("Recall sweeps must include all three recall targets")
+    if param == EFFORT and float(session.get(PROBE, -1)) != 0:
+        raise ValueError("Adaptive sweeps require automatic max_probe=0")
     return current, session, targets, param
 
 
@@ -42,9 +37,9 @@ def operating_points(reports):
                 "Recall sweeps must use the same dataset, index, and session settings"
             )
         config = current
-        if report["kind"] != "search" or param not in (PROBE, EXPONENT):
+        if report["kind"] != "search" or param not in (PROBE, EFFORT):
             raise ValueError(
-                "Expected a pdbench probe or adaptive recall search report"
+                "Expected a pdbench probe or adaptive effort search report"
             )
         if (
             report["data"]["query_vectors"] != 100
@@ -66,7 +61,7 @@ def operating_points(reports):
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
-                    not 0 < float(selected["value"]) <= (10 if param == EXPONENT else 1)
+                    not 0 < float(selected["value"]) <= (10 if param == EFFORT else 1)
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
@@ -98,7 +93,7 @@ def operating_points(reports):
 
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
-    parameter = "recall exponent" if points[0]["param"] == EXPONENT else "max_probe"
+    parameter = "search effort" if points[0]["param"] == EFFORT else "max_probe"
     lines = [
         (
             f"| Filter / recall target | {parameter} | max_probe setting | Achieved recall@10 "
@@ -125,8 +120,7 @@ def summary(points):
         )
     lines.append(
         f"\npdbench selects {parameter} separately for each filter and recall target "
-        "on this index. Adaptive points retain their configured recall target "
-        "and max_probe setting. "
+        "on this index. Adaptive points use only search effort with automatic max_probe. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

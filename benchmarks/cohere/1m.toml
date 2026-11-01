@@ -28,7 +28,6 @@ explain_sample = 100
 
 [search.session]
 "paradedb.vector_adaptive_probing" = "on"
-"paradedb.vector_adaptive_recall_target" = "0.95"
 "cohere.titles_1pct" = "battle"
 "cohere.titles_10pct" = "year"
 max_parallel_workers_per_gather = "8"
@@ -36,7 +35,7 @@ jit = "off"
 plan_cache_mode = "force_custom_plan"
 
 [search.sweep]
-param = "paradedb.vector_adaptive_recall_exponent"
+param = "paradedb.vector_search_effort"
 min = 0.05
 max = 8.0
 start = 1.25

@@ -61,6 +61,10 @@ jobs:
           echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
 
   generate:
+    permissions:
+      contents: read
+      id-token: write
+    if: github.ref == 'refs/heads/0.26.x'
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
     needs: prep
     runs-on:
@@ -94,8 +98,11 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Set Up Benchmark Cluster

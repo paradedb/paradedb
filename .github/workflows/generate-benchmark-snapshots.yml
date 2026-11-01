@@ -6,7 +6,7 @@
 # s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/. Sampled source
 # data must exist at datasets/{dataset}/v1/sampled/{size}/{csv|parquet}/ in that bucket.
 # Stack Exchange and Wikipedia: benchmarker Docker heaps archived to
-# s3://paradedb-ci-benchmarks/snapshots/benchmarker/{dataset}/heap.tar.zst.
+# s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/zst/heap.tar.zst.
 # Each path uses the same platform and format as its benchmark's restore path.
 
 name: Generate Benchmark Snapshots
@@ -34,7 +34,7 @@ on:
         required: false
         default: "main"
       dataset_source:
-        description: "Optional S3 prefix override. Defaults to s3://paradedb-benchmarker/datasets/<dataset>/."
+        description: "Optional S3 prefix override. Defaults to s3://paradedb-benchmark/benchmarker/<dataset>/."
         required: false
         type: string
         default: ""
@@ -202,10 +202,10 @@ jobs:
       - image=ubuntu26-full-arm64
       - extras=s3-cache
     env:
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
-      SNAPSHOT_PREFIX: snapshots/benchmarker
+      BACKREST_REPO_BUCKET: paradedb-benchmark
+      SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst
       DATASET: ${{ matrix.dataset }}
-      DATASET_SOURCE: ${{ inputs.dataset_source || format('s3://paradedb-benchmarker/datasets/{0}/', matrix.dataset) }}
+      DATASET_SOURCE: ${{ inputs.dataset_source || format('s3://paradedb-benchmark/benchmarker/{0}/', matrix.dataset) }}
       PARADEDB_IMAGE: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
 
     steps:
@@ -253,7 +253,7 @@ jobs:
             --source "${DATASET_SOURCE}"
 
           source_dataset="datasets/_snapshot_source"
-          test -f "${source_dataset}/data.csv"
+          test -f "${source_dataset}/data/data.csv"
           test -f "${source_dataset}/docker-compose.yml"
 
           (
@@ -278,7 +278,7 @@ jobs:
           archive="${RUNNER_TEMP}/heap-${DATASET}.tar.zst"
           sudo tar -I 'zstd -3 -T0' -cf "${archive}" -C "${pgdata_dir}" .
 
-          s3_dest="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_PREFIX}/${DATASET}/heap.tar.zst"
+          s3_dest="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_KEY}"
           echo "Uploading ${archive} to ${s3_dest}..."
           aws s3 cp "${archive}" "${s3_dest}"
           rm -f "${archive}"

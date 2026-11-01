@@ -6,21 +6,20 @@
       "Effect": "Allow",
       "Action": "s3:GetBucketLocation",
       "Resource": [
-        "arn:aws:s3:::paradedb-ci-benchmarks",
-        "arn:aws:s3:::paradedb-benchmark",
-        "arn:aws:s3:::paradedb-benchmarks",
-        "arn:aws:s3:::paradedb-benchmarker"
-      ]
+        "arn:aws:s3:::paradedb-benchmark"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "858265286872"
+        }
+      }
     },
     {
       "Sid": "ListDatasetAndSnapshotPrefixes",
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": [
-        "arn:aws:s3:::paradedb-ci-benchmarks",
-        "arn:aws:s3:::paradedb-benchmark",
-        "arn:aws:s3:::paradedb-benchmarks",
-        "arn:aws:s3:::paradedb-benchmarker"
+        "arn:aws:s3:::paradedb-benchmark"
       ],
       "Condition": {
         "StringLike": {
@@ -28,8 +27,13 @@
             "datasets",
             "datasets/*",
             "snapshots",
-            "snapshots/*"
+            "snapshots/*",
+            "benchmarker",
+            "benchmarker/*"
           ]
+        },
+        "StringEquals": {
+          "s3:ResourceAccount": "858265286872"
         }
       }
     },
@@ -38,15 +42,15 @@
       "Effect": "Allow",
       "Action": "s3:GetObject",
       "Resource": [
-        "arn:aws:s3:::paradedb-ci-benchmarks/datasets/*",
-        "arn:aws:s3:::paradedb-ci-benchmarks/snapshots/*",
         "arn:aws:s3:::paradedb-benchmark/datasets/*",
         "arn:aws:s3:::paradedb-benchmark/snapshots/*",
-        "arn:aws:s3:::paradedb-benchmarks/datasets/*",
-        "arn:aws:s3:::paradedb-benchmarks/snapshots/*",
-        "arn:aws:s3:::paradedb-benchmarker/datasets/*",
-        "arn:aws:s3:::paradedb-benchmarker/snapshots/*"
-      ]
+        "arn:aws:s3:::paradedb-benchmark/benchmarker/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "858265286872"
+        }
+      }
     }
   ]
 }

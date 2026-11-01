@@ -49,6 +49,11 @@ permissions:
 
 jobs:
   cohere:
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
     name: Cohere ${{ matrix.size }} (ParadeDB)
     if: >-
       github.event_name != 'pull_request' ||
@@ -159,8 +164,11 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Restore Cohere heap snapshot

@@ -1,0 +1,85 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LocateBenchmarkBuckets",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketLocation",
+      "Resource": [
+        "arn:aws:s3:::paradedb-ci-benchmarks",
+        "arn:aws:s3:::paradedb-benchmark",
+        "arn:aws:s3:::paradedb-benchmarks",
+        "arn:aws:s3:::paradedb-benchmarker"
+      ]
+    },
+    {
+      "Sid": "ListDatasetAndSnapshotPrefixes",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": [
+        "arn:aws:s3:::paradedb-ci-benchmarks",
+        "arn:aws:s3:::paradedb-benchmark",
+        "arn:aws:s3:::paradedb-benchmarks",
+        "arn:aws:s3:::paradedb-benchmarker"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "datasets",
+            "datasets/*",
+            "snapshots",
+            "snapshots/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadDatasetsAndSnapshots",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::paradedb-ci-benchmarks/datasets/*",
+        "arn:aws:s3:::paradedb-ci-benchmarks/snapshots/*",
+        "arn:aws:s3:::paradedb-benchmark/datasets/*",
+        "arn:aws:s3:::paradedb-benchmark/snapshots/*",
+        "arn:aws:s3:::paradedb-benchmarks/datasets/*",
+        "arn:aws:s3:::paradedb-benchmarks/snapshots/*",
+        "arn:aws:s3:::paradedb-benchmarker/datasets/*",
+        "arn:aws:s3:::paradedb-benchmarker/snapshots/*"
+      ]
+    },
+    {
+      "Sid": "DiscoverIncompleteSnapshotUploads",
+      "Effect": "Allow",
+      "Action": "s3:ListBucketMultipartUploads",
+      "Resource": [
+        "arn:aws:s3:::paradedb-ci-benchmarks",
+        "arn:aws:s3:::paradedb-benchmark"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "858265286872"
+        }
+      }
+    },
+    {
+      "Sid": "ManageSnapshots",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "arn:aws:s3:::paradedb-ci-benchmarks/snapshots/*",
+        "arn:aws:s3:::paradedb-benchmark/snapshots/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "858265286872"
+        }
+      }
+    }
+  ]
+}

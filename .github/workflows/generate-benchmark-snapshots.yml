@@ -84,9 +84,12 @@ jobs:
           echo "benchmarker=$docker" >> "$GITHUB_OUTPUT"
 
   generate:
+    permissions:
+      contents: read
+      id-token: write
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
     needs: prep
-    if: needs.prep.outputs.native != '[]'
+    if: github.ref == 'refs/heads/main' && needs.prep.outputs.native != '[]'
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
@@ -119,8 +122,11 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Set Up Benchmark Cluster
@@ -179,9 +185,12 @@ jobs:
             --process-max 8
 
   generate-benchmarker:
+    permissions:
+      contents: read
+      id-token: write
     name: Snapshot ${{ matrix.dataset }} (benchmarker)
     needs: prep
-    if: needs.prep.outputs.benchmarker != '[]'
+    if: github.ref == 'refs/heads/main' && needs.prep.outputs.benchmarker != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -215,8 +224,11 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Set Up Benchmarker

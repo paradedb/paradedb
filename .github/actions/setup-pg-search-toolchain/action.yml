@@ -51,7 +51,7 @@ runs:
         echo "Resolved rust=$rust cargo-pgrx=$pgrx"
 
     - name: Install Rust ${{ steps.versions.outputs.rust }}
-      uses: actions-rust-lang/setup-rust-toolchain@v2
+      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
       with:
         toolchain: ${{ steps.versions.outputs.rust }}
         components: ${{ inputs.rust_components }}
@@ -67,7 +67,7 @@ runs:
 
     # Native artifacts must not cross distribution versions (libc, ICU, etc.).
     - name: Install Rust Cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       with:
         prefix-key: ${{ inputs.cache_prefix_key }}-${{ steps.build_os.outputs.id }}
         shared-key: pg${{ inputs.pg_version }}

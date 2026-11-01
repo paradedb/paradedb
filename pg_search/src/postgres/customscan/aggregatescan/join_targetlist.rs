@@ -946,7 +946,7 @@ unsafe fn extract_raw_group_column(
         node = var.cast();
         transform = GroupingTransform::TimestampToDate;
     }
-    let (attno, field_name, plan_position, numeric_source) = if (*node).type_
+    let (var, attno, field_name, plan_position, numeric_source) = if (*node).type_
         == pg_sys::NodeTag::T_Var
     {
         let var = node.cast::<pg_sys::Var>();
@@ -956,17 +956,8 @@ unsafe fn extract_raw_group_column(
             (*var).varattno,
             &label,
         )?;
-        // A columnar read of an array cannot tell an empty array from NULL, and
-        // it has no NULL elements.
-        if !matches!(origin, GroupColumnOrigin::Clause { .. })
-            && pg_sys::get_element_type(pg_sys::getBaseType((*var).vartype)) != pg_sys::InvalidOid
-        {
-            return Err(format!(
-                "{label} {} is an array, which is not read from the index",
-                resolved.field_name
-            ));
-        }
         (
+            var,
             resolved.attno,
             resolved.field_name,
             resolved.plan_position,
@@ -1010,12 +1001,22 @@ unsafe fn extract_raw_group_column(
                 )
             })?;
         (
+            var,
             attno,
             field_name.into_inner(),
             plan_position,
             find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
         )
     };
+    // A columnar read of an array cannot tell an empty array from NULL, and
+    // it has no NULL elements. Check the underlying Var for both plain keys
+    // and expressions: an array subscript can have a scalar result type.
+    // PostgreSQL must evaluate and group these values from the heap.
+    if pg_sys::get_element_type(pg_sys::getBaseType((*var).vartype)) != pg_sys::InvalidOid {
+        return Err(format!(
+            "{label} {field_name} is an array, which is not read from the index"
+        ));
+    }
     let numeric_info = numeric_source
         .and_then(|source| source.bm25_index.as_ref())
         .and_then(|index| index.schema().ok())

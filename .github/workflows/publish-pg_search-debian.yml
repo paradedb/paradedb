@@ -195,7 +195,7 @@ jobs:
 
       - name: Install Dependencies
         if: steps.guard.outputs.build == 'true'
-        uses: paradedb/actions/apt-install@v14
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: >-
             sudo wget git ca-certificates curl gnupg gpg lsb-release
@@ -203,12 +203,12 @@ jobs:
 
       - name: Checkout Git Repository
         if: steps.guard.outputs.build == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
         if: steps.guard.outputs.build == 'true'
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       # Used to upload the release to GitHub Releases
       - name: Configure GitHub CLI Repository
@@ -219,7 +219,7 @@ jobs:
 
       - name: Install GitHub CLI
         if: steps.guard.outputs.build == 'true'
-        uses: paradedb/actions/apt-install@v14
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: gh
 
@@ -229,7 +229,7 @@ jobs:
 
       - name: Install Rust
         if: steps.guard.outputs.build == 'true'
-        uses: actions-rust-lang/setup-rust-toolchain@v2
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
         with:
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
@@ -281,7 +281,7 @@ jobs:
       - name: Cache pgrx binary
         if: steps.guard.outputs.build == 'true'
         id: cache-pgrx
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cargo/bin/cargo-pgrx
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-debian-${{ matrix.image }}
@@ -369,7 +369,7 @@ jobs:
 
       - name: Install Cosign
         if: steps.guard.outputs.build == 'true'
-        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2; Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .deb. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
@@ -398,7 +398,7 @@ jobs:
 
       - name: Upload pg_search .deb to GitHub Release
         if: steps.guard.outputs.build == 'true'
-        uses: shogo82148/actions-upload-release-asset@v1
+        uses: shogo82148/actions-upload-release-asset@73f83b114970a3485e1423ecc1fb93d887c9b096 # v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
@@ -408,7 +408,7 @@ jobs:
 
       - name: Upload pg_search .deb Cosign Bundle to GitHub Release
         if: steps.guard.outputs.build == 'true'
-        uses: shogo82148/actions-upload-release-asset@v1
+        uses: shogo82148/actions-upload-release-asset@73f83b114970a3485e1423ecc1fb93d887c9b096 # v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
@@ -418,7 +418,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: ${{ failure() && steps.guard.outputs.build == 'true' }}
-        uses: paradedb/actions/slack-alert@v14
+        uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
@@ -436,7 +436,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

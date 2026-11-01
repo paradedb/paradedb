@@ -34,13 +34,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           fetch-tags: true # Required: the check resolves release tags locally
 
       - name: Test Release Scripts
-        run: python3 -m unittest discover -s .github/scripts
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 -m unittest discover -s .github/scripts
 
       - name: Reject Edits to Already-Released Migrations
         run: |

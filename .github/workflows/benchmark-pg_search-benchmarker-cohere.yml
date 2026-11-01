@@ -49,6 +49,11 @@ permissions:
 
 jobs:
   cohere:
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
     name: Cohere ${{ matrix.size }} (ParadeDB)
     if: >-
       github.event_name != 'pull_request' ||
@@ -159,8 +164,11 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Restore Cohere heap snapshot
@@ -171,7 +179,7 @@ jobs:
           (cd benchmarks && cargo run --release -- restore-heap \
             --dataset cohere --size "$COHERE_SIZE" \
             --pgdata /home/runner/.pgrx/data-18 --stanza bench \
-            --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots \
+            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
             --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
             --repo-s3-key-type shared)
           (cd pg_search && cargo pgrx start pg18)
@@ -209,7 +217,7 @@ jobs:
 
       - name: Import published ground-truth fixtures
         env:
-          FIXTURE_SOURCE: s3://paradedb-benchmarks/datasets/cohere/queries
+          FIXTURE_SOURCE: s3://paradedb-benchmark/datasets/cohere/v1/queries
         run: |
           set -euo pipefail
           python3 -m venv .cohere-fixtures
@@ -225,7 +233,6 @@ jobs:
 
           db = duckdb.connect()
           db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
-          db.execute("CREATE SECRET (TYPE s3, PROVIDER credential_chain);")
           url = os.environ["PARADEDB_URL"].replace("'", "''")
           db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
           for query in ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct"):

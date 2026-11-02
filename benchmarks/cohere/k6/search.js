@@ -8,8 +8,8 @@ if (!point?.reached)
   throw new Error("A reached recall operating point is required");
 
 const vectors = JSON.parse(open(__ENV.QUERY_VECTORS));
-if (vectors.length !== 100)
-  throw new Error("Expected the 100 pdbench query vectors");
+if (vectors.length !== point.query_vectors)
+  throw new Error(`Expected ${point.query_vectors} pdbench query vectors`);
 
 const session = {
   ...point.session,
@@ -51,6 +51,6 @@ export function search() {
   if (result.deadlineReached) return;
   check(result, {
     "query succeeds": (r) => !r.error,
-    "returns 10 neighbors": (r) => r.hits === 10,
+    [`returns ${point.neighbors} neighbors`]: (r) => r.hits === point.neighbors,
   });
 }

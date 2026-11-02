@@ -3,17 +3,17 @@
 import copy
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, operating_points, summary
+from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
 from verify_plans import verify
 
 
-def reports():
-    """Build three reports with shared probes and an unreached r99 target."""
+def reports(dataset="cohere"):
+    """Build suite reports with shared probes and an unreached r99 target."""
     return [
         {
             "kind": "search",
             "config": {
-                "dataset": {"size": "1m"},
+                "dataset": {"name": dataset, "size": "1m", "dims": 1024},
                 "search": {
                     "query": query,
                     "sweep": {"tolerance": 0.000001},
@@ -25,8 +25,8 @@ def reports():
                 "query_vectors": 100,
                 "variants": {
                     query: {
-                        "query": "SELECT _id FROM cohere_wiki ORDER BY emb <=> "
-                        "current_setting('cohere.qvec')::vector(1024) LIMIT 10",
+                        "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
+                        f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
                         "targets": {
                             "0.9": {"value": "0.001", "recall": 0.96},
                             "0.95": {"value": "0.001", "recall": 0.96},
@@ -35,7 +35,7 @@ def reports():
                             {
                                 "value": "0.001",
                                 "metrics": {
-                                    "recall": {"recall": 0.96},
+                                    "recall": {"recall": 0.96, "k": neighbors},
                                     "buffers": {
                                         "queries_measured": 100,
                                         "shared_hit_mean": 1234.5,
@@ -48,7 +48,7 @@ def reports():
                 },
             },
         }
-        for query in QUERIES
+        for query, neighbors in SUITES[dataset].items()
     ]
 
 
@@ -108,6 +108,53 @@ class OperatingPointsTest(unittest.TestCase):
                 inputs[0][section][key] = value
             with self.assertRaisesRegex(ValueError, "strict recall targets"):
                 operating_points(inputs)
+
+    def test_msmarco_exports_top10_and_top100_as_unfiltered_workloads(self):
+        """Keep k6 result counts, vector binding, and recall labels consistent."""
+        points = operating_points(reports("msmarco"), dataset="msmarco")
+        self.assertEqual(len(points), 6)
+        for point in points:
+            self.assertFalse(point["filtered"])
+            self.assertEqual(point["query_vectors"], 100)
+            self.assertEqual(point["dimensions"], 1024)
+            self.assertEqual(point["neighbors"], SUITES["msmarco"][point["query"]])
+            self.assertIn(f"LIMIT {point['neighbors']}", point["sql"])
+            self.assertIn("$1::vector(1024)", point["sql"])
+        self.assertIn("recall@k", summary(points))
+        with self.assertRaisesRegex(ValueError, "Expected cohere"):
+            operating_points(reports("msmarco"))
+
+    def test_top100_recall_tolerance_is_smaller_than_one_neighbor(self):
+        """A tolerance valid for top-10 can hide a missed top-100 target."""
+        inputs = reports("msmarco")
+        for report in inputs:
+            report["config"]["search"]["sweep"]["tolerance"] = 0.0005
+        with self.assertRaisesRegex(ValueError, "strict recall targets"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_refuses_top10_metrics_labeled_as_top100(self):
+        """Do not publish recall measured at the wrong k."""
+        inputs = reports("msmarco")
+        inputs[1]["data"]["variants"]["knn_top100_unfiltered"]["points"][0]["metrics"][
+            "recall"
+        ]["k"] = 10
+        with self.assertRaisesRegex(ValueError, "expected recall@100"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_plan_guard_requires_vector_order_and_matching_topk(self):
+        """Reject a custom scan that leaves vector ranking to PostgreSQL."""
+        scan = {
+            "Custom Plan Provider": "ParadeDB Base Scan",
+            "   TopK Order By": "emb <=> vector asc",
+            "   TopK Limit": 100,
+        }
+        plan = [{"Plan": {"Node Type": "Gather Merge", "Plans": [scan]}}]
+        verify(plan, filtered=False, neighbors=100)
+        with self.assertRaisesRegex(ValueError, "cosine vector TopK"):
+            verify(plan, filtered=False, neighbors=10)
+        del scan["   TopK Order By"]
+        with self.assertRaisesRegex(ValueError, "cosine vector TopK"):
+            verify(plan, filtered=False, neighbors=100)
 
     def test_plan_guard_requires_index_scan_and_filter_pushdown(self):
         """Reject fallback scans and filters outside the index."""

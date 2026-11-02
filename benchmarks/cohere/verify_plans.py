@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 
-def verify(plan, filtered):
+def verify(plan, filtered, neighbors=None):
     """Require ParadeDB execution and index-level text filtering."""
     nodes = [plan[0]["Plan"]]
     scans = []
@@ -16,13 +16,21 @@ def verify(plan, filtered):
         if node.get("Filter"):
             raise ValueError("Filter runs outside the ParadeDB index")
         if "ParadeDB" in node.get("Custom Plan Provider", ""):
-            scans.append(node)
+            scans.append({key.strip(): value for key, value in node.items()})
         nodes.extend(node.get("Plans", []))
     if not scans or (
         filtered
         and not any("text" in str(scan.get("Tantivy Query", "")) for scan in scans)
     ):
         raise ValueError("Expected a ParadeDB scan with the text predicate pushed down")
+    if neighbors is not None and not any(
+        scan.get("TopK Limit") == neighbors
+        and "<=> vector" in str(scan.get("TopK Order By", ""))
+        for scan in scans
+    ):
+        raise ValueError(
+            f"Expected cosine vector TopK with limit {neighbors} inside ParadeDB"
+        )
 
 
 if __name__ == "__main__":
@@ -43,7 +51,7 @@ if __name__ == "__main__":
             f"SET {key} = '{value}';" for key, value in session.items()
         )
         sql = f"""{settings}
-PREPARE vector_ci(vector(1024)) AS {point["sql"].rstrip(";")};
+PREPARE vector_ci(vector({point["dimensions"]})) AS {point["sql"].rstrip(";")};
 EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
 """
         result = subprocess.run(
@@ -61,5 +69,5 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
         )
         path = output / f"{point['name']}.json"
         path.write_text(result.stdout)
-        verify(json.loads(result.stdout), point["query"] != "knn_top10_unfiltered")
+        verify(json.loads(result.stdout), point["filtered"], point["neighbors"])
         print(f"Verified {point['name']}: {path}")

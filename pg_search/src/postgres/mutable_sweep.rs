@@ -19,6 +19,7 @@ use crate::api::HashSet;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
+use crate::postgres::catalog::OidExt;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::index::free_leaf_partition_indexes;
 use crate::postgres::locks::AdvisoryLock;
@@ -242,6 +243,19 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                     )
                     .expect("should be able to discover ParadeDB indexes")
                     .unwrap_or_default();
+                    let indexes = free_leaf_partition_indexes(&indexes)
+                        .filter_map(|index| {
+                            if !(*index.rd_rel).relam.is_paradedb_am() || !index.is_valid() {
+                                return None;
+                            }
+                            let mut has_mutable = false;
+                            MetaPage::open(&index).segment_metas().for_each(|_, entry| {
+                                has_mutable |= entry.is_mutable()
+                                    && entry.xmax() == pg_sys::InvalidTransactionId;
+                            });
+                            has_mutable.then_some(index.oid())
+                        })
+                        .collect::<Vec<_>>();
                     Some(indexes)
                 });
                 let Some(indexes) = indexes else {
@@ -257,7 +271,6 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                         let Some(index) = free_leaf_partition_indexes(&[index]).next() else {
                             return;
                         };
-                        use crate::postgres::catalog::OidExt;
                         if (*index.rd_rel).relam.is_paradedb_am() && index.is_valid() {
                             if VacuumSignal::new(index.oid()).wants_cancel() {
                                 return;

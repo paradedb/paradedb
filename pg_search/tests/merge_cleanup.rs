@@ -844,6 +844,45 @@ fn periodic_sweep_cancellation_releases_vacuum_barriers() {
 }
 
 #[test]
+fn periodic_sweep_skips_immutable_indexes_with_a_busy_merge_lock() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("sweep_idle_merge", false);
+    fixture.segments();
+    assert!(fixture.value::<bool>(&format!(
+        "SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)",
+        fixture.index
+    )));
+    let holder = fixture.actor(
+        "selection",
+        format!("SELECT paradedb.test_merge_index('{}')", fixture.index),
+    );
+    fixture.stage(&holder);
+    fixture.controller.batch_execute(
+        "DROP TABLE IF EXISTS sweep_after_idle;
+         CREATE TABLE sweep_after_idle (id bigint,body text);
+         CREATE INDEX sweep_after_idle_idx ON sweep_after_idle USING paradedb(id,body) WITH(mutable_segment_rows=10000);
+         INSERT INTO sweep_after_idle VALUES(1,'alpha beta')"
+    ).unwrap();
+    fixture
+        .controller
+        .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 1000")
+        .unwrap();
+    fixture
+        .controller
+        .simple_query("SELECT pg_reload_conf()")
+        .unwrap();
+    wait_until("sweep passing an idle index with a busy merge lock", || {
+        fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_after_idle_idx') WHERE visible AND mutable)")
+    });
+    fixture.release(&holder);
+    holder.finish().1.unwrap();
+    fixture
+        .controller
+        .batch_execute("DROP TABLE sweep_after_idle")
+        .unwrap();
+}
+
+#[test]
 fn periodic_sweep_skips_exclusive_vacuum_admission() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut fixture = Fixture::new("sweep_busy_admission", true);

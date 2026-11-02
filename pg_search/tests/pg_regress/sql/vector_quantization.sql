@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
 SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_cluster_max_probe = 1.0;
 SET paradedb.vector_stats = on;
 
@@ -549,6 +550,7 @@ RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();
 
 RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_adaptive_probing;
 RESET paradedb.vector_clustering_threshold;
 
 DROP TABLE q_cosine;

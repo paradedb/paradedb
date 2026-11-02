@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793608311417,
+  "lastUpdate": 1793608338119,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -483781,6 +483781,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13075038510-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fb3f03fa531956b9b4e53fc60af8af5e2c801afa",
+          "message": "ci: Prune benchmark reports during monthly Pages compaction (#7157)\n\n## What\n\nExtend the monthly gh-pages squash job to prune per-commit Benchmarker\nHTML reports. Retain reports from the last 30 days within a 512 MiB\nbudget, keeping the newest first. Aggregate benchmark history remains\nintact. Expired report URLs will stop working; reports without a\nrecorded run date also expire.\n\n## Why\n\nThe Pages tree has grown to 11.14 GB, exceeding the deployment artifact\nlimit. The current inventory would shrink to approximately 611 MB with\nthis policy. Git history squashing alone does not reduce the published\nfile tree.\n\n## Tests\n\n- Retention tests cover age, size budget, legacy short SHAs, unknown\ndates, idempotence, and preservation of aggregate history.\n- bash -n and git diff --check passed.\n- Evaluated the retention policy against the current Pages file\ninventory.\n\nThe job has not been run against published reports. After merging,\nmanually dispatch the existing compaction workflow to recover Pages\nwithout waiting for next month's schedule.",
+          "timestamp": "2026-11-01T22:50:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/fb3f03fa531956b9b4e53fc60af8af5e2c801afa"
+        },
+        "date": 1793608335025,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.49441982246759,
+            "unit": "median tps",
+            "extra": "avg tps: 57.2229747917208, max tps: 526.9664360311889, count: 58757"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.347303033562632,
+            "unit": "median tps",
+            "extra": "avg tps: 31.946353166699065, max tps: 351.2383389233579, count: 58757"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.8371398806233,
+            "unit": "median tps",
+            "extra": "avg tps: 133.25371937297237, max tps: 1209.7266864497306, count: 58757"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.429868791015004,
+            "unit": "median tps",
+            "extra": "avg tps: 30.93117337180778, max tps: 277.42268188242537, count: 58757"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 47.9214699999388,
+            "unit": "median tps",
+            "extra": "avg tps: 77.03126600189009, max tps: 543.0784838318797, count: 58757"
+          }
+        ],
+        "publication_id": "13124849287-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -496374,6 +496427,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13075038510-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fb3f03fa531956b9b4e53fc60af8af5e2c801afa",
+          "message": "ci: Prune benchmark reports during monthly Pages compaction (#7157)\n\n## What\n\nExtend the monthly gh-pages squash job to prune per-commit Benchmarker\nHTML reports. Retain reports from the last 30 days within a 512 MiB\nbudget, keeping the newest first. Aggregate benchmark history remains\nintact. Expired report URLs will stop working; reports without a\nrecorded run date also expire.\n\n## Why\n\nThe Pages tree has grown to 11.14 GB, exceeding the deployment artifact\nlimit. The current inventory would shrink to approximately 611 MB with\nthis policy. Git history squashing alone does not reduce the published\nfile tree.\n\n## Tests\n\n- Retention tests cover age, size budget, legacy short SHAs, unknown\ndates, idempotence, and preservation of aggregate history.\n- bash -n and git diff --check passed.\n- Evaluated the retention policy against the current Pages file\ninventory.\n\nThe job has not been run against published reports. After merging,\nmanually dispatch the existing compaction workflow to recover Pages\nwithout waiting for next month's schedule.",
+          "timestamp": "2026-11-01T22:50:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/fb3f03fa531956b9b4e53fc60af8af5e2c801afa"
+        },
+        "date": 1793608337995,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 20.3671875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 20.690118172090134, max partition_index_size:MB: 26.0390625, count: 58757"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.092099622940868, max cpu: 33.38301, count: 58757"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.943293126244534, max mem: 57.8359375, count: 58757"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.787780299117504, max cpu: 37.536655, count: 58757"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 59.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.7851797179485, max mem: 65.59375, count: 58757"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.504951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.890044076586959, max cpu: 23.66864, count: 58757"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 44.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.089502301321545, max mem: 44.12890625, count: 58757"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.768477459547835, max cpu: 42.22874, count: 58757"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.07436254935582, max mem: 64.09765625, count: 58757"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.81012616161068, max cpu: 32.65306, count: 58757"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 55.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.95136111442041, max mem: 63.328125, count: 58757"
+          }
+        ],
+        "publication_id": "13124849287-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

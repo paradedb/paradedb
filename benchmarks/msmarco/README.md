@@ -18,7 +18,8 @@ the native heap loader's Parquet directory convention.
 
 ## Initial setup
 
-After merging the workflow and dataset assets into main:
+The [heap-generation changes](../datasets/msmarco/README.md) must be on main.
+The benchmark workflow can remain in a PR while it is tested.
 
 1. Run the snapshot workflow once. MS MARCO must be selected explicitly;
    the snapshot workflow's `all` selection excludes it.
@@ -34,7 +35,15 @@ After merging the workflow and dataset assets into main:
    The snapshot contains no search index. Generation is restricted to main
    and uses the existing benchmark write role.
 
-2. Run the benchmark on main to establish the first baseline:
+2. After snapshot generation succeeds, apply `benchmark-msmarco-pg_search` to
+   the PR containing the benchmark workflow. This runs restore, index build,
+   recall sweeps, plan checks, k6, and result publication before merging the
+   benchmark changes. Main comparisons are skipped until a baseline exists.
+   The workflow removes the label so it can be reapplied for another run.
+   It is not triggered by the generic `benchmarks` label or a schedule.
+
+3. Once the benchmark workflow is merged, run it on main to establish the first
+   baseline:
 
    ```sh
    gh workflow run benchmark-pg_search-benchmarker-msmarco.yml --ref main
@@ -44,10 +53,6 @@ After merging the workflow and dataset assets into main:
    publishes metrics and a 90-day sweep baseline artifact. Manual runs can
    select another extension commit or disable baseline publication. Those
    runs do not replace the main baseline.
-
-3. Apply `benchmark-msmarco-pg_search` to a PR. The workflow removes the label
-   so it can be reapplied for another run. It is not triggered by the generic
-   `benchmarks` label or a schedule.
 
 The initial load and full benchmark need substantial disk and runtime: raw
 vectors alone occupy approximately 465 GB, in addition to text, PostgreSQL

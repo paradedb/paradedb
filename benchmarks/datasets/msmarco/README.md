@@ -18,6 +18,16 @@ The source contains embedded NUL bytes in text, which PostgreSQL cannot store.
 `pg_null_byte_replacement = ""` removes those bytes during Parquet loading.
 Datasets that omit this setting retain the default behavior of rejecting them.
 
+`parquet_load_workers = 16` loads separate shards concurrently through independent
+DuckDB/Postgres connections. Each worker uses two DuckDB threads and a 2 GB memory
+limit. Progress logs report committed shards, rows, and throughput. A failed shard
+fails the load; rerunning `load-heap` recreates the table before loading again.
+Datasets that omit this setting keep the single bulk import.
+
+The MS MARCO job allows 12 hours overall and refreshes its six-hour AWS credentials
+immediately before loading and before backup. Loading is capped at five hours and
+backup at five and a half hours, leaving headroom within each credential session.
+
 The snapshot contains the heap with 1,024-dimensional vectors and no search
 index. Snapshot generation runs only from main and uses the existing benchmark
 write role. MS MARCO requires explicit selection and is excluded from `all`.

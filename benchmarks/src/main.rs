@@ -24,6 +24,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
 mod backrest;
@@ -1126,27 +1128,117 @@ fn load_tables_parquet(
     config: &config::DatasetConfig,
     source_path: &str,
 ) -> anyhow::Result<()> {
+    let conn = open_parquet_load_conn(url, config)?;
+    for table_name in config.all_table_names() {
+        let glob = format!("{source_path}/{table_name}/*.parquet");
+        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
+        if let Some(workers) = config.parquet_load_workers {
+            let mut statement = conn.prepare("SELECT file FROM glob(?) ORDER BY file")?;
+            let files = statement
+                .query_map([&glob], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if files.is_empty() {
+                bail!("No parquet files found at '{glob}'");
+            }
+            load_parquet_shards(url, config, table_name, &files, workers.get())?;
+        } else {
+            conn.execute_batch(&format!(
+                "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
+            ))
+            .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
+        }
+        println!("  Loaded '{table_name}'.");
+    }
+    Ok(())
+}
+
+fn open_parquet_load_conn(
+    url: &str,
+    config: &config::DatasetConfig,
+) -> anyhow::Result<duckdb::Connection> {
     let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    if config.parquet_load_workers.is_some() {
+        conn.execute_batch("SET threads = 2; SET memory_limit = '2GB';")?;
+    }
     conn.execute_batch("INSTALL postgres; LOAD postgres;")
         .with_context(|| "Failed to load DuckDB postgres extension")?;
     if let Some(replacement) = &config.pg_null_byte_replacement {
         conn.execute("SET pg_null_byte_replacement = ?", [replacement])
             .with_context(|| "Failed to configure Postgres NUL-byte replacement")?;
     }
-    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
-        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+    conn.execute_batch(&format!(
+        "ATTACH '{}' AS pg (TYPE postgres);",
+        url.replace('\'', "''")
+    ))
+    .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+    Ok(conn)
+}
 
-    for table_name in config.all_table_names() {
-        let glob = format!("{source_path}/{table_name}/*.parquet");
-        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
-        conn.execute_batch(&format!(
-            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
-        ))
-        .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
-        println!("  Loaded '{table_name}'.");
-    }
+fn load_parquet_shards(
+    url: &str,
+    config: &config::DatasetConfig,
+    table_name: &str,
+    files: &[String],
+    workers: usize,
+) -> anyhow::Result<()> {
+    let workers = workers.min(files.len());
+    let next = AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let progress = Mutex::new((0, 0_usize));
+    let started = Instant::now();
+    let sql = format!(
+        "INSERT INTO pg.public.\"{}\" SELECT * FROM read_parquet(?)",
+        table_name.replace('"', "\"\"")
+    );
+    println!("  Loading {} shards with {workers} workers.", files.len());
 
-    Ok(())
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let result = (|| -> anyhow::Result<()> {
+                        let conn = open_parquet_load_conn(url, config)?;
+                        while !failed.load(Ordering::Relaxed) {
+                            let index = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(file) = files.get(index) else {
+                                break;
+                            };
+                            let rows = conn.execute(&sql, [file]).with_context(|| {
+                                format!("Failed to load shard '{file}' into '{table_name}'")
+                            })?;
+                            let mut progress = progress.lock().unwrap();
+                            progress.0 += 1;
+                            progress.1 += rows;
+                            println!(
+                                "  {}/{} shards committed, {} rows, {:.0} rows/s, {:.1}s elapsed: {file}",
+                                progress.0,
+                                files.len(),
+                                progress.1,
+                                progress.1 as f64 / started.elapsed().as_secs_f64(),
+                                started.elapsed().as_secs_f64(),
+                            );
+                        }
+                        Ok(())
+                    })();
+                    if result.is_err() {
+                        failed.store(true, Ordering::Relaxed);
+                    }
+                    result
+                })
+            })
+            .collect();
+        let mut error = None;
+        for handle in handles {
+            let result = handle
+                .join()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("Parquet load worker panicked")));
+            if let Err(err) = result {
+                failed.store(true, Ordering::Relaxed);
+                error.get_or_insert(err);
+            }
+        }
+        error.map_or(Ok(()), Err)
+    })
 }
 
 async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) -> anyhow::Result<()> {

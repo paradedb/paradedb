@@ -92,6 +92,7 @@ jobs:
       contents: read
       id-token: write
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
+    timeout-minutes: ${{ matrix.dataset == 'msmarco' && 720 || 360 }}
     needs: prep
     if: github.ref == 'refs/heads/main' && needs.prep.outputs.native != '[]'
     runs-on:
@@ -142,8 +143,20 @@ jobs:
           # extension default of 0, so an index's own `target_segment_count` is honored.
           global_target_segment_count: ${{ matrix.dataset == 'stackoverflow' && '48' || '0' }}
 
+      - name: Refresh AWS credentials for MS MARCO load
+        if: matrix.dataset == 'msmarco'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}-load
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
+
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap
+        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 300 || 360 }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail
@@ -157,6 +170,17 @@ jobs:
         run: |
           psql "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
             -X -v ON_ERROR_STOP=1 -f benchmarks/datasets/msmarco/verify_heap.sql
+
+      - name: Refresh AWS credentials for MS MARCO backup
+        if: matrix.dataset == 'msmarco'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}-backup
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
@@ -179,6 +203,7 @@ jobs:
         run: cargo pgrx stop pg${{ env.pg_version }}
 
       - name: Snapshot Heap
+        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 330 || 360 }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail

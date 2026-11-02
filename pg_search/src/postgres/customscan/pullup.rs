@@ -24,7 +24,6 @@ use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::postgres::composite::get_composite_type_fields;
-#[cfg(not(feature = "pg15"))]
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
@@ -172,8 +171,6 @@ impl SourceContext {
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source
     pub fn resolve_fast_field(&self, col: ResTarget, access: Access) -> Option<ResolvedFastField> {
-        //TODO:  This will swtich on columnref and just call resovlers. (once that works,
-        //consolidate their code here
         match col {
             ResTarget::Attno(attno) => {
                 let resolved = unsafe { resolve_fast_field_by_attno(attno, self, access)? };

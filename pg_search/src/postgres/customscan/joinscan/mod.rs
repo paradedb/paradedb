@@ -514,8 +514,8 @@ pub unsafe fn try_create_subplan_join_paths(
             .sources()
             .iter()
             .map(|s| {
-                RelationAlias::new(s.scan_info.alias.as_deref())
-                    .warning_context(s.scan_info.heaprelid)
+                RelationAlias::new(s.scan_info.context.alias.as_deref())
+                    .warning_context(s.scan_info.context.heaprel.oid())
             })
             .collect();
         reason.emit(&aliases);
@@ -1069,7 +1069,7 @@ impl JoinScan {
     /// expressions have been solved: failures abort at the operation that violated the invariant
     /// rather than being represented as a recoverable absence of plan bytes.
     fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) {
-        if !Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
+        if !Self::source_queries_need_executor_state(state.custom_state().join_clause()) {
             return;
         }
 
@@ -1078,15 +1078,17 @@ impl JoinScan {
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         let custom_state = state.custom_state_mut();
-        custom_state.join_clause = custom_state
-            .base_join_clause
-            .clone()
-            .expect("runtime expression solving requires a pristine JoinScan clause");
+        custom_state.join_clause = Some(
+            custom_state
+                .base_join_clause
+                .clone()
+                .expect("runtime expression solving requires a pristine JoinScan clause"),
+        );
         custom_state
-            .join_clause
+            .join_clause_mut()
             .init_postgres_expressions(planstate);
         custom_state
-            .join_clause
+            .join_clause_mut()
             .solve_postgres_expressions(expr_context);
 
         let bytes = unsafe { Self::rebake_for_mpp(state) };
@@ -1387,7 +1389,7 @@ impl CustomScan for JoinScan {
         } else {
             None
         };
-        builder.custom_state().join_clause = join_clause;
+        builder.custom_state().join_clause = Some(join_clause);
 
         builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
         builder.custom_state().logical_plan = builder.custom_private().logical_plan.clone();
@@ -1402,11 +1404,11 @@ impl CustomScan for JoinScan {
         _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
-        let join_clause = &state.custom_state().join_clause;
+        let join_clause = state.custom_state().join_clause();
         explainer.add_text("Relation Tree", join_clause.plan.explain());
 
-        let mut contexts = Vec::new();
-        join_clause.collect_source_contexts(&mut contexts);
+        let mut relations = Vec::new();
+        join_clause.collect_base_relations(&mut relations);
 
         fn collect_join_cond_strings(node: &RelNode, acc: &mut Vec<String>) {
             match node {
@@ -1434,19 +1436,21 @@ impl CustomScan for JoinScan {
                             };
 
                         let outer_alias =
-                            RelationAlias::new(outer_source.scan_info.alias.as_deref())
+                            RelationAlias::new(outer_source.scan_info.context.alias.as_deref())
                                 .display(outer_source.plan_position);
                         let inner_alias =
-                            RelationAlias::new(inner_source.scan_info.alias.as_deref())
+                            RelationAlias::new(inner_source.scan_info.context.alias.as_deref())
                                 .display(inner_source.plan_position);
 
                         acc.push(format!(
                             "{} = {}",
                             outer_source
-                                .to_source_context()
+                                .scan_info
+                                .context
                                 .get_attname_for_display(outer_attno, &outer_alias),
                             inner_source
-                                .to_source_context()
+                                .scan_info
+                                .context
                                 .get_attname_for_display(inner_attno, &inner_alias)
                         ));
                     }
@@ -1546,10 +1550,11 @@ impl CustomScan for JoinScan {
                             )
                         }
                         OrderByFeature::Var { rti, attno, name } => {
-                            if let Some(context) = contexts.iter().find(|i| i.heap_rti == *rti) {
-                                let col_name = context.get_attname_for_display(
+                            if let Some(rel) = relations.iter().find(|i| i.context.heap_rti == *rti)
+                            {
+                                let col_name = rel.context.get_attname_for_display(
                                     *attno,
-                                    context.alias.as_deref().unwrap_or("?"),
+                                    rel.context.alias.as_deref().unwrap_or("?"),
                                 );
                                 format!("{} {}", col_name, oi.direction.as_ref())
                             } else {
@@ -1706,16 +1711,15 @@ impl CustomScan for JoinScan {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
                     .unwrap();
-                let mut join_clause = state.custom_state().join_clause.clone();
+                let mut join_clause = state.custom_state().join_clause_mut().clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
                 let plan_sources = join_clause.plan.sources();
                 for (plan_position, source) in plan_sources.iter().enumerate() {
-                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
-                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                    if let Some(indexrel) = &source.scan_info.context.indexrel {
+                        count_index_scan(indexrel);
                     }
-                    let heaprelid = source.scan_info.heaprelid;
-                    let heaprel = PgSearchRelation::open(heaprelid);
+                    let heaprel = source.scan_info.context.heaprel.clone();
                     predicate_lock_read(&heaprel, snapshot);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);

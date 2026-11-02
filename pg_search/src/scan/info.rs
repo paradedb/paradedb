@@ -17,6 +17,7 @@
 
 use crate::api::{FieldName, MvccVisibility};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -307,18 +308,11 @@ impl ScanMode {
 /// Information about a scan of a ParadeDB table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanInfo {
-    /// The range table index for this scan's base relation.
-    pub heap_rti: pg_sys::Index,
-    /// The OID of the heap table.
-    pub heaprelid: pg_sys::Oid,
-    /// The OID of the ParadeDB index (if this scan has one).
-    pub indexrelid: pg_sys::Oid,
+    pub context: SourceContext,
     /// Whether this scan has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
     /// The execution mode and query for this scan.
     pub mode: ScanMode,
-    /// The alias used in the query (e.g., "p" for "products p"), if any.
-    pub alias: Option<String>,
     /// Whether scores are needed for this scan's results.
     /// True when ORDER BY paradedb.score() is present for this scan.
     /// Used to optimize FastField executor (skip score computation when not needed).
@@ -352,13 +346,11 @@ impl ScanInfo {
         indexrelid: pg_sys::Oid,
         mode: ScanMode,
     ) -> Self {
+        let context = SourceContext::from_oids(heap_rti, heaprelid, Some(indexrelid));
         Self {
-            heap_rti,
-            heaprelid,
-            indexrelid,
+            context,
             has_search_predicate: false,
             mode,
-            alias: None,
             score_needed: false,
             fields: Vec::new(),
             partition_by: Vec::new(),
@@ -370,7 +362,7 @@ impl ScanInfo {
     }
 
     pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
-        self.alias = Some(alias.into());
+        self.context = self.context.with_alias(alias);
         self
     }
 

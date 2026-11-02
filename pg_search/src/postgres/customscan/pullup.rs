@@ -31,6 +31,7 @@ use crate::schema::{
     CategorizedFieldData, FieldSource, SearchField, SearchFieldType, SearchIndexSchema,
 };
 use pgrx::{PgList, PgTupleDesc, pg_sys};
+use serde::{Deserialize, Serialize};
 
 /// what the caller wants from a single source
 pub enum ResTarget<'a> {
@@ -107,11 +108,17 @@ impl Access {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(from = "SourceContextWireFormat")]
+#[serde(into = "SourceContextWireFormat")]
 pub struct SourceContext {
+    /// The range table index for this scan's base relation.
     pub heap_rti: pg_sys::Index,
+    /// The relation representing the heap table
     pub heaprel: PgSearchRelation,
+    /// The relation representing the ParadeD index (if one exists)
     pub indexrel: Option<PgSearchRelation>,
+    /// The alias used in the query (e.g., "p" for "products p"), if any.
     pub alias: Option<String>,
 }
 impl SourceContext {
@@ -127,6 +134,21 @@ impl SourceContext {
             indexrel,
             alias,
         }
+    }
+
+    pub fn from_oids(
+        heap_rti: pg_sys::Index,
+        heaprel_oid: pg_sys::Oid,
+        indexrel_oid: Option<pg_sys::Oid>,
+    ) -> Self {
+        let heaprel = PgSearchRelation::open(heaprel_oid);
+        let indexrel = indexrel_oid.map(PgSearchRelation::open);
+        Self::new(heap_rti, heaprel, indexrel, None)
+    }
+
+    pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
+        self.alias = Some(alias.into());
+        self
     }
 
     pub fn tupdesc(&self) -> PgTupleDesc<'_> {
@@ -485,5 +507,32 @@ fn field_type_supported_for_pullup(field_type: Option<&SearchFieldType>) -> bool
         Some(SearchFieldType::Range(_)) => false,
         // All other types can be pulled up directly
         _ => true,
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SourceContextWireFormat {
+    heap_rti: pg_sys::Index,
+    heaprel_oid: pg_sys::Oid,
+    indexrel_oid: Option<pg_sys::Oid>,
+    alias: Option<String>,
+}
+impl From<SourceContext> for SourceContextWireFormat {
+    fn from(value: SourceContext) -> Self {
+        Self {
+            heap_rti: value.heap_rti,
+            heaprel_oid: value.heaprel.oid(),
+            indexrel_oid: value.indexrel.map(|r| r.oid()),
+            alias: value.alias,
+        }
+    }
+}
+impl From<SourceContextWireFormat> for SourceContext {
+    fn from(value: SourceContextWireFormat) -> Self {
+        let source = Self::from_oids(value.heap_rti, value.heaprel_oid, value.indexrel_oid);
+        match value.alias {
+            Some(a) => source.with_alias(a),
+            None => source,
+        }
     }
 }

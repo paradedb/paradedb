@@ -329,7 +329,13 @@ crate::impl_safe_drop!(RelationState, |self| {
 #[derive(Default)]
 pub struct JoinScanState {
     /// The join clause from planning.
-    pub join_clause: JoinCSClause,
+    ///
+    /// This is an Option because we require a valid value for Default. We cannot create a dummy
+    /// version of JoinCSClause because we require all relations in it the `SourceContext`s in it
+    /// to actually exist
+    ///
+    /// Use `self.join_clause()` and `self.join_clause_mut()` to get it after initialization
+    pub join_clause: Option<JoinCSClause>,
 
     /// Pristine copy of the join clause as it came from planning, with any
     /// PostgresExpression/Param-backed SearchQueryInputs still unresolved.
@@ -412,6 +418,18 @@ pub struct JoinScanState {
 }
 
 impl JoinScanState {
+    pub fn join_clause(&self) -> &JoinCSClause {
+        self.join_clause
+            .as_ref()
+            .expect("This should always exist after initialization")
+    }
+
+    pub fn join_clause_mut(&mut self) -> &mut JoinCSClause {
+        self.join_clause
+            .as_mut()
+            .expect("This should always exist after initialization")
+    }
+
     /// Reset the scan state for a rescan. Also restores `join_clause` from
     /// `base_join_clause` when the plan has Param/SubPlan-backed SearchQueryInputs, so a
     /// correlated re-execution (e.g. this JoinScan sits under a lateral/subplan and runs once
@@ -444,7 +462,7 @@ impl JoinScanState {
         // restore, so the compiler-enforced match replaces the old "left at default and
         // never read" comment with an actual guard.
         if let Some(base) = &self.base_join_clause {
-            self.join_clause = base.clone();
+            self.join_clause = Some(base.clone());
             // Deliberately NOT clearing logical_plan here: exec_custom_scan reads it
             // unconditionally (`.expect("Logical plan is required")`) before
             // maybe_solve_and_rebake's gate is checked, so nulling it out would panic. Restoring
@@ -771,8 +789,8 @@ fn build_relnode_df<'a>(
                     is_parallel,
                 )
                 .await?;
-                let alias =
-                    RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+                let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+                    .execution(plan_position);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
@@ -1582,7 +1600,7 @@ fn resolve_orderby_feature(
                     .plan
                     .output_sources()
                     .iter()
-                    .find(|s| s.scan_info.heap_rti == *rti)
+                    .find(|s| s.scan_info.context.heap_rti == *rti)
                     .map(|source| make_source_score_col(source))
                     .ok_or_else(|| {
                         DataFusionError::Plan(format!(
@@ -1610,7 +1628,7 @@ fn resolve_orderby_feature(
                                 .plan
                                 .output_sources()
                                 .iter()
-                                .find(|s| s.scan_info.heap_rti == *rti)
+                                .find(|s| s.scan_info.context.heap_rti == *rti)
                                 .map(|source| make_source_score_col(source))
                                 .ok_or_else(|| {
                                     DataFusionError::Plan(format!(
@@ -2066,7 +2084,7 @@ fn build_projection_expr(
                 .iter()
                 .find(|s| s.contains_rti(source_rti.0))
             {
-                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
                     .execution(source.plan_position);
                 return datafusion::logical_expr::col(format!("{}_{}", alias, field_name));
             }
@@ -2094,7 +2112,8 @@ fn build_source_df<'a>(
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+        let alias =
+            RelationAlias::new(source.scan_info.context.alias.as_deref()).execution(plan_position);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -2120,8 +2139,7 @@ fn build_source_df<'a>(
             required_early: &mut crate::api::HashSet<String>,
         ) {
             required_early.insert(name.to_string());
-            let context = source.to_source_context();
-            let attno = context.get_attno_by_name(name);
+            let attno = source.scan_info.context.get_attno_by_name(name);
             if let Some(attno) = attno
                 && let Some(registered) = source.column_name(attno)
                 && registered != name
@@ -2231,7 +2249,7 @@ fn build_source_df<'a>(
         }
 
         let display_alias =
-            RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+            RelationAlias::new(source.scan_info.context.alias.as_deref()).display(plan_position);
 
         provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
         provider.configure_deferred_outputs(

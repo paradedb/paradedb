@@ -551,16 +551,6 @@ pub struct JoinSource {
 }
 
 impl JoinSource {
-    pub fn to_source_context(&self) -> SourceContext {
-        let indexrel = PgSearchRelation::open(self.scan_info.indexrelid);
-        SourceContext {
-            heap_rti: self.scan_info.heap_rti,
-            heaprel: PgSearchRelation::open(self.scan_info.heaprelid),
-            indexrel: Some(indexrel),
-            alias: self.scan_info.alias.clone(),
-        }
-    }
-
     pub unsafe fn contains_score(&self, node: *mut pg_sys::Node) -> bool {
         let funcoids = score_funcoids();
         node.any(|node| {
@@ -578,7 +568,7 @@ impl JoinSource {
 
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        self.scan_info.heap_rti == rti
+        self.scan_info.context.heap_rti == rti
     }
 
     /// Check if this source has a search predicate.
@@ -594,8 +584,7 @@ impl JoinSource {
         if attno < 0 {
             return attno > pg_sys::FirstLowInvalidHeapAttributeNumber as pg_sys::AttrNumber;
         }
-        let heaprel = PgSearchRelation::open(self.scan_info.heaprelid);
-        let tupdesc = heaprel.tuple_desc();
+        let tupdesc = self.scan_info.context.tupdesc();
         (attno as usize) <= tupdesc.len()
     }
 
@@ -606,7 +595,7 @@ impl JoinSource {
         varno: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<pg_sys::AttrNumber> {
-        if self.scan_info.heap_rti == varno {
+        if self.scan_info.context.heap_rti == varno {
             Some(attno)
         } else {
             None
@@ -637,11 +626,11 @@ impl JoinSource {
     }
 
     pub fn display_alias(&self) -> String {
-        RelationAlias::new(self.scan_info.alias.as_deref()).display(self.plan_position)
+        RelationAlias::new(self.scan_info.context.alias.as_deref()).display(self.plan_position)
     }
 
     pub fn execution_alias(&self) -> String {
-        RelationAlias::new(self.scan_info.alias.as_deref()).execution(self.plan_position)
+        RelationAlias::new(self.scan_info.context.alias.as_deref()).execution(self.plan_position)
     }
 }
 
@@ -649,29 +638,34 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
     type Error = anyhow::Error;
 
     fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
+        let heaprelid = candidate.heaprelid.ok_or_else(|| {
+            anyhow!(
+                "cannot build JoinSource for RTI {}: heaprelid is missing",
+                candidate.heap_rti
+            )
+        })?;
+        let indexrelid = candidate.indexrelid.ok_or_else(|| {
+            anyhow!(
+                "cannot build JoinSource for RTI {}: indexrelid is missing",
+                candidate.heap_rti
+            )
+        })?;
+
         Ok(JoinSource {
             plan_position: 0,
             root_id: Some(candidate.root_id),
             scan_info: ScanInfo {
-                heap_rti: candidate.heap_rti,
-                heaprelid: candidate.heaprelid.ok_or_else(|| {
-                    anyhow!(
-                        "cannot build JoinSource for RTI {}: heaprelid is missing",
-                        candidate.heap_rti
-                    )
-                })?,
-                indexrelid: candidate.indexrelid.ok_or_else(|| {
-                    anyhow!(
-                        "cannot build JoinSource for RTI {}: indexrelid is missing",
-                        candidate.heap_rti
-                    )
-                })?,
+                context: SourceContext {
+                    heap_rti: candidate.heap_rti,
+                    heaprel: PgSearchRelation::open(heaprelid),
+                    indexrel: Some(PgSearchRelation::open(indexrelid)),
+                    alias: candidate.alias,
+                },
                 mode: crate::scan::ScanMode::standard(
                     candidate.query.unwrap_or(SearchQueryInput::All),
                 ),
                 has_search_predicate: candidate.has_search_predicate,
                 mvcc_visibility: crate::api::MvccVisibility::default(),
-                alias: candidate.alias,
                 score_needed: candidate.score_needed,
                 fields: Vec::new(),
                 partition_by: candidate.partition_by,
@@ -1290,7 +1284,7 @@ impl RelNode {
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.exists(|node| {
             let matches = match node {
-                RelNode::Scan(s) => s.scan_info.heap_rti == rti,
+                RelNode::Scan(s) => s.scan_info.context.heap_rti == rti,
                 RelNode::Unnest(u) => u.unnest_info.function_rti.0 == rti,
                 _ => false,
             };
@@ -1303,7 +1297,7 @@ impl RelNode {
     /// Relations on pruned sides of Semi/Anti/Mark joins are not output-visible.
     pub fn contains_output_rti(&self, rti: pg_sys::Index) -> bool {
         match self {
-            RelNode::Scan(s) => s.scan_info.heap_rti == rti,
+            RelNode::Scan(s) => s.scan_info.context.heap_rti == rti,
             RelNode::Join(j) => match j.join_type {
                 JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
                     j.left.contains_output_rti(rti)
@@ -1409,7 +1403,7 @@ impl RelNode {
         let mut rtis: Vec<pg_sys::Index> = self
             .output_sources()
             .into_iter()
-            .map(|s| s.scan_info.heap_rti)
+            .map(|s| s.scan_info.context.heap_rti)
             .collect();
         for u in self.lateral_unnests() {
             if !rtis.contains(&u.function_rti.0) {
@@ -1696,7 +1690,7 @@ impl RelNode {
         let mut rtis: Vec<pg_sys::Index> = self
             .sources()
             .iter()
-            .map(|s| s.scan_info.heap_rti)
+            .map(|s| s.scan_info.context.heap_rti)
             .collect();
         for u in self.lateral_unnests() {
             if !rtis.contains(&u.function_rti.0) {
@@ -1723,12 +1717,10 @@ impl RelNode {
     fn explain_internal(&self, is_root: bool) -> String {
         match self {
             RelNode::Scan(s) => {
-                if let Some(alias) = &s.scan_info.alias {
+                if let Some(alias) = &s.scan_info.context.alias {
                     alias.clone()
                 } else {
-                    PgSearchRelation::open(s.scan_info.heaprelid)
-                        .name()
-                        .to_string()
+                    s.scan_info.context.heaprel.name().to_string()
                 }
             }
             RelNode::Join(j) => {
@@ -1908,23 +1900,8 @@ fn substitute_pruned_key_side(
     false
 }
 
-impl Default for RelNode {
-    fn default() -> Self {
-        RelNode::Scan(Box::new(JoinSource {
-            plan_position: 0,
-            root_id: None,
-            scan_info: ScanInfo::new(
-                0,
-                pgrx::pg_sys::InvalidOid,
-                pgrx::pg_sys::InvalidOid,
-                crate::scan::ScanMode::all(),
-            ),
-        }))
-    }
-}
-
 /// The clause information for a Join Custom Scan.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinCSClause {
     /// The root of the relational execution tree.
     pub plan: RelNode,
@@ -2007,12 +1984,6 @@ impl JoinCSClause {
     ) -> Self {
         self.pg_projected_resnos = pg_projected_resnos;
         self
-    }
-
-    pub fn collect_source_contexts(&self, acc: &mut Vec<SourceContext>) {
-        for source in self.plan.sources() {
-            acc.push(source.to_source_context());
-        }
     }
 
     /// Recursively collect all base relations in this join tree.
@@ -2159,8 +2130,8 @@ pub fn assign_tagged_queries<'a>(
         return;
     }
     for source in sources {
-        let alias =
-            RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+        let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+            .execution(source.plan_position);
         let local_queries: Vec<crate::scan::TaggedQuery> = predicates
             .iter()
             .enumerate()
@@ -2528,7 +2499,7 @@ mod tests {
 
     fn rti_of(node: &RelNode) -> pg_sys::Index {
         match node {
-            RelNode::Scan(s) => s.scan_info.heap_rti,
+            RelNode::Scan(s) => s.scan_info.context.heap_rti,
             _ => panic!("expected a Scan node"),
         }
     }

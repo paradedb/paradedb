@@ -167,14 +167,14 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, max_leaf_size=0);
+WITH (training_sample_ratio=0.32, max_leaf_size=200);
 ```
 
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 0 })
+  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 200 })
   .on(
     mockItems.id,
     mockItems.description,
@@ -194,7 +194,7 @@ with connection.schema_editor() as schema_editor:
             fields={'id': {}, 'description': {}, 'category': {}, 'embedding': {'metric': 'cosine'}},
             name="search_idx",
             training_sample_ratio=0.32,
-            max_leaf_size=0,
+            max_leaf_size=200,
         ),
     )
 ```
@@ -210,7 +210,7 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 0},
+    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 200},
 )
 
 with engine.begin() as conn:
@@ -227,7 +227,7 @@ ActiveRecord::Base.connection.add_paradedb_index(
     embedding: { metric: :cosine },
   },
   name: :search_idx,
-  index_options: { training_sample_ratio: 0.32, max_leaf_size: 0 }
+  index_options: { training_sample_ratio: 0.32, max_leaf_size: 200 }
 )
 ```
 
@@ -238,7 +238,7 @@ modelBuilder.Entity<MockItem>()
     .HasField(e => e.Category)
     .HasField(e => e.Embedding, VectorMetric.Cosine)
     .HasTrainingSampleRatio(0.32)
-    .HasMaxLeafSize(0);
+    .HasMaxLeafSize(200);
 ```
 
 </CodeGroup>

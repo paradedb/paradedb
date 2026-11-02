@@ -28,7 +28,9 @@ use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
-use crate::schema::{FieldSource, SearchField, SearchFieldType, SearchIndexSchema};
+use crate::schema::{
+    CategorizedFieldData, FieldSource, SearchField, SearchFieldType, SearchIndexSchema,
+};
 use pgrx::{PgList, PgTupleDesc, pg_sys};
 
 /// what the caller wants from a single source
@@ -43,17 +45,39 @@ pub enum ResTarget<'a> {
     Score,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedField {
+pub struct ResolvedFastField {
     pub attno: Option<pg_sys::AttrNumber>, // none for expression-only fields,
     pub field: WhichFastField,
     pub is_json: bool,
 }
-impl ResolvedField {
+impl ResolvedFastField {
     pub fn new(attno: Option<pg_sys::AttrNumber>, field: WhichFastField, is_json: bool) -> Self {
         Self {
             attno,
             field,
             is_json,
+        }
+    }
+}
+
+pub struct ResolvedHeapField {
+    pub attno: Option<pg_sys::AttrNumber>,
+    pub name: FieldName,
+    pub field: SearchField,
+    pub data: CategorizedFieldData,
+}
+impl ResolvedHeapField {
+    pub fn new(
+        attno: Option<pg_sys::AttrNumber>,
+        name: FieldName,
+        field: SearchField,
+        data: CategorizedFieldData,
+    ) -> Self {
+        Self {
+            attno,
+            name,
+            field,
+            data,
         }
     }
 }
@@ -109,6 +133,7 @@ impl SourceContext {
     pub fn tupdesc(&self) -> PgTupleDesc<'_> {
         self.heaprel.tuple_desc()
     }
+
     pub fn index_expressions(&self) -> Option<PgList<pg_sys::Expr>> {
         self.indexrel().map(|i| i.index_expressions())
     }
@@ -116,6 +141,7 @@ impl SourceContext {
     pub fn indexrel(&self) -> Option<&PgSearchRelation> {
         self.indexrel.as_ref()
     }
+
     pub fn schema(&self) -> Option<SearchIndexSchema> {
         self.indexrel.as_ref().map(|i| {
             i.schema()
@@ -123,35 +149,41 @@ impl SourceContext {
         })
     }
 
-    pub fn resolve_heap_field(&self, target: ResTarget) -> Option<(FieldName, SearchField)> {
+    pub fn resolve_heap_field(&self, target: ResTarget) -> Option<ResolvedHeapField> {
         match target {
             ResTarget::Attno(attno) => {
                 let name = self.get_attname(attno)?;
-                let field = self.schema().and_then(|s| s.search_field(&name))?;
-                Some((name, field))
+                let (field, data) = self
+                    .schema()
+                    .and_then(|s| s.search_field_with_data_by_attno(attno, &self.heaprel))?;
+                Some(ResolvedHeapField::new(Some(attno), name, field, data))
             }
             ResTarget::Field(name) => {
-                let field = self.schema().and_then(|s| s.search_field(name))?;
-                Some((name.into(), field))
+                let (field, data) = self.schema().and_then(|s| s.search_field_with_data(name))?;
+                let attno = data
+                    .source
+                    .heap_attno(&self.heaprel)
+                    .map(|n| n as pg_sys::AttrNumber + 1);
+                Some(ResolvedHeapField::new(attno, name.into(), field, data))
             }
             _ => unreachable!("only attno and field supported"),
         }
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source
-    pub fn resolve_fast_field(&self, col: ResTarget, access: Access) -> Option<ResolvedField> {
+    pub fn resolve_fast_field(&self, col: ResTarget, access: Access) -> Option<ResolvedFastField> {
         //TODO:  This will swtich on columnref and just call resovlers. (once that works,
         //consolidate their code here
         match col {
             ResTarget::Attno(attno) => {
-                let resolved = unsafe { resolve_fast_field(attno, self, access)? };
+                let resolved = unsafe { resolve_fast_field_by_attno(attno, self, access)? };
                 if !access.field_is_supported_for_pullup(&resolved.field) {
                     return None;
                 }
                 Some(resolved)
             }
             ResTarget::Field(name) => {
-                let resolved = resolve_fast_field_by_name(name, self.indexrel()?)?;
+                let resolved = resolve_fast_field_by_name(name, self)?;
                 let is_subfield = FieldName::from(name).root() != name;
                 if !is_subfield && !access.field_is_supported_for_pullup(&resolved.field) {
                     return None;
@@ -164,14 +196,14 @@ impl SourceContext {
                     return None;
                 }
                 // TODO: Should be able to find an attno sometimes
-                Some(ResolvedField::new(None, ff, is_json))
+                Some(ResolvedFastField::new(None, ff, is_json))
             }
-            ResTarget::Ctid => Some(ResolvedField::new(
+            ResTarget::Ctid => Some(ResolvedFastField::new(
                 Some(pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber),
                 WhichFastField::Ctid,
                 false,
             )),
-            ResTarget::Score => Some(ResolvedField::new(None, WhichFastField::score(), false)),
+            ResTarget::Score => Some(ResolvedFastField::new(None, WhichFastField::score(), false)),
         }
     }
 
@@ -333,15 +365,11 @@ fn find_matching_fast_field(
 ///
 /// Returns `Some(WhichFastField)` if the column can be pulled up from the index,
 /// or `None` if it cannot (e.g. not indexed, not a fast field, incompatible type).
-unsafe fn resolve_fast_field(
+unsafe fn resolve_fast_field_by_attno(
     attno: pg_sys::AttrNumber,
     context: &SourceContext,
     access: Access,
-) -> Option<ResolvedField> {
-    let Some(index) = &context.indexrel else {
-        return None;
-    };
-    let tupdesc = context.tupdesc();
+) -> Option<ResolvedFastField> {
     match attno as i32 {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber
@@ -351,11 +379,13 @@ unsafe fn resolve_fast_field(
 
         // these aren't _exactly_ fast fields, but we do have the information
         // readily available during the scan, so we'll pretend
-        pg_sys::SelfItemPointerAttributeNumber => {
-            Some(ResolvedField::new(Some(attno), WhichFastField::Ctid, false))
-        }
+        pg_sys::SelfItemPointerAttributeNumber => Some(ResolvedFastField::new(
+            Some(attno),
+            WhichFastField::Ctid,
+            false,
+        )),
 
-        pg_sys::TableOidAttributeNumber => Some(ResolvedField::new(
+        pg_sys::TableOidAttributeNumber => Some(ResolvedFastField::new(
             Some(attno),
             WhichFastField::TableOid,
             false,
@@ -366,10 +396,7 @@ unsafe fn resolve_fast_field(
                 return None;
             }
 
-            let att = tupdesc.get((attno - 1) as usize)?;
-
-            let schema = index.schema().expect("should always have a valid schema");
-            if let Some((search_field, data)) = schema.search_field_with_data(att.name()) {
+            if let Some(hf) = context.resolve_heap_field(ResTarget::Attno(attno)) {
                 // For direct heap columns, the source attno must match.
                 // Expression-indexed columns (FieldSource::Expression) are NOT
                 // handled here — pulling up the raw column value from a transformed
@@ -379,18 +406,18 @@ unsafe fn resolve_fast_field(
                 // Expression-indexed columns that are simple tokenizer casts
                 // (e.g. (col)::pdb.literal_normalized) are handled by the
                 // find_matching_fast_field fallback below instead.
-                if matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
-                    && search_field.is_fast()
+                if matches!(hf.data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
+                    && hf.field.is_fast()
                 {
-                    return Some(ResolvedField::new(
+                    return Some(ResolvedFastField::new(
                         Some(attno),
                         WhichFastField::named(
-                            att.name(),
-                            search_field.field_type(),
-                            FieldCardinality::from_arrayness(data.is_array),
+                            hf.name.into_inner(),
+                            hf.field.field_type(),
+                            FieldCardinality::from_arrayness(hf.data.is_array),
                             FieldDelivery::Eager,
                         ),
-                        data.is_json,
+                        hf.data.is_json,
                     ));
                 }
             }
@@ -403,6 +430,8 @@ unsafe fn resolve_fast_field(
             // We use context.heap_rti as varno because find_matching_fast_field
             // compares via pg_sys::equal(), so both sides must use the same varno
             // to match.
+            let tupdesc = context.tupdesc();
+            let att = tupdesc.get((attno - 1) as usize)?;
             let dummy_var = pg_sys::makeVar(
                 context.heap_rti.try_into().expect("should always fit"),
                 attno as pg_sys::AttrNumber,
@@ -418,26 +447,24 @@ unsafe fn resolve_fast_field(
 
 /// Resolve a fast field by Tantivy field name (e.g., `metadata.category`).
 ///
-/// Used for JSON sub-fields where [`resolve_fast_field`] fails because the attno
+/// Used for JSON sub-fields where [`resolve_fast_field_by_attno`] fails because the attno
 /// maps to the parent JSON column rather than the sub-field. Tantivy stores JSON
 /// sub-fields as separate fast fields with dotted names.
-fn resolve_fast_field_by_name(field_name: &str, index: &PgSearchRelation) -> Option<ResolvedField> {
-    let schema = index.schema().ok()?;
-    let (search_field, data) = schema.search_field_with_data(field_name)?;
-    if search_field.is_fast() {
-        let heap_attno = data
-            .source
-            .heap_attno(index)
-            .map(|n| n as pg_sys::AttrNumber + 1); // convert index-based to pg-based attno
-        Some(ResolvedField::new(
-            heap_attno,
+fn resolve_fast_field_by_name(
+    field_name: &str,
+    context: &SourceContext,
+) -> Option<ResolvedFastField> {
+    let hf = context.resolve_heap_field(ResTarget::Field(field_name))?;
+    if hf.field.is_fast() {
+        Some(ResolvedFastField::new(
+            hf.attno,
             WhichFastField::named(
                 field_name,
-                search_field.field_type(),
-                FieldCardinality::from_arrayness(data.is_array),
+                hf.field.field_type(),
+                FieldCardinality::from_arrayness(hf.data.is_array),
                 FieldDelivery::Eager,
             ),
-            data.is_json,
+            hf.data.is_json,
         ))
     } else {
         None

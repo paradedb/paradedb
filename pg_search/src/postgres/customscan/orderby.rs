@@ -286,8 +286,8 @@ fn resolve_vector_expr(
     if relid != source.heaprel.oid() {
         return None;
     }
-    let (_, field) = source.resolve_heap_field(ResTarget::Attno(attno))?;
-    if let SearchFieldType::Vector(_, _, metric) = field.field_type() {
+    let hf = source.resolve_heap_field(ResTarget::Attno(attno))?;
+    if let SearchFieldType::Vector(_, _, metric) = hf.field.field_type() {
         return Some((var, metric));
     }
     None
@@ -542,13 +542,10 @@ where
                     }
                     SortExpressionType::Lower => {
                         if let Some(field_name) = field_name_opt
-                            && let Some((_, search_field)) =
+                            && let Some(hf) =
                                 context.resolve_heap_field(ResTarget::Field(&field_name))
-                            && lower_sortability_check(&search_field)
-                            && sortable_at_position(
-                                &search_field.field_type(),
-                                pathkey_styles.len(),
-                            )
+                            && lower_sortability_check(&hf.field)
+                            && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -561,13 +558,10 @@ where
                     }
                     SortExpressionType::Raw => {
                         if let Some(field_name) = field_name_opt
-                            && let Some((_, search_field)) =
+                            && let Some(hf) =
                                 context.resolve_heap_field(ResTarget::Field(&field_name))
-                            && regular_sortability_check(&search_field)
-                            && sortable_at_position(
-                                &search_field.field_type(),
-                                pathkey_styles.len(),
-                            )
+                            && regular_sortability_check(&hf.field)
+                            && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -756,13 +750,12 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some((_, search_field)) =
-                    context.resolve_heap_field(ResTarget::Field(&field_name.root()))
+                let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name.root()))
                 else {
                     return false;
                 };
-                if !search_field.is_lower_sortable()
-                    || !sortable_at_position(&search_field.field_type(), position)
+                if !hf.field.is_lower_sortable()
+                    || !sortable_at_position(&hf.field.field_type(), position)
                 {
                     return false;
                 }
@@ -771,13 +764,12 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some((_, search_field)) =
-                    context.resolve_heap_field(ResTarget::Field(&field_name.root()))
+                let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name.root()))
                 else {
                     return false;
                 };
-                if !search_field.is_raw_sortable()
-                    || !sortable_at_position(&search_field.field_type(), position)
+                if !hf.field.is_raw_sortable()
+                    || !sortable_at_position(&hf.field.field_type(), position)
                 {
                     return false;
                 }
@@ -786,14 +778,11 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some((_, search_field)) =
-                    context.resolve_heap_field(ResTarget::Field(&field_name.root()))
+                let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name.root()))
                 else {
                     return false;
                 };
-                if !search_field.is_fast()
-                    || !sortable_at_position(&search_field.field_type(), position)
-                {
+                if !hf.field.is_fast() || !sortable_at_position(&hf.field.field_type(), position) {
                     return false;
                 }
             }

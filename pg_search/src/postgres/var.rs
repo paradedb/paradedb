@@ -26,7 +26,7 @@ use pgrx::{FromDatum, PgList, is_a, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
-use super::customscan::pullup::{Access, ResTarget, ResolvedField, SourceContext};
+use super::customscan::pullup::{Access, ResTarget, ResolvedFastField, SourceContext};
 use super::rel::PgSearchRelation;
 
 /// Operator OIDs
@@ -566,7 +566,7 @@ pub unsafe fn find_one_resolved_var_and_fieldname(
     source: &SourceContext,
     node: *mut pg_sys::Node,
     access: Access,
-) -> (Option<ResolvedField>, Option<FieldName>) {
+) -> (Option<ResolvedFastField>, Option<FieldName>) {
     if is_a(node, T_CoerceViaIO) {
         let expr = node.cast::<CoerceViaIO>();
         let arg = (*expr).arg;

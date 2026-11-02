@@ -48,7 +48,7 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::joinscan::predicate::extract_single_table_predicate;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedField, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedFastField, SourceContext};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
     has_leaky_heap_filter, optimize_quals_with_heap_expr,
@@ -141,7 +141,7 @@ pub fn resolve_source_field(
 fn source_field_candidates<'a>(
     sources: &'a [SourceContext],
     field: &str,
-) -> (Vec<(&'a SourceContext, ResolvedField)>, Vec<String>) {
+) -> (Vec<(&'a SourceContext, ResolvedFastField)>, Vec<String>) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
@@ -165,17 +165,15 @@ fn source_field_candidates<'a>(
 /// reachable through a sub-field.
 fn validate_source_field_candidate(
     context: &SourceContext,
-    resolved: Option<ResolvedField>,
+    resolved: Option<ResolvedFastField>,
     candidate_name: &str,
-) -> Result<Option<ResolvedField>, String> {
+) -> Result<Option<ResolvedFastField>, String> {
     let is_subfield = FieldName::from(candidate_name).root() != candidate_name;
     let Some(resolved) = resolved else {
         // determine if this was a root json column
         if !is_subfield
-            && let Some((_, data)) = context
-                .schema()
-                .and_then(|s| s.search_field_with_data(candidate_name))
-            && data.is_json
+            && let Some(hf) = context.resolve_heap_field(ResTarget::Field(candidate_name))
+            && hf.data.is_json
         {
             return Err(format!(
                 "Field '{candidate_name}' is a JSON column; name a sub-field, as in '{candidate_name}.key'"
@@ -1838,13 +1836,12 @@ impl FilterExpr {
                             return None;
                         }
                         let source = sources.iter().find(|s| s.heap_rti == rti)?;
-                        let (field_name, _) = source
-                            .resolve_heap_field(ResTarget::Attno(unsafe { (*var).varattno }))?;
+                        let name = source.get_attname(unsafe { (*var).varattno })?;
                         Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
                             rti: source.heap_rti,
                             attno: unsafe { (*var).varattno },
-                            field_name: field_name.into_inner(),
+                            field_name: name.into_inner(),
                         }))
                     }
                     FilterExprBuildContext::Having {

@@ -20,10 +20,10 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::{Access, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
-use crate::schema::{FieldSource, SearchFieldType, SearchIndexSchema};
+use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
 use pgrx::{PgList, pg_guard};
 
@@ -75,7 +75,6 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 
     fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
         let mut grouping_columns = Vec::new();
-        let schema = context.schema().expect("could not get index schema");
 
         // Use PostgreSQL's processed pathkeys, not `parse.groupClause`: redundant
         // GROUP BY columns may be removed, and AggregateScan eligibility validates
@@ -108,7 +107,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                 };
                 let Some(resolved) = resolved else {
                     last_error = Some(match field_name {
-                        Some(name) => unresolved_reason(&schema, &name, is_unnest)?,
+                        Some(name) => unresolved_reason(context, &name, is_unnest)?,
                         None => "could not resolve grouping column from expression".to_string(),
                     });
                     continue;
@@ -176,29 +175,29 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 /// Why `name` did not resolve as a grouping column. `Err` declines outright,
 /// `Ok` is a reason to keep trying the other equivalence members.
 fn unresolved_reason(
-    schema: &SearchIndexSchema,
+    source: &SourceContext,
     name: &str,
     is_unnest: bool,
 ) -> Result<String, CustomScanBuildError> {
-    let Some((search_field, data)) = schema.search_field_with_data(name) else {
+    let Some(hf) = source.resolve_heap_field(ResTarget::Field(name)) else {
         return Ok(format!("grouping column {name} is missing from index"));
     };
-    if search_field.field_type().is_numeric() {
+    if hf.field.field_type().is_numeric() {
         return Err(format!("grouping field {name} is numeric, which is not supported").into());
     }
-    if !search_field.is_fast() {
+    if !hf.field.is_fast() {
         return Ok(format!(
             "grouping column {name} exists, but is not columnar"
         ));
     }
-    if data.is_array && !is_unnest {
+    if hf.data.is_array && !is_unnest {
         return Err(format!(
             "grouping field {name} is an array, which requires UNNEST() to be used in GROUP BY"
         )
         .into());
     }
     if matches!(
-        data.source,
+        hf.data.source,
         FieldSource::Expression { .. } | FieldSource::CompositeField { .. }
     ) {
         return Ok(format!(

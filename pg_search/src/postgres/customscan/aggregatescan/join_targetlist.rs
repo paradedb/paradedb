@@ -1018,10 +1018,11 @@ unsafe fn extract_raw_group_column(
         (attno, field_name.into_inner(), plan_position, res_source)
     };
     let numeric_info = numeric_source
-        .and_then(|source| source.schema())
-        .and_then(|schema| schema.numeric_field_type(&field_name))
-        .map(|(field_type, scale)| {
-            let scale = scale.ok_or_else(|| {
+        .and_then(|source| source.resolve_heap_field(ResTarget::Field(&field_name)))
+        .filter(|hf| hf.field.numeric_field_type().is_some())
+        .map(|hf| {
+            let field_type = hf.field.field_type();
+            let scale = field_type.numeric_scale().ok_or_else(|| {
                 format!(
                     "{label} {field_name} is an unbounded NUMERIC; declare a precision and \
                      scale to enable aggregate pushdown"
@@ -1465,9 +1466,8 @@ unsafe fn extract_aggref_field_refs(
         )?;
         let numeric = resolved
             .source
-            .schema()
-            .and_then(|s| s.numeric_field_type(&resolved.field_name))
-            .map(|(field_type, _)| field_type);
+            .resolve_heap_field(ResTarget::Field(&resolved.field_name))
+            .and_then(|hf| hf.field.numeric_field_type());
 
         refs.push(JoinAggColRef {
             plan_position: resolved.plan_position,

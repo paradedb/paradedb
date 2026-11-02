@@ -559,6 +559,18 @@ impl SearchIndexSchema {
         Some((search_field, data))
     }
 
+    /// `attno` is the 1-based attno
+    pub fn search_field_with_data_by_attno(
+        &self,
+        attno: pg_sys::AttrNumber,
+        heaprel: &PgSearchRelation,
+    ) -> Option<(SearchField, CategorizedFieldData)> {
+        self.categorized_fields()
+            .iter()
+            .find(|(_, d)| d.source.heap_attno(heaprel) == Some(attno as usize))
+            .cloned()
+    }
+
     /// The field type and declared scale of `name` when the column is NUMERIC,
     /// else `None`. Legacy indexes that store NUMERIC as F64 land in the `None`
     /// arm too: their column data really is `Float64`, so the native aggregates
@@ -833,6 +845,11 @@ impl SearchField {
 
     pub fn is_fast(&self) -> bool {
         self.field_entry.is_fast()
+    }
+
+    /// returns the search field type only if that type is numeric
+    pub fn numeric_field_type(&self) -> Option<SearchFieldType> {
+        self.field_type.is_numeric().then(|| self.field_type())
     }
 
     pub fn is_numeric_fast(&self) -> bool {

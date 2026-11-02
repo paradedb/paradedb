@@ -22,7 +22,7 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::{Access, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_unnest_and_relabel;
@@ -112,7 +112,6 @@ impl CustomScanClause<AggregateScan> for TargetList {
     }
 
     fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
-        let schema = context.schema().expect("Could not get index schema");
         let target_list =
             unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
         if target_list.is_empty() {
@@ -181,8 +180,8 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 if let Some(field_name) = aggregate.field_name() {
-                    if let Some(search_field) = schema.search_field(&field_name) {
-                        if !search_field.is_fast() {
+                    if let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name)) {
+                        if !hf.field.is_fast() {
                             return Err(format!("Field '{}' is not fast", field_name).into());
                         }
                     } else {

@@ -844,6 +844,57 @@ fn periodic_sweep_cancellation_releases_vacuum_barriers() {
 }
 
 #[test]
+fn periodic_sweep_waits_for_unchanged_document_counts() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("sweep_growing", true);
+    fixture.controller.batch_execute(
+        "INSERT INTO sweep_growing VALUES(1,'alpha beta');
+         DROP TABLE IF EXISTS sweep_unchanged;
+         CREATE TABLE sweep_unchanged (id bigint,body text);
+         CREATE INDEX sweep_unchanged_idx ON sweep_unchanged USING paradedb(id,body) WITH(mutable_segment_rows=10000);
+         INSERT INTO sweep_unchanged VALUES(1,'alpha beta')"
+    ).unwrap();
+    fixture
+        .controller
+        .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 1000")
+        .unwrap();
+    fixture
+        .controller
+        .simple_query("SELECT pg_reload_conf()")
+        .unwrap();
+    wait_until("first sweep observation", || {
+        fixture.value::<bool>("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE backend_type='pg_search mutable sweep' AND datname=current_database() AND state='idle' AND wait_event_type='Extension')")
+    });
+    let segment: String = fixture.value("SELECT segno FROM paradedb.index_info('sweep_growing_idx') WHERE visible AND mutable AND num_docs=1");
+    assert!(fixture.value::<bool>("SELECT EXISTS(SELECT FROM paradedb.index_info('sweep_unchanged_idx') WHERE visible AND mutable)"));
+    fixture
+        .controller
+        .batch_execute("INSERT INTO sweep_growing VALUES(2,'alpha beta')")
+        .unwrap();
+    wait_until(
+        "unchanged segment flushing on the second observation",
+        || {
+            fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_unchanged_idx') WHERE visible AND mutable)")
+        },
+    );
+    assert_eq!(fixture.value::<String>("SELECT segno FROM paradedb.index_info('sweep_growing_idx') WHERE visible AND mutable AND num_docs=2"), segment);
+    wait_until(
+        "growing segment flushing after its count stabilizes",
+        || {
+            fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_growing_idx') WHERE visible AND mutable)")
+        },
+    );
+    fixture.assert_rows(2);
+    assert!(fixture.value::<bool>(
+        "SELECT bool_and(passed) FROM pdb.verify_index('sweep_growing_idx',heapallindexed=>true)"
+    ));
+    fixture
+        .controller
+        .batch_execute("DROP TABLE sweep_unchanged")
+        .unwrap();
+}
+
+#[test]
 fn periodic_sweep_skips_immutable_indexes_with_a_busy_merge_lock() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut fixture = Fixture::new("sweep_idle_merge", false);

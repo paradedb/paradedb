@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
+use crate::api::{HashMap, HashSet};
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
@@ -183,11 +183,13 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
     let mut pass_context = pgrx::PgMemoryContexts::new("pg_search mutable sweep pass");
     let mut next_sweep = Instant::now();
     let mut interval = INTERVAL_MS.get();
+    let mut previous_counts = HashMap::default();
     loop {
         reload();
         if INTERVAL_MS.get() != interval {
             interval = INTERVAL_MS.get();
             next_sweep = Instant::now();
+            previous_counts.clear();
         }
         if interval == 0 {
             return;
@@ -222,7 +224,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
             return;
         }
         if sweeping {
-            let installed = pass_context.switch_to(|_| {
+            let observed_counts = pass_context.switch_to(|_| {
                 let indexes = BackgroundWorker::transaction(|| {
                     let version = Spi::get_one::<String>(
                         "SELECT max(extversion::text) FROM pg_catalog.pg_extension WHERE extname = 'pg_search'",
@@ -243,26 +245,31 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                     )
                     .expect("should be able to discover ParadeDB indexes")
                     .unwrap_or_default();
+                    let mut current_counts = HashMap::default();
                     let indexes = free_leaf_partition_indexes(&indexes)
                         .filter_map(|index| {
                             if !(*index.rd_rel).relam.is_paradedb_am() || !index.is_valid() {
                                 return None;
                             }
-                            let mut has_mutable = false;
+                            let mut idle_segments = HashMap::default();
                             MetaPage::open(&index).segment_metas().for_each(|_, entry| {
-                                has_mutable |= entry.is_mutable()
-                                    && entry.xmax() == pg_sys::InvalidTransactionId;
+                                if entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId {
+                                    let key = (index.oid(), entry.segment_id());
+                                    let count = entry.num_docs();
+                                    current_counts.insert(key, count);
+                                    if previous_counts.get(&key) == Some(&count) {
+                                        idle_segments.insert(entry.segment_id(), count);
+                                    }
+                                }
                             });
-                            has_mutable.then_some(index.oid())
+                            (!idle_segments.is_empty()).then_some((index.oid(), idle_segments))
                         })
                         .collect::<Vec<_>>();
-                    Some(indexes)
+                    Some((indexes, current_counts))
                 });
-                let Some(indexes) = indexes else {
-                    return false;
-                };
+                let (indexes, current_counts) = indexes?;
                 pg_sys::pgstat_report_appname(c"pg_search mutable sweep".as_ptr());
-                for index in indexes {
+                for (index, idle_segments) in indexes {
                     reload();
                     if INTERVAL_MS.get() == 0 {
                         break;
@@ -285,7 +292,10 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             };
                             let merge_lock = metadata.acquire_merge_lock();
                             PgTryBuilder::new(AssertUnwindSafe(|| {
-                                if metadata.freeze_mutable_segments().is_empty() {
+                                let frozen = metadata.freeze_mutable_segments_matching(|entry| {
+                                    idle_segments.get(&entry.segment_id()) == Some(&entry.num_docs())
+                                });
+                                if frozen.is_empty() {
                                     return;
                                 }
                                 set_ps_display_suffix(MERGING.as_ptr());
@@ -297,6 +307,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     .expect("should be able to open mutable sweeper merger");
                                 let mut policy = LayeredMergePolicy::new(Vec::new());
                                 policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+                                policy.retain(frozen.iter().map(|entry| entry.segment_id()).collect());
                                 let (candidates, _, skipped) = policy
                                     .simulate_supported(&merger)
                                     .expect("should be able to validate mutable sweep candidates");
@@ -329,7 +340,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                         }
                     });
                 }
-                true
+                Some(current_counts)
             });
             pg_sys::UnlockSharedObjectForSession(
                 pg_sys::DatabaseRelationId,
@@ -338,9 +349,10 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                 pg_sys::RowExclusiveLock as _,
             );
             pass_context.reset();
-            if !installed {
+            let Some(current_counts) = observed_counts else {
                 return;
-            }
+            };
+            previous_counts = current_counts;
             pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_IDLE, std::ptr::null());
             next_sweep = Instant::now() + Duration::from_millis(interval as u64);
         }

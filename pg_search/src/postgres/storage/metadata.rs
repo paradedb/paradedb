@@ -447,12 +447,18 @@ impl MetaPage {
     }
 
     pub(crate) unsafe fn freeze_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
+        self.freeze_mutable_segments_matching(|_| true)
+    }
+
+    pub(crate) unsafe fn freeze_mutable_segments_matching(
+        &self,
+        eligible: impl Fn(&SegmentMetaEntry) -> bool,
+    ) -> Vec<SegmentMetaEntry> {
+        let eligible = |entry: &SegmentMetaEntry| {
+            entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId && eligible(entry)
+        };
         let mut metas = self.segment_metas();
-        if !metas
-            .list(None)
-            .iter()
-            .any(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
-        {
+        if !metas.list(None).iter().any(&eligible) {
             return Vec::new();
         }
 
@@ -460,7 +466,7 @@ impl MetaPage {
         let mut entries = frozen
             .list(None)
             .into_iter()
-            .filter(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
+            .filter(&eligible)
             .collect::<Vec<_>>();
         for entry in &mut entries {
             frozen

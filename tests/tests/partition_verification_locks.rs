@@ -32,17 +32,11 @@ use tests::fixtures::*;
 async fn verification_locks_heap_before_index(database: Db, #[case] target: &str) -> Result<()> {
     let mut writer = database.connection().await;
     "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE".execute(&mut writer);
-    let (locked_heap, reindexed_heap, verification, expected_heap_checks) = if target == "plain" {
+    if target == "plain" {
         "CREATE TABLE lock_plain(id integer);
          INSERT INTO lock_plain VALUES (1);
          CREATE INDEX lock_plain_idx ON lock_plain USING paradedb(id);"
             .execute(&mut writer);
-        (
-            "lock_plain",
-            "lock_plain",
-            "pdb.verify_index('lock_plain_idx', heapallindexed => true)".to_string(),
-            1,
-        )
     } else {
         "CREATE TABLE lock_parent(id integer) PARTITION BY RANGE(id)".execute(&mut writer);
         let leaf_parent = if target == "nested" {
@@ -60,37 +54,44 @@ async fn verification_locks_heap_before_index(database: Db, #[case] target: &str
              CREATE INDEX lock_parent_idx ON lock_parent USING paradedb(id);"
         )
         .execute(&mut writer);
-        let (leaf_index,): (String,) = "SELECT indexrelid::regclass::text FROM pg_index
-            WHERE indrelid = 'lock_leaf'::regclass"
-            .fetch_one(&mut writer);
-        let (verification, count) = match target {
-            "parent" | "nested" | "sibling" => (
-                "pdb.verify_index('lock_parent_idx', heapallindexed => true)".to_string(),
-                2,
-            ),
-            "leaf" => (
-                format!("pdb.verify_index('{leaf_index}', heapallindexed => true)"),
-                1,
-            ),
-            "all_leaves" => (
-                "pdb.verify_all_indexes(index_pattern => 'lock_leaf%', heapallindexed => true)"
-                    .to_string(),
-                1,
-            ),
-            _ => panic!("unknown verification test case: {target}"),
-        };
-        let locked_heap = if target == "sibling" {
+    }
+    let parent = "pdb.verify_index('lock_parent_idx', heapallindexed => true)".to_string();
+    let (locked_heap, reindexed_heap, verification, expected_heap_checks) = match target {
+        "plain" => (
+            "lock_plain",
+            "lock_plain",
+            "pdb.verify_index('lock_plain_idx', heapallindexed => true)".to_string(),
+            1,
+        ),
+        "parent" | "nested" => ("lock_leaf", "lock_leaf", parent, 2),
+        "sibling" => {
             // The OID walk visits lock_leaf first, then waits on lock_other.
             let (first_leaf,) = "SELECT
                 (SELECT indexrelid FROM pg_index WHERE indrelid = 'lock_leaf'::regclass) <
                 (SELECT indexrelid FROM pg_index WHERE indrelid = 'lock_other'::regclass)"
                 .fetch_one::<(bool,)>(&mut writer);
             assert!(first_leaf, "fixture must visit lock_leaf before lock_other");
-            "lock_other"
-        } else {
-            "lock_leaf"
-        };
-        (locked_heap, "lock_leaf", verification, count)
+            ("lock_other", "lock_leaf", parent, 2)
+        }
+        "leaf" => {
+            let (leaf_index,): (String,) = "SELECT indexrelid::regclass::text FROM pg_index
+                WHERE indrelid = 'lock_leaf'::regclass"
+                .fetch_one(&mut writer);
+            (
+                "lock_leaf",
+                "lock_leaf",
+                format!("pdb.verify_index('{leaf_index}', heapallindexed => true)"),
+                1,
+            )
+        }
+        "all_leaves" => (
+            "lock_leaf",
+            "lock_leaf",
+            "pdb.verify_all_indexes(index_pattern => 'lock_leaf%', heapallindexed => true)"
+                .to_string(),
+            1,
+        ),
+        _ => unreachable!("rstest case not handled: {target}"),
     };
     let mut reader = database.connection().await;
     "SET statement_timeout = '15s'".execute(&mut writer);

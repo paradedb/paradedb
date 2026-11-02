@@ -22,7 +22,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
 use crate::postgres::access::{IndexAccess, IndexOid};
-use crate::postgres::index::{IndexKind, is_partitioned_index, leaf_partition_index_oids};
+use crate::postgres::index::{IndexKind, is_partitioned_index, leaf_partition_index_accesses};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
@@ -1210,16 +1210,11 @@ pub mod pdb {
         });
 
         let index_rel = index.read();
-        // Only verification needs each leaf's heap. Keep the other diagnostics'
-        // index-only traversal, and authorize the requested relation, as SQL does.
-        // Open each leaf when reached and release its locks before advancing.
+        // Verification reads the heap, so each leaf opens after its table. Only the
+        // requested relation is authorized, as a scan through the parent would be.
         let partitions: Box<dyn Iterator<Item = IndexAccess>> =
             if is_partitioned_index(index_rel.oid()) {
-                Box::new(
-                    leaf_partition_index_oids(&index_rel)
-                        .into_iter()
-                        .map(|oid| IndexAccess::open(oid, pg_sys::AccessShareLock as _)),
-                )
+                Box::new(leaf_partition_index_accesses(&index_rel))
             } else {
                 Box::new(std::iter::once(index_rel))
             };

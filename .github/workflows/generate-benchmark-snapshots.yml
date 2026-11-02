@@ -30,6 +30,11 @@ on:
         description: "Optional size for stackoverflow/cohere/msmarco (e.g. 100k, 1m, 20m, 113m). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
         default: ""
+      load_workers:
+        description: "MS MARCO Parquet loader workers. Positive integer; blank uses the dataset default (16)."
+        required: false
+        type: string
+        default: ""
       benchmarker_ref:
         description: "Benchmarker ref for stackexchange/wikipedia (branch/tag/SHA)."
         required: false
@@ -62,8 +67,15 @@ jobs:
         env:
           DATASET: ${{ inputs.dataset }}
           SIZE: ${{ inputs.size }}
+          LOAD_WORKERS: ${{ inputs.load_workers }}
         run: |
           set -euo pipefail
+          if [ -n "$LOAD_WORKERS" ]; then
+            if [[ "$DATASET" != msmarco || ! "$LOAD_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+              echo "load_workers must be a positive integer and requires dataset=msmarco" >&2
+              exit 1
+            fi
+          fi
           all='[
             {"dataset":"stackoverflow","size":"100k"},
             {"dataset":"stackoverflow","size":"1m"},
@@ -158,12 +170,19 @@ jobs:
       - name: Load Heap
         timeout-minutes: ${{ matrix.dataset == 'msmarco' && 300 || 360 }}
         working-directory: benchmarks/
+        env:
+          LOAD_WORKERS: ${{ inputs.load_workers }}
         run: |
           set -euo pipefail
+          load_args=()
+          if [ -n "$LOAD_WORKERS" ]; then
+            load_args+=(--parquet-load-workers "$LOAD_WORKERS")
+          fi
           cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
-            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
+            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
+            "${load_args[@]}"
 
       - name: Verify and vacuum MS MARCO heap
         if: matrix.dataset == 'msmarco'

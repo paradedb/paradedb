@@ -22,11 +22,12 @@ use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Instant;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 mod backrest;
 mod config;
@@ -144,10 +145,13 @@ struct LoadHeapArgs {
     #[arg(long)]
     size: String,
 
-    /// Base path to external CSV data source (S3 or local). Overrides s3_base_path in
-    /// config.toml. CSVs are loaded from `{data_source}/sampled/{size}/csv/{table}/`.
+    /// Base path to external data (S3 or local). Overrides s3_base_path in config.toml.
     #[arg(long)]
     data_source: Option<String>,
+
+    /// Override the dataset's number of concurrent Parquet shard loaders.
+    #[arg(long)]
+    parquet_load_workers: Option<NonZeroUsize>,
 }
 
 #[tokio::main]
@@ -167,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
             &args.dataset,
             &args.size,
             args.data_source.as_deref(),
+            args.parquet_load_workers,
         ),
         Commands::SnapshotHeap(args) => backrest::run_snapshot_heap(args),
         Commands::RestoreHeap(args) => backrest::run_restore_heap(args),
@@ -994,11 +999,18 @@ fn load_external_data(
     dataset: &str,
     size_label: &str,
     data_source: Option<&str>,
+    parquet_load_workers: Option<NonZeroUsize>,
 ) -> anyhow::Result<()> {
     // Read dataset config for table names and S3 path.
     let config_path = format!("datasets/{dataset}/config.toml");
-    let (config, _) = config::load_dataset_config(&config_path)
+    let (mut config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
+    if let Some(workers) = parquet_load_workers {
+        if config.load_format != LoadFormat::Parquet {
+            bail!("--parquet-load-workers requires a Parquet dataset");
+        }
+        config.parquet_load_workers = Some(workers);
+    }
 
     // Determine data source path.
     let base_path = match data_source {
@@ -1133,10 +1145,16 @@ fn load_tables_parquet(
         let glob = format!("{source_path}/{table_name}/*.parquet");
         println!("Loading '{table_name}' from {glob} into PostgreSQL...");
         if let Some(workers) = config.parquet_load_workers {
-            let mut statement = conn.prepare("SELECT file FROM glob(?) ORDER BY file")?;
+            println!("  Reading shard metadata...");
+            let mut statement = conn.prepare(
+                "SELECT file_name, num_rows FROM parquet_file_metadata(?) ORDER BY file_name",
+            )?;
             let files = statement
-                .query_map([&glob], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map([&glob], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .with_context(|| format!("Failed to read parquet metadata at '{glob}'"))?;
             if files.is_empty() {
                 bail!("No parquet files found at '{glob}'");
             }
@@ -1178,45 +1196,48 @@ fn load_parquet_shards(
     url: &str,
     config: &config::DatasetConfig,
     table_name: &str,
-    files: &[String],
+    files: &[(String, usize)],
     workers: usize,
 ) -> anyhow::Result<()> {
     let workers = workers.min(files.len());
     let next = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
-    let progress = Mutex::new((0, 0_usize));
+    let total_rows = files.iter().map(|(_, rows)| rows).sum();
     let started = Instant::now();
     let sql = format!(
         "INSERT INTO pg.public.\"{}\" SELECT * FROM read_parquet(?)",
         table_name.replace('"', "\"\"")
     );
-    println!("  Loading {} shards with {workers} workers.", files.len());
+    println!(
+        "  Loading {} shards ({total_rows} rows) with {workers} workers.",
+        files.len()
+    );
 
     std::thread::scope(|scope| {
+        let (sender, receiver) = mpsc::channel();
         let handles: Vec<_> = (0..workers)
             .map(|_| {
-                scope.spawn(|| {
+                let sender = sender.clone();
+                let next = &next;
+                let failed = &failed;
+                let sql = &sql;
+                scope.spawn(move || {
                     let result = (|| -> anyhow::Result<()> {
                         let conn = open_parquet_load_conn(url, config)?;
                         while !failed.load(Ordering::Relaxed) {
                             let index = next.fetch_add(1, Ordering::Relaxed);
-                            let Some(file) = files.get(index) else {
+                            let Some((file, expected_rows)) = files.get(index) else {
                                 break;
                             };
-                            let rows = conn.execute(&sql, [file]).with_context(|| {
+                            let rows = conn.execute(sql, [file]).with_context(|| {
                                 format!("Failed to load shard '{file}' into '{table_name}'")
                             })?;
-                            let mut progress = progress.lock().unwrap();
-                            progress.0 += 1;
-                            progress.1 += rows;
-                            println!(
-                                "  {}/{} shards committed, {} rows, {:.0} rows/s, {:.1}s elapsed: {file}",
-                                progress.0,
-                                files.len(),
-                                progress.1,
-                                progress.1 as f64 / started.elapsed().as_secs_f64(),
-                                started.elapsed().as_secs_f64(),
-                            );
+                            if rows != *expected_rows {
+                                bail!(
+                                    "Shard '{file}' loaded {rows} rows; expected {expected_rows}"
+                                );
+                            }
+                            sender.send(rows)?;
                         }
                         Ok(())
                     })();
@@ -1227,6 +1248,45 @@ fn load_parquet_shards(
                 })
             })
             .collect();
+        drop(sender);
+        let mut shards = 0;
+        let mut rows = 0;
+        let mut last_rows = 0;
+        let mut last_report = Instant::now();
+        println!(
+            "{}",
+            parquet_load_progress(
+                (shards, files.len()),
+                (rows, total_rows),
+                started.elapsed(),
+                0.0
+            )
+        );
+        loop {
+            let wait = Duration::from_secs(10).saturating_sub(last_report.elapsed());
+            match receiver.recv_timeout(wait) {
+                Ok(loaded) => {
+                    shards += 1;
+                    rows += loaded;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+            if last_report.elapsed() >= Duration::from_secs(10) {
+                let rate = (rows - last_rows) as f64 / last_report.elapsed().as_secs_f64();
+                println!(
+                    "{}",
+                    parquet_load_progress(
+                        (shards, files.len()),
+                        (rows, total_rows),
+                        started.elapsed(),
+                        rate
+                    )
+                );
+                last_rows = rows;
+                last_report = Instant::now();
+            }
+        }
         let mut error = None;
         for handle in handles {
             let result = handle
@@ -1237,8 +1297,48 @@ fn load_parquet_shards(
                 error.get_or_insert(err);
             }
         }
+        let rate = (rows - last_rows) as f64 / last_report.elapsed().as_secs_f64().max(0.001);
+        println!(
+            "{}",
+            parquet_load_progress(
+                (shards, files.len()),
+                (rows, total_rows),
+                started.elapsed(),
+                rate
+            )
+        );
         error.map_or(Ok(()), Err)
     })
+}
+
+fn parquet_load_progress(
+    (shards, total_shards): (usize, usize),
+    (rows, total_rows): (usize, usize),
+    elapsed: Duration,
+    recent_rate: f64,
+) -> String {
+    let fraction = if total_rows == 0 {
+        shards as f64 / total_shards.max(1) as f64
+    } else {
+        rows as f64 / total_rows as f64
+    };
+    let filled = ((fraction * 30.0) as usize).min(30);
+    let bar = format!("{}{}", "#".repeat(filled), "-".repeat(30 - filled));
+    let average = rows as f64 / elapsed.as_secs_f64().max(0.001);
+    let eta = if shards == total_shards {
+        "0m 00s".to_string()
+    } else if rows == 0 {
+        "pending first committed shard".to_string()
+    } else {
+        let seconds = (total_rows.saturating_sub(rows) as f64 / average).ceil() as u64;
+        format!("{}m {:02}s", seconds / 60, seconds % 60)
+    };
+    format!(
+        "[{bar}] {:5.1}% | {shards}/{total_shards} shards | {rows}/{total_rows} rows committed | {recent_rate:.0} rows/s recent, {average:.0} avg | elapsed {}m {:02}s | ETA {eta}",
+        fraction * 100.0,
+        elapsed.as_secs() / 60,
+        elapsed.as_secs() % 60,
+    )
 }
 
 async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) -> anyhow::Result<()> {
@@ -1737,6 +1837,25 @@ async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parquet_progress_uses_rows_instead_of_shard_count() {
+        let progress = parquet_load_progress((1, 2), (10, 100), Duration::from_secs(10), 2.0);
+        assert!(progress.contains("10.0% | 1/2 shards | 10/100 rows committed"));
+        assert!(progress.contains("2 rows/s recent, 1 avg"));
+        assert!(progress.contains("ETA 1m 30s"));
+    }
+
+    #[test]
+    fn parquet_progress_handles_start_and_empty_shards() {
+        let start = parquet_load_progress((0, 2), (0, 100), Duration::ZERO, 0.0);
+        assert!(start.contains("0.0%"));
+        assert!(start.contains("ETA pending first committed shard"));
+        assert!(!start.contains("NaN"));
+        let empty = parquet_load_progress((2, 2), (0, 0), Duration::from_secs(1), 0.0);
+        assert!(empty.contains("100.0%"));
+        assert!(empty.contains("ETA 0m 00s"));
+    }
 
     /// Datasets that repeat one query have gh-pages history under the bare query name, and their
     /// samples are not a latency distribution. Renaming or re-valuing them would orphan that.

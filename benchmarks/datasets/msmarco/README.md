@@ -20,7 +20,7 @@ Datasets that omit this setting retain the default behavior of rejecting them.
 
 `parquet_load_workers = 16` loads separate shards concurrently through independent
 DuckDB/Postgres connections. Each worker uses two DuckDB threads and a 2 GB memory
-limit. Every ten seconds, a log-friendly progress bar shows committed rows and
+limit. Every minute, a log-friendly progress bar shows committed rows and
 shards, recent and average throughput, elapsed time, and estimated time remaining.
 The percentage uses row counts from Parquet metadata, so unequal shard sizes do
 not distort it. Rows in active, uncommitted shards are excluded; the ETA is an

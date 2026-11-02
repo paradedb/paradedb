@@ -1263,7 +1263,7 @@ fn load_parquet_shards(
             )
         );
         loop {
-            let wait = Duration::from_secs(10).saturating_sub(last_report.elapsed());
+            let wait = Duration::from_secs(60).saturating_sub(last_report.elapsed());
             match receiver.recv_timeout(wait) {
                 Ok(loaded) => {
                     shards += 1;
@@ -1272,7 +1272,7 @@ fn load_parquet_shards(
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
-            if last_report.elapsed() >= Duration::from_secs(10) {
+            if last_report.elapsed() >= Duration::from_secs(60) {
                 let rate = (rows - last_rows) as f64 / last_report.elapsed().as_secs_f64();
                 println!(
                     "{}",

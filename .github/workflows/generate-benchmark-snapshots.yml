@@ -2,7 +2,7 @@
 #
 # Generate Benchmark Heap Snapshots
 #
-# Stack Overflow and Cohere: native pgrx clusters backed up with pgBackRest to
+# Stack Overflow, Cohere, and MS MARCO: native pgrx clusters backed up with pgBackRest to
 # s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/. Sampled source
 # data must exist at datasets/{dataset}/v1/sampled/{size}/{csv|parquet}/ in that bucket.
 # Stack Exchange and Wikipedia: benchmarker Docker heaps archived to
@@ -15,18 +15,19 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Which dataset(s) to snapshot."
+        description: "Which dataset(s) to snapshot. MS MARCO requires explicit selection; it is excluded from all."
         required: false
         type: choice
         options:
           - all
           - stackoverflow
           - cohere
+          - msmarco
           - stackexchange
           - wikipedia
         default: all
       size:
-        description: "Optional size for stackoverflow/cohere (e.g. 100k, 1m, 20m). Blank = all sizes. Not supported for stackexchange/wikipedia."
+        description: "Optional size for stackoverflow/cohere/msmarco (e.g. 100k, 1m, 20m, 113m). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
         default: ""
       benchmarker_ref:
@@ -70,6 +71,9 @@ jobs:
             {"dataset":"cohere","size":"1m"},
             {"dataset":"cohere","size":"10m"}
           ]'
+          if [ "$DATASET" = msmarco ]; then
+            all='[{"dataset":"msmarco","size":"113m"}]'
+          fi
           include=$(echo "$all" | jq -c \
             --arg ds "${DATASET:-all}" --arg sz "${SIZE}" \
             '[ .[] | select(($ds=="all" or .dataset==$ds) and ($sz=="" or .size==$sz)) ]')
@@ -147,6 +151,12 @@ jobs:
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
             --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
+
+      - name: Verify and vacuum MS MARCO heap
+        if: matrix.dataset == 'msmarco'
+        run: |
+          psql "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
+            -X -v ON_ERROR_STOP=1 -f benchmarks/datasets/msmarco/verify_heap.sql
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create

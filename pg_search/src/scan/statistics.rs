@@ -22,6 +22,8 @@ use datafusion::common::ScalarValue;
 use datafusion::common::stats::{ColumnStatistics, Precision};
 
 use crate::index::fast_fields_helper::{FFHelper, FFType, FieldCardinality, WhichFastField};
+use crate::index::stats::EmpiricalStats;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::SearchFieldType;
 
 /// These estimates describe the unfiltered reader. Dictionaries can overlap between segments,
@@ -81,7 +83,6 @@ fn metadata_statistics(
     {
         return ColumnStatistics::default();
     }
-    let name = ffhelper.fields()[ff_index].name();
     let dictionary = matches!(data_type, DataType::Utf8View | DataType::BinaryView);
     let mut distinct_count = 0usize;
     let mut min_value: Option<ScalarValue> = None;
@@ -93,10 +94,16 @@ fn metadata_statistics(
         if segment.num_docs() == 0 {
             continue;
         }
-        // An absent column (e.g. an all-null JSON path) contributes no values. Unlike
-        // FFHelper::column, a metadata probe need not require the column to exist.
-        let Some(column) = FFType::try_new(segment.fast_fields(), &name) else {
-            continue;
+        let segment_ord = segment_ord as u32;
+        // Reuse an execution reader when one is already open. Otherwise prefer persisted
+        // numeric bounds, which avoid initializing the column index and value codec.
+        let cached = ffhelper.cached_column(segment_ord, ff_index);
+        let persisted = if cached.is_none() && !dictionary {
+            ffhelper
+                .persisted_statistics(segment_ord, ff_index)
+                .and_then(|stats| numeric_bounds(stats, data_type))
+        } else {
+            None
         };
         macro_rules! bounds {
             ($column:expr, $variant:ident) => {{
@@ -110,31 +117,44 @@ fn metadata_statistics(
                 )
             }};
         }
-        let (min, max) = match (&column, data_type) {
-            (FFType::Text(column), DataType::Utf8View) => {
-                distinct_count = distinct_count.saturating_add(column.num_terms());
+        let (min, max) = if let Some(bounds) = persisted {
+            bounds
+        } else {
+            // Cache both present and missing columns; execution shares this lookup. In
+            // particular, nullable metadata cannot tell an all-null column from real bounds.
+            let Some(column) =
+                cached.unwrap_or_else(|| ffhelper.optional_column(segment_ord, ff_index))
+            else {
                 continue;
-            }
-            (FFType::Bytes(column), DataType::BinaryView) => {
-                distinct_count = distinct_count.saturating_add(column.num_terms());
-                continue;
-            }
-            (FFType::I64(column), DataType::Int64) => bounds!(column, Int64),
-            (FFType::U64(column), DataType::UInt64) => bounds!(column, UInt64),
-            (FFType::F64(column), DataType::Float64) => {
-                if column.values.num_vals() == 0 {
+            };
+            match (column, data_type) {
+                // An absent JSON path is cached as an execution NULL column.
+                (FFType::Junk, _) => continue,
+                (FFType::Text(column), DataType::Utf8View) => {
+                    distinct_count = distinct_count.saturating_add(column.num_terms());
                     continue;
                 }
-                let (min, max) = (column.min_value(), column.max_value());
-                if !min.is_finite() || !max.is_finite() {
-                    return ColumnStatistics::default();
+                (FFType::Bytes(column), DataType::BinaryView) => {
+                    distinct_count = distinct_count.saturating_add(column.num_terms());
+                    continue;
                 }
-                (
-                    ScalarValue::Float64(Some(min)),
-                    ScalarValue::Float64(Some(max)),
-                )
+                (FFType::I64(column), DataType::Int64) => bounds!(column, Int64),
+                (FFType::U64(column), DataType::UInt64) => bounds!(column, UInt64),
+                (FFType::F64(column), DataType::Float64) => {
+                    if column.values.num_vals() == 0 {
+                        continue;
+                    }
+                    let (min, max) = (column.min_value(), column.max_value());
+                    if !min.is_finite() || !max.is_finite() {
+                        return ColumnStatistics::default();
+                    }
+                    (
+                        ScalarValue::Float64(Some(min)),
+                        ScalarValue::Float64(Some(max)),
+                    )
+                }
+                _ => return ColumnStatistics::default(),
             }
-            _ => return ColumnStatistics::default(),
         };
         if min_value.as_ref().is_none_or(|current| min < *current) {
             min_value = Some(min);
@@ -153,5 +173,95 @@ fn metadata_statistics(
         min_value: min_value.map_or(Precision::Absent, Precision::Inexact),
         max_value: max_value.map_or(Precision::Absent, Precision::Inexact),
         ..ColumnStatistics::default()
+    }
+}
+
+fn numeric_bounds(
+    stats: EmpiricalStats,
+    data_type: &DataType,
+) -> Option<(ScalarValue, ScalarValue)> {
+    // A nullable entry has no non-null count, so even finite bounds may describe an empty
+    // value column. Use the cached-reader fallback to retain the existing all-null behavior.
+    if stats.nullable {
+        return None;
+    }
+    let bounds = match (stats.min, stats.max, data_type) {
+        (PdbOwnedValue::I64(min), PdbOwnedValue::I64(max), DataType::Int64) if min <= max => {
+            (ScalarValue::Int64(Some(min)), ScalarValue::Int64(Some(max)))
+        }
+        (PdbOwnedValue::U64(min), PdbOwnedValue::U64(max), DataType::UInt64) if min <= max => (
+            ScalarValue::UInt64(Some(min)),
+            ScalarValue::UInt64(Some(max)),
+        ),
+        (PdbOwnedValue::F64(min), PdbOwnedValue::F64(max), DataType::Float64)
+            if min.is_finite() && max.is_finite() && min <= max =>
+        {
+            (
+                ScalarValue::Float64(Some(min)),
+                ScalarValue::Float64(Some(max)),
+            )
+        }
+        _ => return None,
+    };
+    Some(bounds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_statistics_persisted_bounds_eligibility() {
+        let stats = |min, max, nullable| EmpiricalStats { min, max, nullable };
+        assert!(
+            numeric_bounds(
+                stats(PdbOwnedValue::I64(0), PdbOwnedValue::I64(0), true),
+                &DataType::Int64
+            )
+            .is_none()
+        );
+        assert!(
+            numeric_bounds(
+                stats(PdbOwnedValue::U64(1), PdbOwnedValue::U64(2), false),
+                &DataType::Int64
+            )
+            .is_none()
+        );
+        assert!(
+            numeric_bounds(
+                stats(PdbOwnedValue::I64(2), PdbOwnedValue::I64(1), false),
+                &DataType::Int64
+            )
+            .is_none()
+        );
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(
+                numeric_bounds(
+                    stats(PdbOwnedValue::F64(value), PdbOwnedValue::F64(value), false),
+                    &DataType::Float64
+                )
+                .is_none()
+            );
+        }
+        assert_eq!(
+            numeric_bounds(
+                stats(PdbOwnedValue::U64(1), PdbOwnedValue::U64(u64::MAX), false),
+                &DataType::UInt64
+            ),
+            Some((
+                ScalarValue::UInt64(Some(1)),
+                ScalarValue::UInt64(Some(u64::MAX))
+            ))
+        );
+        assert_eq!(
+            numeric_bounds(
+                stats(PdbOwnedValue::F64(-2.5), PdbOwnedValue::F64(4.5), false),
+                &DataType::Float64
+            ),
+            Some((
+                ScalarValue::Float64(Some(-2.5)),
+                ScalarValue::Float64(Some(4.5))
+            ))
+        );
     }
 }

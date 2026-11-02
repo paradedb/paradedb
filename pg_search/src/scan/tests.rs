@@ -102,6 +102,166 @@ mod tests {
         (reader, PgSearchRelation::open(heap_oid), fields)
     }
 
+    #[pg_test]
+    fn scan_statistics_reuse_readers_and_persisted_bounds() {
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::ScalarValue;
+
+        let (reader, _heap, fields) = scan_statistics_fixture();
+        let helper = FFHelper::with_fields(&reader, &fields);
+        let id = column_statistics(&helper, 2, &DataType::Int64, Some(4));
+        assert_eq!(
+            id.min_value,
+            Precision::Inexact(ScalarValue::Int64(Some(1)))
+        );
+        assert_eq!(
+            id.max_value,
+            Precision::Inexact(ScalarValue::Int64(Some(4)))
+        );
+        for ord in 0..helper.num_segments() as u32 {
+            assert!(
+                helper.cached_column(ord, 2).is_none(),
+                "persisted bounds must not open a value column"
+            );
+        }
+        let empirical_reads = crate::index::segment_pruning::EMPIRICAL_READS
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(column_statistics(&helper, 2, &DataType::Int64, Some(4)), id);
+        assert_eq!(
+            crate::index::segment_pruning::EMPIRICAL_READS
+                .load(std::sync::atomic::Ordering::Relaxed),
+            empirical_reads
+        );
+
+        for (field, data_type) in [
+            (1, DataType::Utf8View),
+            (3, DataType::Float64),
+            (4, DataType::Int64),
+            (6, DataType::BinaryView),
+        ] {
+            column_statistics(&helper, field, &data_type, Some(4));
+        }
+        let mut nullable_segments = 0;
+        for ord in 0..helper.num_segments() as u32 {
+            for field in [1, 6] {
+                let cached = helper.cached_column(ord, field).unwrap().unwrap();
+                assert!(
+                    std::ptr::eq(cached, helper.column(ord, field)),
+                    "execution must reuse statistics' dictionary reader"
+                );
+            }
+            let price = helper.persisted_statistics(ord, 3).unwrap();
+            if price.nullable {
+                nullable_segments += 1;
+                let cached = helper.cached_column(ord, 3).unwrap().unwrap();
+                assert!(std::ptr::eq(cached, helper.column(ord, 3)));
+            } else {
+                assert!(helper.cached_column(ord, 3).is_none());
+            }
+            assert!(
+                helper.cached_column(ord, 4).is_some(),
+                "all-null columns require the reader fallback"
+            );
+        }
+        assert_eq!(nullable_segments, 1);
+
+        // Reading values first avoids a redundant persisted metadata lookup.
+        let helper = FFHelper::with_fields(&reader, &fields);
+        for ord in 0..helper.num_segments() as u32 {
+            helper.column(ord, 2);
+        }
+        let empirical_reads = crate::index::segment_pruning::EMPIRICAL_READS
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(column_statistics(&helper, 2, &DataType::Int64, Some(4)), id);
+        assert_eq!(
+            crate::index::segment_pruning::EMPIRICAL_READS
+                .load(std::sync::atomic::Ordering::Relaxed),
+            empirical_reads
+        );
+    }
+
+    #[pg_test]
+    fn scan_statistics_missing_persisted_bounds_share_fallback() {
+        use crate::index::segment_pruning::{InjectedStatsFailure, inject_stats_failure};
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::ScalarValue;
+        let (reader, _heap, fields) = scan_statistics_fixture();
+        let guards: Vec<_> = reader
+            .segment_ids()
+            .into_iter()
+            .map(|id| inject_stats_failure(id, InjectedStatsFailure::Missing))
+            .collect();
+        let helper = FFHelper::with_fields(&reader, &fields);
+        let stats = column_statistics(&helper, 2, &DataType::Int64, Some(4));
+        assert_eq!(
+            stats.min_value,
+            Precision::Inexact(ScalarValue::Int64(Some(1)))
+        );
+        assert_eq!(
+            stats.max_value,
+            Precision::Inexact(ScalarValue::Int64(Some(4)))
+        );
+        assert!(guards.iter().all(|guard| guard.hits() == 1));
+        for ord in 0..helper.num_segments() as u32 {
+            let cached = helper.cached_column(ord, 2).unwrap().unwrap();
+            assert!(std::ptr::eq(cached, helper.column(ord, 2)));
+        }
+        assert_eq!(
+            column_statistics(&helper, 2, &DataType::Int64, Some(4)),
+            stats
+        );
+        assert!(guards.iter().all(|guard| guard.hits() == 1));
+    }
+
+    #[pg_test]
+    fn scan_statistics_unreadable_persisted_bounds_raise() {
+        use crate::index::segment_pruning::{InjectedStatsFailure, inject_stats_failure};
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+
+        let (_reader, _heap, fields) = scan_statistics_fixture();
+        for operation in [InjectedStatsFailure::Open, InjectedStatsFailure::Empirical] {
+            // Each error probe needs an uncached snapshot.
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'scan_stats_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+            let index = PgSearchRelation::open(index_oid);
+            let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot).unwrap();
+            let guard = inject_stats_failure(reader.segment_ids()[0], operation);
+            let helper = FFHelper::with_fields(&reader, &fields);
+            let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
+                column_statistics(&helper, 2, &DataType::Int64, Some(4));
+                None
+            }))
+            .catch_others(|caught| match caught {
+                pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => {
+                    Some(report.message().to_string())
+                }
+                other => other.rethrow(),
+            })
+            .execute()
+            .expect("unreadable metadata must raise");
+            assert!(
+                error.contains(&format!("injected {operation:?} statistics failure")),
+                "{error}"
+            );
+            assert_eq!(guard.hits(), 1);
+            assert!(
+                helper.statistics(2).get().is_none(),
+                "errors must not cache absence"
+            );
+            drop(guard);
+            assert!(
+                column_statistics(&helper, 2, &DataType::Int64, Some(4))
+                    .min_value
+                    .get_value()
+                    .is_some()
+            );
+        }
+    }
+
     fn scan_statistics_plan(
         reader: SearchIndexReader,
         heap: &PgSearchRelation,

@@ -1419,6 +1419,12 @@ mod segment_info_tests {
             "routing_visited_count",
             "routing_members_scored",
             "routing_lists_scanned",
+            "routing_approximate_scored",
+            "routing_approximate_members_scored",
+            "routing_approximate_pruned",
+            "routing_exact_scored",
+            "routing_exact_pruned",
+            "routing_candidate_count",
             "bounds_skips",
             "bound_armed_count",
             "bound_armed_probe_sum",
@@ -1448,6 +1454,14 @@ mod segment_info_tests {
         fields.insert(
             "access_path".to_string(),
             Value::String("Located".to_string()),
+        );
+        fields.insert(
+            "routing_kind".to_string(),
+            Value::String("quantized_stacked".to_string()),
+        );
+        fields.insert(
+            "routing_mode".to_string(),
+            Value::String("hierarchical".to_string()),
         );
         fields.insert("work_charged".to_string(), Value::from(f64::MAX));
         fields.insert(

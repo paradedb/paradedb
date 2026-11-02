@@ -281,7 +281,7 @@ jobs:
           set -euo pipefail
           python3 benchmarks/cohere/compare_search.py \
             --baseline "benchmark-baseline/search/${COHERE_SIZE}" \
-            --current "benchmark-artifacts/search/${COHERE_SIZE}" \
+            --current "benchmark-artifacts/fixed-budget/${COHERE_SIZE}" \
             --output benchmark-artifacts/comparison \
             --baseline-commit "$BASELINE_COMMIT" --baseline-url "$BASELINE_URL" \
             --current-commit "$CURRENT_COMMIT"

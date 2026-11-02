@@ -24,9 +24,8 @@ list topology, and scoring fetches the row ranges for the lists actually probed.
 This avoids decoding the entire router during query preparation. Payload
 validation occurs when each batch is read; the persisted format is unchanged.
 
-Plan verification enables `paradedb.vector_stats` and requires the unfiltered
-query to exercise `quantized_stacked` routing with nonzero approximate and exact
-scores. Per-segment `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` reports:
+With `paradedb.vector_stats` enabled, per-segment
+`EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` reports:
 
 - `routing_kind` and `routing_lists_scanned` identify the router and its work.
 - `routing_approximate_scored` counts one-bit scores across all router levels.
@@ -41,9 +40,6 @@ pruned plus exact scores; exact scores equals exact pruned plus candidates.
 Unopened lists and members skipped by APS are excluded from the pruning count.
 Non-finite queries fall back to exact scoring and report zero approximate work.
 Flat and located scans do not invoke a router and omit these counters.
-`router-metrics.json` and `router-metrics.md` summarize the first fixture vector
-at each selected operating point, with a table in the CI summary and PR results.
-These diagnostic counts are separate from pdbench's averages over all vectors.
 
 Router search policies can be adjusted at query time without rebuilding:
 
@@ -109,8 +105,8 @@ and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
 
-Diagnostics upload after plan verification, before the longer k6 pass, so sweeps
-and router counters can be reviewed while latency measurements continue.
+Diagnostics upload after plan verification, before the longer k6 pass, so recall
+sweeps can be reviewed while latency measurements continue.
 Artifacts retain index-build logs, pdbench build and search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in

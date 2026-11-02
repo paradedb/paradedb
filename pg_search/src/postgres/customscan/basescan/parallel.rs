@@ -138,6 +138,7 @@ impl ParallelQueryCapable for BaseScan {
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
             leader_publish_query(state, &mut *pscan_state);
+            leader_publish_vector_routing_plan(state, &mut *pscan_state);
 
             if !(*pcxt).seg.is_null()
                 && let Some(trace) = state.custom_state().io_trace.clone()
@@ -191,6 +192,7 @@ impl ParallelQueryCapable for BaseScan {
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
         unsafe { leader_publish_query(state, pscan_state) };
+        unsafe { leader_publish_vector_routing_plan(state, pscan_state) };
         unsafe { leader_publish_bitmap(state, pscan_state) };
     }
 
@@ -210,6 +212,9 @@ impl ParallelQueryCapable for BaseScan {
         let query = unsafe { (*pscan_state).query(query_area(state)) }
             .expect("should be able to read the query from the ParallelScanState");
         state.custom_state_mut().set_base_search_query_input(query);
+        let plan = unsafe { (*pscan_state).vector_routing_plan(query_area(state)) }
+            .expect("should be able to read the vector routing plan");
+        state.custom_state_mut().vector_routing_plan = plan.map(std::sync::Arc::new);
     }
 }
 
@@ -232,6 +237,44 @@ unsafe fn leader_publish_query(
     let query = serde_json::to_vec(state.custom_state().search_query_input())
         .expect("should be able to serialize query");
     unsafe { pscan_state.publish_query(query_area(state), &query) };
+}
+
+unsafe fn leader_publish_vector_routing_plan(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    pscan_state: &mut ParallelScanState,
+) {
+    let custom = state.custom_state();
+    let plan = match custom
+        .orderby_info()
+        .as_ref()
+        .and_then(|infos| infos.first())
+    {
+        Some(crate::api::OrderByInfo {
+            feature:
+                crate::api::OrderByFeature::VectorDistance {
+                    name, query_vector, ..
+                },
+            ..
+        }) if custom.search_query_input().is_match_all() => {
+            let query = query_vector
+                .resolved()
+                .expect("query vector must be resolved before routing");
+            let reader = custom
+                .search_reader
+                .as_ref()
+                .expect("search reader must be open");
+            Some(std::sync::Arc::new(
+                reader.route_vector_segments(name, query),
+            ))
+        }
+        _ => None,
+    };
+    unsafe { pscan_state.publish_vector_routing_plan(query_area(state), plan.as_deref()) }
+        .expect("should be able to publish the vector routing plan");
+    state.custom_state_mut().vector_routing_plan = plan.clone();
+    if let Some(reader) = state.custom_state_mut().search_reader.as_mut() {
+        reader.vector_routing_plan = plan;
+    }
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,

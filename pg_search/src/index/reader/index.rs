@@ -610,6 +610,7 @@ pub struct SearchIndexReader {
     directory: MVCCDirectory,
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
+    pub(crate) vector_routing_plan: Option<Arc<tantivy::vector::VectorRoutingPlan>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -657,6 +658,7 @@ impl Clone for SearchIndexReader {
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
+            vector_routing_plan: self.vector_routing_plan.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -814,6 +816,38 @@ struct IndexComponents {
 impl SearchIndexReader {
     pub(crate) fn index_rel(&self) -> &PgSearchRelation {
         &self.index_rel
+    }
+
+    pub(crate) fn route_vector_segments(
+        &self,
+        name: &FieldName,
+        query: &[f32],
+    ) -> tantivy::vector::VectorRoutingPlan {
+        self.validate_vector_segments()
+            .expect("vector segments must be readable");
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let collector = TopDocs::with_limit(1)
+            .order_by_similarity(field, query.to_vec())
+            .with_probe_params(ProbeParams {
+                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
+                ..Default::default()
+            })
+            .build();
+        let readers = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .map(|(ord, reader)| (ord as SegmentOrdinal, reader))
+            .collect::<Vec<_>>();
+        collector
+            .route_segments(&readers, |_| {})
+            .expect("global vector routing should succeed")
     }
 
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
@@ -1092,6 +1126,7 @@ impl SearchIndexReader {
             directory,
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
+            vector_routing_plan: None,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2335,6 +2370,9 @@ impl SearchIndexReader {
                     ));
                 }
 
+                if let Some(plan) = &self.vector_routing_plan {
+                    collector = collector.with_routing_plan(Arc::clone(plan));
+                }
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
                 let mut tie_breaks = Vec::with_capacity(erased_features.len());
@@ -4419,7 +4457,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn vector_parallelism_depends_on_filter() {
+    fn vector_parallelism_supports_unfiltered_routing() {
         Spi::run(
             "SET max_parallel_workers_per_gather = 2;
              SET parallel_setup_cost = 0;
@@ -4434,12 +4472,13 @@ mod tests {
              INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
              RESET paradedb.global_mutable_segment_rows;"
         ).unwrap();
-        for (predicate, workers, parallel, serial_unfiltered) in [
-            ("", 2, false, true),
-            ("AND category = 'keep'", 2, true, false),
-            ("AND id > 1", 2, true, false),
-            ("AND category = 'keep'", 0, false, false),
-            ("AND id > 1", 0, false, false),
+        for (predicate, workers, parallel) in [
+            ("", 2, true),
+            ("", 0, false),
+            ("AND category = 'keep'", 2, true),
+            ("AND id > 1", 2, true),
+            ("AND category = 'keep'", 0, false),
+            ("AND id > 1", 0, false),
         ] {
             Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
             let plan = Spi::get_one::<pgrx::Json>(&format!(
@@ -4453,11 +4492,6 @@ mod tests {
                 if node["Index"] == "vector_parallelism_idx" {
                     found = true;
                     assert_eq!(node["Parallel Aware"], parallel, "{plan}");
-                    assert_eq!(
-                        node["Worker Selection"] == "Unfiltered vector TopK",
-                        serial_unfiltered,
-                        "{plan}"
-                    );
                     if predicate.contains("category") {
                         assert!(
                             node["Tantivy Query"].to_string().contains("category"),

@@ -712,6 +712,8 @@ pub struct ParallelScanState {
     /// DSA area (`EState.es_query_dsa`); 0 until published. See [`Self::publish_query`].
     query: pg_sys::dsa_pointer,
     query_len: usize,
+    vector_routing_plan: pg_sys::dsa_pointer,
+    vector_routing_plan_len: usize,
 
     /// Set by a worker that spills a DataFusion operator to disk. The leader reads it
     /// once, after joining the workers, and folds it into its own sticky flag.
@@ -769,6 +771,8 @@ impl ParallelScanState {
         self.bitmap_table = 0;
         self.query = 0;
         self.query_len = 0;
+        self.vector_routing_plan = 0;
+        self.vector_routing_plan_len = 0;
         self.spilled.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
@@ -1230,6 +1234,48 @@ impl ParallelScanState {
             );
         }
         self.query_len = query.len();
+    }
+
+    /// Leader-only publication, before workers launch or relaunch for a rescan.
+    pub unsafe fn publish_vector_routing_plan(
+        &mut self,
+        area: *mut pg_sys::dsa_area,
+        plan: Option<&tantivy::vector::VectorRoutingPlan>,
+    ) -> anyhow::Result<()> {
+        unsafe {
+            if self.vector_routing_plan != 0 {
+                pg_sys::dsa_free(area, self.vector_routing_plan);
+            }
+            self.vector_routing_plan = 0;
+            self.vector_routing_plan_len = 0;
+            if let Some(plan) = plan {
+                let bytes = serde_cbor::to_vec(plan)?;
+                self.vector_routing_plan = pg_sys::dsa_allocate_extended(area, bytes.len(), 0);
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr(),
+                    pg_sys::dsa_get_address(area, self.vector_routing_plan).cast::<u8>(),
+                    bytes.len(),
+                );
+                self.vector_routing_plan_len = bytes.len();
+            }
+        }
+        Ok(())
+    }
+
+    pub unsafe fn vector_routing_plan(
+        &self,
+        area: *mut pg_sys::dsa_area,
+    ) -> anyhow::Result<Option<tantivy::vector::VectorRoutingPlan>> {
+        if self.vector_routing_plan == 0 {
+            return Ok(None);
+        }
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                pg_sys::dsa_get_address(area, self.vector_routing_plan).cast::<u8>(),
+                self.vector_routing_plan_len,
+            )
+        };
+        Ok(Some(serde_cbor::from_slice(bytes)?))
     }
 
     /// Worker: the query the leader published for this round.

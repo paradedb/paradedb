@@ -172,7 +172,7 @@ impl BaseScan {
         let needs_tokenizer_manager =
             search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
-        let search_reader = SearchIndexReader::open_with_context(
+        let mut search_reader = SearchIndexReader::open_with_context(
             indexrel,
             search_query_input.clone(),
             need_scores,
@@ -196,6 +196,7 @@ impl BaseScan {
             state.custom_state().io_trace.clone(),
         )
         .expect("should be able to open the search index reader");
+        search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -1256,32 +1257,22 @@ impl CustomScan for BaseScan {
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = if query.is_match_all()
-                    && !quals.contains_heap_expr()
-                    && matches!(&method, ExecMethodType::TopK { orderby_info: Some(orderby), .. }
-                        if orderby.first().is_some_and(|order| order.is_vector_distance()))
-                {
-                    WorkerPathPolicy::SerialOnly {
-                        reason: WorkerDecisionReason::UnfilteredVectorTopK,
-                    }
-                } else {
-                    decide_scan_parallelism(ScanParallelismInputs {
-                        prunability,
-                        query: &query,
-                        drive_cost,
-                        row_estimate,
-                        is_sorted,
-                        limit: float_limit,
-                        base_result_rows,
-                        segment_count,
-                        consider_parallel: consider_parallel_local,
-                        quals: &quals,
-                        root: builder.args().root,
-                        parallel_leader_participates,
-                        is_join_context,
-                        has_grouping,
-                    })
-                };
+                let policy = decide_scan_parallelism(ScanParallelismInputs {
+                    prunability,
+                    query: &query,
+                    drive_cost,
+                    row_estimate,
+                    is_sorted,
+                    limit: float_limit,
+                    base_result_rows,
+                    segment_count,
+                    consider_parallel: consider_parallel_local,
+                    quals: &quals,
+                    root: builder.args().root,
+                    parallel_leader_participates,
+                    is_join_context,
+                    has_grouping,
+                });
                 let reason = policy.reason();
 
                 // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
@@ -1290,7 +1281,6 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable
-                    | WorkerDecisionReason::UnfilteredVectorTopK
                     | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
@@ -1857,6 +1847,9 @@ impl CustomScan for BaseScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
+        if state.custom_state().vector_routing_plan.is_some() {
+            explainer.add_text("Vector Routing", "Leader");
+        }
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
                 "   TopK Order By",

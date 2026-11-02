@@ -563,11 +563,20 @@ impl SearchIndexSchema {
     pub fn search_field_with_data_by_attno(
         &self,
         attno: pg_sys::AttrNumber,
-        heaprel: &PgSearchRelation,
     ) -> Option<(SearchField, CategorizedFieldData)> {
-        self.categorized_fields()
+        if attno < 0 {
+            return None;
+        }
+        let attno = (attno - 1) as usize;
+        let fields = self.categorized_fields();
+        let matches =
+            |(_, d): &&(SearchField, CategorizedFieldData)| d.source.heap_attno() == Some(attno);
+        // A column indexed both plainly and through a tokenizer cast: prefer the plain one.
+        fields
             .iter()
-            .find(|(_, d)| d.source.heap_attno(heaprel) == Some(attno as usize))
+            .filter(matches)
+            .find(|(_, d)| matches!(d.source, FieldSource::Heap { .. }))
+            .or_else(|| fields.iter().find(matches))
             .cloned()
     }
 

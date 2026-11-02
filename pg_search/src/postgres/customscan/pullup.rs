@@ -155,14 +155,14 @@ impl SourceContext {
                 let name = self.get_attname(attno)?;
                 let (field, data) = self
                     .schema()
-                    .and_then(|s| s.search_field_with_data_by_attno(attno, &self.heaprel))?;
+                    .and_then(|s| s.search_field_with_data_by_attno(attno))?;
                 Some(ResolvedHeapField::new(Some(attno), name, field, data))
             }
             ResTarget::Field(name) => {
                 let (field, data) = self.schema().and_then(|s| s.search_field_with_data(name))?;
                 let attno = data
                     .source
-                    .heap_attno(&self.heaprel)
+                    .heap_attno()
                     .map(|n| n as pg_sys::AttrNumber + 1);
                 Some(ResolvedHeapField::new(attno, name.into(), field, data))
             }
@@ -341,7 +341,7 @@ fn find_matching_fast_field(
                 }
             }
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
-            |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
+            |(_, data)| matches!(data.source, FieldSource::Expression { att_idx, .. } if att_idx == i),
         ) && matches_node(expr as *mut pg_sys::Node)
             && let Some(ff) = to_fast_field(search_field, data.is_array)
         {

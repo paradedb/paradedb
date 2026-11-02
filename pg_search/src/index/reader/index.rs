@@ -1593,7 +1593,8 @@ impl SearchIndexReader {
         };
         let expressions = self.index_rel.index_expressions();
         for (field, data) in self.schema.categorized_fields().iter() {
-            let crate::postgres::utils::FieldSource::Expression { att_idx } = data.source else {
+            let crate::postgres::utils::FieldSource::Expression { att_idx, .. } = data.source
+            else {
                 continue;
             };
             if fields.iter().any(|existing| existing == field) {

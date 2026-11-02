@@ -5,6 +5,12 @@ against the completed 113,520,750-row heap snapshot. The workflow removes the
 label so another run can be requested explicitly. No benchmark changes need
 to be merged first.
 
+The `benchmark-msmarco-main` label starts only the pinned main baseline on a
+separate runner. It can replace a failed main job while the other variants
+continue. Manual dispatch also accepts `variant=main`, `pr7160`, or
+`pg_vectorsearch`; `all` remains the default. Benchmarker builds enable
+verbose xk6 logging so dependency-resolution failures retain their cause.
+
 | Variant         | Extension revision                                            | Recall tuning                                           |
 | --------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
 | main            | `c9030485d8c388f1cc56f8c808e80315fe47323b`                    | `paradedb.vector_cluster_max_probe`                     |

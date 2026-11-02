@@ -5,6 +5,11 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      variant:
+        description: "Benchmark variant"
+        type: choice
+        options: [all, main, pr7160, pg_vectorsearch]
+        default: all
       commit:
         description: "Candidate pg_search commit"
         default: "e3c06a5c611003c5c9d55b4cea4d636f37163e51"
@@ -34,22 +39,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: main
-            ref: ${{ inputs.baseline_commit || 'c9030485d8c388f1cc56f8c808e80315fe47323b' }}
-            config: 113m
-            engine: pg_search
-          - name: pr7160
-            ref: ${{ inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51' }}
-            config: 113m-adaptive
-            engine: pg_search
-          - name: pg_vectorsearch
-            ref: ${{ inputs.baseline_commit || 'c9030485d8c388f1cc56f8c808e80315fe47323b' }}
-            config: 113m-pgvectorsearch
-            engine: pg_vectorsearch
+        name: ${{ fromJSON(github.event.label.name == 'benchmark-msmarco-main' && '["main"]' || (inputs.variant != '' && inputs.variant != 'all' && format('["{0}"]', inputs.variant)) || '["main","pr7160","pg_vectorsearch"]') }}
     if: >-
       github.event_name != 'pull_request' ||
-      github.event.label.name == 'benchmark-msmarco-pg_search'
+      github.event.label.name == 'benchmark-msmarco-pg_search' ||
+      github.event.label.name == 'benchmark-msmarco-main'
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -63,8 +57,8 @@ jobs:
       PDBENCH_REF: ${{ inputs.pdbench_ref || 'ac64c0a34a1558ca72e07a342b51b52076befa50' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
-      BENCHMARK_REF: ${{ matrix.ref }}
-      MSMARCO_CONFIG: benchmarks/msmarco/${{ matrix.config }}.toml
+      BENCHMARK_REF: ${{ matrix.name == 'pr7160' && (inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51') || (inputs.baseline_commit || 'c9030485d8c388f1cc56f8c808e80315fe47323b') }}
+      MSMARCO_CONFIG: benchmarks/msmarco/${{ matrix.name == 'pr7160' && '113m-adaptive' || matrix.name == 'pg_vectorsearch' && '113m-pgvectorsearch' || '113m' }}.toml
 
     steps:
       - name: Remove benchmark label
@@ -116,7 +110,7 @@ jobs:
           pg_version: ${{ env.pg_version }}
 
       - name: Create pg_vectorsearch checkout token
-        if: matrix.engine == 'pg_vectorsearch'
+        if: matrix.name == 'pg_vectorsearch'
         id: pg_vectorsearch_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -127,7 +121,7 @@ jobs:
           permission-contents: read
 
       - name: Checkout pg_vectorsearch memory fix
-        if: matrix.engine == 'pg_vectorsearch'
+        if: matrix.name == 'pg_vectorsearch'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: paradedb/pg_vectorsearch
@@ -137,13 +131,13 @@ jobs:
           persist-credentials: false
 
       - name: Install pg_vectorsearch build tools
-        if: matrix.engine == 'pg_vectorsearch'
+        if: matrix.name == 'pg_vectorsearch'
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: meson ninja-build
 
       - name: Build and install pg_vectorsearch
-        if: matrix.engine == 'pg_vectorsearch'
+        if: matrix.name == 'pg_vectorsearch'
         run: |
           set -euo pipefail
           pg_config="/usr/lib/postgresql/${pg_version}/bin/pg_config"
@@ -190,6 +184,7 @@ jobs:
         uses: ./.github/actions/setup-benchmarker
         with:
           ref: ${{ env.BENCHMARKER_REF }}
+          verbose: "true"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
@@ -215,7 +210,7 @@ jobs:
           (cd pg_search && cargo pgrx start pg18)
 
       - name: Enable pg_vectorsearch parallel build
-        if: matrix.engine == 'pg_vectorsearch'
+        if: matrix.name == 'pg_vectorsearch'
         run: |
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
             -c 'CREATE EXTENSION pg_vectorsearch;' \
@@ -246,7 +241,7 @@ jobs:
             | tee benchmark-artifacts/index-vacuum.log
 
       - name: Verify pg_vectorsearch used parallel workers
-        if: matrix.engine == 'pg_vectorsearch'
+        if: matrix.name == 'pg_vectorsearch'
         run: |
           jq -e '.data.metrics.workers.max_parallel_workers > 0' \
             benchmark-artifacts/search/"${MSMARCO_SIZE}"/*_build.json
@@ -331,7 +326,7 @@ jobs:
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","variant":"${{ matrix.name }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.name == 'pg_vectorsearch' && 'pg_vectorsearch' || 'pg_search' }}","variant":"${{ matrix.name }}","pg_vectorsearch":"${{ matrix.name == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob

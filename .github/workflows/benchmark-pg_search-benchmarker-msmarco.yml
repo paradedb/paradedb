@@ -3,6 +3,20 @@ name: Benchmark pg_search (Benchmarker MS MARCO)
 on:
   pull_request:
     types: [labeled]
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        default: ""
+      pdbench_ref:
+        type: string
+        default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
+      benchmarker_ref:
+        type: string
+        default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
+      publish_baseline:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       commit:

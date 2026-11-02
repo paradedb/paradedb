@@ -30,6 +30,10 @@ on:
         description: "Optional size for stackoverflow/cohere/msmarco (e.g. 100k, 1m, 20m, 113m). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
         default: ""
+      run_benchmark:
+        description: "MS MARCO: restore the completed snapshot and run the full benchmark."
+        type: boolean
+        default: false
       benchmarker_ref:
         description: "Benchmarker ref for stackexchange/wikipedia (branch/tag/SHA)."
         required: false
@@ -216,6 +220,20 @@ jobs:
           aws s3 cp "$RUNNER_TEMP/snapshot-source.json" \
             "s3://${BACKREST_REPO_BUCKET}${BACKREST_REPO_PATH_PREFIX}/msmarco/v1/${{ matrix.size }}/pg_backrest/complete.json"
 
+  benchmark-msmarco:
+    name: Benchmark MS MARCO from Snapshot
+    needs: generate
+    if: inputs.dataset == 'msmarco' && inputs.run_benchmark
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/benchmark-pg_search-benchmarker-msmarco.yml
+    with:
+      publish_baseline: false
+    secrets: inherit
+
   generate-benchmarker:
     permissions:
       contents: read
@@ -322,7 +340,7 @@ jobs:
 
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [prep, generate, generate-benchmarker]
+    needs: [prep, generate, generate-benchmarker, benchmark-msmarco]
     if: always() && github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:

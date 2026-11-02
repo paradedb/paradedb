@@ -5,7 +5,7 @@ table = "cohere_wiki"
 expected_rows = 1000000
 dims = 1024
 vector_field = "emb"
-s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
+s3_base_path = "s3://paradedb-benchmark/datasets/cohere/v1"
 
 [postgres.build]
 shared_buffers = "12GB"

@@ -101,6 +101,47 @@ pub fn create_aggregate_session_context() -> SessionContext {
     create_datafusion_session_context()
 }
 
+/// Choose a prefix for names that Aggregate Scan creates inside DataFusion.
+///
+/// These names share a schema with user columns, so prefix them when a source
+/// field already uses the internal name. Adding underscores always produces a
+/// name outside the finite source schema.
+fn internal_column_prefix(plan: &RelNode, targetlist: &JoinAggregateTargetList) -> String {
+    let mut field_names: Vec<String> = plan
+        .sources()
+        .iter()
+        .flat_map(|source| {
+            source
+                .scan_info
+                .fields
+                .iter()
+                .map(|field| field.field.name())
+        })
+        .collect();
+    field_names.extend(
+        targetlist
+            .group_columns
+            .iter()
+            .map(|column| column.field_name.clone()),
+    );
+
+    let is_internal = |name: &str| {
+        ["ctid_", "__pdb_k", "__pdb_m"].iter().any(|kind| {
+            name.strip_prefix(kind).is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        })
+    };
+    let mut prefix = String::new();
+    while field_names.iter().any(|name| {
+        name.strip_prefix(prefix.as_str())
+            .is_some_and(|name| is_internal(name))
+    }) {
+        prefix.push('_');
+    }
+    prefix
+}
+
 /// A built aggregate plan plus what execution needs to read its output.
 pub struct JoinAggregatePlan {
     pub logical: datafusion::logical_expr::LogicalPlan,
@@ -131,6 +172,8 @@ pub async fn build_join_aggregate_plan(
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<JoinAggregatePlan> {
+    let internal_prefix = internal_column_prefix(plan, targetlist);
+
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
         ctx,
@@ -141,6 +184,7 @@ pub async fn build_join_aggregate_plan(
         expr_context,
         planstate,
         mpp_manifests,
+        &internal_prefix,
     )
     .await?;
 
@@ -152,7 +196,12 @@ pub async fn build_join_aggregate_plan(
         .schema()
         .fields()
         .iter()
-        .filter(|field| CtidColumn::try_from(field.name().as_str()).is_ok())
+        .filter(|field| {
+            field
+                .name()
+                .strip_prefix(internal_prefix.as_str())
+                .is_some_and(|name| CtidColumn::try_from(name).is_ok())
+        })
         .map(|field| col(field.name()).sort(true, false))
         .collect();
 
@@ -169,7 +218,13 @@ pub async fn build_join_aggregate_plan(
     for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
         if gc.row_value {
             // PostgreSQL's Agg node reads such a column from one row of the group.
-            let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+            let column = make_plan_position_col_for_attno(
+                plan,
+                gc.plan_position,
+                &gc.field_name,
+                gc.attno,
+                &internal_prefix,
+            );
             row_values.push((
                 gc_idx,
                 first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
@@ -187,7 +242,13 @@ pub async fn build_join_aggregate_plan(
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
                 v.insert(df_idx);
-                let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+                let column = make_plan_position_col_for_attno(
+                    plan,
+                    gc.plan_position,
+                    &gc.field_name,
+                    gc.attno,
+                    &internal_prefix,
+                );
 
                 let group_expr = match gc.transform {
                     GroupingTransform::Identity => column,
@@ -228,6 +289,7 @@ pub async fn build_join_aggregate_plan(
                     let filter_ctx = FilterExprExecContext {
                         targetlist: None,
                         plan: Some(plan),
+                        internal_prefix: Some(&internal_prefix),
                     };
                     filter_expr.to_datafusion(&filter_ctx).ok_or_else(|| {
                         DataFusionError::Internal(
@@ -245,9 +307,9 @@ pub async fn build_join_aggregate_plan(
             }
             let agg_expr = match agg.agg_kind {
                 AggKind::CountStar => Ok(count(lit(1))),
-                AggKind::Count => agg_field_col(agg, plan).map(count),
+                AggKind::Count => agg_field_col(agg, plan, &internal_prefix).map(count),
                 AggKind::CountDistinct => {
-                    let col_exprs = agg_field_cols(agg, plan)?;
+                    let col_exprs = agg_field_cols(agg, plan, &internal_prefix)?;
                     Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
                         count_udaf(),
                         col_exprs,
@@ -257,30 +319,32 @@ pub async fn build_join_aggregate_plan(
                         None,   // null_treatment
                     )))
                 }
-                AggKind::Sum => agg_field_col(agg, plan).map(|col| match &agg.numeric {
-                    // Postgres sums int8 into an exact numeric; DataFusion's
-                    // Int64 sum wraps on overflow.
-                    None if agg.func_oid == pg_sys::F_SUM_INT8 => sum(Expr::Cast(Cast::new(
-                        Box::new(col),
-                        DataType::Decimal128(38, 0),
-                    ))),
-                    None => sum(col),
-                    Some(field_type) => numeric_sum(col, field_type),
-                }),
-                AggKind::Avg => agg_field_col(agg, plan).map(|col| match &agg.numeric {
-                    None => avg(col),
-                    Some(field_type) => numeric_avg(col, field_type),
-                }),
-                AggKind::Min => agg_field_col(agg, plan).map(min),
-                AggKind::Max => agg_field_col(agg, plan).map(max),
-                AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
-                AggKind::StddevPop => agg_field_col(agg, plan).map(stddev_pop),
-                AggKind::VarSamp => agg_field_col(agg, plan).map(var_sample),
-                AggKind::VarPop => agg_field_col(agg, plan).map(var_pop),
-                AggKind::BoolAnd => agg_field_col(agg, plan).map(bool_and),
-                AggKind::BoolOr => agg_field_col(agg, plan).map(bool_or),
+                AggKind::Sum => agg_field_col(agg, plan, &internal_prefix)
+                    .map(|col| match &agg.numeric {
+                        // Postgres sums int8 into an exact numeric; DataFusion's
+                        // Int64 sum wraps on overflow.
+                        None if agg.func_oid == pg_sys::F_SUM_INT8 => sum(Expr::Cast(Cast::new(
+                            Box::new(col),
+                            DataType::Decimal128(38, 0),
+                        ))),
+                        None => sum(col),
+                        Some(field_type) => numeric_sum(col, field_type),
+                    }),
+                AggKind::Avg => agg_field_col(agg, plan, &internal_prefix)
+                    .map(|col| match &agg.numeric {
+                        None => avg(col),
+                        Some(field_type) => numeric_avg(col, field_type),
+                    }),
+                AggKind::Min => agg_field_col(agg, plan, &internal_prefix).map(min),
+                AggKind::Max => agg_field_col(agg, plan, &internal_prefix).map(max),
+                AggKind::StddevSamp => agg_field_col(agg, plan, &internal_prefix).map(stddev),
+                AggKind::StddevPop => agg_field_col(agg, plan, &internal_prefix).map(stddev_pop),
+                AggKind::VarSamp => agg_field_col(agg, plan, &internal_prefix).map(var_sample),
+                AggKind::VarPop => agg_field_col(agg, plan, &internal_prefix).map(var_pop),
+                AggKind::BoolAnd => agg_field_col(agg, plan, &internal_prefix).map(bool_and),
+                AggKind::BoolOr => agg_field_col(agg, plan, &internal_prefix).map(bool_or),
                 AggKind::ArrayAgg => {
-                    let col_expr = agg_field_col(agg, plan)?;
+                    let col_expr = agg_field_col(agg, plan, &internal_prefix)?;
                     if agg.order_by.is_empty() {
                         Ok(array_agg(col_expr))
                     } else {
@@ -289,13 +353,13 @@ pub async fn build_join_aggregate_plan(
                             vec![col_expr],
                             false,
                             None,
-                            agg_order_by_exprs(&agg.order_by, plan),
+                            agg_order_by_exprs(&agg.order_by, plan, &internal_prefix),
                             None,
                         )))
                     }
                 }
                 AggKind::StringAgg(ref sep) => {
-                    let col_expr = agg_field_col(agg, plan)?;
+                    let col_expr = agg_field_col(agg, plan, &internal_prefix)?;
                     let sep_lit = lit(sep.clone());
                     if agg.order_by.is_empty() {
                         Ok(datafusion::functions_aggregate::string_agg::string_agg(
@@ -307,7 +371,7 @@ pub async fn build_join_aggregate_plan(
                             vec![col_expr, sep_lit],
                             false,
                             None,
-                            agg_order_by_exprs(&agg.order_by, plan),
+                            agg_order_by_exprs(&agg.order_by, plan, &internal_prefix),
                             None,
                         )))
                     }
@@ -353,6 +417,7 @@ pub async fn build_join_aggregate_plan(
             let having_ctx = FilterExprExecContext {
                 targetlist: Some(targetlist),
                 plan: Some(plan),
+                internal_prefix: Some(&internal_prefix),
             };
             having.to_datafusion(&having_ctx).ok_or_else(|| {
                 DataFusionError::Internal(
@@ -379,6 +444,7 @@ pub async fn build_join_aggregate_plan(
             &pdb_filters,
             having_expr,
             plan,
+            &internal_prefix,
         )?,
         None => {
             // Deliberately *not* `DataFrame::aggregate`: that hardcodes
@@ -416,7 +482,8 @@ pub async fn build_join_aggregate_plan(
             t.sorts
                 .iter()
                 .map(|(target, dir)| {
-                    let sort_column = target.resolve_sort_column(targetlist, plan);
+                    let sort_column =
+                        target.resolve_sort_column(targetlist, plan, &internal_prefix);
                     Expr::Column(sort_column).sort(dir.is_asc(), dir.is_nulls_first())
                 })
                 .collect()
@@ -574,6 +641,7 @@ fn build_pdb_aggregate_plan(
     all_group_exprs: &[Expr],
     all_agg_exprs: &[Expr],
     grouping: &[Expr],
+    internal_prefix: &str,
 ) -> Result<LogicalPlan> {
     let array_keys: Vec<ArrayKeyToUnnest> = pdb_plan
         .keys
@@ -701,13 +769,13 @@ fn build_pdb_aggregate_plan(
         // 2. Key expressions (__pdb_k0, __pdb_k1, ...)
         for k in 0..num_keys {
             if distinct_positions.contains(&(num_outer + k)) {
-                project_exprs.push(col(format!("__pdb_k{k}")));
+                project_exprs.push(col(format!("{internal_prefix}__pdb_k{k}")));
             } else {
                 let null_expr = Expr::Cast(Cast::new(
                     Box::new(lit(ScalarValue::Null)),
                     pdb_plan.keys[k].field.field_type.arrow_data_type(),
                 ))
-                .alias(format!("__pdb_k{k}"));
+                .alias(format!("{internal_prefix}__pdb_k{k}"));
                 project_exprs.push(null_expr);
             }
         }
@@ -799,18 +867,22 @@ fn apply_pdb_aggregate(
     pdb_filters: &HashMap<usize, Expr>,
     having_expr: Option<Expr>,
     plan: &RelNode,
+    internal_prefix: &str,
 ) -> Result<DataFrame> {
     let key_exprs: Vec<Expr> = pdb_plan
         .keys
         .iter()
         .enumerate()
-        .map(|(i, key)| pdb_key_expr(key, plan).alias(format!("__pdb_k{i}")))
+        .map(|(i, key)| pdb_key_expr(key, plan).alias(format!("{internal_prefix}__pdb_k{i}")))
         .collect();
     let metric_exprs: Vec<Expr> = pdb_plan
         .metrics
         .iter()
         .enumerate()
-        .map(|(j, metric)| pdb_metric_expr(metric, plan, pdb_filters).alias(format!("__pdb_m{j}")))
+        .map(|(j, metric)| {
+            pdb_metric_expr(metric, plan, pdb_filters)
+                .alias(format!("{internal_prefix}__pdb_m{j}"))
+        })
         .collect();
 
     let num_std_aggs = agg_exprs.len();
@@ -837,6 +909,7 @@ fn apply_pdb_aggregate(
         &all_group_exprs,
         &all_agg_exprs,
         &grouping,
+        internal_prefix,
     )?;
     let mut df = DataFrame::new(session_state, aggregated);
 
@@ -1065,6 +1138,7 @@ fn build_relnode_df<'a>(
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_manifests: Option<&'a [SearchIndexManifest]>,
+    internal_prefix: &'a str,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -1078,6 +1152,7 @@ fn build_relnode_df<'a>(
                     expr_context,
                     planstate,
                     mpp_manifests,
+                    internal_prefix,
                 )
                 .await?;
                 let alias =
@@ -1094,6 +1169,7 @@ fn build_relnode_df<'a>(
                     expr_context,
                     planstate,
                     mpp_manifests,
+                    internal_prefix,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -1105,6 +1181,7 @@ fn build_relnode_df<'a>(
                     expr_context,
                     planstate,
                     mpp_manifests,
+                    internal_prefix,
                 )
                 .await?;
 
@@ -1122,6 +1199,7 @@ fn build_relnode_df<'a>(
                     expr_context,
                     planstate,
                     mpp_manifests,
+                    internal_prefix,
                 )
                 .await?;
 
@@ -1139,6 +1217,7 @@ fn build_relnode_df<'a>(
                         sources: &sources,
                         custom_scan_tlist,
                         lateral_unnests,
+                        internal_prefix,
                     };
                     let translator =
                         PredicateTranslator::new(&sources).with_mapper(Box::new(mapper));
@@ -1175,6 +1254,7 @@ fn build_relnode_df<'a>(
                     expr_context,
                     planstate,
                     mpp_manifests,
+                    internal_prefix,
                 )
                 .await?;
                 apply_relnode_unnest(df, unnest)
@@ -1193,6 +1273,7 @@ struct AggregateIndexVarMapper<'a> {
     sources: &'a [&'a JoinSource],
     custom_scan_tlist: *mut pg_sys::List,
     lateral_unnests: Vec<&'a LateralUnnestInfo>,
+    internal_prefix: &'a str,
 }
 
 impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
@@ -1232,6 +1313,13 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 
         let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
         let field_name = source.column_name(attno)?;
+        let field_name_for_df = if attno
+            == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber
+        {
+            format!("{}{}", self.internal_prefix, field_name)
+        } else {
+            field_name.clone()
+        };
         if self
             .lateral_unnests
             .iter()
@@ -1243,7 +1331,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
                 "{alias}_{field_name}"
             )))
         } else {
-            Some(make_source_col(source, &field_name))
+            Some(make_source_col(source, &field_name_for_df))
         }
     }
 }
@@ -1259,6 +1347,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 pub struct FilterExprExecContext<'a> {
     pub targetlist: Option<&'a JoinAggregateTargetList>,
     pub plan: Option<&'a RelNode>,
+    pub internal_prefix: Option<&'a str>,
 }
 
 impl FilterExpr {
@@ -1283,16 +1372,27 @@ impl FilterExpr {
                 let tl = ctx.targetlist?;
                 let plan = ctx.plan?;
                 (*idx < tl.group_columns.len()).then(|| {
-                    Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
+                    Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(
+                        tl,
+                        plan,
+                        ctx.internal_prefix.unwrap_or_default(),
+                    ))
                 })
             }
             FilterExpr::ColumnRef(ColumnRef {
                 plan_position,
+                attno,
                 field_name,
                 ..
             }) => {
                 let plan = ctx.plan?;
-                Some(make_plan_position_col(plan, *plan_position, field_name))
+                Some(make_plan_position_col_for_attno(
+                    plan,
+                    *plan_position,
+                    field_name,
+                    *attno,
+                    ctx.internal_prefix.unwrap_or_default(),
+                ))
             }
             FilterExpr::SearchTag {
                 plan_position,
@@ -1374,6 +1474,7 @@ async fn build_source_df(
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_manifests: Option<&[SearchIndexManifest]>,
+    internal_prefix: &str,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
     let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
@@ -1458,7 +1559,8 @@ async fn build_source_df(
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
             Some(WhichFastField::Ctid) => {
-                make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
+                make_col(alias.as_str(), name)
+                    .alias(format!("{internal_prefix}{}", CtidColumn::new(plan_position)))
             }
             _ => make_col(alias.as_str(), name),
         };
@@ -1516,6 +1618,27 @@ pub(crate) fn make_plan_position_col(
     )
 }
 
+/// Build a column reference while accounting for a dynamically prefixed CTID alias.
+pub(crate) fn make_plan_position_col_for_attno(
+    plan: &RelNode,
+    plan_position: usize,
+    field_name: &str,
+    attno: pg_sys::AttrNumber,
+    internal_prefix: &str,
+) -> Expr {
+    let resolved_name = if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+        format!("{internal_prefix}{field_name}")
+    } else {
+        field_name.to_string()
+    };
+    make_plan_position_col_with(
+        plan,
+        plan_position,
+        &resolved_name,
+        is_lateral_unnest(plan, plan_position, field_name),
+    )
+}
+
 /// Replace an `Expr::AggregateFunction` with the same call but `distinct=true`.
 /// Non-aggregate-function expressions are returned unchanged.
 fn with_distinct(expr: Expr) -> Expr {
@@ -1549,20 +1672,40 @@ fn with_filter(expr: Expr, filter: Expr) -> Expr {
 }
 
 /// Build a DataFusion column expression for an aggregate's first field reference.
-fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
+fn agg_field_col(
+    agg: &JoinAggregateEntry,
+    plan: &RelNode,
+    internal_prefix: &str,
+) -> Result<Expr> {
     let r = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
-    Ok(make_plan_position_col(plan, r.plan_position, &r.field_name))
+    Ok(make_plan_position_col_for_attno(
+        plan,
+        r.plan_position,
+        &r.field_name,
+        r.attno,
+        internal_prefix,
+    ))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
-fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort> {
+fn agg_order_by_exprs(
+    order_by: &[AggOrderByEntry],
+    plan: &RelNode,
+    internal_prefix: &str,
+) -> Vec<Sort> {
     order_by
         .iter()
         .map(|entry| {
             Sort::new(
-                make_plan_position_col(plan, entry.plan_position, &entry.field_name),
+                make_plan_position_col_for_attno(
+                    plan,
+                    entry.plan_position,
+                    &entry.field_name,
+                    entry.attno,
+                    internal_prefix,
+                ),
                 entry.direction.is_asc(),
                 entry.direction.is_nulls_first(),
             )
@@ -1572,9 +1715,21 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
 
 /// Build DataFusion column expressions for all of an aggregate's field references.
 /// Used for multi-column DISTINCT (e.g. `COUNT(DISTINCT col1, col2)`).
-fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
+fn agg_field_cols(
+    agg: &JoinAggregateEntry,
+    plan: &RelNode,
+    internal_prefix: &str,
+) -> Result<Vec<Expr>> {
     agg.field_refs
         .iter()
-        .map(|r| Ok(make_plan_position_col(plan, r.plan_position, &r.field_name)))
+        .map(|r| {
+            Ok(make_plan_position_col_for_attno(
+                plan,
+                r.plan_position,
+                &r.field_name,
+                r.attno,
+                internal_prefix,
+            ))
+        })
         .collect()
 }

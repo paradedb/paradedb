@@ -9,20 +9,8 @@
 name: Benchmark pg_search (Benchmarker)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/actions/build-paradedb-image/**"
-      - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/stage-benchmark-results/**"
-      - ".github/workflows/publish-benchmark-results.yml"
-      - ".github/actions/setup-benchmarker/**"
-      - ".github/workflows/benchmark-pg_search-benchmarker.yml"
-      - "docker/Dockerfile.source"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
@@ -71,6 +59,7 @@ jobs:
       - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hackernews' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews'))
     env:
@@ -214,7 +203,7 @@ jobs:
       - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
     strategy:
@@ -403,7 +392,7 @@ jobs:
   notify-slack-on-failure:
     name: Notify Slack on Failure
     needs: [benchmark-hackernews, benchmark-datasets, publish-results]
-    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'push'
+    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read

@@ -260,8 +260,25 @@ impl CompiledSynonyms {
 struct CachedSet {
     version: i64,
     xmin: i64,
+    /// The statement that last read the row. One statement sees one version of the set, and a
+    /// query builds its Tantivy query more than once (estimation, then execution), so the row is
+    /// read once per statement.
+    checked_in: StatementId,
     rules: Arc<Vec<String>>,
     compiled: HashMap<String, Arc<CompiledSynonyms>>,
+}
+
+/// Names the current statement without assigning a transaction id: the transaction start time
+/// tells transactions apart, the command id tells statements inside one apart.
+type StatementId = (pg_sys::TimestampTz, pg_sys::CommandId);
+
+fn current_statement() -> StatementId {
+    unsafe {
+        (
+            pg_sys::GetCurrentTransactionStartTimestamp(),
+            pg_sys::GetCurrentCommandId(false),
+        )
+    }
 }
 
 static CACHE: OnceLock<Mutex<HashMap<String, CachedSet>>> = OnceLock::new();
@@ -335,13 +352,20 @@ pub fn compiled_set(
 
     // The lock is not held across SPI, or across compilation, so a nested use of the cache
     // from inside either cannot wait on itself.
-    let stamp = cache.lock().get(name).map(|set| (set.version, set.xmin));
-    let loaded = match load_row(name, stamp) {
-        Err(SynonymError::NotFound(name)) => {
-            cache.lock().remove(&name);
-            return Err(SynonymError::NotFound(name));
-        }
-        loaded => loaded?,
+    let statement = current_statement();
+    let cached = cache
+        .lock()
+        .get(name)
+        .map(|set| (set.version, set.xmin, set.checked_in == statement));
+    let loaded = match cached {
+        Some((_, _, true)) => Loaded::Unchanged,
+        _ => match load_row(name, cached.map(|(version, xmin, _)| (version, xmin))) {
+            Err(SynonymError::NotFound(name)) => {
+                cache.lock().remove(&name);
+                return Err(SynonymError::NotFound(name));
+            }
+            loaded => loaded?,
+        },
     };
 
     let rules = {
@@ -360,6 +384,7 @@ pub fn compiled_set(
                     CachedSet {
                         version,
                         xmin,
+                        checked_in: statement,
                         rules,
                         compiled: HashMap::default(),
                     },
@@ -367,6 +392,7 @@ pub fn compiled_set(
                 cache.get_mut(name).unwrap()
             }
         };
+        set.checked_in = statement;
         if let Some(compiled) = set.compiled.get(analyzer_key) {
             return Ok(compiled.clone());
         }

@@ -11,15 +11,13 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
 
-This branch enables `paradedb.vector_router_quantization` during index
-creation. The setting defaults to off and is persisted with the index, so
-later build workers, merges, and search sessions retain the one-bit router
-after the SQL script resets the GUC. Document quantization is independent.
-Changing the setting requires rebuilding the index with CREATE INDEX or
-REINDEX to select a different router. `VACUUM FULL` also rebuilds indexes, so
-the workflow enables the setting again in its vacuum session before that
-rebuild. `index-vacuum.log` records the setting used; a setting from the
-initial build session alone does not establish the router used by searches.
+The benchmark index enables `vector_router_quantization = true` in its
+`CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false
+and is stored in the index definition, so parallel builds, REINDEX, and
+`VACUUM FULL` use the same setting without session configuration. Document-vector
+quantization is independent. To change the router for an existing index, use
+`ALTER INDEX ... SET (vector_router_quantization = true)` followed by REINDEX;
+changing the option alone does not rewrite existing router data.
 
 Router code and sidecar columns are file-backed: open reads only headers and
 list topology, and scoring fetches the row ranges for the lists actually probed.

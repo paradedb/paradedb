@@ -319,8 +319,8 @@ pub async fn build_join_aggregate_plan(
                         None,   // null_treatment
                     )))
                 }
-                AggKind::Sum => agg_field_col(agg, plan, &internal_prefix)
-                    .map(|col| match &agg.numeric {
+                AggKind::Sum => {
+                    agg_field_col(agg, plan, &internal_prefix).map(|col| match &agg.numeric {
                         // Postgres sums int8 into an exact numeric; DataFusion's
                         // Int64 sum wraps on overflow.
                         None if agg.func_oid == pg_sys::F_SUM_INT8 => sum(Expr::Cast(Cast::new(
@@ -329,12 +329,14 @@ pub async fn build_join_aggregate_plan(
                         ))),
                         None => sum(col),
                         Some(field_type) => numeric_sum(col, field_type),
-                    }),
-                AggKind::Avg => agg_field_col(agg, plan, &internal_prefix)
-                    .map(|col| match &agg.numeric {
+                    })
+                }
+                AggKind::Avg => {
+                    agg_field_col(agg, plan, &internal_prefix).map(|col| match &agg.numeric {
                         None => avg(col),
                         Some(field_type) => numeric_avg(col, field_type),
-                    }),
+                    })
+                }
                 AggKind::Min => agg_field_col(agg, plan, &internal_prefix).map(min),
                 AggKind::Max => agg_field_col(agg, plan, &internal_prefix).map(max),
                 AggKind::StddevSamp => agg_field_col(agg, plan, &internal_prefix).map(stddev),
@@ -880,8 +882,7 @@ fn apply_pdb_aggregate(
         .iter()
         .enumerate()
         .map(|(j, metric)| {
-            pdb_metric_expr(metric, plan, pdb_filters)
-                .alias(format!("{internal_prefix}__pdb_m{j}"))
+            pdb_metric_expr(metric, plan, pdb_filters).alias(format!("{internal_prefix}__pdb_m{j}"))
         })
         .collect();
 
@@ -1321,13 +1322,12 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 
         let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
         let field_name = source.column_name(attno)?;
-        let field_name_for_df = if attno
-            == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber
-        {
-            format!("{}{}", self.internal_prefix, field_name)
-        } else {
-            field_name.clone()
-        };
+        let field_name_for_df =
+            if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+                format!("{}{}", self.internal_prefix, field_name)
+            } else {
+                field_name.clone()
+            };
         if self
             .lateral_unnests
             .iter()
@@ -1566,10 +1566,10 @@ async fn build_source_df(
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
-            Some(WhichFastField::Ctid) => {
-                make_col(alias.as_str(), name)
-                    .alias(format!("{internal_prefix}{}", CtidColumn::new(plan_position)))
-            }
+            Some(WhichFastField::Ctid) => make_col(alias.as_str(), name).alias(format!(
+                "{internal_prefix}{}",
+                CtidColumn::new(plan_position)
+            )),
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);
@@ -1680,11 +1680,7 @@ fn with_filter(expr: Expr, filter: Expr) -> Expr {
 }
 
 /// Build a DataFusion column expression for an aggregate's first field reference.
-fn agg_field_col(
-    agg: &JoinAggregateEntry,
-    plan: &RelNode,
-    internal_prefix: &str,
-) -> Result<Expr> {
+fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode, internal_prefix: &str) -> Result<Expr> {
     let r = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;

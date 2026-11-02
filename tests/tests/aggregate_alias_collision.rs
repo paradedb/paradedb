@@ -92,4 +92,3 @@ fn aggregate_scan_handles_internal_alias_collisions(mut conn: PgConnection) {
         assert_eq!(buckets[0]["doc_count"].as_u64(), Some(20));
     }
 }
-

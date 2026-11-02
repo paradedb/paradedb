@@ -145,14 +145,27 @@ jobs:
           aws-region: us-east-1
 
       - name: Restore MS MARCO heap snapshot
+        env:
+          SNAPSHOT_REF: ${{ github.head_ref || github.ref_name }}
+          SNAPSHOT_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id || github.repository_id }}
         run: |
           set -euo pipefail
           mkdir -p benchmark-artifacts
+          snapshot_prefix=/snapshots
+          branch_prefix="/snapshots/branches/$SNAPSHOT_REPOSITORY_ID/$SNAPSHOT_REF"
+          marker="${branch_prefix#/}/msmarco/v1/$MSMARCO_SIZE/pg_backrest/complete.json"
+          if [ "$SNAPSHOT_REF" != main ] && aws s3api head-object \
+              --bucket paradedb-benchmark --key "$marker" >/dev/null 2>&1; then
+            snapshot_prefix="$branch_prefix"
+            aws s3 cp "s3://paradedb-benchmark/$marker" benchmark-artifacts/snapshot-source.json
+          fi
+          echo "$snapshot_prefix" | tee benchmark-artifacts/snapshot-prefix.txt
+          echo "Heap snapshot prefix: \`$snapshot_prefix\`" >> "$GITHUB_STEP_SUMMARY"
           (cd pg_search && cargo pgrx stop pg18)
           (cd benchmarks && cargo run --release -- restore-heap \
             --dataset msmarco --size "$MSMARCO_SIZE" \
             --pgdata /home/runner/.pgrx/data-18 --stanza bench \
-            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
+            --repo-bucket paradedb-benchmark --repo-path-prefix "$snapshot_prefix" \
             --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
             --repo-s3-key-type shared)
           (cd pg_search && cargo pgrx start pg18)

@@ -93,7 +93,13 @@ jobs:
       id-token: write
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
     needs: prep
-    if: github.ref == 'refs/heads/main' && needs.prep.outputs.native != '[]'
+    if: >-
+      needs.prep.outputs.native != '[]' &&
+      (github.ref == 'refs/heads/main' ||
+       (startsWith(github.ref, 'refs/heads/') && inputs.dataset == 'msmarco'))
+    concurrency:
+      group: snapshot-${{ matrix.dataset }}-${{ matrix.size }}-${{ github.ref }}
+      cancel-in-progress: false
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
@@ -109,7 +115,7 @@ jobs:
       pg_version: 18
       BACKREST_STANZA: bench
       BACKREST_REPO_BUCKET: paradedb-benchmark
-      BACKREST_REPO_PATH_PREFIX: /snapshots
+      BACKREST_REPO_PATH_PREFIX: ${{ github.ref == 'refs/heads/main' && '/snapshots' || format('/snapshots/branches/{0}/{1}', github.repository_id, github.ref_name) }}
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
       BACKREST_REPO_S3_KEY_TYPE: shared
@@ -132,6 +138,16 @@ jobs:
           allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
           unset-current-credentials: true
           aws-region: us-east-1
+
+      - name: Record snapshot destination
+        run: |
+          set -euo pipefail
+          destination="s3://${BACKREST_REPO_BUCKET}${BACKREST_REPO_PATH_PREFIX}/${{ matrix.dataset }}/v1/${{ matrix.size }}"
+          jq -n --arg commit "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
+            --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{commit: $commit, ref: $ref, run: $run}' > "$RUNNER_TEMP/snapshot-source.json"
+          aws s3 cp "$RUNNER_TEMP/snapshot-source.json" "$destination/run.json"
+          echo "Snapshot destination: \`$destination/pg_backrest/\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
@@ -193,6 +209,12 @@ jobs:
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}" \
             --process-max 8
+
+      - name: Mark MS MARCO snapshot complete
+        if: matrix.dataset == 'msmarco'
+        run: |
+          aws s3 cp "$RUNNER_TEMP/snapshot-source.json" \
+            "s3://${BACKREST_REPO_BUCKET}${BACKREST_REPO_PATH_PREFIX}/msmarco/v1/${{ matrix.size }}/pg_backrest/complete.json"
 
   generate-benchmarker:
     permissions:
@@ -301,7 +323,7 @@ jobs:
   notify-slack-on-failure:
     name: Notify Slack on Failure
     needs: [prep, generate, generate-benchmarker]
-    if: always() && contains(needs.*.result, 'failure')
+    if: always() && github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
       actions: read

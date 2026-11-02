@@ -30,7 +30,7 @@ use tokenizers::SearchTokenizer;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 
 pub(crate) mod definitions;
-mod typmod;
+pub(crate) mod typmod;
 
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
@@ -358,6 +358,10 @@ pub fn search_field_config_from_type(
 
     let k1 = parsed_typmod.get("k1").and_then(|p| p.as_f32());
     let b = parsed_typmod.get("b").and_then(|p| p.as_f32());
+    let synonyms = parsed_typmod
+        .get("synonyms")
+        .and_then(|p| p.as_str())
+        .map(str::to_string);
 
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         assert!(!pnorms, "pnorms=true is only supported for text fields");
@@ -368,6 +372,7 @@ pub fn search_field_config_from_type(
             bitmap_postings,
             tokenizer,
             search_tokenizer,
+            synonyms,
             record,
             normalizer,
             column: None,
@@ -384,6 +389,7 @@ pub fn search_field_config_from_type(
             pnorms,
             tokenizer,
             search_tokenizer,
+            synonyms,
             record,
             normalizer,
             column: None,

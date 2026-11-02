@@ -196,6 +196,16 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
+/// Only the shape is checked. The set can be inserted after the index is created, so a missing
+/// set is reported at query time, with its name.
+#[pg_guard]
+extern "C-unwind" fn validate_synonyms(value: *const std::os::raw::c_char) {
+    let s = cstr_to_rust_str(value);
+    if s.trim() != s || s.contains('\0') {
+        panic!("invalid synonyms: '{s}'");
+    }
+}
+
 #[pg_guard]
 extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
@@ -235,7 +245,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -345,6 +355,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "search_tokenizer".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, search_tokenizer_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "synonyms".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, synonyms_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -481,6 +498,10 @@ impl BM25IndexOptions {
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
         self.options_data().search_tokenizer()
+    }
+
+    pub fn synonyms(&self) -> Option<String> {
+        self.options_data().synonyms()
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -814,6 +835,7 @@ struct BM25IndexOptionsData {
     max_leaf_size: i32,
     training_sample_ratio: f64,
     partition_by_offset: i32,
+    synonyms_offset: i32,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -836,6 +858,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
+    synonyms_offset: 0,
 };
 
 impl BM25IndexOptionsData {
@@ -924,6 +947,11 @@ impl BM25IndexOptionsData {
             return None;
         }
         crate::api::tokenizers::tokenizer_from_expression(&expr)
+    }
+
+    pub fn synonyms(&self) -> Option<String> {
+        let name = self.get_str(self.synonyms_offset, "".to_string());
+        if name.is_empty() { None } else { Some(name) }
     }
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -1122,6 +1150,15 @@ pub unsafe fn init() {
         "Default search-time tokenizer for text/JSON fields".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_search_tokenizer),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "synonyms".as_pg_cstr(),
+        "Synonym set in paradedb.synonym_sets that match queries on text/JSON fields expand with"
+            .as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_synonyms),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

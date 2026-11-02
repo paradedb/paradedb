@@ -541,7 +541,7 @@ impl ParsedTypmod {
 /// It has no lock around it: the SQL it runs can call back into the same function, and a lock
 /// held while the statement executes would make that inner call wait on itself forever.
 #[repr(transparent)]
-struct StmtHolder(OwnedPreparedStatement);
+pub(crate) struct StmtHolder(pub(crate) OwnedPreparedStatement);
 
 // SAFETY:  we don't do threads in postgres
 unsafe impl Send for StmtHolder {}

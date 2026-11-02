@@ -1,0 +1,102 @@
+---
+title: Synonyms
+description: Expand a match query with synonyms kept in a table, with no reindex on change
+canonical: https://www.paradedb.com/docs/reference/tokenizers/synonyms
+---
+
+A search for `sofa` can also find rows that say `couch`. The synonym rules live in a table, and a change to the table is live on
+the next query. Nothing in the index changes, so there is no reindex.
+
+## Defining a Set
+
+A set is one row of `paradedb.synonym_sets`. Each element of `rules` is one rule in the Solr format, so an Elasticsearch or
+OpenSearch synonym file pastes in unchanged.
+
+```sql
+INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('shop', ARRAY[
+    'couch, sofa, divan',          -- equivalents: each one expands to the whole group
+    'sneakers => running shoes',   -- directed: the left side is replaced by the right side
+    '# a comment'                  -- comments and blank lines are skipped
+]);
+```
+
+A term can have more than one word, on either side of a rule. A backslash escapes a comma inside a term.
+
+Every role can read the table. Who can write a set is decided with ordinary table grants:
+
+```sql
+GRANT INSERT, UPDATE, DELETE ON paradedb.synonym_sets TO shop_admin;
+```
+
+## Attaching a Set
+
+A set attaches to a whole index, or to one field. The field setting wins over the index setting, and `synonyms=none` on a
+field turns expansion off for that field.
+
+```sql
+-- every text and JSON field of the index
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category)
+WITH (synonyms = 'shop');
+
+-- per field
+CREATE INDEX search_idx ON mock_items
+USING paradedb (
+    id,
+    (description::pdb.simple('synonyms=shop')),
+    (category::pdb.simple('synonyms=none'))
+);
+```
+
+The index setting can be changed without a reindex:
+
+```sql
+ALTER INDEX search_idx SET (synonyms = 'shop');
+ALTER INDEX search_idx RESET (synonyms);
+```
+
+A set can be inserted after the index that names it. A query against a set that does not exist fails with the name of the set.
+
+## Which Queries Expand
+
+Synonyms apply to the [match](/reference/full-text/match) operators, `|||` and `&&&`. Each term of the query that matches a
+rule becomes the group of its alternatives, and a row matches the group when it contains any of them. With `&&&`, every
+group must match.
+
+The rules go through the same tokenizer as the query. With a stemmer on the field, `sneakers` and `sneaker` are the same
+rule key.
+
+A few cases stay exact:
+
+- A [fuzzy](/reference/full-text/fuzzy) query keeps the typed term fuzzy. Its alternatives are matched exactly.
+- A tokenizer cast on the query string, such as `'sofa'::pdb.simple`, gives exact tokens with no expansion. This is the way
+  to turn synonyms off for one query.
+- [Term](/reference/full-text/term), [phrase](/reference/full-text/phrase) and [query parser](/reference/full-text/query-parser)
+  queries do not expand.
+
+## Scoring
+
+The alternatives of one term share one score. A row that contains both `sofa` and `couch` scores once for the term, with
+the best of the two, and not twice. A directed rule replaces the typed term, so `sneakers` scores as the phrase
+`running shoes`.
+
+## Reload
+
+Changes are transactional. An `UPDATE` to a set is visible to its own transaction right away, and to every other session
+after it commits. There is no reload call.
+
+## Checking an Expansion
+
+`paradedb.synonym_expansion` shows how a query string expands before you run it. Pass the tokenizer the field uses.
+
+```sql
+SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('simple'), 'red sofa');
+```
+
+```csv
+ position | token |    alternatives
+----------+-------+--------------------
+        0 | red   | {red}
+        1 | sofa  | {couch,sofa,divan}
+(2 rows)
+```

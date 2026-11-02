@@ -1728,6 +1728,7 @@ fn maybe_apply_filter_to_expr(
         .to_datafusion(&FilterExprExecContext {
             targetlist: None,
             plan: Some(plan),
+            internal_prefix: None,
         })
         .ok_or(DataFusionError::Internal(
             "couldn't convert window function predicate to a datafusion predicate".to_string(),

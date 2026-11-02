@@ -2523,11 +2523,13 @@ pub(crate) fn nodes_equal_modulo_commutation(a: *mut pg_sys::Node, b: *mut pg_sy
     false
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::FilterExpr;
+    use pgrx::pg_test;
 
-    #[test]
+    #[pg_test]
     fn numeric_literals_preserve_precision_and_scale() {
         for (text, value, scale) in [
             ("18014398509481986", "18014398509481986", 0),
@@ -2555,7 +2557,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn unsupported_numeric_literals_fall_back() {
         for text in ["NaN", "Infinity", "-Infinity", "1e38", "1e-39"] {
             assert_eq!(FilterExpr::numeric_literal(text), None, "{text}");

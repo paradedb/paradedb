@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Adaptive vector probing uses `paradedb.vector_search_effort` to control routing and admission-based early stopping together. Higher values spend more work searching for neighbors; calibrate the setting against measured recall. Adaptive probing no longer requires separate recall-target and exponent settings, and does not apply the fixed 16-cluster probe floor. `paradedb.vector_cluster_max_probe = 0` selects the automatic work ceiling; explicit positive ceilings remain available.

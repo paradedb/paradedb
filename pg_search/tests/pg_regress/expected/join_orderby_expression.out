@@ -112,7 +112,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_fd4454da(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -195,7 +195,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 - 0 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_e22d00d8(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -243,7 +243,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_46622aa0(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -339,7 +339,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_fd4454da(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -388,7 +388,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.big_id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 + 0 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_40249b18(big_id@2) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -419,7 +419,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.big_id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_a0b34269(big_id@2) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -450,7 +450,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, 0 + id@1 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_662fe57b(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -481,7 +481,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_cf5a22da(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
@@ -739,7 +739,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, pdb_eval_expr_opexpr_fd4454da(id@1) as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]

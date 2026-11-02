@@ -37,13 +37,13 @@ jobs:
       - name: Generate GitHub App Token
         id: app-token
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Check out the PR head's repo and ref so this works for fork PRs too;
           # the branch only exists on the fork, not on the base repo. For
@@ -54,7 +54,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@main
+        uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
 
       # Build only cargo deps to surface cargoHash mismatches quickly, without
       # compiling pg_search for every Postgres variant. If the hash is stale,

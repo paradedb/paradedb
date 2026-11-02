@@ -37,7 +37,7 @@ jobs:
       prior_matrix: ${{ steps.compute.outputs.prior_matrix }}
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
@@ -86,13 +86,13 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Fetch Release Tags
         run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
@@ -108,7 +108,7 @@ jobs:
           install_cargo_pgrx: "false"
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v14
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: lsof libopenblas-dev lld gdb
 

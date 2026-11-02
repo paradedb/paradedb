@@ -116,8 +116,16 @@ def summary(records):
 
 def run_tuning(profile, directory, assets, variants=VARIANTS):  # pylint: disable=too-many-locals
     """Run tuning."""
-    runs = directory / "search"
-    base = search_reports(directory / "admission" / profile.stem)[QUERY]
+    runs = directory / "admission"
+    base = search_reports(runs / profile.stem)[QUERY]
+    overrides = {
+        "search.runs": base["config"]["search"]["runs"],
+        **{
+            f"search.session.{key}": value
+            for key, value in base["config"]["search"]["session"].items()
+            if key not in KEYS
+        },
+    }
     vector = json.loads((directory / "query_vectors.json").read_text())[0]
     output = directory / "router-tuning"
     for name in ("configs", "reports", "plans", "logs"):
@@ -146,8 +154,11 @@ def run_tuning(profile, directory, assets, variants=VARIANTS):  # pylint: disabl
                     "--query",
                     QUERY,
                     "--no-compare",
-                    "--set",
-                    f"search.runs={base['config']['search']['runs']}",
+                    *[
+                        arg
+                        for key, value in overrides.items()
+                        for arg in ("--set", f"{key}={value}")
+                    ],
                     "--html",
                 ],
                 stdout=log,

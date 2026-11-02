@@ -29,6 +29,7 @@ class RouterTuningTest(unittest.TestCase):
         config = tomllib.loads(self.source)
         config["search"]["query"] = QUERY
         config["search"]["runs"] = 3
+        config["search"]["session"]["paradedb.vector_cluster_max_probe"] = "0"
         self.report = {
             "kind": "search",
             "profile": "1m",
@@ -122,6 +123,7 @@ class RouterTuningTest(unittest.TestCase):
 
     def test_runner_searches_one_index_and_verifies_each_requested_mode(self):
         """Runner searches one index and verifies each requested mode."""
+        self.report["data"]["build"] = None
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = root / "1m.toml"
@@ -137,17 +139,27 @@ class RouterTuningTest(unittest.TestCase):
                 commands.append(command)
                 self.assertNotIn("build", command)
                 if command[1] == "search":
+                    runs = Path(command[command.index("--runs-dir") + 1])
+                    self.assertEqual(runs, initial.parent)
                     generated = Path(command[command.index("--config") + 1])
                     report = copy.deepcopy(self.report)
                     report["config"] = tomllib.loads(
                         generated.read_text(encoding="utf-8")
                     )
                     report["config"]["search"]["query"] = QUERY
-                    report["config"]["search"]["runs"] = int(
-                        command[command.index("--set") + 1].split("=")[1]
+                    overrides = dict(
+                        command[i + 1].split("=", 1)
+                        for i, arg in enumerate(command)
+                        if arg == "--set"
+                    )
+                    report["config"]["search"]["runs"] = int(overrides["search.runs"])
+                    report["config"]["search"]["session"].update(
+                        (key.removeprefix("search.session."), value)
+                        for key, value in overrides.items()
+                        if key.startswith("search.session.")
                     )
                     report["profile"] = generated.stem
-                    output = directory / "search" / generated.stem
+                    output = runs / generated.stem
                     output.mkdir(parents=True)
                     (output / "one_search.json").write_text(json.dumps(report))
                 return subprocess.CompletedProcess(command, 0)

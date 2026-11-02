@@ -1,4 +1,4 @@
-sampling_seed = 0                                         # unused (no sampling), required by parser
+sampling_seed = 0                                           # unused (no sampling), required by parser
 load_format = "parquet"
 s3_base_path = "s3://paradedb-benchmark/datasets/cohere/v1"
 tables = []

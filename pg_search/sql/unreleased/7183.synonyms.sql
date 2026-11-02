@@ -7,7 +7,7 @@ CREATE FUNCTION "synonym_sets_bump_version"()
 	AS 'MODULE_PATHNAME', 'synonym_sets_bump_version_wrapper';
 
 CREATE TABLE paradedb.synonym_sets (
-    name       text NOT NULL PRIMARY KEY,
+    name       text NOT NULL PRIMARY KEY CHECK (name <> 'none'),
     rules      text[] NOT NULL,
     version    bigint NOT NULL DEFAULT 1,
     updated_at timestamptz NOT NULL DEFAULT pg_catalog.now()

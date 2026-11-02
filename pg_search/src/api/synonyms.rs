@@ -26,7 +26,7 @@ use tokenizers::SearchTokenizer;
 extension_sql!(
     r#"
 CREATE TABLE paradedb.synonym_sets (
-    name       text NOT NULL PRIMARY KEY,
+    name       text NOT NULL PRIMARY KEY CHECK (name <> 'none'),
     rules      text[] NOT NULL,
     version    bigint NOT NULL DEFAULT 1,
     updated_at timestamptz NOT NULL DEFAULT pg_catalog.now()

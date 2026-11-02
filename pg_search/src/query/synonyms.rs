@@ -189,8 +189,12 @@ impl CompiledSynonyms {
                 }
             }
         }
-        // A key that only maps to itself changes nothing.
-        map.retain(|key, alternatives| alternatives.as_slice() != [key.clone()]);
+        // A key that only maps to itself changes nothing. A key whose alternatives all analyzed
+        // to nothing, such as a right side made of stopwords, must keep the typed term instead of
+        // matching nothing.
+        map.retain(|key, alternatives| {
+            !alternatives.is_empty() && alternatives.as_slice() != [key.clone()]
+        });
         let max_key_len = map.keys().map(Vec::len).max().unwrap_or(0);
         Ok(Self { map, max_key_len })
     }
@@ -359,7 +363,7 @@ pub fn compiled_set(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tantivy::tokenizer::{LowerCaser, SimpleTokenizer, Stemmer};
+    use tantivy::tokenizer::{LowerCaser, SimpleTokenizer, Stemmer, StopWordFilter};
 
     fn analyzer() -> TextAnalyzer {
         TextAnalyzer::builder(SimpleTokenizer::default())
@@ -371,6 +375,13 @@ mod tests {
         TextAnalyzer::builder(SimpleTokenizer::default())
             .filter(LowerCaser)
             .filter(Stemmer::default())
+            .build()
+    }
+
+    fn stopword_analyzer() -> TextAnalyzer {
+        TextAnalyzer::builder(SimpleTokenizer::default())
+            .filter(LowerCaser)
+            .filter(StopWordFilter::remove(vec!["the".to_string()]))
             .build()
     }
 
@@ -536,6 +547,29 @@ mod tests {
                 tokens: tokens(&["sofa"]),
                 alternatives: None,
             }]
+        );
+    }
+
+    #[test]
+    fn a_right_side_of_stopwords_keeps_the_typed_term() {
+        let compiled = CompiledSynonyms::compile(
+            "t",
+            &rules(&["sofa => the", "couch => the settee"]),
+            &mut stopword_analyzer(),
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.expand(&tokens(&["sofa", "couch"])),
+            vec![
+                Expansion {
+                    tokens: tokens(&["sofa"]),
+                    alternatives: None,
+                },
+                Expansion {
+                    tokens: tokens(&["couch"]),
+                    alternatives: Some(vec![tokens(&["settee"])]),
+                },
+            ]
         );
     }
 

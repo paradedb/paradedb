@@ -68,9 +68,11 @@ rule key.
 
 A few cases stay exact:
 
-- A [fuzzy](/reference/full-text/fuzzy) query keeps the typed term fuzzy. Its alternatives are matched exactly.
+- A [fuzzy](/reference/full-text/fuzzy) query keeps the typed term fuzzy. Its alternatives are matched exactly. When the
+  typed words match a multi-word rule key, such as `running shoes`, they are matched as an exact phrase too.
 - A tokenizer cast on the query string, such as `'sofa'::pdb.simple`, gives exact tokens with no expansion. This is the way
-  to turn synonyms off for one query.
+  to turn synonyms off for one query. The `tokenizer` argument of `pdb.match()` only picks the analyzer, so that query still
+  expands.
 - [Term](/reference/full-text/term), [phrase](/reference/full-text/phrase) and [query parser](/reference/full-text/query-parser)
   queries do not expand.
 

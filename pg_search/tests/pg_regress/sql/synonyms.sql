@@ -17,6 +17,9 @@ INSERT INTO paradedb.synonym_sets (name, rules) VALUES
 
 SELECT name, version, rules FROM paradedb.synonym_sets ORDER BY name;
 
+-- 'none' is the value that turns expansion off, so it cannot name a set.
+INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('none', ARRAY['a, b']);
+
 DROP TABLE IF EXISTS products;
 CREATE TABLE products (
     id serial8 NOT NULL PRIMARY KEY,
@@ -81,6 +84,10 @@ SELECT id, attrs FROM products WHERE attrs->'color' ||| 'red' ORDER BY id;
 
 SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 'red sofa and sneakers');
 SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 'running shoes');
+
+-- A right side that the analyzer removes, here a stopword, keeps the typed term.
+INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('stop', ARRAY['sofa => the', 'couch => the settee']);
+SELECT * FROM paradedb.synonym_expansion('stop', paradedb.tokenizer('default', stopwords_language => 'English'), 'sofa couch');
 
 -------------------------------------------------------------
 -- Reload: an UPDATE is visible to its own transaction before commit, and to every query after.

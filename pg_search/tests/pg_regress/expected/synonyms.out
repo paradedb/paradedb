@@ -24,6 +24,9 @@ SELECT name, version, rules FROM paradedb.synonym_sets ORDER BY name;
  shop   |       1 | {"# comments and blank lines are skipped","","couch, sofa, divan","sneakers => running shoes","tv, television","red, crimson"}
 (2 rows)
 
+-- 'none' is the value that turns expansion off, so it cannot name a set.
+INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('none', ARRAY['a, b']);
+ERROR:  new row for relation "synonym_sets" violates check constraint "synonym_sets_name_check"
 DROP TABLE IF EXISTS products;
 CREATE TABLE products (
     id serial8 NOT NULL PRIMARY KEY,
@@ -189,6 +192,15 @@ SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 
 ----------+---------+--------------
         0 | running | {running}
         1 | shoes   | {shoes}
+(2 rows)
+
+-- A right side that the analyzer removes, here a stopword, keeps the typed term.
+INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('stop', ARRAY['sofa => the', 'couch => the settee']);
+SELECT * FROM paradedb.synonym_expansion('stop', paradedb.tokenizer('default', stopwords_language => 'English'), 'sofa couch');
+ position | token | alternatives 
+----------+-------+--------------
+        0 | sofa  | {sofa}
+        1 | couch | {settee}
 (2 rows)
 
 -------------------------------------------------------------

@@ -27,7 +27,8 @@ use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, LateralUnnestInfo, RelNode,
+    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType,
+    LateralUnnestInfo, RelNode,
     RelationAlias, ScoreColumn, UnnestNode,
 };
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
@@ -438,8 +439,13 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
 /// is not consulted here.
 ///
 /// Returns `Err(NotImplemented)` if the join type is unsupported.
-pub fn build_join_df(left: DataFrame, right: DataFrame, join: &JoinNode) -> Result<DataFrame> {
-    let on = build_equi_join_exprs(join)?;
+pub fn build_join_df(
+    left: DataFrame,
+    right: DataFrame,
+    join: &JoinNode,
+    internal_prefix: &str,
+) -> Result<DataFrame> {
+    let on = build_equi_join_exprs(join, internal_prefix)?;
     let df_join_type = map_join_type(join.join_type)?;
 
     if matches!(join.join_type, PgJoinType::Anti { null_aware: true }) {
@@ -546,6 +552,7 @@ pub fn build_join_df_with_filter(
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
     lateral_unnests: &[LateralUnnestInfo],
+    internal_prefix: &str,
 ) -> Result<DataFrame> {
     let df_join_type = map_join_type(join.join_type)?;
 
@@ -556,6 +563,7 @@ pub fn build_join_df_with_filter(
                 sources,
                 output_columns,
                 lateral_unnests,
+                internal_prefix,
             )?
         },
         Some(other) => {
@@ -565,7 +573,7 @@ pub fn build_join_df_with_filter(
             )));
         }
         None => {
-            return build_join_df(left, right, join);
+            return build_join_df(left, right, join, internal_prefix);
         }
     };
 
@@ -579,7 +587,7 @@ pub fn build_join_df_with_filter(
         return left.join(right, df_join_type, &[], &[], Some(filter_expr));
     }
 
-    let mut on = build_equi_join_exprs(join)?;
+    let mut on = build_equi_join_exprs(join, internal_prefix)?;
     on.push(filter_expr);
     left.join_on(right, df_join_type, on)
 }
@@ -716,11 +724,13 @@ unsafe fn translate_pg_expression_filter(
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
     lateral_unnests: &[LateralUnnestInfo],
+    internal_prefix: &str,
 ) -> Result<Expr> {
     let mapper = CombinedMapper {
         sources,
         output_columns,
         lateral_unnests,
+        internal_prefix,
     };
     translate_pg_node_string(pg_node_string, sources, Box::new(mapper), "PgExpression")
 }
@@ -730,7 +740,23 @@ unsafe fn translate_pg_expression_filter(
 /// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
 /// Each key pair is resolved against the join's left/right subtrees and converted
 /// to a `left_col = right_col` DataFusion expression.
-pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
+/// Match the execution-time alias applied to synthetic CTID columns.
+fn prefix_ctid_column_name(
+    attno: pg_sys::AttrNumber,
+    column_name: String,
+    internal_prefix: &str,
+) -> String {
+    if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+        format!("{internal_prefix}{column_name}")
+    } else {
+        column_name
+    }
+}
+
+pub fn build_equi_join_exprs(
+    join: &JoinNode,
+    internal_prefix: &str,
+) -> Result<Vec<Expr>> {
     let mut on = Vec::with_capacity(join.equi_keys.len());
     for jk in &join.equi_keys {
         let ((left_source, left_attno), (right_source, right_attno)) =
@@ -741,12 +767,20 @@ pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
                 ))
             })?;
 
-        let left_col_name = left_source
-            .column_name(left_attno)
-            .ok_or_else(|| DataFusionError::Internal("Missing left join-key column".into()))?;
-        let right_col_name = right_source
-            .column_name(right_attno)
-            .ok_or_else(|| DataFusionError::Internal("Missing right join-key column".into()))?;
+        let left_col_name = prefix_ctid_column_name(
+            left_attno,
+            left_source
+                .column_name(left_attno)
+                .ok_or_else(|| DataFusionError::Internal("Missing left join-key column".into()))?,
+            internal_prefix,
+        );
+        let right_col_name = prefix_ctid_column_name(
+            right_attno,
+            right_source
+                .column_name(right_attno)
+                .ok_or_else(|| DataFusionError::Internal("Missing right join-key column".into()))?,
+            internal_prefix,
+        );
 
         let left_expr = make_source_col(left_source, &left_col_name);
         let right_expr = make_source_col(right_source, &right_col_name);
@@ -788,6 +822,7 @@ pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
     pub lateral_unnests: &'a [LateralUnnestInfo],
+    pub internal_prefix: &'a str,
 }
 
 impl<'a> ColumnMapper for CombinedMapper<'a> {
@@ -884,6 +919,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             {
                 Some(make_source_unnested_col(source, &col_name))
             } else {
+                let col_name = prefix_ctid_column_name(mapped_attno, col_name, self.internal_prefix);
                 Some(make_source_col(source, &col_name))
             }
         } else {
@@ -1073,7 +1109,7 @@ mod tests {
                 subplan_id: None,
             };
 
-            let result = super::build_join_df(left, right, &join).expect("build_join_df");
+            let result = super::build_join_df(left, right, &join, "").expect("build_join_df");
             let batches = result.collect().await.expect("collect");
             let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
             assert_eq!(row_count, 3);

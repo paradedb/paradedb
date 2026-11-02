@@ -74,7 +74,9 @@ jobs:
         include:
           - arch: amd64
             runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
-            runner_image_label: image=ubuntu26-full-x64
+            # Pin until Ubuntu fixes the AppArmor/gosu startup regression:
+            # https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
+            runner_image_label: ami=ami-0da7b0202c738ef15
             platform: linux/amd64
           - arch: arm64
             runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
